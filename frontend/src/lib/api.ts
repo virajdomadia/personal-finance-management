@@ -1,6 +1,7 @@
 export type HealthResponse = {
   status: string;
   environment: string;
+  database: string;
 };
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {

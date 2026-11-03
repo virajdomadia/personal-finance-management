@@ -3,6 +3,9 @@
   "private": true,
   "scripts": {
     "setup": "npm install && npm --prefix frontend install && cd backend && uv sync",
+    "db:start": "cd backend && (pg_ctl -D .pgdata status >NUL 2>&1 || pg_ctl -D .pgdata -l .pgdata/server.log -w start)",
+    "db:stop": "cd backend && pg_ctl -D .pgdata stop",
+    "predev": "npm run db:start",
     "dev": "concurrently -n web,api -c cyan,magenta \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "npm --prefix frontend run dev",
     "dev:api": "cd backend && uv run fastapi dev app/main.py --port 8000",

@@ -12,6 +12,12 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# Local dev Postgres cluster
+backend/.pgdata/
+
+# Vercel CLI project links
+.vercel/
+
 # Env
 .env
 .env*.local
