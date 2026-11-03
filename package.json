@@ -1,0 +1,15 @@
+{
+  "name": "personal-finance-manager",
+  "private": true,
+  "scripts": {
+    "setup": "npm install && npm --prefix frontend install && cd backend && uv sync",
+    "dev": "concurrently -n web,api -c cyan,magenta \"npm:dev:web\" \"npm:dev:api\"",
+    "dev:web": "npm --prefix frontend run dev",
+    "dev:api": "cd backend && uv run fastapi dev app/main.py --port 8000",
+    "lint": "npm --prefix frontend run lint && cd backend && uv run ruff check .",
+    "test": "cd backend && uv run pytest"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}
