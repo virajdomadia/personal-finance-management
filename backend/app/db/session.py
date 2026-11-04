@@ -15,6 +15,8 @@ settings = get_settings()
 engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
+    # Fail instead of hanging if the database doesn't answer; allows for Neon waking from idle.
+    connect_args={"connect_timeout": 10},
     **({"poolclass": NullPool} if settings.environment == "production" else {}),
 )
 

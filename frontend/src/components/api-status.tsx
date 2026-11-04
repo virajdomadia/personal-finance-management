@@ -22,11 +22,11 @@ export function ApiStatus() {
     return <p className="text-zinc-500">Checking API…</p>;
   }
   if (state.kind === "error") {
-    return <p className="text-red-600">API unreachable: {state.message}</p>;
+    return <p className="text-red-600">Health check failed: {state.message}</p>;
   }
   return (
     <p className="text-emerald-600">
-      API {state.data.status} ({state.data.environment})
+      API {state.data.status} ({state.data.environment}), database {state.data.database}
     </p>
   );
 }
