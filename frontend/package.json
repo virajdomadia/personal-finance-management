@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/auth.test.mjs",
+    "hash-password": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/hash-password.mjs"
   },
   "dependencies": {
     "next": "16.4.4",

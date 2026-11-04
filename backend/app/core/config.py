@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     cors_origins: list[str] = ["http://localhost:3000"]
     database_url: str = "postgresql+psycopg://pfm:pfm@localhost:5434/pfm_dev"
+    # Sent by the frontend's server on every request. Required in production.
+    api_secret: str = ""
 
     @field_validator("database_url")
     @classmethod

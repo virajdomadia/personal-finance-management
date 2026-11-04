@@ -32,7 +32,22 @@ npm run dev     # runs Next.js on :3000 and FastAPI on :8000
 - App: http://localhost:3000
 - API docs (Swagger): http://localhost:8000/api/docs
 
-The frontend proxies `/api/*` to the backend through a rewrite in `frontend/next.config.ts`, so browser code calls `/api/...` on the same origin. Set `API_URL` in `frontend/.env.local` to point at a different backend.
+The frontend proxies `/api/*` to the backend in `frontend/src/proxy.ts`, so browser code calls `/api/...` on the same origin. Set `API_URL` in `frontend/.env.local` to point at a different backend.
+
+## Access control
+
+The app has one password and no user accounts. Nothing below is enforced locally unless you set the variables; in production, a missing variable keeps the app locked.
+
+- `frontend/src/proxy.ts` sends visitors without a valid session cookie to `/login`, and returns 401 for `/api/*`.
+- It adds a secret header to requests it forwards. `backend/app/core/security.py` rejects anything without that secret, so the API can't be used directly. Only `/api/health` is public.
+
+| Variable            | Vercel project                         | Purpose                   |
+| ------------------- | -------------------------------------- | ------------------------- |
+| `API_SECRET`        | `personal-finance`, `personal-finance-api` | Same value on both        |
+| `SESSION_SECRET`    | `personal-finance`                     | Signs the session cookie  |
+| `APP_PASSWORD_HASH` | `personal-finance`                     | Hash of the login password |
+
+To change the password, run `npm --prefix frontend run --silent hash-password < file-containing-password`, set the output as `APP_PASSWORD_HASH` in Vercel, and redeploy the frontend. Changing `SESSION_SECRET` logs out every session.
 
 ## Scripts
 
@@ -40,7 +55,7 @@ The frontend proxies `/api/*` to the backend through a rewrite in `frontend/next
 | -------------- | ------------------------------------ |
 | `npm run dev`  | Start frontend and backend together  |
 | `npm run lint` | ESLint (frontend) + Ruff (backend)   |
-| `npm run test` | Backend pytest suite                 |
+| `npm run test` | Frontend auth tests + backend pytest |
 
 ## Adding an API endpoint
 

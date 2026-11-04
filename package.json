@@ -10,7 +10,7 @@
     "dev:web": "npm --prefix frontend run dev",
     "dev:api": "cd backend && uv run fastapi dev app/main.py --port 8000",
     "lint": "npm --prefix frontend run lint && cd backend && uv run ruff check .",
-    "test": "cd backend && uv run pytest"
+    "test": "npm --prefix frontend test && cd backend && uv run pytest"
   },
   "devDependencies": {
     "concurrently": "^10.0.6"
