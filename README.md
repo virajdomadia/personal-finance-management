@@ -77,6 +77,8 @@ Then run any of these (emails are lowercased):
 
 The app always talks to the deployed API, so build new features in this order: backend, website, deploy, then app.
 
+The app signs in with Google, through `react-native-nitro-google-signin` (Android Credential Manager) and `src/lib/google.ts`. It sends Google's ID token to `POST /api/auth/google` and keeps the API's token in secure storage. Google needs an Android OAuth client for the package `com.virajdomadia.personalfinance` and the SHA-1 of the key that signs the build, so each signing key needs its own client. Sign-in only works in a development or production build, not Expo Go.
+
 First time only, from `mobile/`:
 
 ```bash
