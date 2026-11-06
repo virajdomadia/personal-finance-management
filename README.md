@@ -36,6 +36,8 @@ npm run dev     # runs Next.js on :3000 and FastAPI on :8000
 - App: http://localhost:3000
 - API docs (Swagger): http://localhost:8000/api/docs
 
+The website needs a local user: after `alembic upgrade head`, run `uv run python -m app.cli create-user <email>` from `backend/`, otherwise the local site shows the login page.
+
 The frontend proxies `/api/*` to the backend in `frontend/src/proxy.ts`, so browser code calls `/api/...` on the same origin. Set `API_URL` in `frontend/.env.local` to point at a different backend.
 
 ## Access control

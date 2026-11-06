@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isValidSessionToken, SESSION_COOKIE } from "@/lib/auth";
+import { hasSessionToRedirect, isValidSessionToken, SESSION_COOKIE } from "@/lib/auth";
 
 const API_URL = process.env.API_URL ?? "http://127.0.0.1:8000";
 
@@ -16,7 +16,11 @@ export function proxy(request: NextRequest) {
   const loggedIn = isLoggedIn(request);
 
   if (pathname === "/login") {
-    return loggedIn ? NextResponse.redirect(new URL("/", request.url)) : NextResponse.next();
+    const hasSession = hasSessionToRedirect(
+      request.cookies.get(SESSION_COOKIE)?.value,
+      process.env.TOKEN_SECRET,
+    );
+    return hasSession ? NextResponse.redirect(new URL("/", request.url)) : NextResponse.next();
   }
 
   if (pathname === "/api" || pathname.startsWith("/api/")) {

@@ -32,3 +32,12 @@ export function isValidSessionToken(
 
   return signatureMatches && now < Number(parts[2]);
 }
+
+/** The dev bypass has no real session, so /login must stay reachable there. */
+export function hasSessionToRedirect(
+  token: string | undefined,
+  secret: string | undefined,
+  now?: number,
+): boolean {
+  return Boolean(secret) && isValidSessionToken(token, secret ?? "", now);
+}
