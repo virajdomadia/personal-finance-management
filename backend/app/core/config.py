@@ -12,11 +12,10 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     cors_origins: list[str] = ["http://localhost:3000"]
     database_url: str = "postgresql+psycopg://pfm:pfm@localhost:5434/pfm_dev"
-    # Sent by the frontend's server on every request. Required in production.
-    api_secret: str = ""
-    # Phone app login. Same hash as the frontend's APP_PASSWORD_HASH; login is closed without both.
-    app_password_hash: str = ""
+    # Signs session tokens. Required in production; unset in local dev leaves the API open.
     token_secret: str = ""
+    # The web OAuth client ID; both the website and the phone app's ID tokens are issued for it.
+    google_client_id: str = ""
 
     @field_validator("database_url")
     @classmethod

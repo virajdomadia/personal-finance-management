@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import get_settings
-from app.core.security import require_api_secret
+from app.core.security import require_token
 
 settings = get_settings()
 
@@ -13,9 +13,9 @@ app = FastAPI(
     docs_url=f"{settings.api_prefix}/docs",
 )
 
-app.middleware("http")(require_api_secret)
+app.middleware("http")(require_token)
 
-# Added last so it runs first: CORS preflights carry no secret and must not be rejected.
+# Added last so it runs first: CORS preflights carry no token and must not be rejected.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
