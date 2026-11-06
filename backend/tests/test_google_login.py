@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from google.auth.exceptions import TransportError
+from google.auth.exceptions import GoogleAuthError, TransportError
 from httpx import Response
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -179,6 +179,13 @@ def test_verify_rejects_bad_claims(monkeypatch: pytest.MonkeyPatch, bad: dict[st
 
 def test_verify_maps_value_error_to_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
     patch_verify(monkeypatch, ValueError("bad"))
+
+    with pytest.raises(InvalidGoogleToken):
+        google.verify_google_id_token("t", "web-client")
+
+
+def test_verify_maps_library_wrong_issuer_to_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_verify(monkeypatch, GoogleAuthError("Wrong issuer"))
 
     with pytest.raises(InvalidGoogleToken):
         google.verify_google_id_token("t", "web-client")

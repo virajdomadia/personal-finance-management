@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from google.auth.exceptions import TransportError
+from google.auth.exceptions import GoogleAuthError, TransportError
 from google.auth.transport import requests
 from google.oauth2 import id_token
 
@@ -26,10 +26,11 @@ def verify_google_id_token(token: str, client_id: str) -> GoogleIdentity:
         claims = id_token.verify_oauth2_token(token, requests.Request(), client_id)
     except TransportError as error:
         raise GoogleUnavailable from error
-    except ValueError as error:
+    except (ValueError, GoogleAuthError) as error:
         raise InvalidGoogleToken from error
 
-    # verify_oauth2_token checks signature, audience and expiry only.
+    # The library checks signature, audience, expiry and issuer; we re-check the issuer and the
+    # rest as defence in depth.
     sub = claims.get("sub")
     email = claims.get("email")
     if (
