@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import Script from "next/script";
 import { useRef, useState } from "react";
 
@@ -24,6 +25,7 @@ const UNAVAILABLE = "Sign-in isn't available right now. Try again in a few minut
 
 export function GoogleSignInButton({ clientId }: { clientId: string }) {
   const buttonRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 
   function renderButton() {
@@ -37,6 +39,7 @@ export function GoogleSignInButton({ clientId }: { clientId: string }) {
         try {
           const result = await loginWithGoogle(credential);
           if (result.error) setError(result.error);
+          else router.replace("/");
         } catch {
           setError(UNAVAILABLE);
         }

@@ -46,7 +46,8 @@ export async function loginWithGoogle(credential: string): Promise<LoginState> {
     path: "/",
     maxAge: SESSION_MAX_AGE_SECONDS,
   });
-  redirect("/");
+  // Success is a null error; the client navigates, since an action that redirects rejects its promise.
+  return { error: null };
 }
 
 export async function logout(): Promise<void> {

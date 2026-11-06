@@ -29,7 +29,8 @@ export function proxy(request: NextRequest) {
     }
     // The browser only ever talks to this origin; the cookie becomes a bearer token here.
     const headers = new Headers(request.headers);
-    const token = request.cookies.get(SESSION_COOKIE)?.value;
+    // Without TOKEN_SECRET (local dev) no Authorization header is sent, and a client's is dropped.
+    const token = process.env.TOKEN_SECRET ? request.cookies.get(SESSION_COOKIE)?.value : undefined;
     if (token) headers.set("authorization", `Bearer ${token}`);
     else headers.delete("authorization");
     headers.delete("cookie");
