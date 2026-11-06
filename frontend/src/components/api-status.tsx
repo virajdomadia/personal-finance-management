@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-import { apiFetch, type HealthResponse } from "@/lib/api";
+import { logout } from "@/app/login/actions";
+import { ApiError, apiFetch, type HealthResponse } from "@/lib/api";
 
 type State =
   | { kind: "loading" }
@@ -13,9 +14,17 @@ export function ApiStatus() {
   const [state, setState] = useState<State>({ kind: "loading" });
 
   useEffect(() => {
-    apiFetch<HealthResponse>("/health")
+    // Health is public, so only the session check can notice a revoked or expired login.
+    apiFetch("/auth/session")
+      .then(() => apiFetch<HealthResponse>("/health"))
       .then((data) => setState({ kind: "ok", data }))
-      .catch((err: Error) => setState({ kind: "error", message: err.message }));
+      .catch((err: Error) => {
+        if (err instanceof ApiError && err.status === 401) {
+          void logout();
+          return;
+        }
+        setState({ kind: "error", message: err.message });
+      });
   }, []);
 
   if (state.kind === "loading") {

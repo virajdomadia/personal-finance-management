@@ -40,21 +40,19 @@ The frontend proxies `/api/*` to the backend in `frontend/src/proxy.ts`, so brow
 
 ## Access control
 
-The app has one password and no user accounts. Nothing below is enforced locally unless you set the variables; in production, a missing variable keeps the app locked.
+Sign-in is with Google, and only accounts in the `users` table get in (see the admin commands below). Nothing here is enforced locally unless you set the variables; in production, a missing variable keeps the app locked.
 
-- `frontend/src/proxy.ts` sends visitors without a valid session cookie to `/login`, and returns 401 for `/api/*`.
-- It adds a secret header to requests it forwards. `backend/app/core/security.py` rejects anything without that secret, so the API can't be used directly. Only `/api/health` is public.
+- The login page uses Google Identity Services and sends Google's ID token to `POST /api/auth/google`. The API checks it, finds the user and returns its own 30-day token, which the website keeps in an httpOnly cookie.
+- `frontend/src/proxy.ts` sends visitors without a valid session cookie to `/login`, and returns 401 for `/api/*`. It forwards the cookie's token to the API as `Authorization: Bearer ...`.
+- `backend/app/core/security.py` rejects anything without a valid token, so the API can't be used directly. Only `/api/health` and `/api/auth/google` are public.
+- If the API says the session is no longer valid, the website clears the cookie and returns to `/login`.
 
-| Variable            | Vercel project                         | Purpose                   |
-| ------------------- | -------------------------------------- | ------------------------- |
-| `API_SECRET`        | `personal-finance`, `personal-finance-api` | Same value on both        |
-| `SESSION_SECRET`    | `personal-finance`                     | Signs the session cookie  |
-| `APP_PASSWORD_HASH` | `personal-finance`, `personal-finance-api` | Hash of the login password, same value on both |
-| `TOKEN_SECRET`      | `personal-finance-api`                 | Signs the phone app's login tokens |
+| Variable                       | Vercel project                             | Purpose                                      |
+| ------------------------------ | ------------------------------------------ | -------------------------------------------- |
+| `TOKEN_SECRET`                 | `personal-finance`, `personal-finance-api` | Signs and verifies session tokens, same value on both |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | `personal-finance`                         | Google OAuth web client ID for the login button |
 
-To change the password, run `npm --prefix frontend run --silent hash-password < file-containing-password`, set the output as `APP_PASSWORD_HASH` on both Vercel projects, and redeploy both. Changing `SESSION_SECRET` logs out the website; changing `TOKEN_SECRET` logs out the phone app.
-
-The phone app can't hold `API_SECRET`, so it logs in at `POST /api/auth/login` and sends the returned 30-day token as a `Bearer` header. The API accepts either credential.
+Changing `TOKEN_SECRET` logs out every session.
 
 ## Production database commands
 
