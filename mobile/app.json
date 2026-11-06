@@ -23,6 +23,7 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      "expo-local-authentication",
       "expo-font",
       [
         "react-native-nitro-google-signin",

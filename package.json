@@ -11,7 +11,7 @@
     "dev:api": "cd backend && uv run fastapi dev app/main.py --port 8000",
     "dev:mobile": "npm --prefix mobile start",
     "lint": "npm --prefix frontend run lint && npm --prefix mobile run lint && npm --prefix mobile run typecheck && cd backend && uv run ruff check .",
-    "test": "npm --prefix frontend test && cd backend && uv run pytest"
+    "test": "npm --prefix frontend test && npm --prefix mobile test && cd backend && uv run pytest"
   },
   "devDependencies": {
     "concurrently": "^10.0.6"
