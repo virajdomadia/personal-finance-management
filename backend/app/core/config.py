@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://pfm:pfm@localhost:5434/pfm_dev"
     # Sent by the frontend's server on every request. Required in production.
     api_secret: str = ""
+    # Phone app login. Same hash as the frontend's APP_PASSWORD_HASH; login is closed without both.
+    app_password_hash: str = ""
+    token_secret: str = ""
 
     @field_validator("database_url")
     @classmethod
