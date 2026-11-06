@@ -76,7 +76,7 @@ def _is_authorized(request: Request) -> bool:
 
     if not settings.token_secret:
         # Local dev runs without a secret; production must never fall open.
-        return settings.environment != "production"
+        return settings.environment == "development"
     return parse_token(bearer_token(request), settings.token_secret) is not None
 
 

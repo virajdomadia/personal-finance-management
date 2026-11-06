@@ -8,7 +8,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_name: str = "Personal Finance Manager API"
-    environment: str = "development"
+    # Anything other than "development" keeps auth closed, so a missing value is safe.
+    environment: str = "production"
     api_prefix: str = "/api"
     cors_origins: list[str] = ["http://localhost:3000"]
     database_url: str = "postgresql+psycopg://pfm:pfm@localhost:5434/pfm_dev"

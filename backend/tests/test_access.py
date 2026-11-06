@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.security import TOKEN_MAX_AGE_SECONDS, create_token, parse_token
 from app.main import app
 from app.models.user import User
@@ -75,6 +75,23 @@ def test_production_without_token_secret_stays_closed(
     assert client.get(SESSION).status_code == 401
     assert client.get(SESSION, headers=bearer(create_token(1, 1, ""))).status_code == 401
     assert client.get("/api/health").status_code == 200
+
+
+@pytest.mark.parametrize("environment", ["", "prod", "Development", "staging"])
+def test_unknown_environment_without_token_secret_stays_closed(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch, environment: str
+) -> None:
+    configure(monkeypatch, secret="", environment=environment)
+    add_user(db_session)
+
+    assert client.get(SESSION).status_code == 401
+    assert client.get("/api/health").status_code == 200
+
+
+def test_missing_environment_defaults_to_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+
+    assert Settings(_env_file=None).environment == "production"
 
 
 def test_development_without_token_secret_uses_first_user(

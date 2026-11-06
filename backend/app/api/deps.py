@@ -16,7 +16,7 @@ def get_current_user(request: Request, db: DbSession) -> User:
     settings = get_settings()
     if not settings.token_secret:
         # Local dev without a secret acts as the first user; production never gets here open.
-        if settings.environment == "production":
+        if settings.environment != "development":
             raise _UNAUTHENTICATED
         user = db.scalars(select(User).order_by(User.id).limit(1)).first()
     else:
