@@ -15,20 +15,27 @@ export function useAppLock(enabled: boolean): {
   const [covered, setCovered] = useState(false);
   const backgroundedAt = useRef<number | null>(null);
   const prompting = useRef(false);
+  // Bumped on logout so a prompt started before it can no longer change state.
+  const generation = useRef(0);
   const [wasEnabled, setWasEnabled] = useState(enabled);
 
   if (enabled !== wasEnabled) {
     setWasEnabled(enabled);
     // A fresh login has just been verified by Google, so it starts unlocked. A cold start with a
     // stored session keeps the initial locked state.
-    if (!enabled) setLocked(false);
+    if (!enabled) {
+      setLocked(false);
+      setCovered(false);
+    }
   }
 
   const unlock = useCallback(async () => {
     if (prompting.current) return;
     prompting.current = true;
+    const started = generation.current;
     try {
       const level = await LocalAuthentication.getEnrolledLevelAsync();
+      if (generation.current !== started) return;
       if (level === LocalAuthentication.SecurityLevel.NONE) {
         // Without any device security there is nothing to ask for, and locking would trap the user.
         setLocked(false);
@@ -37,6 +44,7 @@ export function useAppLock(enabled: boolean): {
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: "Unlock Personal Finance",
       });
+      if (generation.current !== started) return;
       if (result.success) {
         setLocked(false);
       } else if (result.error === "not_enrolled" || result.error === "passcode_not_set") {
@@ -48,6 +56,15 @@ export function useAppLock(enabled: boolean): {
       prompting.current = false;
     }
   }, []);
+
+  useEffect(() => {
+    if (enabled) return;
+    generation.current += 1;
+    backgroundedAt.current = null;
+    // Resolves the pending prompt as cancelled, so it ends and clears `prompting`. It does
+    // nothing when there is no prompt, and a rejection must not go unhandled.
+    LocalAuthentication.cancelAuthenticate().catch(() => {});
+  }, [enabled]);
 
   useEffect(() => {
     if (!enabled) return;
