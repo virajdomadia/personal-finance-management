@@ -36,6 +36,8 @@ npm run dev     # runs Next.js on :3000 and FastAPI on :8000
 - App: http://localhost:3000
 - API docs (Swagger): http://localhost:8000/api/docs
 
+Copy `backend/.env.example` to `backend/.env` first. It sets `ENVIRONMENT=development`; without it the API treats itself as production and rejects every request that lacks a valid token.
+
 The website needs a local user: after `alembic upgrade head`, run `uv run python -m app.cli create-user <email>` from `backend/`, otherwise the local site shows the login page.
 
 The frontend proxies `/api/*` to the backend in `frontend/src/proxy.ts`, so browser code calls `/api/...` on the same origin. Set `API_URL` in `frontend/.env.local` to point at a different backend.
@@ -53,8 +55,13 @@ Sign-in is with Google, and only accounts in the `users` table get in (see the a
 | ------------------------------ | ------------------------------------------ | -------------------------------------------- |
 | `TOKEN_SECRET`                 | `personal-finance`, `personal-finance-api` | Signs and verifies session tokens, same value on both |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | `personal-finance`                         | Google OAuth web client ID for the login button |
+| `API_URL`                      | `personal-finance`                         | Where the website's proxy sends `/api/*` requests |
+| `GOOGLE_CLIENT_ID`             | `personal-finance-api`                     | Same Google OAuth web client ID, used to verify ID tokens |
+| `DATABASE_URL`                 | `personal-finance-api`                     | Neon connection string |
+| `CORS_ORIGINS`                 | `personal-finance-api`                     | Origins allowed to call the API |
+| `ENVIRONMENT`                  | `personal-finance-api`                     | Set to `production` |
 
-Changing `TOKEN_SECRET` logs out every session.
+Changing `TOKEN_SECRET` logs out every session. `NEXT_PUBLIC_GOOGLE_CLIENT_ID` is read at build time, so redeploy the website after changing it.
 
 ## Production database commands
 
@@ -79,6 +86,9 @@ The app always talks to the deployed API, so build new features in this order: b
 
 The app signs in with Google, through `react-native-nitro-google-signin` (Android Credential Manager) and `src/lib/google.ts`. It sends Google's ID token to `POST /api/auth/google` and keeps the API's token in secure storage. Google needs an Android OAuth client for the package `com.virajdomadia.personalfinance` and the SHA-1 of the key that signs the build, so each signing key needs its own client. Sign-in only works in a development or production build, not Expo Go.
 
+- The `iosUrlScheme` value in `mobile/app.json` is a placeholder the sign-in library's plugin demands. It is unused on Android.
+- If the account picker appears and then returns to the login screen with no error, the Android OAuth client's SHA-1 or package name is wrong, because the library reports that mismatch as a cancel.
+
 First time only, from `mobile/`:
 
 ```bash
@@ -101,7 +111,7 @@ Both builds produce an APK to install directly. Rebuild the development app only
 | `npm run dev`  | Start frontend and backend together  |
 | `npm run dev:mobile` | Start the Android app's dev server |
 | `npm run lint` | ESLint and type checks (frontend, app) + Ruff (backend) |
-| `npm run test` | Frontend auth tests + backend pytest |
+| `npm run test` | Frontend auth tests + mobile app-lock test + backend pytest |
 
 ## Adding an API endpoint
 

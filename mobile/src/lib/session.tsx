@@ -40,8 +40,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const logOut = useCallback(async () => {
     setToken(null);
-    await SecureStore.deleteItemAsync(TOKEN_KEY);
-    await signOutOfGoogle();
+    try {
+      await SecureStore.deleteItemAsync(TOKEN_KEY);
+    } finally {
+      await signOutOfGoogle();
+    }
   }, []);
 
   const session = useMemo(() => ({ token, logIn, logOut }), [token, logIn, logOut]);
