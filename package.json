@@ -2,14 +2,15 @@
   "name": "personal-finance-manager",
   "private": true,
   "scripts": {
-    "setup": "npm install && npm --prefix frontend install && cd backend && uv sync",
+    "setup": "npm install && npm --prefix frontend install && npm --prefix mobile install && cd backend && uv sync",
     "db:start": "cd backend && (pg_ctl -D .pgdata status >NUL 2>&1 || pg_ctl -D .pgdata -l .pgdata/server.log -w start)",
     "db:stop": "cd backend && pg_ctl -D .pgdata stop",
     "predev": "npm run db:start",
     "dev": "concurrently -n web,api -c cyan,magenta \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "npm --prefix frontend run dev",
     "dev:api": "cd backend && uv run fastapi dev app/main.py --port 8000",
-    "lint": "npm --prefix frontend run lint && cd backend && uv run ruff check .",
+    "dev:mobile": "npm --prefix mobile start",
+    "lint": "npm --prefix frontend run lint && npm --prefix mobile run lint && npm --prefix mobile run typecheck && cd backend && uv run ruff check .",
     "test": "npm --prefix frontend test && cd backend && uv run pytest"
   },
   "devDependencies": {

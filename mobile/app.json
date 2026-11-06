@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Personal Finance",
+    "slug": "personal-finance",
+    "scheme": "personalfinance",
+    "version": "1.0.0",
+    "platforms": [
+      "android"
+    ],
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "com.virajdomadia.personalfinance",
+      "adaptiveIcon": {
+        "backgroundColor": "#0F5C6E",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font"
+    ]
+  }
+}

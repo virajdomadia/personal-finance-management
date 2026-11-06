@@ -1,6 +1,6 @@
 # Personal Finance Manager
 
-Monorepo: **Next.js** (App Router, TypeScript, Tailwind) frontend + **FastAPI** (Python 3.12, uv) backend.
+Monorepo: **Next.js** (App Router, TypeScript, Tailwind) website + **Expo** Android app, both on one **FastAPI** (Python 3.12, uv) backend. Each client has its own UI designed for its platform.
 
 ```
 .
@@ -9,6 +9,10 @@ Monorepo: **Next.js** (App Router, TypeScript, Tailwind) frontend + **FastAPI** 
 │       ├── app/           routes & layouts
 │       ├── components/    UI components
 │       └── lib/api.ts     typed fetch helper for the backend
+├── mobile/            Expo Android app (Material Design, react-native-paper)
+│   └── src/
+│       ├── app/           screens (Expo Router)
+│       └── lib/           API client, session, theme
 └── backend/           FastAPI app (port 8000)
     ├── app/
     │   ├── main.py        app factory, CORS, router mount
@@ -45,16 +49,39 @@ The app has one password and no user accounts. Nothing below is enforced locally
 | ------------------- | -------------------------------------- | ------------------------- |
 | `API_SECRET`        | `personal-finance`, `personal-finance-api` | Same value on both        |
 | `SESSION_SECRET`    | `personal-finance`                     | Signs the session cookie  |
-| `APP_PASSWORD_HASH` | `personal-finance`                     | Hash of the login password |
+| `APP_PASSWORD_HASH` | `personal-finance`, `personal-finance-api` | Hash of the login password, same value on both |
+| `TOKEN_SECRET`      | `personal-finance-api`                 | Signs the phone app's login tokens |
 
-To change the password, run `npm --prefix frontend run --silent hash-password < file-containing-password`, set the output as `APP_PASSWORD_HASH` in Vercel, and redeploy the frontend. Changing `SESSION_SECRET` logs out every session.
+To change the password, run `npm --prefix frontend run --silent hash-password < file-containing-password`, set the output as `APP_PASSWORD_HASH` on both Vercel projects, and redeploy both. Changing `SESSION_SECRET` logs out the website; changing `TOKEN_SECRET` logs out the phone app.
+
+The phone app can't hold `API_SECRET`, so it logs in at `POST /api/auth/login` and sends the returned 30-day token as a `Bearer` header. The API accepts either credential.
+
+## Android app
+
+The app always talks to the deployed API, so build new features in this order: backend, website, deploy, then app.
+
+First time only, from `mobile/`:
+
+```bash
+npx eas-cli@latest login
+npx eas-cli@latest init    # links the project and adds its ID to app.json
+```
+
+| Goal                              | Command (from `mobile/`)                                |
+| --------------------------------- | ------------------------------------------------------- |
+| Build the app to develop against  | `npx eas-cli@latest build -p android --profile development` |
+| Build the app for everyday use    | `npx eas-cli@latest build -p android --profile production`  |
+| Start the dev server              | `npm run dev:mobile` (from the repo root)               |
+
+Both builds produce an APK to install directly. Rebuild the development app only when native dependencies change; JavaScript changes reload from the dev server.
 
 ## Scripts
 
 | Command        | What it does                         |
 | -------------- | ------------------------------------ |
 | `npm run dev`  | Start frontend and backend together  |
-| `npm run lint` | ESLint (frontend) + Ruff (backend)   |
+| `npm run dev:mobile` | Start the Android app's dev server |
+| `npm run lint` | ESLint and type checks (frontend, app) + Ruff (backend) |
 | `npm run test` | Frontend auth tests + backend pytest |
 
 ## Adding an API endpoint
