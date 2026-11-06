@@ -56,6 +56,23 @@ To change the password, run `npm --prefix frontend run --silent hash-password < 
 
 The phone app can't hold `API_SECRET`, so it logs in at `POST /api/auth/login` and sends the returned 30-day token as a `Bearer` header. The API accepts either credential.
 
+## Production database commands
+
+Users live in the `users` table. Migrations and the admin commands run from your machine against Neon, never from Vercel. In a shell, from `backend/`, set `DATABASE_URL` to Neon's direct (unpooled) connection string for that shell only; do not put it in `backend/.env`:
+
+```
+$env:DATABASE_URL = "<Neon direct connection string>"   # PowerShell
+uv run alembic upgrade head
+```
+
+Then run any of these (emails are lowercased):
+
+- `uv run python -m app.cli create-user you@gmail.com` adds a user who may sign in.
+- `uv run python -m app.cli move-user old@gmail.com new@gmail.com` points the user at a different Google account. It clears the Google link and signs the user out everywhere.
+- `uv run python -m app.cli revoke-sessions you@gmail.com` signs the user out of every device.
+
+`move-user` is the way back in after losing a Google account: run it with the old and new emails, then sign in with the new account.
+
 ## Android app
 
 The app always talks to the deployed API, so build new features in this order: backend, website, deploy, then app.
