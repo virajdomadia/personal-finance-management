@@ -5,7 +5,10 @@ import { usePathname } from "next/navigation";
 
 import { logout } from "@/app/login/actions";
 
-const LINKS = [{ href: "/", label: "Dashboard" }] as const;
+const LINKS = [
+  { href: "/", label: "Dashboard" },
+  { href: "/accounts", label: "Accounts" },
+] as const;
 
 export function Sidebar() {
   const pathname = usePathname();
