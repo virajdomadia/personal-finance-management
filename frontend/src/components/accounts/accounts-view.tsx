@@ -36,6 +36,8 @@ export function AccountsView() {
   const [dialog, setDialog] = useState<Dialog>({ kind: "none" });
   const [notice, setNotice] = useState<string | null>(null);
   const latest = useRef(0);
+  // The view on screen right now; a late reload must not read a stale `archived` from its closure.
+  const archivedRef = useRef(false);
 
   const fetchList = useCallback((showArchived: boolean) => {
     const request = ++latest.current;
@@ -53,9 +55,10 @@ export function AccountsView() {
     fetchList(false);
   }, [fetchList]);
 
-  const reload = (showArchived = archived) => fetchList(showArchived);
+  const reload = () => fetchList(archivedRef.current);
 
   const switchView = (showArchived: boolean) => {
+    archivedRef.current = showArchived;
     setArchived(showArchived);
     setNotice(null);
     setLoad({ status: "loading" });
@@ -66,9 +69,9 @@ export function AccountsView() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="mb-6 flex items-center justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <h1 className="text-xl font-semibold">{archived ? "Archived accounts" : "Accounts"}</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button type="button" className={QUIET} onClick={() => switchView(!archived)}>
             {archived ? "Back to accounts" : "View archived"}
           </button>
@@ -180,7 +183,7 @@ function Content({
   return (
     <>
       {!archived && (
-        <dl className="mb-8 grid grid-cols-2 gap-3">
+        <dl className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Total label="You have" value={data.total_have} />
           <Total label="You owe" value={data.total_owe} />
         </dl>
@@ -230,9 +233,9 @@ function Content({
 
 function Total({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-zinc-200 px-4 py-3 dark:border-zinc-800">
+    <div className="min-w-0 rounded-lg border border-zinc-200 px-4 py-3 dark:border-zinc-800">
       <dt className="text-sm text-zinc-600 dark:text-zinc-400">{label}</dt>
-      <dd className="mt-1 text-2xl font-semibold tabular-nums">{formatRupees(value)}</dd>
+      <dd className="mt-1 text-2xl font-semibold tabular-nums [overflow-wrap:anywhere]">{formatRupees(value)}</dd>
     </div>
   );
 }
@@ -259,14 +262,14 @@ function AccountRow({
   ].filter(Boolean);
 
   return (
-    <li className="flex items-center gap-4 px-4 py-3">
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{account.name}</p>
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+      <div className="min-w-32 flex-1">
+        <p className="text-sm font-medium [overflow-wrap:anywhere]">{account.name}</p>
         {details.length > 0 && (
-          <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">{details.join(" · ")}</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{details.join(" · ")}</p>
         )}
       </div>
-      <div className="shrink-0 text-right tabular-nums">
+      <div className="min-w-0 max-w-full text-right tabular-nums [overflow-wrap:anywhere]">
         <p className="text-sm font-medium">
           {card && <span className="mr-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400">Owed</span>}
           {formatRupees(account.balance)}

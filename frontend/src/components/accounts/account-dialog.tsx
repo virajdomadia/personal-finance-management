@@ -9,7 +9,9 @@ import {
   type AccountType,
   TYPE_LABELS,
   TYPE_ORDER,
+  changedPayload,
   errorMessage,
+  formFromAccount,
   renderedFields,
   splitErrors,
   toPayload,
@@ -31,7 +33,7 @@ const INSTITUTION_LABELS: Record<AccountType, string> = {
 };
 
 const CASH_NAME = "Cash in hand";
-const DAY_MESSAGE = "Enter a whole number from 1 to 31.";
+const DAY_MESSAGE = "Enter a day from 1 to 31.";
 
 const INPUT =
   "w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 disabled:opacity-60 aria-[invalid=true]:border-red-600 dark:border-zinc-700";
@@ -47,20 +49,6 @@ function blankForm(type: AccountType): AccountForm {
     credit_limit: "",
     statement_day: "",
     due_day: "",
-  };
-}
-
-function formFromAccount(account: Account): AccountForm {
-  return {
-    type: account.type,
-    name: account.name,
-    balance: account.balance,
-    institution: account.institution ?? "",
-    bank_kind: account.bank_kind ?? "",
-    last4: account.last4 ?? "",
-    credit_limit: account.credit_limit ?? "",
-    statement_day: account.statement_day === null ? "" : String(account.statement_day),
-    due_day: account.due_day === null ? "" : String(account.due_day),
   };
 }
 
@@ -84,6 +72,8 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
   const editing = account !== null;
   const ref = useRef<HTMLDialogElement>(null);
   const savingRef = useRef(false);
+  const submitRef = useRef<HTMLButtonElement>(null);
+  const needFocus = useRef(false);
   const [form, setForm] = useState<AccountForm>(() => (account ? formFromAccount(account) : blankForm("bank")));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -93,6 +83,15 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
     const dialog = ref.current;
     if (dialog && !dialog.open) dialog.showModal();
   }, []);
+
+  // After a failed save the inputs are disabled until the response lands, which drops focus.
+  // Once they are enabled again, move it to the first invalid field (or the submit button).
+  useEffect(() => {
+    if (!needFocus.current || saving) return;
+    needFocus.current = false;
+    const invalid = ref.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    (invalid ?? submitRef.current)?.focus();
+  }, [errors, formError, saving]);
 
   const set = (key: keyof AccountForm, value: string) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -118,6 +117,7 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
       }
     }
     if (Object.keys(local).length > 0) {
+      needFocus.current = true;
       setErrors(local);
       setFormError(null);
       return;
@@ -128,23 +128,29 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
     setErrors({});
     setFormError(null);
     try {
-      const payload = toPayload(form, editing ? "edit" : "create");
       if (editing) {
+        const payload = changedPayload(form, account);
+        if (Object.keys(payload).length === 0) {
+          ref.current?.close();
+          return;
+        }
         await apiFetch(`/accounts/${account.id}`, { method: "PATCH", body: JSON.stringify(payload) });
       } else {
-        await apiFetch("/accounts", { method: "POST", body: JSON.stringify(payload) });
+        await apiFetch("/accounts", { method: "POST", body: JSON.stringify(toPayload(form, "create")) });
       }
       onSaved();
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         void logout();
       } else if (err instanceof ApiError && err.status === 422) {
+        needFocus.current = true;
         const { fields, general } = splitErrors(err.body, renderedFields(form.type, editing ? "edit" : "create"));
         setErrors(fields);
         if (general.length > 0) setFormError(general.join(" "));
       } else if (err instanceof ApiError && err.status === 409) {
         onConflict(errorMessage(err));
       } else {
+        needFocus.current = true;
         setFormError(errorMessage(err));
       }
     } finally {
@@ -154,13 +160,21 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
   }
 
   const type = form.type;
+  const HINTS = new Set<keyof AccountForm>([
+    ...(type === "credit_card" ? (["balance", "statement_day", "due_day"] as const) : []),
+    ...(type === "bank" || type === "credit_card" ? (["last4"] as const) : []),
+  ]);
   const field = (key: keyof AccountForm, label: string, input: React.ReactNode, hint?: string) => (
     <div>
       <label htmlFor={`f-${key}`} className="mb-1 block text-sm font-medium">
         {label}
       </label>
       {input}
-      {hint && !errors[key] ? <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{hint}</p> : null}
+      {hint ? (
+        <p id={`h-${key}`} className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          {hint}
+        </p>
+      ) : null}
       {errors[key] ? (
         <p id={`e-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
           {errors[key]}
@@ -168,6 +182,8 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
       ) : null}
     </div>
   );
+  const describedBy = (key: keyof AccountForm) =>
+    [HINTS.has(key) ? `h-${key}` : null, errors[key] ? `e-${key}` : null].filter(Boolean).join(" ") || undefined;
   const props = (key: keyof AccountForm) => ({
     id: `f-${key}`,
     name: key,
@@ -175,7 +191,7 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
     disabled: saving,
     className: INPUT,
     "aria-invalid": errors[key] ? true : undefined,
-    "aria-describedby": errors[key] ? `e-${key}` : undefined,
+    "aria-describedby": describedBy(key),
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => set(key, e.target.value),
   });
 
@@ -204,11 +220,8 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
               "type",
               "Type",
               <select
-                id="f-type"
-                name="type"
+                {...props("type")}
                 value={type}
-                disabled={saving}
-                className={INPUT}
                 onChange={(e) => changeType(e.target.value as AccountType)}
               >
                 {TYPE_ORDER.map((t) => (
@@ -278,6 +291,7 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
             Cancel
           </button>
           <button
+            ref={submitRef}
             type="submit"
             disabled={saving}
             className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300 dark:focus-visible:ring-offset-zinc-900"
