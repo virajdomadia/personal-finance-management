@@ -14,7 +14,7 @@ class Account(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     type: Mapped[str] = mapped_column(String(20))
     name: Mapped[str] = mapped_column(String(60))
-    # Today this is the balance; once transactions exist, balance = this + their sum.
+    # The balance is this plus the account's transactions; see app/api/balances.py.
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     institution: Mapped[str | None] = mapped_column(String(60))
     bank_kind: Mapped[str | None] = mapped_column(String(20))

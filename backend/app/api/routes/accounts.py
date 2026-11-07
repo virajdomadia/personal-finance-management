@@ -9,6 +9,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
 from sqlalchemy import select
 
+from app.api.balances import balance_of, load_flows, opening_for
 from app.api.deps import CurrentUser, get_current_user
 from app.db.session import DbSession
 from app.models.account import Account
@@ -40,7 +41,7 @@ def _reject(code: str, message: str) -> PydanticCustomError:
 
 _AMOUNT = re.compile(r"[+-]?[0-9]+(\.[0-9]+)?")
 _LAST4 = re.compile(r"[0-9]{4}")
-_MAX_MONEY = Decimal(10) ** 12
+MAX_MONEY = Decimal(10) ** 12
 _MAX_AMOUNT_TEXT = 40
 _CHOOSE_KIND = "Choose a kind of account."
 
@@ -58,12 +59,12 @@ def _money(value: Any) -> Decimal | None:
     if len(fraction) > 2:
         raise _reject("amount_decimals", "Use at most 2 decimal places.")
     amount = Decimal(text)
-    if abs(amount) >= _MAX_MONEY:
+    if abs(amount) >= MAX_MONEY:
         raise _reject("amount_large", "Amount must be under ₹10,00,00,00,00,000.")
     return amount
 
 
-def _text(value: Any, message: str) -> str | None:
+def clean_text(value: Any, message: str, limit: int = 60) -> str | None:
     # Trims; blank becomes None so validate_rules can report a missing name.
     if value is None:
         return None
@@ -72,8 +73,8 @@ def _text(value: Any, message: str) -> str | None:
     value = value.strip()
     if "\0" in value:
         raise _reject("text_null", "Remove the unusual character.")
-    if len(value) > 60:
-        raise _reject("text_long", "Use 60 characters or fewer.")
+    if len(value) > limit:
+        raise _reject("text_long", f"Use {limit} characters or fewer.")
     return value or None
 
 
@@ -104,9 +105,9 @@ def _choice(options: tuple[str, ...]) -> Any:
 
 
 Money = Annotated[Decimal | None, BeforeValidator(_money)]
-Name = Annotated[str | None, BeforeValidator(lambda v: _text(v, "Enter a name."))]
+Name = Annotated[str | None, BeforeValidator(lambda v: clean_text(v, "Enter a name."))]
 Institution = Annotated[
-    str | None, BeforeValidator(lambda v: _text(v, "Use 60 characters or fewer."))
+    str | None, BeforeValidator(lambda v: clean_text(v, "Use 60 characters or fewer."))
 ]
 Last4 = Annotated[str | None, BeforeValidator(_last4)]
 Day = Annotated[int | None, BeforeValidator(_day)]
@@ -165,7 +166,7 @@ class AccountList(BaseModel):
     total_owe: str
 
 
-def _fail(field: str, message: str) -> dict[str, Any]:
+def field_error(field: str, message: str) -> dict[str, Any]:
     return {"loc": ("body", field), "msg": message, "type": "value_error"}
 
 
@@ -175,26 +176,26 @@ def validate_rules(values: dict[str, Any]) -> None:
     type_ = values["type"]
 
     if type_ is None:
-        errors.append(_fail("type", _CHOOSE_KIND))
+        errors.append(field_error("type", _CHOOSE_KIND))
     if values.get("name") is None:
-        errors.append(_fail("name", "Enter a name."))
+        errors.append(field_error("name", "Enter a name."))
     balance = values.get("balance")
     if balance is None:
-        errors.append(_fail("balance", "Enter a balance."))
+        errors.append(field_error("balance", "Enter a balance."))
     elif type_ is not None and balance < 0 and type_ not in CAN_BE_NEGATIVE:
-        errors.append(_fail("balance", "Balance cannot be negative for this account type."))
+        errors.append(field_error("balance", "Balance cannot be negative for this account type."))
 
     if type_ is None:
         raise RequestValidationError(errors)
 
     for field in sorted(DETAILS - APPLICABLE[type_]):
         if values.get(field) is not None:
-            errors.append(_fail(field, "Not applicable to this account type."))
+            errors.append(field_error(field, "Not applicable to this account type."))
     if type_ == "bank" and values.get("bank_kind") is None:
-        errors.append(_fail("bank_kind", _CHOOSE_KIND))
+        errors.append(field_error("bank_kind", _CHOOSE_KIND))
     limit = values.get("credit_limit")
     if limit is not None and limit <= 0:
-        errors.append(_fail("credit_limit", "Credit limit must be greater than 0."))
+        errors.append(field_error("credit_limit", "Credit limit must be greater than 0."))
 
     if errors:
         raise RequestValidationError(errors)
@@ -204,18 +205,19 @@ def fmt(value: Decimal) -> str:
     return f"{value + 0:.2f}"  # + 0 turns a negative zero into zero
 
 
-def to_response(account: Account) -> AccountResponse:
+def to_response(account: Account, flows: dict[int, Decimal]) -> AccountResponse:
     limit = account.credit_limit
+    balance = balance_of(account, flows)
     return AccountResponse(
         id=account.id,
         type=account.type,
         name=account.name,
-        balance=fmt(account.opening_balance),
+        balance=fmt(balance),
         institution=account.institution,
         bank_kind=account.bank_kind,
         last4=account.last4,
         credit_limit=None if limit is None else fmt(limit),
-        available_credit=None if limit is None else fmt(limit - account.opening_balance),
+        available_credit=None if limit is None else fmt(limit - balance),
         statement_day=account.statement_day,
         due_day=account.due_day,
         archived=account.archived_at is not None,
@@ -226,10 +228,10 @@ def list_sort_key(account: Account) -> tuple[int, str, int]:
     return (TYPE_ORDER[account.type], account.name.casefold(), account.id)
 
 
-def totals(active: list[Account]) -> tuple[Decimal, Decimal]:
+def totals(active: list[Account], flows: dict[int, Decimal]) -> tuple[Decimal, Decimal]:
     """(have, owe) over the given accounts, which the caller has already limited to active ones."""
-    have = sum((a.opening_balance for a in active if a.type in HAVE_TYPES), Decimal(0))
-    owe = sum((a.opening_balance for a in active if a.type == "credit_card"), Decimal(0))
+    have = sum((balance_of(a, flows) for a in active if a.type in HAVE_TYPES), Decimal(0))
+    owe = sum((balance_of(a, flows) for a in active if a.type == "credit_card"), Decimal(0))
     return have, owe
 
 
@@ -239,9 +241,10 @@ def list_accounts(user: CurrentUser, db: DbSession, archived: bool = False) -> A
     active = [a for a in accounts if a.archived_at is None]
     shown = [a for a in accounts if (a.archived_at is not None) == archived]
     shown.sort(key=list_sort_key)
-    have, owe = totals(active)
+    flows = load_flows(db, user.id)
+    have, owe = totals(active, flows)
     return AccountList(
-        accounts=[to_response(a) for a in shown], total_have=fmt(have), total_owe=fmt(owe)
+        accounts=[to_response(a, flows) for a in shown], total_have=fmt(have), total_owe=fmt(owe)
     )
 
 
@@ -258,14 +261,15 @@ def create_account(body: AccountCreate, user: CurrentUser, db: DbSession) -> Acc
     )
     db.add(account)
     db.commit()
-    return to_response(account)
+    return to_response(account, {})  # a new account has no transactions
 
 
-def _get_owned(db: DbSession, user: CurrentUser, id: int) -> Account:
+def _get_owned(db: DbSession, user: CurrentUser, id: int, lock: bool = False) -> Account:
     # Ids outside the column's range can't exist; asking the database would be a 500.
     account = None
     if 1 <= id <= MAX_ID:
-        account = db.scalar(select(Account).where(Account.id == id, Account.user_id == user.id))
+        query = select(Account).where(Account.id == id, Account.user_id == user.id)
+        account = db.scalar(query.with_for_update() if lock else query)
     if account is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found.")
     return account
@@ -275,23 +279,31 @@ def _get_owned(db: DbSession, user: CurrentUser, id: int) -> Account:
 def update_account(
     id: int, body: AccountUpdate, user: CurrentUser, db: DbSession
 ) -> AccountResponse:
-    account = _get_owned(db, user, id)
+    # Locked so that a transaction saved meanwhile can't throw off the opening balance below.
+    account = _get_owned(db, user, id, lock=True)
     if account.archived_at is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Restore this account before editing it.")
+    flows = load_flows(db, user.id)
     values = {
         "type": account.type,
-        "balance": account.opening_balance,
+        "balance": balance_of(account, flows),
         **{field: getattr(account, field) for field in DETAILS},
         "name": account.name,
     }
     values.update(body.model_dump(exclude_unset=True))
     validate_rules(values)
+    # Correcting a balance moves the opening balance, so the transactions stay as they are.
+    opening = opening_for(account, values["balance"], flows)
+    if abs(opening) >= MAX_MONEY:
+        raise RequestValidationError(
+            [field_error("balance", "This balance is too large with this account's transactions.")]
+        )
     account.name = values["name"]
-    account.opening_balance = values["balance"]
+    account.opening_balance = opening
     for field in DETAILS:
         setattr(account, field, values[field])
     db.commit()
-    return to_response(account)
+    return to_response(account, flows)
 
 
 @router.post("/{id}/archive")
@@ -300,7 +312,7 @@ def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
     if account.archived_at is None:
         account.archived_at = datetime.now(UTC)
         db.commit()
-    return to_response(account)
+    return to_response(account, load_flows(db, user.id))
 
 
 @router.post("/{id}/restore")
@@ -309,4 +321,4 @@ def restore_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
     if account.archived_at is not None:
         account.archived_at = None
         db.commit()
-    return to_response(account)
+    return to_response(account, load_flows(db, user.id))

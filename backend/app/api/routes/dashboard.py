@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from app.api.balances import balance_of, load_flows
 from app.api.deps import CurrentUser, get_current_user
 from app.api.routes.accounts import fmt, list_sort_key, totals
 from app.db.session import DbSession
@@ -61,7 +62,8 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
             select(Account).where(Account.user_id == user.id, Account.archived_at.is_(None))
         ).all()
     )
-    have, owe = totals(active)
+    flows = load_flows(db, user.id)
+    have, owe = totals(active, flows)
     cards = sorted(
         (a for a in active if a.type == "credit_card"),
         key=list_sort_key,
@@ -74,7 +76,7 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
     limited = [a for a in cards if a.credit_limit is not None]
     credit_used = None
     if limited:
-        used = sum((a.opening_balance for a in limited), Decimal(0))
+        used = sum((balance_of(a, flows) for a in limited), Decimal(0))
         limit = sum((a.credit_limit for a in limited if a.credit_limit is not None), Decimal(0))
         percent = (used * 100 / limit).quantize(Decimal(1), rounding=ROUND_HALF_UP)
         credit_used = CreditUsed(percent=int(max(percent, Decimal(0))))
