@@ -41,6 +41,7 @@ def _reject(code: str, message: str) -> PydanticCustomError:
 _AMOUNT = re.compile(r"[+-]?[0-9]+(\.[0-9]+)?")
 _LAST4 = re.compile(r"[0-9]{4}")
 _MAX_MONEY = Decimal(10) ** 12
+_MAX_AMOUNT_TEXT = 40
 _CHOOSE_KIND = "Choose a kind of account."
 
 
@@ -49,13 +50,16 @@ def _money(value: Any) -> Decimal | None:
     if value is None:
         return None
     text = value.strip() if isinstance(value, str) else ""
-    if not _AMOUNT.fullmatch(text):
+    # The length cap keeps Decimal() away from absurd input; real amounts are under 20 characters.
+    match = _AMOUNT.fullmatch(text) if len(text) <= _MAX_AMOUNT_TEXT else None
+    if match is None:
         raise _reject("amount", "Enter an amount, like 1234.50.")
-    amount = Decimal(text)
-    if amount.normalize().as_tuple().exponent < -2:  # type: ignore[operator]
+    fraction = (match.group(1) or ".")[1:].rstrip("0")  # counted on the text, not a rounded value
+    if len(fraction) > 2:
         raise _reject("amount_decimals", "Use at most 2 decimal places.")
+    amount = Decimal(text)
     if abs(amount) >= _MAX_MONEY:
-        raise _reject("amount_large", "Amount must be under ₹1,00,00,00,00,00,000.")
+        raise _reject("amount_large", "Amount must be under ₹10,00,00,00,00,000.")
     return amount
 
 

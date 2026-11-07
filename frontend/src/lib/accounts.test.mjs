@@ -176,3 +176,13 @@ test("changedPayload cleans a changed amount and never sends type", () => {
   const form = { ...formFromAccount(account), balance: "₹3,000.50" };
   assert.deepEqual(changedPayload(form, account), { balance: "3000.50" });
 });
+
+test("cleanMoney strips the rupee sign only at the start, after an optional sign", () => {
+  const balance = (raw) => toPayload(bank({ balance: raw }), "create").balance;
+  assert.equal(balance("₹500"), "500");
+  assert.equal(balance("-₹500"), "-500");
+  assert.equal(balance(" ₹ 1,00,000.50 "), "100000.50");
+  assert.equal(balance("10₹50"), "10₹50");
+  assert.equal(balance("500₹"), "500₹");
+  assert.equal(balance("₹₹5"), "₹5");
+});

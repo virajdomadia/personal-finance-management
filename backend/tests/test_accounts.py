@@ -522,7 +522,7 @@ def test_trailing_zero_decimals_are_fine(headers: Headers) -> None:
 def test_too_large_message(headers: Headers, value: str) -> None:
     response = make(headers, type="broker", balance=value)
 
-    assert message(response, "balance") == "Amount must be under ₹1,00,00,00,00,00,000."
+    assert message(response, "balance") == "Amount must be under ₹10,00,00,00,00,000."
 
 
 def test_credit_limit_uses_same_messages(headers: Headers) -> None:
@@ -627,3 +627,20 @@ def test_nul_byte_in_patch_is_422(headers: Headers) -> None:
 )
 def test_out_of_range_id_is_404(headers: Headers, request_: Any, id_: int) -> None:
     assert request_(headers, id_).status_code == 404
+
+
+@pytest.mark.parametrize("field", ["balance", "credit_limit"])
+def test_decimals_are_counted_on_the_text_not_a_rounded_value(headers: Headers, field: str) -> None:
+    response = make(headers, type="credit_card", **{field: "1.0000000000000000000000000000001"})
+
+    assert response.status_code == 422
+    assert message(response, field) == "Use at most 2 decimal places."
+
+
+@pytest.mark.parametrize("field", ["balance", "credit_limit"])
+@pytest.mark.parametrize("value", ["1" * 1_000_001, "1." + "0" * 1_000_001, "0" * 100 + "1"])
+def test_over_long_amount_is_invalid_not_a_500(headers: Headers, field: str, value: str) -> None:
+    response = make(headers, type="credit_card", **{field: value})
+
+    assert response.status_code == 422
+    assert message(response, field) == "Enter an amount, like 1234.50."
