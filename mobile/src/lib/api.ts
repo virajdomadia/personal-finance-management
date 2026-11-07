@@ -2,12 +2,6 @@
 const API_URL = "https://finance-api.virajdomadia.com";
 const REQUEST_TIMEOUT_MS = 20_000;
 
-export type HealthResponse = {
-  status: string;
-  environment: string;
-  database: string;
-};
-
 export class ApiError extends Error {
   constructor(public readonly status: number) {
     super(`API responded with ${status}`);

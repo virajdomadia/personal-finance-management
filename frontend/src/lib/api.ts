@@ -1,9 +1,3 @@
-export type HealthResponse = {
-  status: string;
-  environment: string;
-  database: string;
-};
-
 export class ApiError extends Error {
   constructor(
     readonly status: number,
