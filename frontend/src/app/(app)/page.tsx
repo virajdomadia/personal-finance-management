@@ -1,9 +1,16 @@
 import type { Metadata } from "next";
 
+import { DashboardView } from "@/components/dashboard/dashboard-view";
+
 export const metadata: Metadata = {
   title: "Dashboard | Personal Finance Manager",
 };
 
 export default function DashboardPage() {
-  return <h1 className="sr-only">Dashboard</h1>;
+  return (
+    <>
+      <h1 className="sr-only">Dashboard</h1>
+      <DashboardView />
+    </>
+  );
 }
