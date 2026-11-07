@@ -23,9 +23,9 @@ These are deliberately left for later. Don't build them or anything that exists 
 
 - **Transactions, transfers, and credit card bill payments.** Next feature. Until then, balances change only when edited.
 - **Investments.** Shares, mutual funds, FDs, RDs, and similar get their own section with their own valuation logic. The shares in a broker account belong there. Only the broker's unused money is an account here.
-- **Net worth.** Comes after Investments. A net figure now would look like total wealth while leaving out investments.
+- **Net worth on the Accounts page.** The Accounts page keeps no net figure. Net worth lives on the dashboard (see "Dashboard" below), where it can carry a caption that it leaves out investments and loans.
 - **Loans, buy now pay later, and money lent or borrowed.**
-- **Bank syncing, statement import, due date reminders, multiple currencies, manual reordering, and showing accounts on the dashboard.** The dashboard stays blank.
+- **Bank syncing, statement import, due date reminders, multiple currencies, manual reordering, and listing accounts on the dashboard.** The dashboard shows only the summary figures described below.
 
 ## Anti-goals
 
@@ -192,6 +192,16 @@ Update the README if the setup changes.
 - Available credit is shown on credit cards.
 - Salary is a kind of bank account rather than its own type.
 - Automated tests stay on SQLite with no PostgreSQL test setup, and exact money behaviour on PostgreSQL is checked by hand during the local website check.
+
+## Dashboard (added 2026-11-08)
+
+Owner-approved for now; expect it to be refactored as features arrive.
+
+- Net worth is on the dashboard, covering accounts only, with the caption "Investments and loans not included yet". The Accounts page still has no net figure.
+- `GET /api/dashboard` (protected, current user, active accounts only) returns `has_accounts`, `net_worth` (= total have - total owe, may be negative), `total_have`, `total_owe`, `next_card_due` and `credit_used`, with money as decimal strings. The totals reuse the Accounts logic.
+- `next_card_due`: the credit card whose due day comes soonest on or after today (India time), with the day clamped to short months; null if no card has a due day. Ties follow the account list order.
+- `credit_used.percent`: card balances over card limits, counting only cards with a limit, as a whole number rounded half up, never below 0 and possibly above 100; null if no card has a limit.
+- Both clients show: net worth, "You have" minus "You owe", and a "Needs attention" section (due card, credit used) hiding any line whose data is null. Those figures and rows open the Accounts page or tab. With no active accounts they show net worth at 0.00 and "Add your first account".
 
 ## Left to the builder
 
