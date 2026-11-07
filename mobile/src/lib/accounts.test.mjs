@@ -7,6 +7,7 @@ import {
   dayError,
   errorMessage,
   formFromAccount,
+  formatDueDate,
   formatRupees,
   maskLast4,
   renderedFields,
@@ -195,4 +196,11 @@ test("cleanMoney strips the rupee sign only at the start, after an optional sign
   assert.equal(balance("10₹50"), "10₹50");
   assert.equal(balance("500₹"), "500₹");
   assert.equal(balance("₹₹5"), "₹5");
+});
+
+test("formatDueDate reads the ISO string without a Date", () => {
+  assert.equal(formatDueDate("2026-11-25"), "25 Nov");
+  assert.equal(formatDueDate("2026-11-05"), "5 Nov");
+  assert.equal(formatDueDate("2027-01-01"), "1 Jan");
+  assert.equal(formatDueDate("2026-12-31"), "31 Dec");
 });

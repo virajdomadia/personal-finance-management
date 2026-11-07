@@ -21,6 +21,15 @@ export type AccountList = {
   total_owe: string;
 };
 
+export type Dashboard = {
+  has_accounts: boolean;
+  net_worth: string;
+  total_have: string;
+  total_owe: string;
+  next_card_due: { account_id: number; name: string; due_date: string } | null;
+  credit_used: { percent: number } | null;
+};
+
 export type AccountForm = {
   type: AccountType;
   name: string;
@@ -63,6 +72,14 @@ export function formatRupees(value: string): string {
   const rest = whole.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ",");
   const grouped = rest ? `${rest},${last3}` : last3;
   return `${negative ? "-" : ""}₹${grouped}${fraction !== undefined ? `.${fraction}` : ""}`;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// "2026-11-25" -> "25 Nov". Split from the text, not a Date, so no timezone can shift the day.
+export function formatDueDate(iso: string): string {
+  const [, month, day] = iso.split("-");
+  return `${Number(day)} ${MONTHS[Number(month) - 1]}`;
 }
 
 export function maskLast4(last4: string): string {
