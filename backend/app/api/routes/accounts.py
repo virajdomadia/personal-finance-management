@@ -1,10 +1,12 @@
+import re
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict
+from pydantic_core import PydanticCustomError
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, get_current_user
@@ -28,62 +30,114 @@ APPLICABLE = {
     "broker": {"institution"},
     "wallet": {"institution"},
 }
+MAX_ID = 2147483647  # the largest value of an integer primary key
 CAN_BE_NEGATIVE = {"bank", "broker", "credit_card"}
 
 
-def _text_only(value: Any) -> Any:
-    # A JSON number would already be a binary float by the time it reaches us.
-    if value is not None and not isinstance(value, str):
-        raise ValueError('Send money as a string, like "1234.50".')
+def _reject(code: str, message: str) -> PydanticCustomError:
+    return PydanticCustomError(code, message)
+
+
+_AMOUNT = re.compile(r"[+-]?[0-9]+(\.[0-9]+)?")
+_LAST4 = re.compile(r"[0-9]{4}")
+_MAX_MONEY = Decimal(10) ** 12
+_CHOOSE_KIND = "Choose a kind of account."
+
+
+def _money(value: Any) -> Decimal | None:
+    # Text only: a JSON number would already be a binary float by the time it reaches us.
+    if value is None:
+        return None
+    text = value.strip() if isinstance(value, str) else ""
+    if not _AMOUNT.fullmatch(text):
+        raise _reject("amount", "Enter an amount, like 1234.50.")
+    amount = Decimal(text)
+    if amount.normalize().as_tuple().exponent < -2:  # type: ignore[operator]
+        raise _reject("amount_decimals", "Use at most 2 decimal places.")
+    if abs(amount) >= _MAX_MONEY:
+        raise _reject("amount_large", "Amount must be under ₹1,00,00,00,00,00,000.")
+    return amount
+
+
+def _text(value: Any, message: str) -> str | None:
+    # Trims; blank becomes None so validate_rules can report a missing name.
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise _reject("text", message)
+    value = value.strip()
+    if "\0" in value:
+        raise _reject("text_null", "Remove the unusual character.")
+    if len(value) > 60:
+        raise _reject("text_long", "Use 60 characters or fewer.")
+    return value or None
+
+
+def _last4(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = value.strip() if isinstance(value, str) else ""
+    if not _LAST4.fullmatch(text):
+        raise _reject("last4", "Enter exactly 4 digits.")
+    return text
+
+
+def _day(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 31:
+        raise _reject("day", "Enter a day from 1 to 31.")
     return value
 
 
-Money = Annotated[
-    Decimal,
-    BeforeValidator(_text_only),
-    Field(max_digits=14, decimal_places=2),
+def _choice(options: tuple[str, ...]) -> Any:
+    def check(value: Any) -> Any:
+        if value is not None and value not in options:
+            raise _reject("choice", _CHOOSE_KIND)
+        return value
+
+    return check
+
+
+Money = Annotated[Decimal | None, BeforeValidator(_money)]
+Name = Annotated[str | None, BeforeValidator(lambda v: _text(v, "Enter a name."))]
+Institution = Annotated[
+    str | None, BeforeValidator(lambda v: _text(v, "Use 60 characters or fewer."))
 ]
-Day = Annotated[int, Field(strict=True, ge=1, le=31)]
+Last4 = Annotated[str | None, BeforeValidator(_last4)]
+Day = Annotated[int | None, BeforeValidator(_day)]
+Kind = Annotated[AccountType | None, BeforeValidator(_choice(get_args(AccountType)))]
+Bank = Annotated[BankKind | None, BeforeValidator(_choice(get_args(BankKind)))]
 
 
 class AccountCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(extra="forbid")
 
-    type: AccountType
     # Required fields are optional here so that validate_rules reports them like any other rule.
-    name: str | None = Field(default=None, min_length=1, max_length=60)
-    balance: Money | None = None
-    institution: str | None = Field(default=None, max_length=60)
-    bank_kind: BankKind | None = None
-    last4: str | None = Field(default=None, pattern=r"^[0-9]{4}$")
-    credit_limit: Money | None = None
-    statement_day: Day | None = None
-    due_day: Day | None = None
-
-    @field_validator("institution")
-    @classmethod
-    def blank_institution_is_none(cls, value: str | None) -> str | None:
-        return value or None
+    type: Kind = None
+    name: Name = None
+    balance: Money = None
+    institution: Institution = None
+    bank_kind: Bank = None
+    last4: Last4 = None
+    credit_limit: Money = None
+    statement_day: Day = None
+    due_day: Day = None
 
 
 class AccountUpdate(BaseModel):
     """Create's fields, all optional, minus `type`; extras are forbidden, so type can't change."""
 
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(default=None, min_length=1, max_length=60)
-    balance: Money | None = None
-    institution: str | None = Field(default=None, max_length=60)
-    bank_kind: BankKind | None = None
-    last4: str | None = Field(default=None, pattern=r"^[0-9]{4}$")
-    credit_limit: Money | None = None
-    statement_day: Day | None = None
-    due_day: Day | None = None
-
-    @field_validator("institution")
-    @classmethod
-    def blank_institution_is_none(cls, value: str | None) -> str | None:
-        return value or None
+    name: Name = None
+    balance: Money = None
+    institution: Institution = None
+    bank_kind: Bank = None
+    last4: Last4 = None
+    credit_limit: Money = None
+    statement_day: Day = None
+    due_day: Day = None
 
 
 class AccountResponse(BaseModel):
@@ -116,19 +170,24 @@ def validate_rules(values: dict[str, Any]) -> None:
     errors: list[dict[str, Any]] = []
     type_ = values["type"]
 
+    if type_ is None:
+        errors.append(_fail("type", _CHOOSE_KIND))
     if values.get("name") is None:
-        errors.append(_fail("name", "Field required"))
+        errors.append(_fail("name", "Enter a name."))
     balance = values.get("balance")
     if balance is None:
-        errors.append(_fail("balance", "Field required"))
-    elif balance < 0 and type_ not in CAN_BE_NEGATIVE:
+        errors.append(_fail("balance", "Enter a balance."))
+    elif type_ is not None and balance < 0 and type_ not in CAN_BE_NEGATIVE:
         errors.append(_fail("balance", "Balance cannot be negative for this account type."))
+
+    if type_ is None:
+        raise RequestValidationError(errors)
 
     for field in sorted(DETAILS - APPLICABLE[type_]):
         if values.get(field) is not None:
             errors.append(_fail(field, "Not applicable to this account type."))
     if type_ == "bank" and values.get("bank_kind") is None:
-        errors.append(_fail("bank_kind", "Field required"))
+        errors.append(_fail("bank_kind", _CHOOSE_KIND))
     limit = values.get("credit_limit")
     if limit is not None and limit <= 0:
         errors.append(_fail("credit_limit", "Credit limit must be greater than 0."))
@@ -137,7 +196,7 @@ def validate_rules(values: dict[str, Any]) -> None:
         raise RequestValidationError(errors)
 
 
-def _money(value: Decimal) -> str:
+def _fmt(value: Decimal) -> str:
     return f"{value + 0:.2f}"  # + 0 turns a negative zero into zero
 
 
@@ -147,12 +206,12 @@ def to_response(account: Account) -> AccountResponse:
         id=account.id,
         type=account.type,
         name=account.name,
-        balance=_money(account.opening_balance),
+        balance=_fmt(account.opening_balance),
         institution=account.institution,
         bank_kind=account.bank_kind,
         last4=account.last4,
-        credit_limit=None if limit is None else _money(limit),
-        available_credit=None if limit is None else _money(limit - account.opening_balance),
+        credit_limit=None if limit is None else _fmt(limit),
+        available_credit=None if limit is None else _fmt(limit - account.opening_balance),
         statement_day=account.statement_day,
         due_day=account.due_day,
         archived=account.archived_at is not None,
@@ -168,7 +227,7 @@ def list_accounts(user: CurrentUser, db: DbSession, archived: bool = False) -> A
     have = sum((a.opening_balance for a in active if a.type in HAVE_TYPES), Decimal(0))
     owe = sum((a.opening_balance for a in active if a.type == "credit_card"), Decimal(0))
     return AccountList(
-        accounts=[to_response(a) for a in shown], total_have=_money(have), total_owe=_money(owe)
+        accounts=[to_response(a) for a in shown], total_have=_fmt(have), total_owe=_fmt(owe)
     )
 
 
@@ -189,7 +248,10 @@ def create_account(body: AccountCreate, user: CurrentUser, db: DbSession) -> Acc
 
 
 def _get_owned(db: DbSession, user: CurrentUser, id: int) -> Account:
-    account = db.scalar(select(Account).where(Account.id == id, Account.user_id == user.id))
+    # Ids outside the column's range can't exist; asking the database would be a 500.
+    account = None
+    if 1 <= id <= MAX_ID:
+        account = db.scalar(select(Account).where(Account.id == id, Account.user_id == user.id))
     if account is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found.")
     return account

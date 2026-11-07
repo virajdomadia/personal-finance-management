@@ -465,3 +465,165 @@ def test_edit_routes_require_session(db_session: Session, monkeypatch: pytest.Mo
     assert client.patch(f"{URL}/1", json={}).status_code == 401
     assert client.post(f"{URL}/1/archive").status_code == 401
     assert client.post(f"{URL}/1/restore").status_code == 401
+
+
+def message(response: Response, field: str) -> str:
+    return next(e["msg"] for e in response.json()["detail"] if e["loc"] == ["body", field])
+
+
+def test_422_shape_is_unchanged(headers: Headers) -> None:
+    error = make(headers, last4="12").json()["detail"][0]
+
+    assert set(error) >= {"loc", "msg", "type"}
+    assert error["loc"] == ["body", "last4"]
+
+
+@pytest.mark.parametrize("value", ["123", "12345", "12a4", "١٢٣٤", 1234])
+def test_last4_message(headers: Headers, value: Any) -> None:
+    response = make(headers, type="bank", bank_kind="savings", last4=value)
+
+    assert response.status_code == 422
+    assert message(response, "last4") == "Enter exactly 4 digits."
+
+
+@pytest.mark.parametrize("value", ["abc", "", "NaN", "Infinity", 12.5, True])
+def test_invalid_amount_message(headers: Headers, value: Any) -> None:
+    response = make(headers, balance=value)
+
+    assert response.status_code == 422
+    assert message(response, "balance") == "Enter an amount, like 1234.50."
+
+
+@pytest.mark.parametrize("value", ["1e5", "1_000", "١٢٣", "1,000", "1.", ".5", "1 2", "0x10"])
+def test_loose_money_text_is_rejected(headers: Headers, value: str) -> None:
+    response = make(headers, balance=value)
+
+    assert response.status_code == 422
+    assert message(response, "balance") == "Enter an amount, like 1234.50."
+
+
+@pytest.mark.parametrize("value", ["+5", "-5", "5", "5.5", " 5.00 ", "007.10"])
+def test_plain_ascii_money_is_accepted(headers: Headers, value: str) -> None:
+    status = 422 if value == "-5" else 201  # cash can't be negative
+    assert make(headers, balance=value).status_code == status
+
+
+def test_too_many_decimals_message(headers: Headers) -> None:
+    response = make(headers, balance="1.234")
+
+    assert message(response, "balance") == "Use at most 2 decimal places."
+
+
+def test_trailing_zero_decimals_are_fine(headers: Headers) -> None:
+    assert make(headers, balance="1.500").json()["balance"] == "1.50"
+
+
+@pytest.mark.parametrize("value", ["1000000000000.00", "-1000000000000", "99999999999999999"])
+def test_too_large_message(headers: Headers, value: str) -> None:
+    response = make(headers, type="broker", balance=value)
+
+    assert message(response, "balance") == "Amount must be under ₹1,00,00,00,00,00,000."
+
+
+def test_credit_limit_uses_same_messages(headers: Headers) -> None:
+    response = make(headers, type="credit_card", credit_limit="1.234")
+
+    assert message(response, "credit_limit") == "Use at most 2 decimal places."
+
+
+@pytest.mark.parametrize("name", ["x" * 61])
+def test_name_too_long_message(headers: Headers, name: str) -> None:
+    assert message(make(headers, name=name), "name") == "Use 60 characters or fewer."
+
+
+def test_institution_too_long_message(headers: Headers) -> None:
+    response = make(headers, type="broker", institution="x" * 61)
+
+    assert message(response, "institution") == "Use 60 characters or fewer."
+
+
+@pytest.mark.parametrize("day", [0, 32, "5", 5.5, True])
+def test_day_message(headers: Headers, day: Any) -> None:
+    response = make(headers, type="credit_card", statement_day=day)
+
+    assert response.status_code == 422
+    assert message(response, "statement_day") == "Enter a day from 1 to 31."
+
+
+def test_blank_name_is_422_with_plain_message(headers: Headers) -> None:
+    for name in ("", "   ", None):
+        response = make(headers, name=name)
+        assert response.status_code == 422
+        assert message(response, "name") == "Enter a name."
+
+
+def test_missing_fields_are_all_reported_together(headers: Headers) -> None:
+    response = client.post(URL, json={"type": "bank", "name": "  "}, headers=headers)
+
+    assert response.status_code == 422
+    assert message(response, "name") == "Enter a name."
+    assert message(response, "balance") == "Enter a balance."
+    assert message(response, "bank_kind") == "Choose a kind of account."
+
+
+def test_missing_or_bad_type_message(headers: Headers) -> None:
+    missing = client.post(URL, json={"name": "A", "balance": "1"}, headers=headers)
+    bad = make(headers, type="loan")
+
+    assert message(missing, "type") == "Choose a kind of account."
+    assert message(bad, "type") == "Choose a kind of account."
+
+
+def test_bad_bank_kind_message(headers: Headers) -> None:
+    response = make(headers, type="bank", bank_kind="gold")
+
+    assert message(response, "bank_kind") == "Choose a kind of account."
+
+
+def test_patch_clearing_required_fields_uses_plain_messages(headers: Headers) -> None:
+    created = make(headers, type="bank", bank_kind="savings").json()
+
+    response = patch(headers, created["id"], name="  ", balance=None)
+
+    assert message(response, "name") == "Enter a name."
+    assert message(response, "balance") == "Enter a balance."
+
+
+def test_no_422_message_is_technical(headers: Headers) -> None:
+    bodies = [
+        {"type": "credit_card", "name": "x" * 61, "balance": "1e5", "last4": "x", "due_day": 99},
+        {"type": "cash", "name": None, "balance": None, "institution": "a"},
+        {"type": "bank", "name": "n", "balance": "-1", "bank_kind": "q", "credit_limit": "0"},
+    ]
+    for body in bodies:
+        response = client.post(URL, json=body, headers=headers)
+        assert response.status_code == 422
+        for error in response.json()["detail"]:
+            msg = error["msg"]
+            assert not msg.startswith(("Value error", "String should", "Input should"))
+            assert "Field required" not in msg
+
+
+@pytest.mark.parametrize("field", ["name", "institution"])
+def test_nul_byte_is_422(headers: Headers, field: str) -> None:
+    response = make(headers, type="broker", **{field: "a\x00b"})
+
+    assert response.status_code == 422
+    assert ["body", field] in locs(response)
+
+
+def test_nul_byte_in_patch_is_422(headers: Headers) -> None:
+    created = make(headers, type="broker").json()
+
+    assert patch(headers, created["id"], name="a\x00b").status_code == 422
+    assert patch(headers, created["id"], institution="a\x00b").status_code == 422
+
+
+@pytest.mark.parametrize("id_", [0, -1, 2147483648, 99999999999999999999])
+@pytest.mark.parametrize(
+    "request_",
+    [lambda h, i: patch(h, i, name="X"), archive, restore],
+    ids=["patch", "archive", "restore"],
+)
+def test_out_of_range_id_is_404(headers: Headers, request_: Any, id_: int) -> None:
+    assert request_(headers, id_).status_code == 404
