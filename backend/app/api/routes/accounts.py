@@ -200,7 +200,7 @@ def validate_rules(values: dict[str, Any]) -> None:
         raise RequestValidationError(errors)
 
 
-def _fmt(value: Decimal) -> str:
+def fmt(value: Decimal) -> str:
     return f"{value + 0:.2f}"  # + 0 turns a negative zero into zero
 
 
@@ -210,16 +210,27 @@ def to_response(account: Account) -> AccountResponse:
         id=account.id,
         type=account.type,
         name=account.name,
-        balance=_fmt(account.opening_balance),
+        balance=fmt(account.opening_balance),
         institution=account.institution,
         bank_kind=account.bank_kind,
         last4=account.last4,
-        credit_limit=None if limit is None else _fmt(limit),
-        available_credit=None if limit is None else _fmt(limit - account.opening_balance),
+        credit_limit=None if limit is None else fmt(limit),
+        available_credit=None if limit is None else fmt(limit - account.opening_balance),
         statement_day=account.statement_day,
         due_day=account.due_day,
         archived=account.archived_at is not None,
     )
+
+
+def list_sort_key(account: Account) -> tuple[int, str, int]:
+    return (TYPE_ORDER[account.type], account.name.casefold(), account.id)
+
+
+def totals(active: list[Account]) -> tuple[Decimal, Decimal]:
+    """(have, owe) over the given accounts, which the caller has already limited to active ones."""
+    have = sum((a.opening_balance for a in active if a.type in HAVE_TYPES), Decimal(0))
+    owe = sum((a.opening_balance for a in active if a.type == "credit_card"), Decimal(0))
+    return have, owe
 
 
 @router.get("")
@@ -227,11 +238,10 @@ def list_accounts(user: CurrentUser, db: DbSession, archived: bool = False) -> A
     accounts = db.scalars(select(Account).where(Account.user_id == user.id)).all()
     active = [a for a in accounts if a.archived_at is None]
     shown = [a for a in accounts if (a.archived_at is not None) == archived]
-    shown.sort(key=lambda a: (TYPE_ORDER[a.type], a.name.casefold(), a.id))
-    have = sum((a.opening_balance for a in active if a.type in HAVE_TYPES), Decimal(0))
-    owe = sum((a.opening_balance for a in active if a.type == "credit_card"), Decimal(0))
+    shown.sort(key=list_sort_key)
+    have, owe = totals(active)
     return AccountList(
-        accounts=[to_response(a) for a in shown], total_have=_fmt(have), total_owe=_fmt(owe)
+        accounts=[to_response(a) for a in shown], total_have=fmt(have), total_owe=fmt(owe)
     )
 
 
