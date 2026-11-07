@@ -10,7 +10,8 @@ import {
   TYPE_LABELS,
   TYPE_ORDER,
   errorMessage,
-  fieldErrors,
+  renderedFields,
+  splitErrors,
   toPayload,
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
@@ -138,9 +139,9 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
       if (err instanceof ApiError && err.status === 401) {
         void logout();
       } else if (err instanceof ApiError && err.status === 422) {
-        const found = fieldErrors(err.body);
-        setErrors(found);
-        if (Object.keys(found).length === 0) setFormError(errorMessage(err));
+        const { fields, general } = splitErrors(err.body, renderedFields(form.type, editing ? "edit" : "create"));
+        setErrors(fields);
+        if (general.length > 0) setFormError(general.join(" "));
       } else if (err instanceof ApiError && err.status === 409) {
         onConflict(errorMessage(err));
       } else {

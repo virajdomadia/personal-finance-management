@@ -113,6 +113,35 @@ export function fieldErrors(body: string): Record<string, string> {
 
 const FALLBACK = "Something went wrong. Try again.";
 
+export type SplitErrors = { fields: Record<string, string>; general: string[] };
+
+// Every message in a 422 lands somewhere: next to its field when that field is rendered (first
+// message per field), otherwise in `general`. With no parseable message, `general` is [fallback].
+export function splitErrors(body: string, rendered: readonly string[], fallback = FALLBACK): SplitErrors {
+  const fields: Record<string, string> = {};
+  const general: string[] = [];
+  try {
+    const detail = JSON.parse(body)?.detail;
+    if (Array.isArray(detail)) {
+      for (const item of detail) {
+        if (typeof item?.msg !== "string") continue;
+        const key = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : undefined;
+        if (typeof key === "string" && rendered.includes(key) && !(key in fields)) fields[key] = item.msg;
+        else general.push(item.msg);
+      }
+    }
+  } catch {
+    // Not JSON: fall through to the fallback.
+  }
+  if (Object.keys(fields).length === 0 && general.length === 0) general.push(fallback);
+  return { fields, general };
+}
+
+// The form fields the dialog shows for a type, which is where field errors can be displayed.
+export function renderedFields(type: AccountType, mode: "create" | "edit"): (keyof AccountForm)[] {
+  return [...(mode === "create" ? (["type"] as const) : []), "name", "balance", ...APPLICABLE[type]];
+}
+
 // Duck-typed on `body` so this file doesn't depend on ApiError.
 export function errorMessage(error: unknown): string {
   if (typeof error === "object" && error !== null && "body" in error && typeof error.body === "string") {
