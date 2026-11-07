@@ -111,7 +111,7 @@ Both builds produce an APK to install directly. Rebuild the development app only
 | `npm run dev`  | Start frontend and backend together  |
 | `npm run dev:mobile` | Start the Android app's dev server |
 | `npm run lint` | ESLint and type checks (frontend, app) + Ruff (backend) |
-| `npm run test` | Frontend auth and accounts tests + mobile app-lock and accounts tests + backend pytest |
+| `npm run test` | Frontend auth, accounts and transactions tests + mobile app-lock and accounts tests + backend pytest |
 
 ## Adding an API endpoint
 
