@@ -1,0 +1,180 @@
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, RefreshControl, SectionList, StyleSheet, View } from "react-native";
+import { Appbar, Button, Divider, FAB, Surface, Text, useTheme } from "react-native-paper";
+
+import { AccountRow } from "@/components/account-row";
+import {
+  type Account,
+  type AccountList,
+  type AccountType,
+  TYPE_LABELS,
+  TYPE_ORDER,
+  errorMessage,
+  formatRupees,
+} from "@/lib/accounts";
+import { ApiError, apiFetch } from "@/lib/api";
+import { useSession } from "@/lib/session";
+
+type Section = { type: AccountType; data: Account[] };
+
+function sections(accounts: Account[]): Section[] {
+  return TYPE_ORDER.map((type) => ({
+    type,
+    data: accounts
+      .filter((account) => account.type === type)
+      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())),
+  })).filter((section) => section.data.length > 0);
+}
+
+export default function AccountsScreen() {
+  const { token, logOut } = useSession();
+  const { colors } = useTheme();
+  const [list, setList] = useState<AccountList | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const latest = useRef(0);
+
+  const load = useCallback(async () => {
+    const mine = ++latest.current;
+    try {
+      const result = await apiFetch<AccountList>("/accounts", { token: token ?? undefined });
+      if (mine !== latest.current) return;
+      setList(result);
+      setError(null);
+    } catch (err) {
+      if (mine !== latest.current) return;
+      if (err instanceof ApiError && err.status === 401) {
+        void logOut();
+        return;
+      }
+      setError(errorMessage(err));
+    }
+  }, [token, logOut]);
+
+  // Reloads whenever the tab regains focus, so coming back from the form shows fresh data.
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
+
+  const data = useMemo(() => (list ? sections(list.accounts) : []), [list]);
+
+  return (
+    <View style={styles.screen}>
+      <Appbar.Header>
+        <Appbar.Content title="Accounts" />
+        <Appbar.Action
+          icon="archive-outline"
+          accessibilityLabel="Archived accounts"
+          onPress={() => router.push("/archived-accounts")}
+        />
+      </Appbar.Header>
+
+      {list === null && error === null ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading accounts" />
+        </View>
+      ) : list === null ? (
+        <View style={styles.center}>
+          <Text variant="bodyLarge" style={styles.centerText}>
+            {error}
+          </Text>
+          <Button mode="contained" onPress={() => void refresh()} loading={refreshing} disabled={refreshing}>
+            Try again
+          </Button>
+        </View>
+      ) : (
+        <SectionList
+          sections={data}
+          keyExtractor={(account) => String(account.id)}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
+          contentContainerStyle={styles.content}
+          ItemSeparatorComponent={Divider}
+          stickySectionHeadersEnabled={false}
+          ListHeaderComponent={
+            <View style={styles.header}>
+              {error ? (
+                <Text
+                  variant="bodyMedium"
+                  accessibilityRole="alert"
+                  style={{ color: colors.error, marginBottom: 12 }}
+                >
+                  {error} Pull down to try again.
+                </Text>
+              ) : null}
+              <Surface elevation={1} style={styles.totals}>
+                <View style={styles.total}>
+                  <Text variant="labelLarge">You have</Text>
+                  <Text variant="titleLarge" style={styles.totalAmount}>
+                    {formatRupees(list.total_have)}
+                  </Text>
+                </View>
+                <View style={styles.total}>
+                  <Text variant="labelLarge">You owe</Text>
+                  <Text variant="titleLarge" style={styles.totalAmount}>
+                    {formatRupees(list.total_owe)}
+                  </Text>
+                </View>
+              </Surface>
+            </View>
+          }
+          renderSectionHeader={({ section }) => (
+            <Text
+              variant="titleSmall"
+              accessibilityRole="header"
+              style={[styles.sectionHeader, { color: colors.primary }]}
+            >
+              {TYPE_LABELS[section.type]}
+            </Text>
+          )}
+          renderItem={({ item }) => (
+            <AccountRow
+              account={item}
+              onPress={() => router.push({ pathname: "/account-form", params: { id: String(item.id) } })}
+            />
+          )}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Text variant="titleMedium">Add your first account</Text>
+              <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant, textAlign: "center" }}>
+                Bank accounts, cards, cash and more. Tap Add account to start.
+              </Text>
+            </View>
+          }
+        />
+      )}
+
+      <FAB
+        icon="plus"
+        label="Add account"
+        style={styles.fab}
+        onPress={() => router.push("/account-form")}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
+  centerText: { textAlign: "center" },
+  content: { paddingBottom: 96 },
+  header: { padding: 16 },
+  totals: { borderRadius: 12, padding: 16, gap: 12 },
+  total: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
+  totalAmount: { flexShrink: 1, textAlign: "right" },
+  sectionHeader: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
+  empty: { alignItems: "center", gap: 8, padding: 32 },
+  fab: { position: "absolute", right: 16, bottom: 16 },
+});
