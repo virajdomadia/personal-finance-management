@@ -1,7 +1,7 @@
 export class ApiError extends Error {
   constructor(
     readonly status: number,
-    body: string,
+    readonly body: string,
   ) {
     super(`API ${status}: ${body}`);
   }
