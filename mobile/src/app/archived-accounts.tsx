@@ -3,6 +3,8 @@ import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from "react-native";
 import { Appbar, Button, Divider, Text, useTheme } from "react-native-paper";
 
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import { AccountRow } from "@/components/account-row";
 import { type Account, type AccountList, errorMessage } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
@@ -11,6 +13,7 @@ import { useSession } from "@/lib/session";
 export default function ArchivedAccountsScreen() {
   const { token, logOut } = useSession();
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
@@ -26,6 +29,7 @@ export default function ArchivedAccountsScreen() {
       if (mine !== latest.current) return;
       setAccounts(result.accounts);
       setError(null);
+      setRestoreError(null);
     } catch (err) {
       if (mine !== latest.current) return;
       if (err instanceof ApiError && err.status === 401) {
@@ -94,7 +98,7 @@ export default function ArchivedAccountsScreen() {
           keyExtractor={(account) => String(account.id)}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
           ItemSeparatorComponent={Divider}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
           ListHeaderComponent={
             error || restoreError ? (
               <Text
@@ -142,6 +146,5 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
-  content: { paddingBottom: 32 },
   empty: { alignItems: "center", gap: 8, padding: 32 },
 });

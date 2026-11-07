@@ -22,8 +22,7 @@ function sections(accounts: Account[]): Section[] {
   return TYPE_ORDER.map((type) => ({
     type,
     data: accounts
-      .filter((account) => account.type === type)
-      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())),
+      .filter((account) => account.type === type),
   })).filter((section) => section.data.length > 0);
 }
 
@@ -34,6 +33,7 @@ export default function AccountsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const latest = useRef(0);
+  const navigating = useRef(false);
 
   const load = useCallback(async () => {
     const mine = ++latest.current;
@@ -55,6 +55,7 @@ export default function AccountsScreen() {
   // Reloads whenever the tab regains focus, so coming back from the form shows fresh data.
   useFocusEffect(
     useCallback(() => {
+      navigating.current = false;
       void load();
     }, [load]),
   );
@@ -68,6 +69,13 @@ export default function AccountsScreen() {
     }
   }, [load]);
 
+  // Drops a second push from a double tap until the screen regains focus.
+  const open = useCallback((params?: { id: string }) => {
+    if (navigating.current) return;
+    navigating.current = true;
+    router.push(params ? { pathname: "/account-form", params } : "/account-form");
+  }, []);
+
   const data = useMemo(() => (list ? sections(list.accounts) : []), [list]);
 
   return (
@@ -77,7 +85,11 @@ export default function AccountsScreen() {
         <Appbar.Action
           icon="archive-outline"
           accessibilityLabel="Archived accounts"
-          onPress={() => router.push("/archived-accounts")}
+          onPress={() => {
+            if (navigating.current) return;
+            navigating.current = true;
+            router.push("/archived-accounts");
+          }}
         />
       </Appbar.Header>
 
@@ -141,7 +153,7 @@ export default function AccountsScreen() {
           renderItem={({ item }) => (
             <AccountRow
               account={item}
-              onPress={() => router.push({ pathname: "/account-form", params: { id: String(item.id) } })}
+              onPress={() => open({ id: String(item.id) })}
             />
           )}
           ListEmptyComponent={
@@ -159,7 +171,7 @@ export default function AccountsScreen() {
         icon="plus"
         label="Add account"
         style={styles.fab}
-        onPress={() => router.push("/account-form")}
+        onPress={() => open()}
       />
     </View>
   );

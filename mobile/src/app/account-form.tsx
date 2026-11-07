@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
+  BackHandler,
   Keyboard,
   KeyboardAvoidingView,
   ScrollView,
@@ -198,6 +199,7 @@ function FormBody({ account }: { account: Account | null }) {
   const positions = useRef<Record<string, number>>({});
   const focusedKey = useRef<string | null>(null);
   const needFocus = useRef(false);
+  const mounted = useRef(true);
 
   const type = form.type;
   const busy = saving || archiving || conflict !== null;
@@ -229,10 +231,25 @@ function FormBody({ account }: { account: Account | null }) {
     return () => subscription.remove();
   }, [scrollToField]);
 
+  // Leaving mid-save would let the later router.back() pop an unrelated screen.
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => savingRef.current || archivingRef.current);
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   // The dialog renders above the app's lock cover, so it must not stay open when the app leaves the foreground.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state !== "active" && !archivingRef.current) setConfirming(false);
+      if (state === "active") return;
+      Keyboard.dismiss();
+      if (!archivingRef.current) setConfirming(false);
     });
     return () => subscription.remove();
   }, []);
@@ -305,11 +322,12 @@ function FormBody({ account }: { account: Account | null }) {
         await apiFetch("/accounts", { method: "POST", token: token ?? undefined, body: payload });
       }
       done = true;
-      router.back();
+      if (mounted.current) router.back();
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         void logOut();
       } else if (err instanceof ApiError && err.status === 409) {
+        needFocus.current = true;
         setConflict(errorMessage({ detail: err.detail }));
       } else if (err instanceof ApiError && err.status === 422) {
         needFocus.current = true;
@@ -337,7 +355,7 @@ function FormBody({ account }: { account: Account | null }) {
     try {
       await apiFetch(`/accounts/${account.id}/archive`, { method: "POST", token: token ?? undefined });
       done = true;
-      router.back();
+      if (mounted.current) router.back();
     } catch (err) {
       setConfirming(false);
       if (err instanceof ApiError && err.status === 401) {

@@ -7,7 +7,7 @@ import { type Account, TYPE_LABELS, formatRupees, maskLast4 } from "@/lib/accoun
 function detailLine(account: Account, showType: boolean): string {
   const parts: string[] = [];
   if (showType) parts.push(TYPE_LABELS[account.type]);
-  if (account.institution) parts.push(account.institution);
+  if (account.institution && account.institution !== account.name) parts.push(account.institution);
   if (account.bank_kind) parts.push(account.bank_kind.charAt(0).toUpperCase() + account.bank_kind.slice(1));
   if (account.last4) parts.push(maskLast4(account.last4));
   return parts.join(" · ");
