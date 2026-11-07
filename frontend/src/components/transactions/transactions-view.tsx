@@ -33,7 +33,7 @@ const QUIET = `${BUTTON} text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark
 const ROW_ACTION =
   "rounded px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100";
 const SELECT =
-  "min-w-0 rounded-md border border-zinc-300 bg-transparent px-2 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 dark:border-zinc-700 dark:[color-scheme:dark]";
+  "min-w-0 rounded-md border border-zinc-300 bg-transparent px-2 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 dark:border-zinc-700";
 
 const PAGE_SIZE = 50;
 

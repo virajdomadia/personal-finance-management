@@ -20,7 +20,7 @@ import {
 } from "@/lib/transactions";
 
 const INPUT =
-  "w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 disabled:opacity-60 aria-[invalid=true]:border-red-600 dark:border-zinc-700 dark:[color-scheme:dark]";
+  "w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 disabled:opacity-60 aria-[invalid=true]:border-red-600 dark:border-zinc-700";
 
 const FROM_LABELS: Record<TransactionType, string> = {
   expense: "Paid from",
