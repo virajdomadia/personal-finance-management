@@ -1,0 +1,198 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import {
+  TYPE_LABELS,
+  changedPayload,
+  dayError,
+  errorMessage,
+  formFromAccount,
+  formatRupees,
+  maskLast4,
+  renderedFields,
+  splitErrors,
+  toPayload,
+} from "./accounts.ts";
+
+const blank = {
+  type: "bank",
+  name: "Main",
+  balance: "10",
+  institution: "",
+  bank_kind: "",
+  last4: "",
+  credit_limit: "",
+  statement_day: "",
+  due_day: "",
+};
+const bank = (o = {}) => ({ ...blank, type: "bank", bank_kind: "savings", ...o });
+const card = (o = {}) => ({ ...blank, type: "credit_card", ...o });
+const cash = (o = {}) => ({ ...blank, type: "cash", ...o });
+
+test("formatRupees uses Indian grouping without touching Number", () => {
+  assert.equal(formatRupees("100000.50"), "₹1,00,000.50");
+  assert.equal(formatRupees("999.00"), "₹999.00");
+  assert.equal(formatRupees("1000.00"), "₹1,000.00");
+  assert.equal(formatRupees("999999999999.99"), "₹9,99,99,99,99,999.99");
+  assert.equal(formatRupees("-500.50"), "-₹500.50");
+});
+
+test("maskLast4", () => {
+  assert.equal(maskLast4("1234"), "•••• 1234");
+});
+
+test("toPayload cleans money, nulls blanks, numbers days", () => {
+  assert.equal(toPayload(bank({ balance: " ₹1,00,000.50 " }), "create").balance, "100000.50");
+  assert.equal(toPayload(card({ last4: "" }), "create").last4, null);
+  assert.equal(toPayload(card({ due_day: "25" }), "create").due_day, 25);
+  assert.equal(toPayload(card({ credit_limit: "₹ 50,000" }), "create").credit_limit, "50000");
+});
+
+test("toPayload sends only applicable fields and type on create only", () => {
+  assert.equal("last4" in toPayload(cash(), "create"), false);
+  assert.equal("type" in toPayload(bank(), "edit"), false);
+  assert.equal(toPayload(bank(), "create").type, "bank");
+});
+
+test("errorMessage", () => {
+  const conflict = Object.assign(new Error("API 409"), {
+    status: 409,
+    detail: "Restore this account before editing it.",
+  });
+  assert.equal(errorMessage(conflict), "Restore this account before editing it.");
+  assert.equal(errorMessage(new TypeError("fetch failed")), "Something went wrong. Try again.");
+  const listShaped = Object.assign(new Error("x"), { detail: [{ msg: "x" }] });
+  assert.equal(errorMessage(listShaped), "Something went wrong. Try again.");
+  assert.equal(errorMessage(Object.assign(new Error("x"), { status: 500 })), "Something went wrong. Try again.");
+});
+
+test("dayError accepts blank and whole days 1 to 31 only", () => {
+  for (const ok of ["", "  ", "1", "31", " 15 ", "07"]) assert.equal(dayError(ok), null, ok);
+  for (const bad of ["0", "32", "abc", "1.5", "-3", "1e1", "1 2", "100"]) {
+    assert.equal(dayError(bad), "Enter a day from 1 to 31.", bad);
+  }
+});
+
+const e422 = (...items) => items.map(([loc, msg]) => ({ loc, msg }));
+const BANK_FIELDS = renderedFields("bank", "create");
+
+test("renderedFields follows what the dialog shows", () => {
+  assert.deepEqual(renderedFields("cash", "edit"), ["name", "balance"]);
+  assert.ok(renderedFields("bank", "create").includes("type"));
+  assert.ok(!renderedFields("bank", "edit").includes("type"));
+  assert.ok(!renderedFields("bank", "create").includes("credit_limit"));
+});
+
+test("splitErrors puts a rendered field's message next to the field", () => {
+  const out = splitErrors(e422([["body", "last4"], "Must be 4 digits"]), BANK_FIELDS);
+  assert.deepEqual(out, { fields: { last4: "Must be 4 digits" }, general: [] });
+});
+
+test("splitErrors sends an unrendered field's message to general", () => {
+  const out = splitErrors(e422([["body", "credit_limit"], "Not allowed for this type"]), BANK_FIELDS);
+  assert.deepEqual(out, { fields: {}, general: ["Not allowed for this type"] });
+});
+
+test("splitErrors sends a loc ending in body to general", () => {
+  const out = splitErrors(e422([["body"], "Field required"]), BANK_FIELDS);
+  assert.deepEqual(out, { fields: {}, general: ["Field required"] });
+});
+
+test("splitErrors handles a type error on edit, where type is not rendered", () => {
+  const out = splitErrors(e422([["body", "type"], "Type cannot change"]), renderedFields("bank", "edit"));
+  assert.deepEqual(out, { fields: {}, general: ["Type cannot change"] });
+});
+
+test("splitErrors keeps every message in a mix, including a second one for the same field", () => {
+  const out = splitErrors(
+    e422(
+      [["body", "name"], "Too long"],
+      [["body", "credit_limit"], "Not allowed"],
+      [["body"], "Bad body"],
+      [["body", "name"], "Also bad"],
+    ),
+    BANK_FIELDS,
+  );
+  assert.deepEqual(out, { fields: { name: "Too long" }, general: ["Not allowed", "Bad body", "Also bad"] });
+});
+
+test("splitErrors falls back when nothing parses", () => {
+  const fallback = errorMessage(new Error("x"));
+  assert.deepEqual(splitErrors(undefined, BANK_FIELDS), { fields: {}, general: [fallback] });
+  assert.deepEqual(splitErrors("oops", BANK_FIELDS), { fields: {}, general: [fallback] });
+  assert.deepEqual(splitErrors([], BANK_FIELDS), { fields: {}, general: [fallback] });
+  assert.deepEqual(splitErrors([null, { loc: ["body"] }], BANK_FIELDS), { fields: {}, general: [fallback] });
+});
+
+test("type labels match the approved table", () => {
+  assert.deepEqual(TYPE_LABELS, {
+    bank: "Bank account",
+    credit_card: "Credit card",
+    cash: "Cash in hand",
+    broker: "Broker balance",
+    wallet: "Wallet or prepaid card",
+  });
+});
+
+test("cleanMoney strips commas only between digit groups", () => {
+  const balance = (raw) => toPayload(bank({ balance: raw }), "create").balance;
+  assert.equal(balance("1,00,000"), "100000");
+  assert.equal(balance("1,000.50"), "1000.50");
+  assert.equal(balance("12,34,567.8"), "1234567.8");
+  assert.equal(balance("-₹1,000"), "-1000");
+  assert.equal(balance(" ₹ 50,000 "), "50000");
+  assert.equal(balance("1500,50"), "1500,50");
+  assert.equal(balance("1 2"), "1 2");
+  assert.equal(balance("1,00"), "1,00");
+  assert.equal(balance("1,0000"), "1,0000");
+  assert.equal(balance(",100"), ",100");
+  assert.equal(balance("1,000,"), "1,000,");
+  assert.equal(balance("1,000.5,0"), "1,000.5,0");
+  assert.equal(balance("  "), null);
+});
+
+const account = {
+  id: 1,
+  type: "credit_card",
+  name: "Card",
+  balance: "2500.00",
+  institution: "HDFC",
+  bank_kind: null,
+  last4: "1234",
+  credit_limit: "100000.00",
+  available_credit: "97500.00",
+  statement_day: 5,
+  due_day: null,
+  archived: false,
+};
+
+test("changedPayload is empty when nothing changed", () => {
+  assert.deepEqual(changedPayload(formFromAccount(account), account), {});
+});
+
+test("changedPayload sends only the fields that differ", () => {
+  const form = { ...formFromAccount(account), name: " Renamed ", statement_day: "7" };
+  assert.deepEqual(changedPayload(form, account), { name: "Renamed", statement_day: 7 });
+});
+
+test("changedPayload sends cleared fields as null and leaves the balance out when untouched", () => {
+  const form = { ...formFromAccount(account), institution: "", last4: "  ", statement_day: "" };
+  const changed = changedPayload(form, account);
+  assert.deepEqual(changed, { institution: null, last4: null, statement_day: null });
+  assert.equal("balance" in changed, false);
+});
+
+test("changedPayload cleans a changed amount and never sends type", () => {
+  const form = { ...formFromAccount(account), balance: "₹3,000.50" };
+  assert.deepEqual(changedPayload(form, account), { balance: "3000.50" });
+});
+
+test("cleanMoney strips the rupee sign only at the start, after an optional sign", () => {
+  const balance = (raw) => toPayload(bank({ balance: raw }), "create").balance;
+  assert.equal(balance("₹500"), "500");
+  assert.equal(balance("-₹500"), "-500");
+  assert.equal(balance(" ₹ 1,00,000.50 "), "100000.50");
+  assert.equal(balance("10₹50"), "10₹50");
+  assert.equal(balance("500₹"), "500₹");
+  assert.equal(balance("₹₹5"), "₹5");
+});
