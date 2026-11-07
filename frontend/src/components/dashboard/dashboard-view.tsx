@@ -73,7 +73,7 @@ function Content({ data }: { data: Dashboard }) {
         <p id="net-worth-label" className={LABEL}>
           Net worth
         </p>
-        <p className="mt-1 text-xl font-semibold tabular-nums [overflow-wrap:anywhere] min-[480px]:text-3xl sm:text-5xl">
+        <p className="mt-1 text-lg font-semibold tabular-nums [overflow-wrap:anywhere] min-[480px]:text-3xl sm:text-5xl">
           {formatRupees(data.net_worth)}
         </p>
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Investments and loans not included yet</p>

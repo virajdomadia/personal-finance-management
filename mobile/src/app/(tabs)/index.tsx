@@ -97,7 +97,7 @@ export default function DashboardScreen() {
           <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
             Net worth
           </Text>
-          <Text variant="displaySmall" adjustsFontSizeToFit numberOfLines={2} style={styles.heroAmount}>
+          <Text variant="displaySmall" adjustsFontSizeToFit numberOfLines={1} style={styles.heroAmount}>
             {formatRupees(data.net_worth)}
           </Text>
           <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
