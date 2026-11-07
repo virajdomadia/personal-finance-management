@@ -8,6 +8,7 @@ import { logout } from "@/app/login/actions";
 const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/accounts", label: "Accounts" },
+  { href: "/transactions", label: "Transactions" },
 ] as const;
 
 export function Sidebar() {

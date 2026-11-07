@@ -161,7 +161,8 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
 
   const type = form.type;
   const HINTS = new Set<keyof AccountForm>([
-    ...(type === "credit_card" ? (["balance", "statement_day", "due_day"] as const) : []),
+    ...(type === "credit_card" || editing ? (["balance"] as const) : []),
+    ...(type === "credit_card" ? (["statement_day", "due_day"] as const) : []),
     ...(type === "bank" || type === "credit_card" ? (["last4"] as const) : []),
   ]);
   const field = (key: keyof AccountForm, label: string, input: React.ReactNode, hint?: string) => (
@@ -238,7 +239,11 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
             "balance",
             type === "credit_card" ? "Amount owed (₹)" : "Balance (₹)",
             <input {...props("balance")} type="text" inputMode="decimal" autoComplete="off" required />,
-            type === "credit_card" ? "Enter what you owe as a positive amount." : undefined,
+            editing
+              ? "Changing this corrects the balance. Your transactions stay as they are."
+              : type === "credit_card"
+                ? "Enter what you owe as a positive amount."
+                : undefined,
           )}
 
           {type !== "cash" &&

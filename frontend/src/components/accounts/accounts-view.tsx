@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { logout } from "@/app/login/actions";
@@ -281,6 +282,9 @@ function AccountRow({
         )}
       </div>
       <div className="flex shrink-0 gap-1">
+        <Link href={`/transactions?account=${account.id}`} className={ROW_ACTION} aria-label={`Transactions for ${account.name}`}>
+          Transactions
+        </Link>
         {account.archived ? (
           <button
             type="button"

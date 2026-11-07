@@ -91,7 +91,7 @@ const GROUPED = /^([+-]?)(\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3})(\.\d*)?$/
 
 // Drops a leading rupee sign (after an optional sign) and outer spaces, and commas only where they sit between digit groups.
 // Anything else (`1500,50`, `1 2`) is left as typed, so the server rejects it.
-function cleanMoney(raw: string): string {
+export function cleanMoney(raw: string): string {
   const text = raw.trim().replace(/^([+-]?)\s*₹\s*/, "$1");
   const match = GROUPED.exec(text);
   return match ? `${match[1]}${match[2].replace(/,/g, "")}${match[3] ?? ""}` : text;
