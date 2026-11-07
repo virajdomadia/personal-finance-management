@@ -34,11 +34,11 @@ export type AccountForm = {
 };
 
 export const TYPE_LABELS: Record<AccountType, string> = {
-  bank: "Bank",
+  bank: "Bank account",
   credit_card: "Credit card",
-  cash: "Cash",
-  broker: "Broker",
-  wallet: "Wallet",
+  cash: "Cash in hand",
+  broker: "Broker balance",
+  wallet: "Wallet or prepaid card",
 };
 
 export const TYPE_ORDER: AccountType[] = ["bank", "credit_card", "cash", "broker", "wallet"];
@@ -69,8 +69,29 @@ export function maskLast4(last4: string): string {
   return `•••• ${last4}`;
 }
 
+// Western (1,000,000) or Indian (10,00,000) digit groups in the whole-number part.
+const GROUPED = /^([+-]?)(\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3})(\.\d*)?$/;
+
+// Drops the rupee sign and outer spaces, and commas only where they sit between digit groups.
+// Anything else (`1500,50`, `1 2`) is left as typed, so the server rejects it.
 function cleanMoney(raw: string): string {
-  return raw.replace(/[₹,\s]/g, "");
+  const text = raw.replace(/₹/g, "").trim();
+  const match = GROUPED.exec(text);
+  return match ? `${match[1]}${match[2].replace(/,/g, "")}${match[3] ?? ""}` : text;
+}
+
+export function formFromAccount(account: Account): AccountForm {
+  return {
+    type: account.type,
+    name: account.name,
+    balance: account.balance,
+    institution: account.institution ?? "",
+    bank_kind: account.bank_kind ?? "",
+    last4: account.last4 ?? "",
+    credit_limit: account.credit_limit ?? "",
+    statement_day: account.statement_day === null ? "" : String(account.statement_day),
+    due_day: account.due_day === null ? "" : String(account.due_day),
+  };
 }
 
 export function toPayload(form: AccountForm, mode: "create" | "edit"): Record<string, unknown> {
@@ -94,21 +115,16 @@ export function toPayload(form: AccountForm, mode: "create" | "edit"): Record<st
   return payload;
 }
 
-export function fieldErrors(body: string): Record<string, string> {
-  const errors: Record<string, string> = {};
-  try {
-    const detail = JSON.parse(body)?.detail;
-    if (!Array.isArray(detail)) return errors;
-    for (const item of detail) {
-      const field = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : undefined;
-      if (typeof field === "string" && typeof item.msg === "string" && !(field in errors)) {
-        errors[field] = item.msg;
-      }
-    }
-  } catch {
-    // Not JSON: no field errors.
+// What an edit sends: only the fields that differ from the loaded account (a cleared field is
+// null), so a stale dialog can't overwrite a value changed elsewhere. Empty means nothing to save.
+export function changedPayload(form: AccountForm, original: Account): Record<string, unknown> {
+  const before = toPayload(formFromAccount(original), "edit");
+  const after = toPayload(form, "edit");
+  const changed: Record<string, unknown> = {};
+  for (const key of Object.keys(after)) {
+    if (!Object.is(after[key], before[key])) changed[key] = after[key];
   }
-  return errors;
+  return changed;
 }
 
 const FALLBACK = "Something went wrong. Try again.";
