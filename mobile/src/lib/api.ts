@@ -21,7 +21,7 @@ async function readDetail(response: Response): Promise<unknown> {
 }
 
 type Options = {
-  method?: "GET" | "POST" | "PATCH";
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
   token?: string;
   body?: unknown;
 };

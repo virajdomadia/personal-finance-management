@@ -28,6 +28,8 @@ function Screens() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="account-form" />
             <Stack.Screen name="archived-accounts" />
+            <Stack.Screen name="transaction-form" />
+            <Stack.Screen name="account-transactions" />
           </Stack.Protected>
           <Stack.Protected guard={!loggedIn}>
             <Stack.Screen name="login" />

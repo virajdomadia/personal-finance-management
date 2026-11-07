@@ -373,6 +373,7 @@ function FormBody({ account }: { account: Account | null }) {
   }
 
   const hint = (key: keyof AccountForm): string | undefined => {
+    if (key === "balance" && editing) return "Changing this corrects the balance. Your transactions stay as they are.";
     if (key === "balance" && type === "credit_card") return "Enter what you owe as a positive amount.";
     if (key === "last4") return "Only the last 4 digits. Never enter the full number.";
     if (key === "statement_day" || key === "due_day") return "1 to 31";
@@ -435,6 +436,19 @@ function FormBody({ account }: { account: Account | null }) {
       <Appbar.Header>
         <Appbar.BackAction onPress={() => router.back()} disabled={saving || archiving} />
         <Appbar.Content title={editing ? "Edit account" : "Add account"} />
+        {editing ? (
+          <Appbar.Action
+            icon="format-list-bulleted"
+            accessibilityLabel="Transactions for this account"
+            disabled={busy}
+            onPress={() =>
+              router.push({
+                pathname: "/account-transactions",
+                params: { id: String(account.id), name: account.name },
+              })
+            }
+          />
+        ) : null}
         {editing ? (
           <Appbar.Action
             icon="archive-outline"

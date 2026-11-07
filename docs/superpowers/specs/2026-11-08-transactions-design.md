@@ -54,9 +54,13 @@ Rules:
 
 `/transactions`, linked from the sidebar and from a "Transactions" action on each account row (`/transactions?account=<id>`). Month navigation, account and type filters, income and spent totals, a list grouped by date, "Load more", and add and edit in a dialog. After saving, the view moves to the transaction's month so it doesn't seem to vanish.
 
-## Android (next, after production is tested)
+## Android
 
-Follows the website, with its own Material screens per the accounts design: a Transactions tab between Accounts and Profile, a floating add button, pull to refresh, and a full-screen form. Open transactions for one account from the account screen. Add `DELETE` to `src/lib/api.ts`.
+Its own Material screens per the accounts design: a Transactions tab between Accounts and Profile, a floating add button, pull to refresh, filter chips, and a full-screen form with chips for type, account, and category. An account's edit screen opens that account's transactions. Delete is on the transaction's edit screen.
+
+The owner asked for the app to be built while they test the website on production, rather than after.
+
+The date is a text field with Today and Yesterday shortcuts, because a calendar picker would add a native dependency and need a new development build. This can improve along with the rest of the UI.
 
 ## Design calls made by Claude, not yet confirmed by the owner
 

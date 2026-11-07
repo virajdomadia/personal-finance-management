@@ -9,6 +9,7 @@ import { useSession } from "@/lib/session";
 const TAB_ICONS: Record<string, { focusedIcon: string; unfocusedIcon: string }> = {
   index: { focusedIcon: "view-dashboard", unfocusedIcon: "view-dashboard-outline" },
   accounts: { focusedIcon: "wallet", unfocusedIcon: "wallet-outline" },
+  transactions: { focusedIcon: "swap-horizontal-bold", unfocusedIcon: "swap-horizontal" },
   profile: { focusedIcon: "account", unfocusedIcon: "account-outline" },
 };
 
@@ -58,6 +59,7 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="index" options={{ title: "Dashboard" }} />
       <Tabs.Screen name="accounts" options={{ title: "Accounts" }} />
+      <Tabs.Screen name="transactions" options={{ title: "Transactions" }} />
       <Tabs.Screen name="profile" options={{ title: "Profile" }} />
     </Tabs>
   );
