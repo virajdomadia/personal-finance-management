@@ -1,7 +1,8 @@
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 from sqlalchemy import select
@@ -50,6 +51,26 @@ class AccountCreate(BaseModel):
 
     type: AccountType
     # Required fields are optional here so that validate_rules reports them like any other rule.
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    balance: Money | None = None
+    institution: str | None = Field(default=None, max_length=60)
+    bank_kind: BankKind | None = None
+    last4: str | None = Field(default=None, pattern=r"^[0-9]{4}$")
+    credit_limit: Money | None = None
+    statement_day: Day | None = None
+    due_day: Day | None = None
+
+    @field_validator("institution")
+    @classmethod
+    def blank_institution_is_none(cls, value: str | None) -> str | None:
+        return value or None
+
+
+class AccountUpdate(BaseModel):
+    """Create's fields, all optional, minus `type`; extras are forbidden, so type can't change."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     name: str | None = Field(default=None, min_length=1, max_length=60)
     balance: Money | None = None
     institution: str | None = Field(default=None, max_length=60)
@@ -164,4 +185,52 @@ def create_account(body: AccountCreate, user: CurrentUser, db: DbSession) -> Acc
     )
     db.add(account)
     db.commit()
+    return to_response(account)
+
+
+def _get_owned(db: DbSession, user: CurrentUser, id: int) -> Account:
+    account = db.scalar(select(Account).where(Account.id == id, Account.user_id == user.id))
+    if account is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found.")
+    return account
+
+
+@router.patch("/{id}")
+def update_account(
+    id: int, body: AccountUpdate, user: CurrentUser, db: DbSession
+) -> AccountResponse:
+    account = _get_owned(db, user, id)
+    if account.archived_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Restore this account before editing it.")
+    values = {
+        "type": account.type,
+        "balance": account.opening_balance,
+        **{field: getattr(account, field) for field in DETAILS},
+        "name": account.name,
+    }
+    values.update(body.model_dump(exclude_unset=True))
+    validate_rules(values)
+    account.name = values["name"]
+    account.opening_balance = values["balance"]
+    for field in DETAILS:
+        setattr(account, field, values[field])
+    db.commit()
+    return to_response(account)
+
+
+@router.post("/{id}/archive")
+def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountResponse:
+    account = _get_owned(db, user, id)
+    if account.archived_at is None:
+        account.archived_at = datetime.now(UTC)
+        db.commit()
+    return to_response(account)
+
+
+@router.post("/{id}/restore")
+def restore_account(id: int, user: CurrentUser, db: DbSession) -> AccountResponse:
+    account = _get_owned(db, user, id)
+    if account.archived_at is not None:
+        account.archived_at = None
+        db.commit()
     return to_response(account)

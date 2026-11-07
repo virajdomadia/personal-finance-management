@@ -280,3 +280,188 @@ def test_requires_session(db_session: Session, monkeypatch: pytest.MonkeyPatch) 
 
     assert client.get(URL).status_code == 401
     assert client.post(URL, json={}).status_code == 401
+
+
+def patch(headers: Headers, id_: int, **body: Any) -> Response:
+    return client.patch(f"{URL}/{id_}", json=body, headers=headers)
+
+
+def archive(headers: Headers, id_: int) -> Response:
+    return client.post(f"{URL}/{id_}/archive", headers=headers)
+
+
+def restore(headers: Headers, id_: int) -> Response:
+    return client.post(f"{URL}/{id_}/restore", headers=headers)
+
+
+def get_one(headers: Headers, id_: int) -> dict:
+    accounts = client.get(URL, headers=headers).json()["accounts"]
+    return next(a for a in accounts if a["id"] == id_)
+
+
+def test_patch_updates_only_sent_fields(headers: Headers) -> None:
+    created = make(
+        headers, type="bank", bank_kind="savings", institution="HDFC", last4="1234"
+    ).json()
+
+    response = patch(headers, created["id"], name="Renamed", balance="10.50")
+
+    assert response.status_code == 200
+    assert response.json() == {**created, "name": "Renamed", "balance": "10.50"}
+
+
+def test_patch_null_clears_optional_field(headers: Headers) -> None:
+    created = make(headers, type="bank", bank_kind="savings", last4="1234").json()
+
+    response = patch(headers, created["id"], last4=None)
+
+    assert response.status_code == 200
+    assert response.json()["last4"] is None
+    assert get_one(headers, created["id"])["last4"] is None
+
+
+def test_patch_empty_body_is_a_no_op(headers: Headers) -> None:
+    created = make(headers, balance="5.00").json()
+
+    response = patch(headers, created["id"])
+
+    assert response.status_code == 200
+    assert response.json() == created
+
+
+def test_patch_cannot_change_type(headers: Headers) -> None:
+    created = make(headers).json()
+
+    response = patch(headers, created["id"], type="cash")
+
+    assert response.status_code == 422
+    assert ["body", "type"] in locs(response)
+
+
+@pytest.mark.parametrize("body", [{"name": None}, {"balance": None}, {"bank_kind": None}])
+def test_patch_cannot_clear_required_field(headers: Headers, body: dict) -> None:
+    created = make(headers, type="bank", bank_kind="savings").json()
+
+    response = patch(headers, created["id"], **body)
+
+    assert response.status_code == 422
+    assert ["body", next(iter(body))] in locs(response)
+
+
+def test_patch_validates_merged_result(headers: Headers) -> None:
+    cash = make(headers).json()
+    bank = make(headers, type="bank", bank_kind="savings").json()
+
+    negative = patch(headers, cash["id"], balance="-1.00")
+    wrong_field = patch(headers, bank["id"], due_day=5)
+
+    assert negative.status_code == 422
+    assert ["body", "balance"] in locs(negative)
+    assert wrong_field.status_code == 422
+    assert ["body", "due_day"] in locs(wrong_field)
+
+
+def test_failed_patch_changes_nothing(headers: Headers) -> None:
+    created = make(headers, balance="7.00").json()
+
+    assert patch(headers, created["id"], name="New", balance="-1.00").status_code == 422
+
+    assert get_one(headers, created["id"]) == created
+
+
+def test_patch_archived_is_409(headers: Headers) -> None:
+    created = make(headers).json()
+    archive(headers, created["id"])
+
+    response = patch(headers, created["id"], name="New")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Restore this account before editing it."}
+
+
+def test_archive_leaves_list_and_totals(headers: Headers) -> None:
+    kept = make(headers, name="Kept", balance="10.00").json()
+    gone = make(headers, name="Gone", balance="5.00").json()
+
+    response = archive(headers, gone["id"])
+
+    assert response.status_code == 200
+    assert response.json()["archived"] is True
+    body = client.get(URL, headers=headers).json()
+    assert [a["id"] for a in body["accounts"]] == [kept["id"]]
+    assert body["total_have"] == "10.00"
+
+
+def test_archived_list_shows_only_archived_with_active_totals(headers: Headers) -> None:
+    make(headers, name="Kept", balance="10.00")
+    gone = make(headers, name="Gone", balance="5.00").json()
+    archive(headers, gone["id"])
+
+    body = client.get(URL, params={"archived": "true"}, headers=headers).json()
+
+    assert [a["id"] for a in body["accounts"]] == [gone["id"]]
+    assert body["accounts"][0]["archived"] is True
+    assert body["total_have"] == "10.00"
+    assert body["total_owe"] == "0.00"
+
+
+def test_restore_returns_account_to_list_and_totals(headers: Headers) -> None:
+    created = make(headers, balance="5.00").json()
+    archive(headers, created["id"])
+
+    response = restore(headers, created["id"])
+
+    assert response.status_code == 200
+    assert response.json()["archived"] is False
+    body = client.get(URL, headers=headers).json()
+    assert [a["id"] for a in body["accounts"]] == [created["id"]]
+    assert body["total_have"] == "5.00"
+    assert patch(headers, created["id"], name="Edited").status_code == 200
+
+
+def test_archive_and_restore_can_repeat(headers: Headers) -> None:
+    created = make(headers).json()
+
+    assert [archive(headers, created["id"]).status_code for _ in range(2)] == [200, 200]
+    assert [restore(headers, created["id"]).status_code for _ in range(2)] == [200, 200]
+
+
+@pytest.mark.parametrize(
+    "request_",
+    [
+        lambda h, i: patch(h, i, name="Hacked"),
+        archive,
+        restore,
+    ],
+    ids=["patch", "archive", "restore"],
+)
+def test_other_users_account_is_404_and_unchanged(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch, headers: Headers, request_: Any
+) -> None:
+    other = auth(db_session, monkeypatch, "other@example.com")
+    theirs = make(other, name="Theirs").json()
+
+    assert request_(headers, theirs["id"]).status_code == 404
+
+    assert get_one(other, theirs["id"]) == theirs
+
+
+@pytest.mark.parametrize(
+    "request_",
+    [
+        lambda h, i: patch(h, i, name="X"),
+        archive,
+        restore,
+    ],
+    ids=["patch", "archive", "restore"],
+)
+def test_missing_account_is_404(headers: Headers, request_: Any) -> None:
+    assert request_(headers, 99999).status_code == 404
+
+
+def test_edit_routes_require_session(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    auth(db_session, monkeypatch)
+
+    assert client.patch(f"{URL}/1", json={}).status_code == 401
+    assert client.post(f"{URL}/1/archive").status_code == 401
+    assert client.post(f"{URL}/1/restore").status_code == 401
