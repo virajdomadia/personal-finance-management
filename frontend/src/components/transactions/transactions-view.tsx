@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { Select } from "@/components/ui/select";
 import {
   TRANSACTION_TYPES,
   type Transaction,
@@ -32,8 +33,6 @@ const PRIMARY = `${BUTTON} bg-zinc-900 font-medium text-white hover:bg-zinc-700 
 const QUIET = `${BUTTON} text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800`;
 const ROW_ACTION =
   "rounded px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100";
-const SELECT =
-  "min-w-0 rounded-md border border-zinc-300 bg-transparent px-2 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 dark:border-zinc-700";
 
 const PAGE_SIZE = 50;
 
@@ -157,37 +156,25 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
             ›
           </button>
         </div>
-        <select
-          aria-label="Filter by account"
-          className={SELECT}
-          value={filters.accountId ?? ""}
-          onChange={(e) => applyFilters({ accountId: e.target.value === "" ? null : Number(e.target.value) })}
-        >
-          <option value="">All accounts</option>
-          {accounts?.active.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-          {accounts?.archived.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name} (archived)
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Filter by type"
-          className={SELECT}
+        <Select
+          ariaLabel="Filter by account"
+          className="w-48"
+          value={filters.accountId === null ? "" : String(filters.accountId)}
+          placeholder="All accounts"
+          options={[
+            { value: "", label: "All accounts" },
+            ...(accounts?.active.map((a) => ({ value: String(a.id), label: a.name })) ?? []),
+            ...(accounts?.archived.map((a) => ({ value: String(a.id), label: `${a.name} (archived)` })) ?? []),
+          ]}
+          onChange={(value) => applyFilters({ accountId: value === "" ? null : Number(value) })}
+        />
+        <Select
+          ariaLabel="Filter by type"
+          className="w-36"
           value={filters.type ?? ""}
-          onChange={(e) => applyFilters({ type: e.target.value === "" ? null : (e.target.value as TransactionType) })}
-        >
-          <option value="">All types</option>
-          {TRANSACTION_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
+          options={[{ value: "", label: "All types" }, ...TRANSACTION_TYPES]}
+          onChange={(value) => applyFilters({ type: value === "" ? null : (value as TransactionType) })}
+        />
       </div>
 
       {notice ? (

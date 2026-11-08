@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type Account, errorMessage, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { ComboBox, Select } from "@/components/ui/select";
 import {
   type CategoryList,
   TRANSACTION_TYPES,
@@ -147,20 +148,18 @@ export function TransactionDialog({ transaction, accounts, defaultAccountId, onC
     className: INPUT,
     "aria-invalid": errors[key] ? true : undefined,
     "aria-describedby": errors[key] ? `te-${key}` : undefined,
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => set(key, e.target.value),
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => set(key, e.target.value),
   });
-  const accountOptions = (exclude: string) => (
-    <>
-      <option value="">Choose an account</option>
-      {accounts
-        .filter((a) => String(a.id) !== exclude)
-        .map((a) => (
-          <option key={a.id} value={a.id}>
-            {a.name}
-          </option>
-        ))}
-    </>
-  );
+  const pickerProps = (key: keyof TransactionForm) => ({
+    id: `t-${key}`,
+    value: form[key],
+    disabled: saving,
+    invalid: Boolean(errors[key]),
+    describedBy: errors[key] ? `te-${key}` : undefined,
+    onChange: (value: string) => set(key, value),
+  });
+  const accountOptions = (exclude: string) =>
+    accounts.filter((a) => String(a.id) !== exclude).map((a) => ({ value: String(a.id), label: a.name }));
 
   return (
     <dialog
@@ -209,21 +208,30 @@ export function TransactionDialog({ transaction, accounts, defaultAccountId, onC
             {field("date", "Date", <input {...props("date")} type="date" max={todayIndia()} required />)}
           </div>
 
-          {field("account_id", FROM_LABELS[type], <select {...props("account_id")}>{accountOptions(type === "transfer" ? form.to_account_id : "")}</select>)}
+          {field(
+            "account_id",
+            FROM_LABELS[type],
+            <Select
+              {...pickerProps("account_id")}
+              placeholder="Choose an account"
+              options={accountOptions(type === "transfer" ? form.to_account_id : "")}
+            />,
+          )}
 
           {type === "transfer"
-            ? field("to_account_id", "To account", <select {...props("to_account_id")}>{accountOptions(form.account_id)}</select>)
+            ? field(
+                "to_account_id",
+                "To account",
+                <Select {...pickerProps("to_account_id")} placeholder="Choose an account" options={accountOptions(form.account_id)} />,
+              )
             : field(
                 "category",
                 "Category",
-                <>
-                  <input {...props("category")} type="text" list="transaction-categories" autoComplete="off" maxLength={40} required />
-                  <datalist id="transaction-categories">
-                    {categories[type].map((name) => (
-                      <option key={name} value={name} />
-                    ))}
-                  </datalist>
-                </>,
+                <ComboBox
+                  {...pickerProps("category")}
+                  maxLength={40}
+                  options={categories[type].map((name) => ({ value: name, label: name }))}
+                />,
               )}
 
           {field("note", "Note (optional)", <input {...props("note")} type="text" autoComplete="off" maxLength={200} />)}

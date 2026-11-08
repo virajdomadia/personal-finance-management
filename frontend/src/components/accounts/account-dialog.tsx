@@ -17,6 +17,9 @@ import {
   toPayload,
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { Select } from "@/components/ui/select";
+
+const TYPE_OPTIONS = TYPE_ORDER.map((type) => ({ value: type, label: TYPE_LABELS[type] }));
 
 const BANK_KINDS = [
   { value: "savings", label: "Savings" },
@@ -193,7 +196,14 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
     className: INPUT,
     "aria-invalid": errors[key] ? true : undefined,
     "aria-describedby": describedBy(key),
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => set(key, e.target.value),
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => set(key, e.target.value),
+  });
+  const selectProps = (key: keyof AccountForm) => ({
+    id: `f-${key}`,
+    value: form[key],
+    disabled: saving,
+    invalid: Boolean(errors[key]),
+    describedBy: describedBy(key),
   });
 
   return (
@@ -220,17 +230,7 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
             field(
               "type",
               "Type",
-              <select
-                {...props("type")}
-                value={type}
-                onChange={(e) => changeType(e.target.value as AccountType)}
-              >
-                {TYPE_ORDER.map((t) => (
-                  <option key={t} value={t}>
-                    {TYPE_LABELS[t]}
-                  </option>
-                ))}
-              </select>,
+              <Select {...selectProps("type")} options={TYPE_OPTIONS} onChange={(value) => changeType(value as AccountType)} />,
             )
           )}
 
@@ -253,13 +253,7 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
             field(
               "bank_kind",
               "Kind",
-              <select {...props("bank_kind")}>
-                {BANK_KINDS.map((k) => (
-                  <option key={k.value} value={k.value}>
-                    {k.label}
-                  </option>
-                ))}
-              </select>,
+              <Select {...selectProps("bank_kind")} options={BANK_KINDS} onChange={(value) => set("bank_kind", value)} />,
             )}
 
           {(type === "bank" || type === "credit_card") &&
