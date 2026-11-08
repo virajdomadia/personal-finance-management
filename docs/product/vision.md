@@ -36,7 +36,7 @@ These are areas of the product, not separate services. They live in one FastAPI 
 | 2 | Cash flow | Income, expenses, budgets, recurring commitments | Next |
 | 3 | Assets | Cash, deposits, vehicles, jewellery, property | Planned |
 | 4 | Investments | Stocks, mutual funds, ETFs, gold, lots | Planned |
-| 5 | Liabilities | Credit cards, loans, EMIs | Cards built; loans planned |
+| 5 | Liabilities | Credit cards, loans, EMIs | Cards built; loans built on the website, app next |
 | 6 | Planning | Goals, savings targets | Planned |
 | 7 | Intelligence | Net worth history, analytics, reports | Planned |
 | 8 | Data | Audit history, exports, backup and restore | Planned |

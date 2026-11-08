@@ -61,6 +61,8 @@ Instruments (stocks, mutual funds, ETFs, gold, others) and buy and sell trades w
 
 Loans with principal, rate, tenure and an EMI schedule. Interest is kept apart from principal. Repayment history and outstanding balance. Credit cards already exist.
 
+**Status:** brought forward at the owner's request. Loans and EMIs are built on the backend and website (branch `loans`, [design](../superpowers/specs/2026-11-08-loans-design.md)), on the current engine, so the ledger backfill maps each EMI to its three lines. The Android screens follow once the website is tested on production. A full amortisation schedule is not built.
+
 **Exit:** a complete liabilities overview.
 
 ## Milestone 6: Net worth over time

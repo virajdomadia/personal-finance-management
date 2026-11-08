@@ -46,11 +46,11 @@ Named here so that later work fits. Each gets its own design doc before it's bui
 | Domain | Tables | Notes |
 |---|---|---|
 | Ledger | `categories`, `category_changes`, `ledger_accounts`, `transaction_changes`, `postings`, `journal_lines` | The only tables created with the ledger. Full schema in the [ledger design](ledger-design.md). |
-| Accounts | add `opening_date`, `opening_date_source`, `currency` and a generated `ledger_kind` to `accounts`; new types `deposit` and `loan` later | A credit card stays one account, which is also its liability ledger account. There is never a second record of the same balance. |
+| Accounts | add `opening_date`, `opening_date_source`, `currency` and a generated `ledger_kind` to `accounts`; type `loan` (built), `deposit` later | A credit card stays one account, which is also its liability ledger account. There is never a second record of the same balance. |
 | Budgets | `budgets` (category, period, amount) | Spending comes from expense ledger lines |
 | Recurring | `recurring_templates` | Reminds and pre-fills. Never posts on its own. |
 | Assets | `assets`, `asset_valuations` | Purchase date and value, ownership %, dated valuations |
 | Investments | `instruments`, `investment_trades`, `investment_lots`, `instrument_prices` | Holdings and cost basis are derived from trades and lots, which are never edited away |
-| Liabilities | `loan_details`, `loan_installments` | Each loan is a liability account. An EMI posts principal against the loan and interest to an expense. |
+| Liabilities | **Built (2026-11-08):** loan columns on `accounts` (`interest_rate`, `emi_amount`, `emis_at_opening`, `pay_from_id`) and `transactions.interest` | Each loan is a liability account. An EMI is one `emi` transaction: principal against the loan, interest to spending. See the [loans design](../superpowers/specs/2026-11-08-loans-design.md). |
 | Goals | `goals`, `goal_contributions` | A goal points at existing accounts. It never holds money itself. |
 | Intelligence | `net_worth_snapshots` (date, assets, liabilities, net worth, breakdown JSON, recorded_at) | Preserves what was known at the time. Past balances can always be recomputed from the ledger as well. |
