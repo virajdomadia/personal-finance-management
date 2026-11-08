@@ -1,0 +1,247 @@
+import re
+from datetime import date
+from decimal import Decimal
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, BeforeValidator, ConfigDict
+from pydantic_core import PydanticCustomError
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+
+from app.api.deps import CurrentUser, get_current_user
+from app.api.routes.accounts import MAX_ID, Money, clean_text, field_error, fmt
+from app.api.routes.dashboard import today_india
+from app.api.routes.transactions import Day
+from app.db.session import DbSession
+from app.models.stock import Stock, StockPrice, StockTrade
+
+router = APIRouter(
+    prefix="/investments", tags=["investments"], dependencies=[Depends(get_current_user)]
+)
+
+_SYMBOL = re.compile(r"[A-Z0-9&.\-]{1,20}")
+_BAD_SYMBOL = "Use 1 to 20 letters, digits, &, - or ."
+
+
+def _symbol(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = value.strip().upper() if isinstance(value, str) else ""
+    if not _SYMBOL.fullmatch(text):
+        raise PydanticCustomError("symbol", _BAD_SYMBOL)
+    return text
+
+
+Symbol = Annotated[str | None, BeforeValidator(_symbol)]
+StockName = Annotated[str | None, BeforeValidator(lambda v: clean_text(v, "Enter a name.", 60))]
+
+
+class StockCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Required fields are optional here so that missing ones are reported like any other rule.
+    symbol: Symbol = None
+    name: StockName = None
+
+
+class StockUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: Symbol = None
+    name: StockName = None
+
+
+class PriceCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: Day = None
+    price: Money = None
+
+
+class StockResponse(BaseModel):
+    id: int
+    symbol: str
+    name: str
+    price: str | None
+    price_date: str | None
+
+
+class StockList(BaseModel):
+    stocks: list[StockResponse]
+
+
+class PriceResponse(BaseModel):
+    id: int
+    date: str
+    price: str
+
+
+class PriceList(BaseModel):
+    prices: list[PriceResponse]
+
+
+class Deleted(BaseModel):
+    id: int
+
+
+def get_owned_stock(db: DbSession, user_id: int, id: int) -> Stock:
+    # Ids outside the column's range can't exist; asking the database would be a 500.
+    stock = None
+    if 1 <= id <= MAX_ID:
+        stock = db.scalar(select(Stock).where(Stock.id == id, Stock.user_id == user_id))
+    if stock is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Stock not found.")
+    return stock
+
+
+def latest_prices(db: DbSession, user_id: int) -> dict[int, tuple[date, Decimal]]:
+    """Each stock's current price: the latest date, and on that date the last one recorded."""
+    rows = db.execute(
+        select(StockPrice.stock_id, StockPrice.date, StockPrice.price)
+        .where(StockPrice.user_id == user_id)
+        .order_by(StockPrice.date, StockPrice.id)
+    )
+    # Ascending order, so the last row seen for a stock is its current price.
+    return {stock_id: (day, price) for stock_id, day, price in rows}
+
+
+def _response(stock: Stock, prices: dict[int, tuple[date, Decimal]]) -> StockResponse:
+    current = prices.get(stock.id)
+    return StockResponse(
+        id=stock.id,
+        symbol=stock.symbol,
+        name=stock.name,
+        price=None if current is None else fmt(current[1]),
+        price_date=None if current is None else current[0].isoformat(),
+    )
+
+
+def _taken(db: DbSession, user_id: int, symbol: str, except_id: int | None = None) -> bool:
+    query = select(Stock.id).where(Stock.user_id == user_id, func.upper(Stock.symbol) == symbol)
+    if except_id is not None:
+        query = query.where(Stock.id != except_id)
+    return db.scalar(query.limit(1)) is not None
+
+
+def _duplicate(symbol: str) -> RequestValidationError:
+    return RequestValidationError([field_error("symbol", f"You already have {symbol}.")])
+
+
+@router.get("/stocks")
+def list_stocks(user: CurrentUser, db: DbSession) -> StockList:
+    stocks = db.scalars(select(Stock).where(Stock.user_id == user.id).order_by(Stock.symbol)).all()
+    prices = latest_prices(db, user.id)
+    return StockList(stocks=[_response(s, prices) for s in stocks])
+
+
+@router.post("/stocks", status_code=status.HTTP_201_CREATED)
+def create_stock(body: StockCreate, user: CurrentUser, db: DbSession) -> StockResponse:
+    errors = []
+    if body.symbol is None:
+        errors.append(field_error("symbol", _BAD_SYMBOL))
+    if body.name is None:
+        errors.append(field_error("name", "Enter a name."))
+    if errors:
+        raise RequestValidationError(errors)
+    assert body.symbol is not None and body.name is not None
+    if _taken(db, user.id, body.symbol):
+        raise _duplicate(body.symbol)
+    stock = Stock(user_id=user.id, symbol=body.symbol, name=body.name)
+    db.add(stock)
+    try:
+        db.commit()
+    except IntegrityError:  # a concurrent request took the symbol first
+        db.rollback()
+        raise _duplicate(body.symbol) from None
+    return _response(stock, {})
+
+
+@router.patch("/stocks/{id}")
+def update_stock(id: int, body: StockUpdate, user: CurrentUser, db: DbSession) -> StockResponse:
+    stock = get_owned_stock(db, user.id, id)
+    changes = body.model_dump(exclude_unset=True)
+    errors = []
+    if "symbol" in changes and changes["symbol"] is None:
+        errors.append(field_error("symbol", _BAD_SYMBOL))
+    if "name" in changes and changes["name"] is None:
+        errors.append(field_error("name", "Enter a name."))
+    if errors:
+        raise RequestValidationError(errors)
+    symbol = changes.get("symbol")
+    if symbol is not None and symbol != stock.symbol.upper():
+        if _taken(db, user.id, symbol, except_id=stock.id):
+            raise _duplicate(symbol)
+    if symbol is not None:
+        stock.symbol = symbol
+    if "name" in changes:
+        stock.name = changes["name"]
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise _duplicate(symbol or stock.symbol) from None
+    return _response(stock, latest_prices(db, user.id))
+
+
+@router.delete("/stocks/{id}")
+def delete_stock(id: int, user: CurrentUser, db: DbSession) -> Deleted:
+    stock = get_owned_stock(db, user.id, id)
+    has_price = db.scalar(select(StockPrice.id).where(StockPrice.stock_id == stock.id).limit(1))
+    has_trade = db.scalar(select(StockTrade.id).where(StockTrade.stock_id == stock.id).limit(1))
+    if has_price is not None or has_trade is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This stock has trades or prices. Delete them first."
+        )
+    db.delete(stock)
+    db.commit()
+    return Deleted(id=id)
+
+
+@router.get("/stocks/{id}/prices")
+def list_prices(id: int, user: CurrentUser, db: DbSession) -> PriceList:
+    stock = get_owned_stock(db, user.id, id)
+    rows = db.scalars(
+        select(StockPrice)
+        .where(StockPrice.stock_id == stock.id)
+        .order_by(StockPrice.date.desc(), StockPrice.id.desc())
+    ).all()
+    return PriceList(
+        prices=[PriceResponse(id=p.id, date=p.date.isoformat(), price=fmt(p.price)) for p in rows]
+    )
+
+
+@router.post("/stocks/{id}/prices", status_code=status.HTTP_201_CREATED)
+def create_price(id: int, body: PriceCreate, user: CurrentUser, db: DbSession) -> PriceResponse:
+    stock = get_owned_stock(db, user.id, id)
+    errors = []
+    if body.date is None:
+        errors.append(field_error("date", "Choose a date."))
+    elif body.date > today_india():
+        errors.append(field_error("date", "The date can't be in the future."))
+    if body.price is None:
+        errors.append(field_error("price", "Enter a price, like 1234.50."))
+    elif body.price <= 0:
+        errors.append(field_error("price", "Price must be greater than 0."))
+    if errors:
+        raise RequestValidationError(errors)
+    assert body.date is not None and body.price is not None
+    price = StockPrice(user_id=user.id, stock_id=stock.id, date=body.date, price=body.price)
+    db.add(price)
+    db.commit()
+    return PriceResponse(id=price.id, date=price.date.isoformat(), price=fmt(price.price))
+
+
+@router.delete("/prices/{id}")
+def delete_price(id: int, user: CurrentUser, db: DbSession) -> Deleted:
+    price = None
+    if 1 <= id <= MAX_ID:
+        price = db.scalar(
+            select(StockPrice).where(StockPrice.id == id, StockPrice.user_id == user.id)
+        )
+    if price is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Price not found.")
+    db.delete(price)
+    db.commit()
+    return Deleted(id=id)
