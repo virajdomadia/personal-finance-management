@@ -1,4 +1,4 @@
-"""Pure FIFO portfolio maths for stock holdings (no database, no models).
+"""FIFO portfolio maths for stock holdings, pure apart from `load_trade_rows` at the bottom.
 
 Rules:
 - Trades are grouped per (stock_id, account_id), i.e. per broker, and replayed
@@ -19,6 +19,11 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import NamedTuple
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.stock import StockTrade
 
 PAISE = Decimal("0.01")
 
@@ -117,3 +122,21 @@ def replay(trades: Iterable[TradeRow]) -> Replay:
         pos.invested = round_paise(pos.invested)
         pos.realised = round_paise(pos.realised)
     return Replay(positions, realised_by_sell, shortfall)
+
+
+# The one database-aware function here: the rows `replay` works on, for all of a user's trades.
+def load_trade_rows(db: Session, user_id: int) -> list[TradeRow]:
+    rows = db.execute(
+        select(
+            StockTrade.id,
+            StockTrade.stock_id,
+            StockTrade.account_id,
+            StockTrade.side,
+            StockTrade.date,
+            StockTrade.quantity,
+            StockTrade.price,
+            StockTrade.charges,
+            StockTrade.opening,
+        ).where(StockTrade.user_id == user_id)
+    )
+    return [TradeRow(*row) for row in rows]

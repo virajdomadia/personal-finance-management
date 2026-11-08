@@ -1,5 +1,8 @@
 """An account's balance is its opening balance plus the money its transactions moved.
 
+Stock trades move a broker account's cash too. They join as movements with negative ids
+(`-trade.id`), so they never clash with a transaction id. Opening buys move no cash.
+
 Summed in Python with Decimal rather than SQL SUM, because the test database (SQLite) stores
 numerics as floats.
 """
@@ -11,11 +14,14 @@ from typing import NamedTuple
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.portfolio import load_trade_rows, trade_cash
 from app.models.account import Account
 from app.models.transaction import Transaction
 
 # Accounts whose balance is what's owed, so money coming in lowers it.
 LIABILITY_TYPES = {"credit_card", "loan"}
+# Movement types that bring money into their account; every other type takes it out.
+MONEY_IN = {"income", "sell"}
 
 
 class Movement(NamedTuple):
@@ -38,7 +44,11 @@ def load_movements(db: Session, user_id: int) -> list[Movement]:
             Transaction.interest,
         ).where(Transaction.user_id == user_id)
     )
-    return [Movement(*row) for row in rows]
+    movements = [Movement(*row) for row in rows]
+    for t in load_trade_rows(db, user_id):
+        if not t.opening:
+            movements.append(Movement(-t.id, t.side, abs(trade_cash(t)), t.account_id, None))
+    return movements
 
 
 def net_flows(movements: Iterable[Movement]) -> dict[int, Decimal]:
@@ -49,7 +59,7 @@ def net_flows(movements: Iterable[Movement]) -> dict[int, Decimal]:
         flows[account_id] = flows.get(account_id, Decimal(0)) + amount
 
     for movement in movements:
-        if movement.type == "income":
+        if movement.type in MONEY_IN:
             add(movement.account_id, movement.amount)
         else:
             add(movement.account_id, -movement.amount)

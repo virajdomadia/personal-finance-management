@@ -177,7 +177,7 @@ def _all_accounts(db: Session, user_id: int) -> dict[int, Account]:
     return {a.id: a for a in accounts}
 
 
-def _lock_accounts(db: Session, user_id: int, ids: Iterable[int | None]) -> dict[int, Account]:
+def lock_accounts(db: Session, user_id: int, ids: Iterable[int | None]) -> dict[int, Account]:
     """The user's accounts among `ids`, locked in id order so concurrent saves can't deadlock.
 
     The lock makes the below-zero check safe: nothing else can move these balances until commit.
@@ -277,7 +277,7 @@ def _validate_emi(
         errors.append(field_error("interest", "Interest can't be more than the EMI."))
 
 
-def _balance_problem(
+def balance_problem(
     accounts: dict[int, Account], before: list[Movement], after: list[Movement]
 ) -> str | None:
     """Why this change can't be saved, judged on what it does to each account's current balance."""
@@ -334,7 +334,7 @@ def _save_checks(
             values["interest"],
         )
     )
-    problem = _balance_problem(accounts, before, after)
+    problem = balance_problem(accounts, before, after)
     if problem:
         raise RequestValidationError([field_error("amount", problem)])
     if values["type"] == "emi":
@@ -424,7 +424,7 @@ def create_transaction(
     body: TransactionCreate, user: CurrentUser, db: DbSession
 ) -> TransactionResponse:
     values = body.model_dump()
-    accounts = _lock_accounts(db, user.id, [values["account_id"], values["to_account_id"]])
+    accounts = lock_accounts(db, user.id, [values["account_id"], values["to_account_id"]])
     _save_checks(db, user.id, accounts, values, existing_id=None)
     tx = Transaction(user_id=user.id, **values)
     db.add(tx)
@@ -456,7 +456,7 @@ def update_transaction(
         **changes,
     }
     # The old accounts are locked too, because moving a transaction changes their balances as well.
-    accounts = _lock_accounts(
+    accounts = lock_accounts(
         db,
         user.id,
         [tx.account_id, tx.to_account_id, values["account_id"], values["to_account_id"]],
@@ -472,10 +472,10 @@ def update_transaction(
 @router.delete("/{id}")
 def delete_transaction(id: int, user: CurrentUser, db: DbSession) -> dict[str, int]:
     tx = _get_owned(db, user.id, id)
-    accounts = _lock_accounts(db, user.id, [tx.account_id, tx.to_account_id])
+    accounts = lock_accounts(db, user.id, [tx.account_id, tx.to_account_id])
     _require_active(tx, accounts)
     before = load_movements(db, user.id)
-    problem = _balance_problem(accounts, before, [m for m in before if m.id != tx.id])
+    problem = balance_problem(accounts, before, [m for m in before if m.id != tx.id])
     if problem:
         raise HTTPException(status.HTTP_409_CONFLICT, problem)
     db.delete(tx)

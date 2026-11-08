@@ -1,7 +1,7 @@
 """Concurrent saves against today's engine, on PostgreSQL with real connections and commits.
 
 Each worker calls the real route function with its own session, exactly as two simultaneous
-requests would. The account row locks (`_lock_accounts`) are what keep these correct.
+requests would. The account row locks (`lock_accounts`) are what keep these correct.
 """
 
 import threading
@@ -23,9 +23,9 @@ from app.api.balances import balance_of, load_flows
 from app.api.routes.transactions import (
     TransactionCreate,
     TransactionUpdate,
-    _lock_accounts,
     create_transaction,
     delete_transaction,
+    lock_accounts,
     update_transaction,
 )
 from app.models.account import Account
@@ -175,7 +175,7 @@ def test_a_save_waits_for_the_lock_and_then_sees_the_new_balance(engine: Engine)
     first = Session(engine, expire_on_commit=False)
     pool = ThreadPoolExecutor(1)
     try:
-        _lock_accounts(first, user.id, [cash])  # holds the row lock until commit
+        lock_accounts(first, user.id, [cash])  # holds the row lock until commit
         second = pool.submit(attempt, engine, expense(user, cash, "300.00"))
         time.sleep(0.5)
         waited = not second.done()
