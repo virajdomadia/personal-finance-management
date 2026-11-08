@@ -14,6 +14,9 @@ from sqlalchemy.orm import Session
 from app.models.account import Account
 from app.models.transaction import Transaction
 
+# Accounts whose balance is what's owed, so money coming in lowers it.
+LIABILITY_TYPES = {"credit_card", "loan"}
+
 
 class Movement(NamedTuple):
     id: int
@@ -21,6 +24,7 @@ class Movement(NamedTuple):
     amount: Decimal
     account_id: int
     to_account_id: int | None
+    interest: Decimal | None = None  # EMIs only
 
 
 def load_movements(db: Session, user_id: int) -> list[Movement]:
@@ -31,6 +35,7 @@ def load_movements(db: Session, user_id: int) -> list[Movement]:
             Transaction.amount,
             Transaction.account_id,
             Transaction.to_account_id,
+            Transaction.interest,
         ).where(Transaction.user_id == user_id)
     )
     return [Movement(*row) for row in rows]
@@ -49,7 +54,8 @@ def net_flows(movements: Iterable[Movement]) -> dict[int, Decimal]:
         else:
             add(movement.account_id, -movement.amount)
         if movement.to_account_id is not None:
-            add(movement.to_account_id, movement.amount)
+            # An EMI's interest is spent; only the rest reaches the loan.
+            add(movement.to_account_id, movement.amount - (movement.interest or 0))
     return flows
 
 
@@ -58,13 +64,12 @@ def load_flows(db: Session, user_id: int) -> dict[int, Decimal]:
 
 
 def balance_of(account: Account, flows: dict[int, Decimal]) -> Decimal:
-    # A card's balance is what's owed, so money coming into the card lowers it.
     flow = flows.get(account.id, Decimal(0))
     opening = account.opening_balance
-    return opening - flow if account.type == "credit_card" else opening + flow
+    return opening - flow if account.type in LIABILITY_TYPES else opening + flow
 
 
 def opening_for(account: Account, balance: Decimal, flows: dict[int, Decimal]) -> Decimal:
     """The opening balance that makes `account` show `balance`, with its transactions unchanged."""
     flow = flows.get(account.id, Decimal(0))
-    return balance + flow if account.type == "credit_card" else balance - flow
+    return balance + flow if account.type in LIABILITY_TYPES else balance - flow

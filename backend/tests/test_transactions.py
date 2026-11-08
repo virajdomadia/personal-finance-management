@@ -277,6 +277,7 @@ def test_response_shape(headers: Headers) -> None:
         "to_account_id": None,
         "to_account_name": None,
         "category": "Groceries",
+        "interest": None,
         "note": "Weekly shop",
         "editable": True,
     }

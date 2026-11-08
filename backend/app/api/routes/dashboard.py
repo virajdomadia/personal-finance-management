@@ -1,5 +1,5 @@
 import calendar
-from datetime import UTC, date, datetime, timedelta, timezone
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends
@@ -7,7 +7,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.api.balances import balance_of, load_flows
+from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
+from app.api.loans import linked_owed
 from app.api.routes.accounts import fmt, list_sort_key, totals
 from app.db.session import DbSession
 from app.models.account import Account
@@ -15,13 +17,6 @@ from app.models.account import Account
 router = APIRouter(
     prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(get_current_user)]
 )
-
-INDIA = timezone(timedelta(hours=5, minutes=30))
-
-
-def today_india() -> date:
-    return datetime.now(UTC).astimezone(INDIA).date()
-
 
 def _clamped(year: int, month: int, day: int) -> date:
     return date(year, month, min(day, calendar.monthrange(year, month)[1]))
@@ -76,7 +71,9 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
     limited = [a for a in cards if a.credit_limit is not None]
     credit_used = None
     if limited:
-        used = sum((balance_of(a, flows) for a in limited), Decimal(0))
+        # Loans paid from a card use up its limit as well.
+        blocked = linked_owed(active, flows)
+        used = sum((balance_of(a, flows) + blocked.get(a.id, 0) for a in limited), Decimal(0))
         limit = sum((a.credit_limit for a in limited if a.credit_limit is not None), Decimal(0))
         percent = (used * 100 / limit).quantize(Decimal(1), rounding=ROUND_HALF_UP)
         credit_used = CreditUsed(percent=int(max(percent, Decimal(0))))

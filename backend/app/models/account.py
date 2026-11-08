@@ -22,6 +22,12 @@ class Account(Base):
     credit_limit: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     statement_day: Mapped[int | None]
     due_day: Mapped[int | None]
+    # Loans only. EMIs left = emis_at_opening minus the EMIs recorded; see app/api/loans.py.
+    interest_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    emi_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    emis_at_opening: Mapped[int | None]
+    # The account a loan's EMIs are paid from. A card's available credit excludes these loans.
+    pay_from_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

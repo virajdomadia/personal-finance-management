@@ -9,27 +9,43 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
 from sqlalchemy import select
 
-from app.api.balances import balance_of, load_flows, opening_for
+from app.api.balances import LIABILITY_TYPES, balance_of, opening_for
+from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
+from app.api.loans import Book, NextEmi, emis_at_opening, emis_left, load_book, next_emi
 from app.db.session import DbSession
 from app.models.account import Account
+from app.models.transaction import Transaction
 
 router = APIRouter(prefix="/accounts", tags=["accounts"], dependencies=[Depends(get_current_user)])
 
-AccountType = Literal["bank", "credit_card", "cash", "broker", "wallet"]
+AccountType = Literal["bank", "credit_card", "cash", "broker", "wallet", "loan"]
 BankKind = Literal["savings", "salary", "current"]
 
-TYPE_ORDER = {"bank": 0, "credit_card": 1, "cash": 2, "broker": 3, "wallet": 4}
+TYPE_ORDER = {"bank": 0, "credit_card": 1, "cash": 2, "broker": 3, "wallet": 4, "loan": 5}
 HAVE_TYPES = {"bank", "cash", "broker", "wallet"}
 
 # Optional details each type may carry; a non-null value for any other detail is rejected.
-DETAILS = {"institution", "bank_kind", "last4", "credit_limit", "statement_day", "due_day"}
+# `emis_left` is stored as `emis_at_opening` (see app/api/loans.py); the rest are columns.
+STORED = {
+    "institution",
+    "bank_kind",
+    "last4",
+    "credit_limit",
+    "statement_day",
+    "due_day",
+    "interest_rate",
+    "emi_amount",
+    "pay_from_id",
+}
+DETAILS = STORED | {"emis_left"}
 APPLICABLE = {
     "bank": {"institution", "bank_kind", "last4"},
     "credit_card": {"institution", "last4", "credit_limit", "statement_day", "due_day"},
     "cash": set(),
     "broker": {"institution"},
     "wallet": {"institution"},
+    "loan": {"institution", "due_day", "interest_rate", "emi_amount", "emis_left", "pay_from_id"},
 }
 MAX_ID = 2147483647  # the largest value of an integer primary key
 CAN_BE_NEGATIVE = {"bank", "broker", "credit_card"}
@@ -95,6 +111,41 @@ def _day(value: Any) -> int | None:
     return value
 
 
+def _rate(value: Any) -> Decimal | None:
+    message = "Enter a yearly rate from 0 to 100, like 10.5."
+    try:
+        rate = _money(value)
+    except PydanticCustomError as error:
+        if error.type == "amount_decimals":
+            raise
+        raise _reject("rate", message) from None
+    if rate is not None and not 0 <= rate <= 100:
+        raise _reject("rate", message)
+    return rate
+
+
+def _count(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 600:
+        raise _reject("count", "Enter a number of EMIs from 1 to 600.")
+    return value
+
+
+def _ref(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise _reject("account", "Choose an account.")
+    return value
+
+
+def _flag(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise _reject("flag", "Choose yes or no.")
+    return value
+
+
 def _choice(options: tuple[str, ...]) -> Any:
     def check(value: Any) -> Any:
         if value is not None and value not in options:
@@ -113,6 +164,10 @@ Last4 = Annotated[str | None, BeforeValidator(_last4)]
 Day = Annotated[int | None, BeforeValidator(_day)]
 Kind = Annotated[AccountType | None, BeforeValidator(_choice(get_args(AccountType)))]
 Bank = Annotated[BankKind | None, BeforeValidator(_choice(get_args(BankKind)))]
+Rate = Annotated[Decimal | None, BeforeValidator(_rate)]
+Count = Annotated[int | None, BeforeValidator(_count)]
+Ref = Annotated[int | None, BeforeValidator(_ref)]
+Flag = Annotated[bool, BeforeValidator(_flag)]
 
 
 class AccountCreate(BaseModel):
@@ -128,6 +183,12 @@ class AccountCreate(BaseModel):
     credit_limit: Money = None
     statement_day: Day = None
     due_day: Day = None
+    interest_rate: Rate = None
+    emi_amount: Money = None
+    emis_left: Count = None
+    pay_from_id: Ref = None
+    # Loans paid from a card: the balance is already in the card's, so move it off the card.
+    moved_from_card: Flag = False
 
 
 class AccountUpdate(BaseModel):
@@ -143,6 +204,10 @@ class AccountUpdate(BaseModel):
     credit_limit: Money = None
     statement_day: Day = None
     due_day: Day = None
+    interest_rate: Rate = None
+    emi_amount: Money = None
+    emis_left: Count = None
+    pay_from_id: Ref = None
 
 
 class AccountResponse(BaseModel):
@@ -157,6 +222,11 @@ class AccountResponse(BaseModel):
     available_credit: str | None
     statement_day: int | None
     due_day: int | None
+    interest_rate: str | None
+    emi_amount: str | None
+    emis_left: int | None
+    pay_from_id: int | None
+    next_emi: NextEmi | None
     archived: bool
 
 
@@ -196,6 +266,9 @@ def validate_rules(values: dict[str, Any]) -> None:
     limit = values.get("credit_limit")
     if limit is not None and limit <= 0:
         errors.append(field_error("credit_limit", "Credit limit must be greater than 0."))
+    emi = values.get("emi_amount")
+    if emi is not None and emi <= 0:
+        errors.append(field_error("emi_amount", "EMI must be greater than 0."))
 
     if errors:
         raise RequestValidationError(errors)
@@ -205,9 +278,15 @@ def fmt(value: Decimal) -> str:
     return f"{value + 0:.2f}"  # + 0 turns a negative zero into zero
 
 
-def to_response(account: Account, flows: dict[int, Decimal]) -> AccountResponse:
+def _money_text(value: Decimal | None) -> str | None:
+    return None if value is None else fmt(value)
+
+
+def to_response(account: Account, book: Book) -> AccountResponse:
     limit = account.credit_limit
-    balance = balance_of(account, flows)
+    balance = balance_of(account, book.flows)
+    # The bank blocks what loans paid from a card still owe out of that card's limit.
+    blocked = book.linked_owed.get(account.id, Decimal(0))
     return AccountResponse(
         id=account.id,
         type=account.type,
@@ -217,9 +296,14 @@ def to_response(account: Account, flows: dict[int, Decimal]) -> AccountResponse:
         bank_kind=account.bank_kind,
         last4=account.last4,
         credit_limit=None if limit is None else fmt(limit),
-        available_credit=None if limit is None else fmt(limit - balance),
+        available_credit=None if limit is None else fmt(limit - balance - blocked),
         statement_day=account.statement_day,
         due_day=account.due_day,
+        interest_rate=_money_text(account.interest_rate),
+        emi_amount=_money_text(account.emi_amount),
+        emis_left=emis_left(account, book),
+        pay_from_id=account.pay_from_id,
+        next_emi=next_emi(account, book),
         archived=account.archived_at is not None,
     )
 
@@ -231,7 +315,7 @@ def list_sort_key(account: Account) -> tuple[int, str, int]:
 def totals(active: list[Account], flows: dict[int, Decimal]) -> tuple[Decimal, Decimal]:
     """(have, owe) over the given accounts, which the caller has already limited to active ones."""
     have = sum((balance_of(a, flows) for a in active if a.type in HAVE_TYPES), Decimal(0))
-    owe = sum((balance_of(a, flows) for a in active if a.type == "credit_card"), Decimal(0))
+    owe = sum((balance_of(a, flows) for a in active if a.type in LIABILITY_TYPES), Decimal(0))
     return have, owe
 
 
@@ -241,27 +325,73 @@ def list_accounts(user: CurrentUser, db: DbSession, archived: bool = False) -> A
     active = [a for a in accounts if a.archived_at is None]
     shown = [a for a in accounts if (a.archived_at is not None) == archived]
     shown.sort(key=list_sort_key)
-    flows = load_flows(db, user.id)
-    have, owe = totals(active, flows)
+    book = load_book(db, user.id, accounts)
+    have, owe = totals(active, book.flows)
     return AccountList(
-        accounts=[to_response(a, flows) for a in shown], total_have=fmt(have), total_owe=fmt(owe)
+        accounts=[to_response(a, book) for a in shown], total_have=fmt(have), total_owe=fmt(owe)
     )
+
+
+def _check_links(
+    db: DbSession, user: CurrentUser, values: dict[str, Any], moved_from_card: bool = False
+) -> None:
+    """A loan's pay-from account must be the user's own, active, and not a loan."""
+    errors: list[dict[str, Any]] = []
+    pay_from_id = values.get("pay_from_id")
+    pay_from = None
+    if pay_from_id is not None:
+        if 1 <= pay_from_id <= MAX_ID:
+            pay_from = db.scalar(
+                select(Account).where(Account.id == pay_from_id, Account.user_id == user.id)
+            )
+        if pay_from is None or pay_from.type == "loan":
+            errors.append(field_error("pay_from_id", "Choose the account EMIs are paid from."))
+        elif pay_from.archived_at is not None:
+            errors.append(
+                field_error("pay_from_id", f"{pay_from.name} is archived. Restore it to use it.")
+            )
+    if moved_from_card and (pay_from_id is None or (pay_from and pay_from.type != "credit_card")):
+        errors.append(
+            field_error("moved_from_card", "Choose the card the loan is paid from to move it.")
+        )
+    if errors:
+        raise RequestValidationError(errors)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_account(body: AccountCreate, user: CurrentUser, db: DbSession) -> AccountResponse:
     values = body.model_dump()
+    moved = values.pop("moved_from_card")
     validate_rules(values)
+    _check_links(db, user, values, moved)
+    if moved:
+        # Locked like any transaction save, so the card's balance can't move underneath us.
+        db.scalar(select(Account).where(Account.id == values["pay_from_id"]).with_for_update())
     account = Account(
         user_id=user.id,
         type=values["type"],
         name=values["name"],
-        opening_balance=values["balance"],
-        **{field: values[field] for field in DETAILS},
+        # Moved from a card, the loan starts at 0 and the transfer below makes it owed.
+        opening_balance=Decimal(0) if moved else values["balance"],
+        emis_at_opening=values["emis_left"],
+        **{field: values[field] for field in STORED},
     )
     db.add(account)
+    if moved and values["balance"] > 0:
+        db.flush()
+        db.add(
+            Transaction(
+                user_id=user.id,
+                type="transfer",
+                amount=values["balance"],
+                date=today_india(),
+                account_id=account.id,
+                to_account_id=values["pay_from_id"],
+                note=f"Moved to {account.name}",
+            )
+        )
     db.commit()
-    return to_response(account, {})  # a new account has no transactions
+    return to_response(account, load_book(db, user.id))
 
 
 def _get_owned(db: DbSession, user: CurrentUser, id: int, lock: bool = False) -> Account:
@@ -283,27 +413,32 @@ def update_account(
     account = _get_owned(db, user, id, lock=True)
     if account.archived_at is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Restore this account before editing it.")
-    flows = load_flows(db, user.id)
+    book = load_book(db, user.id)
     values = {
         "type": account.type,
-        "balance": balance_of(account, flows),
-        **{field: getattr(account, field) for field in DETAILS},
+        "balance": balance_of(account, book.flows),
+        **{field: getattr(account, field) for field in STORED},
+        "emis_left": emis_left(account, book),
         "name": account.name,
     }
-    values.update(body.model_dump(exclude_unset=True))
+    changes = body.model_dump(exclude_unset=True)
+    values.update(changes)
     validate_rules(values)
+    if "pay_from_id" in changes:
+        _check_links(db, user, values)
     # Correcting a balance moves the opening balance, so the transactions stay as they are.
-    opening = opening_for(account, values["balance"], flows)
+    opening = opening_for(account, values["balance"], book.flows)
     if abs(opening) >= MAX_MONEY:
         raise RequestValidationError(
             [field_error("balance", "This balance is too large with this account's transactions.")]
         )
     account.name = values["name"]
     account.opening_balance = opening
-    for field in DETAILS:
+    for field in STORED:
         setattr(account, field, values[field])
+    account.emis_at_opening = emis_at_opening(values["emis_left"], account, book)
     db.commit()
-    return to_response(account, flows)
+    return to_response(account, load_book(db, user.id))
 
 
 @router.post("/{id}/archive")
@@ -312,7 +447,7 @@ def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
     if account.archived_at is None:
         account.archived_at = datetime.now(UTC)
         db.commit()
-    return to_response(account, load_flows(db, user.id))
+    return to_response(account, load_book(db, user.id))
 
 
 @router.post("/{id}/restore")
@@ -321,4 +456,4 @@ def restore_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
     if account.archived_at is not None:
         account.archived_at = None
         db.commit()
-    return to_response(account, load_flows(db, user.id))
+    return to_response(account, load_book(db, user.id))

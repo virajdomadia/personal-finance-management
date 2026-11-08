@@ -32,7 +32,8 @@ router = APIRouter(
     prefix="/transactions", tags=["transactions"], dependencies=[Depends(get_current_user)]
 )
 
-TransactionType = Literal["income", "expense", "transfer"]
+TransactionType = Literal["income", "expense", "transfer", "emi"]
+EMI_CATEGORY = "Loan interest"
 
 DEFAULT_CATEGORIES = {
     "income": ["Salary", "Business", "Interest", "Dividends", "Refund", "Gift", "Other"],
@@ -104,6 +105,7 @@ class TransactionCreate(BaseModel):
     amount: Money = None
     date: Day = None
     category: Category = None
+    interest: Money = None
     note: Note = None
 
 
@@ -117,6 +119,7 @@ class TransactionUpdate(BaseModel):
     amount: Money = None
     date: Day = None
     category: Category = None
+    interest: Money = None
     note: Note = None
 
 
@@ -130,6 +133,7 @@ class TransactionResponse(BaseModel):
     to_account_id: int | None
     to_account_name: str | None
     category: str | None
+    interest: str | None
     note: str | None
     # False once a linked account is archived; restore the account to change the transaction.
     editable: bool
@@ -138,7 +142,8 @@ class TransactionResponse(BaseModel):
 class TransactionList(BaseModel):
     transactions: list[TransactionResponse]
     has_more: bool
-    # Over every transaction matching the filters, not just this page. Transfers count in neither.
+    # Over every transaction matching the filters, not just this page. Transfers count in neither;
+    # an EMI's interest counts as spending.
     total_income: str
     total_expense: str
 
@@ -161,6 +166,7 @@ def _to_response(tx: Transaction, accounts: dict[int, Account]) -> TransactionRe
         to_account_id=tx.to_account_id,
         to_account_name=None if target is None else target.name,
         category=tx.category,
+        interest=None if tx.interest is None else fmt(tx.interest),
         note=tx.note,
         editable=account.archived_at is None and (target is None or target.archived_at is None),
     )
@@ -228,14 +234,47 @@ def _validate(values: dict[str, Any], accounts: dict[int, Account]) -> None:
             errors.append(field_error("to_account_id", problem))
         if values["category"] is not None:
             errors.append(field_error("category", "A transfer doesn't have a category."))
+    elif type_ == "emi":
+        _validate_emi(values, accounts, errors)
     elif type_ is not None:
         if target is not None:
             errors.append(field_error("to_account_id", "Only a transfer has a second account."))
         if values["category"] is None:
             errors.append(field_error("category", "Choose a category."))
 
+    if type_ != "emi" and values["interest"] is not None:
+        errors.append(field_error("interest", "Only an EMI has an interest part."))
+
     if errors:
         raise RequestValidationError(errors)
+
+
+def _validate_emi(
+    values: dict[str, Any], accounts: dict[int, Account], errors: list[dict[str, Any]]
+) -> None:
+    payer = accounts.get(values["account_id"] or 0)
+    if payer is not None and payer.type == "loan" and not any(
+        e["loc"][1] == "account_id" for e in errors
+    ):
+        errors.append(field_error("account_id", "Choose the account the EMI is paid from."))
+
+    loan = accounts.get(values["to_account_id"] or 0)
+    problem = _account_problem(values["to_account_id"], accounts, "Choose a loan.")
+    if not problem and loan is not None and loan.type != "loan":
+        problem = "Choose a loan."
+    if problem:
+        errors.append(field_error("to_account_id", problem))
+
+    if values["category"] is not None:
+        errors.append(field_error("category", f"An EMI's category is always {EMI_CATEGORY}."))
+
+    interest, amount = values["interest"], values["amount"]
+    if interest is None:
+        errors.append(field_error("interest", "Enter the interest part, or 0."))
+    elif interest < 0:
+        errors.append(field_error("interest", "Interest can't be negative."))
+    elif amount is not None and interest > amount:
+        errors.append(field_error("interest", "Interest can't be more than the EMI."))
 
 
 def _balance_problem(
@@ -292,12 +331,15 @@ def _save_checks(
             values["amount"],
             values["account_id"],
             values["to_account_id"],
+            values["interest"],
         )
     )
     problem = _balance_problem(accounts, before, after)
     if problem:
         raise RequestValidationError([field_error("amount", problem)])
-    if values["category"] is not None:
+    if values["type"] == "emi":
+        values["category"] = EMI_CATEGORY
+    elif values["category"] is not None:
         values["category"] = _known_spelling(db, user_id, values["type"], values["category"])
 
 
@@ -321,6 +363,14 @@ def _require_active(tx: Transaction, accounts: dict[int, Account]) -> None:
                 status.HTTP_409_CONFLICT,
                 f"Restore {account.name} before changing this transaction.",
             )
+
+
+def _spent(tx: Transaction) -> Decimal:
+    if tx.type == "expense":
+        return tx.amount
+    if tx.type == "emi" and tx.interest is not None:
+        return tx.interest
+    return Decimal(0)
 
 
 @router.get("/categories")
@@ -365,7 +415,7 @@ def list_transactions(
         transactions=[_to_response(t, accounts) for t in page],
         has_more=offset + limit < len(matches),
         total_income=fmt(sum((t.amount for t in matches if t.type == "income"), Decimal(0))),
-        total_expense=fmt(sum((t.amount for t in matches if t.type == "expense"), Decimal(0))),
+        total_expense=fmt(sum((_spent(t) for t in matches), Decimal(0))),
     )
 
 
@@ -399,7 +449,9 @@ def update_transaction(
         "to_account_id": tx.to_account_id,
         "amount": tx.amount,
         "date": tx.date,
-        "category": tx.category,
+        # An EMI's category is fixed, so it's only checked when the request sends one.
+        "category": None if tx.type == "emi" else tx.category,
+        "interest": tx.interest,
         "note": tx.note,
         **changes,
     }

@@ -93,6 +93,11 @@ def test_response_shape(headers: Headers) -> None:
         "available_credit": "97500.00",
         "statement_day": 5,
         "due_day": 25,
+        "interest_rate": None,
+        "emi_amount": None,
+        "emis_left": None,
+        "pay_from_id": None,
+        "next_emi": None,
         "archived": False,
     }
 
@@ -568,7 +573,7 @@ def test_missing_fields_are_all_reported_together(headers: Headers) -> None:
 
 def test_missing_or_bad_type_message(headers: Headers) -> None:
     missing = client.post(URL, json={"name": "A", "balance": "1"}, headers=headers)
-    bad = make(headers, type="loan")
+    bad = make(headers, type="mortgage")
 
     assert message(missing, "type") == "Choose a kind of account."
     assert message(bad, "type") == "Choose a kind of account."
