@@ -57,7 +57,7 @@ The client pre-fills the EMI form with it. The owner can always change it to wha
 ## Clients
 
 - **Web:** the account dialog gains the loan type and its fields. A loan row shows owed, EMI, EMIs left and the next EMI date, with a "Record EMI" action. The transaction dialog gains the EMI type with the pre-filled split and the principal shown. The dashboard caption no longer says loans are missing.
-- **Android:** its own screens, built after the website is tested on production.
+- **Android:** its own screens. Loan fields and pay-from chips on the account form, a Record EMI button on loan rows, and the EMI type on the transaction form. The owner asked for them to be built alongside the website's production testing.
 
 ## Non-goals
 
