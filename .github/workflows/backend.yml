@@ -1,0 +1,40 @@
+name: Backend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: pfm
+          POSTGRES_PASSWORD: pfm
+          POSTGRES_DB: pfm_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pfm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check .
+      - name: Tests on SQLite
+        run: uv run pytest -q
+      - name: Tests on PostgreSQL (suite, concurrency, migrations, ledger prototype)
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://pfm:pfm@localhost:5432/pfm_test
+        run: uv run pytest -q
