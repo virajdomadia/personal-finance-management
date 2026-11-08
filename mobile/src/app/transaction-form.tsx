@@ -15,7 +15,7 @@ import {
 import { Appbar, Button, Chip, Dialog, HelperText, Portal, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { type Account, type AccountList, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
+import { type Account, type AccountList, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import {
@@ -26,10 +26,12 @@ import {
   type TransactionType,
   blankForm,
   changedPayload,
+  emiForm,
   formFromTransaction,
   previousDay,
   renderedFields,
   savedMonth,
+  subtractMoney,
   toPayload,
   todayIndia,
 } from "@/lib/transactions";
@@ -40,12 +42,14 @@ const FROM_LABELS: Record<TransactionType, string> = {
   expense: "Paid from",
   income: "Received in",
   transfer: "From account",
+  emi: "Paid from",
 };
 
 type Loaded = { accounts: Account[]; categories: CategoryList; transaction: Transaction | null };
 
 export default function TransactionFormScreen() {
-  const { id, account } = useLocalSearchParams<{ id?: string; account?: string }>();
+  // `loan` opens a new EMI for that loan, pre-filled with its suggested split.
+  const { id, account, loan } = useLocalSearchParams<{ id?: string; account?: string; loan?: string }>();
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const editing = id !== undefined;
@@ -115,7 +119,14 @@ export default function TransactionFormScreen() {
   }
 
   const preselected = account !== undefined && loaded.accounts.some((a) => String(a.id) === account) ? Number(account) : null;
-  return <FormBody {...loaded} defaultAccountId={preselected ?? loaded.accounts[0]?.id ?? null} />;
+  const forLoan = loaded.accounts.find((a) => a.type === "loan" && String(a.id) === loan);
+  return (
+    <FormBody
+      {...loaded}
+      defaultAccountId={preselected ?? loaded.accounts[0]?.id ?? null}
+      initialForm={forLoan ? emiForm(forLoan, todayIndia()) : undefined}
+    />
+  );
 }
 
 type FieldInputProps = {
@@ -156,13 +167,16 @@ function FormBody({
   categories,
   transaction,
   defaultAccountId,
-}: Loaded & { defaultAccountId: number | null }) {
+  initialForm,
+}: Loaded & { defaultAccountId: number | null; initialForm?: TransactionForm }) {
   const editing = transaction !== null;
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [form, setForm] = useState<TransactionForm>(() =>
-    transaction ? formFromTransaction(transaction) : blankForm("expense", todayIndia(), defaultAccountId),
+    transaction
+      ? formFromTransaction(transaction)
+      : (initialForm ?? blankForm("expense", todayIndia(), defaultAccountId)),
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
@@ -257,7 +271,23 @@ function FormBody({
     if (next === type) return;
     setErrors({});
     setGeneral([]);
-    setForm((f) => ({ ...f, type: next, category: "", to_account_id: "" }));
+    setForm((f) => ({ ...f, type: next, category: "", to_account_id: "", interest: "" }));
+  };
+
+  // Picking a loan for a new EMI fills in its suggested split and usual account.
+  const chooseLoan = (loanId: string) => {
+    const loan = accounts.find((a) => String(a.id) === loanId);
+    setForm((f) => {
+      if (editing || !loan) return { ...f, to_account_id: loanId };
+      const usual = loan.pay_from_id !== null && accounts.some((a) => a.id === loan.pay_from_id);
+      return {
+        ...f,
+        to_account_id: loanId,
+        account_id: usual ? String(loan.pay_from_id) : f.account_id,
+        amount: loan.next_emi?.amount ?? loan.emi_amount ?? f.amount,
+        interest: loan.next_emi?.interest ?? f.interest,
+      };
+    });
   };
 
   // A transfer can't go from an account to itself, so picking the "to" account as "from" clears it.
@@ -394,7 +424,12 @@ function FormBody({
   const today = todayIndia();
   const yesterday = previousDay(today);
   const typeLabel = TRANSACTION_TYPES.find((t) => t.value === type)?.label;
-  const suggestions = type === "transfer" ? [] : categories[type];
+  const suggestions = type === "transfer" || type === "emi" ? [] : categories[type];
+  const loans = accounts.filter((a) => a.type === "loan");
+  const types = TRANSACTION_TYPES.filter((t) => t.value !== "emi" || loans.length > 0);
+  // An EMI is paid from an ordinary account, never from another loan.
+  const payers = type === "emi" ? accounts.filter((a) => a.type !== "loan") : accounts;
+  const principal = subtractMoney(cleanMoney(form.amount), cleanMoney(form.interest));
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -439,7 +474,7 @@ function FormBody({
               <Text variant="bodyLarge">{typeLabel}</Text>
             ) : (
               <View style={styles.chips}>
-                {TRANSACTION_TYPES.map((option) => choice(option.label, type === option.value, () => changeType(option.value)))}
+                {types.map((option) => choice(option.label, type === option.value, () => changeType(option.value)))}
               </View>
             )}
           </View>
@@ -462,12 +497,37 @@ function FormBody({
             <>
               {heading(FROM_LABELS[type])}
               <View style={styles.chips}>
-                {accounts.map((a) => choice(a.name, form.account_id === String(a.id), () => changeFrom(String(a.id)), String(a.id)))}
+                {payers.map((a) => choice(a.name, form.account_id === String(a.id), () => changeFrom(String(a.id)), String(a.id)))}
               </View>
             </>,
           )}
 
-          {type === "transfer"
+          {type === "emi" ? (
+            <>
+              {field(
+                "to_account_id",
+                <>
+                  {heading("Loan")}
+                  <View style={styles.chips}>
+                    {loans.map((a) => choice(a.name, form.to_account_id === String(a.id), () => chooseLoan(String(a.id)), String(a.id)))}
+                  </View>
+                </>,
+              )}
+              {field(
+                "interest",
+                <>
+                  {input("interest", "Interest and charges (₹)", { keyboardType: "numeric", maxLength: MONEY_MAX_LENGTH })}
+                  {errors.interest ? null : (
+                    <HelperText type="info" visible>
+                      {principal && !principal.startsWith("-")
+                        ? `${formatRupees(principal)} repays the loan. The interest counts as spending. Use your statement's figures if they differ.`
+                        : "Interest, fees and GST in this EMI. The rest repays the loan."}
+                    </HelperText>
+                  )}
+                </>,
+              )}
+            </>
+          ) : type === "transfer"
             ? field(
                 "to_account_id",
                 <>
@@ -511,7 +571,9 @@ function FormBody({
           <Dialog.Title>Delete this transaction?</Dialog.Title>
           <Dialog.Content>
             <Text variant="bodyMedium">
-              {transaction ? `This ${transaction.type} of ${formatRupees(transaction.amount)} is removed for good, ` : ""}
+              {transaction
+                ? `This ${TRANSACTION_TYPES.find((t) => t.value === transaction.type)?.label.toLowerCase()} of ${formatRupees(transaction.amount)} is removed for good, `
+                : ""}
               and the account balance moves back. This can&apos;t be undone.
             </Text>
           </Dialog.Content>

@@ -1,4 +1,7 @@
-export type AccountType = "bank" | "credit_card" | "cash" | "broker" | "wallet";
+export type AccountType = "bank" | "credit_card" | "cash" | "broker" | "wallet" | "loan";
+
+// The suggested split of a loan's next EMI. Interest is null when it can't be worked out.
+export type NextEmi = { amount: string; interest: string | null; principal: string | null };
 
 export type Account = {
   id: number;
@@ -12,6 +15,11 @@ export type Account = {
   available_credit: string | null;
   statement_day: number | null;
   due_day: number | null;
+  interest_rate: string | null;
+  emi_amount: string | null;
+  emis_left: number | null;
+  pay_from_id: number | null;
+  next_emi: NextEmi | null;
   archived: boolean;
 };
 
@@ -40,6 +48,11 @@ export type AccountForm = {
   credit_limit: string;
   statement_day: string;
   due_day: string;
+  interest_rate: string;
+  emi_amount: string;
+  emis_left: string;
+  pay_from_id: string;
+  moved_from_card: "" | "yes"; // create only
 };
 
 export const TYPE_LABELS: Record<AccountType, string> = {
@@ -48,9 +61,13 @@ export const TYPE_LABELS: Record<AccountType, string> = {
   cash: "Cash in hand",
   broker: "Broker balance",
   wallet: "Wallet or prepaid card",
+  loan: "Loan",
 };
 
-export const TYPE_ORDER: AccountType[] = ["bank", "credit_card", "cash", "broker", "wallet"];
+export const TYPE_ORDER: AccountType[] = ["bank", "credit_card", "cash", "broker", "wallet", "loan"];
+
+// Accounts whose balance is what's owed.
+export const OWED_TYPES = new Set<AccountType>(["credit_card", "loan"]);
 
 // Mirrors APPLICABLE in backend/app/api/routes/accounts.py.
 const APPLICABLE: Record<AccountType, (keyof AccountForm)[]> = {
@@ -59,10 +76,11 @@ const APPLICABLE: Record<AccountType, (keyof AccountForm)[]> = {
   cash: [],
   broker: ["institution"],
   wallet: ["institution"],
+  loan: ["institution", "due_day", "interest_rate", "emi_amount", "emis_left", "pay_from_id"],
 };
 
-const MONEY_FIELDS = new Set<keyof AccountForm>(["balance", "credit_limit"]);
-const DAY_FIELDS = new Set<keyof AccountForm>(["statement_day", "due_day"]);
+const MONEY_FIELDS = new Set<keyof AccountForm>(["balance", "credit_limit", "interest_rate", "emi_amount"]);
+const NUMBER_FIELDS = new Set<keyof AccountForm>(["statement_day", "due_day", "emis_left", "pay_from_id"]);
 
 // Groups the digits on the string itself so money never goes through a float.
 export function formatRupees(value: string): string {
@@ -80,6 +98,18 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 export function formatDueDate(iso: string): string {
   const [, month, day] = iso.split("-");
   return `${Number(day)} ${MONTHS[Number(month) - 1]}`;
+}
+
+// The next date a day-of-month falls on, from today (both "YYYY-MM-DD"), clamped to short months.
+// Mirrors next_due_date in backend/app/api/routes/dashboard.py.
+export function nextDueDate(day: number, today: string): string {
+  const [year, month, date] = today.split("-").map(Number);
+  const clamp = (y: number, m: number) => Math.min(day, new Date(Date.UTC(y, m, 0)).getUTCDate());
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const thisMonth = clamp(year, month);
+  if (thisMonth >= date) return `${year}-${pad(month)}-${pad(thisMonth)}`;
+  const [y, m] = month === 12 ? [year + 1, 1] : [year, month + 1];
+  return `${y}-${pad(m)}-${pad(clamp(y, m))}`;
 }
 
 export function maskLast4(last4: string): string {
@@ -108,6 +138,11 @@ export function formFromAccount(account: Account): AccountForm {
     credit_limit: account.credit_limit ?? "",
     statement_day: account.statement_day === null ? "" : String(account.statement_day),
     due_day: account.due_day === null ? "" : String(account.due_day),
+    interest_rate: account.interest_rate ?? "",
+    emi_amount: account.emi_amount ?? "",
+    emis_left: account.emis_left === null ? "" : String(account.emis_left),
+    pay_from_id: account.pay_from_id === null ? "" : String(account.pay_from_id),
+    moved_from_card: "",
   };
 }
 
@@ -123,12 +158,13 @@ export function toPayload(form: AccountForm, mode: "create" | "edit"): Record<st
     }
     const trimmed = raw.trim();
     if (trimmed === "") return null;
-    return DAY_FIELDS.has(key) ? Number(trimmed) : trimmed;
+    return NUMBER_FIELDS.has(key) ? Number(trimmed) : trimmed;
   };
 
   payload.name = form.name.trim();
   payload.balance = field("balance");
   for (const key of APPLICABLE[form.type]) payload[key] = field(key);
+  if (mode === "create" && form.type === "loan" && form.moved_from_card === "yes") payload.moved_from_card = true;
   return payload;
 }
 
@@ -157,6 +193,14 @@ export function dayError(value: string): string | null {
   return day >= 1 && day <= 31 ? null : DAY_MESSAGE;
 }
 
+// Same reason as dayError: a non-number would silently clear the field.
+export function countError(value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  const count = Number(trimmed);
+  return /^\d+$/.test(trimmed) && count >= 1 && count <= 600 ? null : "Enter a number of EMIs from 1 to 600.";
+}
+
 export type SplitErrors = { fields: Record<string, string>; general: string[] };
 
 // Every message in a 422 lands somewhere: next to its field when that field is rendered (first
@@ -179,7 +223,13 @@ export function splitErrors(detail: unknown, rendered: readonly string[], fallba
 
 // The form fields the form shows for a type, which is where field errors can be displayed.
 export function renderedFields(type: AccountType, mode: "create" | "edit"): (keyof AccountForm)[] {
-  return [...(mode === "create" ? (["type"] as const) : []), "name", "balance", ...APPLICABLE[type]];
+  return [
+    ...(mode === "create" ? (["type"] as const) : []),
+    "name",
+    "balance",
+    ...APPLICABLE[type],
+    ...(mode === "create" && type === "loan" ? (["moved_from_card"] as const) : []),
+  ];
 }
 
 // Duck-typed on `detail` so this file doesn't import ApiError.

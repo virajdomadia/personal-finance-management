@@ -4,11 +4,13 @@ import { test } from "node:test";
 import {
   TYPE_LABELS,
   changedPayload,
+  countError,
   dayError,
   errorMessage,
   formFromAccount,
   formatDueDate,
   formatRupees,
+  nextDueDate,
   maskLast4,
   renderedFields,
   splitErrors,
@@ -25,7 +27,13 @@ const blank = {
   credit_limit: "",
   statement_day: "",
   due_day: "",
+  interest_rate: "",
+  emi_amount: "",
+  emis_left: "",
+  pay_from_id: "",
+  moved_from_card: "",
 };
+const loan = (o = {}) => ({ ...blank, type: "loan", ...o });
 const bank = (o = {}) => ({ ...blank, type: "bank", bank_kind: "savings", ...o });
 const card = (o = {}) => ({ ...blank, type: "credit_card", ...o });
 const cash = (o = {}) => ({ ...blank, type: "cash", ...o });
@@ -132,6 +140,7 @@ test("type labels match the approved table", () => {
     cash: "Cash in hand",
     broker: "Broker balance",
     wallet: "Wallet or prepaid card",
+    loan: "Loan",
   });
 });
 
@@ -154,6 +163,11 @@ test("cleanMoney strips commas only between digit groups", () => {
 
 const account = {
   id: 1,
+  interest_rate: null,
+  emi_amount: null,
+  emis_left: null,
+  pay_from_id: null,
+  next_emi: null,
   type: "credit_card",
   name: "Card",
   balance: "2500.00",
@@ -194,6 +208,7 @@ test("cleanMoney strips the rupee sign only at the start, after an optional sign
   assert.equal(balance("-₹500"), "-500");
   assert.equal(balance(" ₹ 1,00,000.50 "), "100000.50");
   assert.equal(balance("10₹50"), "10₹50");
+
   assert.equal(balance("500₹"), "500₹");
   assert.equal(balance("₹₹5"), "₹5");
 });
@@ -203,4 +218,50 @@ test("formatDueDate reads the ISO string without a Date", () => {
   assert.equal(formatDueDate("2026-11-05"), "5 Nov");
   assert.equal(formatDueDate("2027-01-01"), "1 Jan");
   assert.equal(formatDueDate("2026-12-31"), "31 Dec");
+});
+
+test("toPayload sends a loan's details as numbers and money text", () => {
+  const payload = toPayload(
+    loan({ balance: "21,632", interest_rate: " 14.5 ", emi_amount: "₹7,500", emis_left: "3", pay_from_id: "4", due_day: "5" }),
+    "create",
+  );
+  assert.deepEqual(payload, {
+    type: "loan",
+    name: "Main",
+    balance: "21632",
+    institution: null,
+    due_day: 5,
+    interest_rate: "14.5",
+    emi_amount: "7500",
+    emis_left: 3,
+    pay_from_id: 4,
+  });
+});
+
+test("toPayload sends moved_from_card only when ticked, and only on create", () => {
+  assert.equal(toPayload(loan({ moved_from_card: "yes" }), "create").moved_from_card, true);
+  assert.equal("moved_from_card" in toPayload(loan(), "create"), false);
+  assert.equal("moved_from_card" in toPayload(loan({ moved_from_card: "yes" }), "edit"), false);
+  assert.equal("moved_from_card" in toPayload(card({ moved_from_card: "yes" }), "create"), false);
+});
+
+test("renderedFields shows the move option only when creating a loan", () => {
+  assert.ok(renderedFields("loan", "create").includes("moved_from_card"));
+  assert.ok(!renderedFields("loan", "edit").includes("moved_from_card"));
+  assert.ok(renderedFields("loan", "edit").includes("emis_left"));
+});
+
+test("nextDueDate keeps this month until the day passes, and clamps short months", () => {
+  assert.equal(nextDueDate(5, "2026-11-05"), "2026-11-05");
+  assert.equal(nextDueDate(5, "2026-11-06"), "2026-12-05");
+  assert.equal(nextDueDate(31, "2026-02-10"), "2026-02-28");
+  assert.equal(nextDueDate(31, "2028-02-10"), "2028-02-29");
+  assert.equal(nextDueDate(3, "2026-12-20"), "2027-01-03");
+});
+
+test("countError accepts blank or a whole number from 1 to 600", () => {
+  assert.equal(countError(""), null);
+  assert.equal(countError(" 3 "), null);
+  assert.equal(countError("600"), null);
+  for (const bad of ["0", "601", "2.5", "abc", "-1"]) assert.equal(countError(bad), "Enter a number of EMIs from 1 to 600.");
 });

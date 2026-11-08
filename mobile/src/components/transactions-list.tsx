@@ -42,8 +42,13 @@ function TransactionRow({
   onPress: () => void;
 }) {
   const { colors } = useTheme();
-  const title = tx.type === "transfer" ? "Transfer" : tx.category;
-  const accounts = tx.type === "transfer" ? `${tx.account_name} → ${tx.to_account_name}` : tx.account_name;
+  const title = tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? `EMI · ${tx.to_account_name}` : tx.category;
+  const accounts =
+    tx.type === "transfer"
+      ? `${tx.account_name} → ${tx.to_account_name}`
+      : tx.type === "emi" && tx.interest !== null
+        ? `${tx.account_name} · ${formatRupees(tx.interest)} interest`
+        : tx.account_name;
   const amount = signedAmount(tx, viewedAccountId);
   return (
     <TouchableRipple

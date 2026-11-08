@@ -76,6 +76,12 @@ export default function AccountsScreen() {
     router.push(params ? { pathname: "/account-form", params } : "/account-form");
   }, []);
 
+  const recordEmi = useCallback((loan: Account) => {
+    if (navigating.current) return;
+    navigating.current = true;
+    router.push({ pathname: "/transaction-form", params: { loan: String(loan.id) } });
+  }, []);
+
   const data = useMemo(() => (list ? sections(list.accounts) : []), [list]);
 
   return (
@@ -154,13 +160,25 @@ export default function AccountsScreen() {
             <AccountRow
               account={item}
               onPress={() => open({ id: String(item.id) })}
+              action={
+                item.type === "loan" && item.balance !== "0.00" ? (
+                  <Button
+                    compact
+                    icon="cash-check"
+                    accessibilityLabel={`Record an EMI for ${item.name}`}
+                    onPress={() => recordEmi(item)}
+                  >
+                    Record EMI
+                  </Button>
+                ) : undefined
+              }
             />
           )}
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text variant="titleMedium">Add your first account</Text>
               <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant, textAlign: "center" }}>
-                Bank accounts, cards, cash and more. Tap Add account to start.
+                Bank accounts, cards, cash, loans and more. Tap Add account to start.
               </Text>
             </View>
           }

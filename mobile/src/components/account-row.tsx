@@ -2,7 +2,16 @@ import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { Text, TouchableRipple, useTheme } from "react-native-paper";
 
-import { type Account, TYPE_LABELS, formatRupees, maskLast4 } from "@/lib/accounts";
+import {
+  type Account,
+  OWED_TYPES,
+  TYPE_LABELS,
+  formatDueDate,
+  formatRupees,
+  maskLast4,
+  nextDueDate,
+} from "@/lib/accounts";
+import { todayIndia } from "@/lib/transactions";
 
 function detailLine(account: Account, showType: boolean): string {
   const parts: string[] = [];
@@ -10,6 +19,18 @@ function detailLine(account: Account, showType: boolean): string {
   if (account.institution && account.institution !== account.name) parts.push(account.institution);
   if (account.bank_kind) parts.push(account.bank_kind.charAt(0).toUpperCase() + account.bank_kind.slice(1));
   if (account.last4) parts.push(maskLast4(account.last4));
+  return parts.join(" · ");
+}
+
+function loanLine(account: Account): string {
+  if (account.type !== "loan") return "";
+  const parts: string[] = [];
+  if (account.emi_amount) parts.push(`EMI ${formatRupees(account.emi_amount)}`);
+  if (account.emis_left !== null) parts.push(`${account.emis_left} left`);
+  if (account.due_day !== null && account.balance !== "0.00") {
+    parts.push(`next ${formatDueDate(nextDueDate(account.due_day, todayIndia()))}`);
+  }
+  if (account.interest_rate !== null) parts.push(`${account.interest_rate}% a year`);
   return parts.join(" · ");
 }
 
@@ -24,8 +45,10 @@ type Props = {
 // clips or runs under the name.
 export function AccountRow({ account, onPress, showType = false, action }: Props) {
   const { colors } = useTheme();
-  const owed = account.type === "credit_card";
+  const owed = OWED_TYPES.has(account.type);
+  const paidOff = account.type === "loan" && account.balance === "0.00";
   const detail = detailLine(account, showType);
+  const loan = loanLine(account);
   const amount = formatRupees(account.balance);
   const available = owed && account.available_credit !== null ? formatRupees(account.available_credit) : null;
 
@@ -45,11 +68,16 @@ export function AccountRow({ account, onPress, showType = false, action }: Props
                 {detail}
               </Text>
             ) : null}
+            {loan ? (
+              <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+                {loan}
+              </Text>
+            ) : null}
           </View>
           <View style={styles.amounts}>
             {owed ? (
               <Text variant="labelSmall" style={{ color: colors.onSurfaceVariant }}>
-                Owed
+                {paidOff ? "Paid off" : "Owed"}
               </Text>
             ) : null}
             <Text variant="titleMedium" style={styles.amount}>

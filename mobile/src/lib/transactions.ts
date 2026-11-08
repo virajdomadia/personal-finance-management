@@ -1,6 +1,6 @@
-import { cleanMoney, formatRupees } from "./accounts.ts";
+import { type Account, cleanMoney, formatRupees } from "./accounts.ts";
 
-export type TransactionType = "income" | "expense" | "transfer";
+export type TransactionType = "income" | "expense" | "transfer" | "emi";
 
 export type Transaction = {
   id: number;
@@ -12,6 +12,7 @@ export type Transaction = {
   to_account_id: number | null;
   to_account_name: string | null;
   category: string | null;
+  interest: string | null; // EMIs only
   note: string | null;
   editable: boolean;
 };
@@ -32,6 +33,7 @@ export type TransactionForm = {
   account_id: string;
   to_account_id: string;
   category: string;
+  interest: string;
   note: string;
 };
 
@@ -39,7 +41,11 @@ export const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
   { value: "expense", label: "Expense" },
   { value: "income", label: "Income" },
   { value: "transfer", label: "Transfer" },
+  { value: "emi", label: "EMI" },
 ];
+
+// Types that move money into a second account: the transfer's destination, or the EMI's loan.
+const TWO_ACCOUNTS = new Set<TransactionType>(["transfer", "emi"]);
 
 export function blankForm(type: TransactionType, date: string, accountId: number | null): TransactionForm {
   return {
@@ -49,7 +55,18 @@ export function blankForm(type: TransactionType, date: string, accountId: number
     account_id: accountId === null ? "" : String(accountId),
     to_account_id: "",
     category: "",
+    interest: "",
     note: "",
+  };
+}
+
+// An EMI for `loan`, pre-filled with its suggested split and paid from its usual account.
+export function emiForm(loan: Account, date: string): TransactionForm {
+  return {
+    ...blankForm("emi", date, loan.pay_from_id),
+    to_account_id: String(loan.id),
+    amount: loan.next_emi?.amount ?? loan.emi_amount ?? "",
+    interest: loan.next_emi?.interest ?? "",
   };
 }
 
@@ -60,7 +77,8 @@ export function formFromTransaction(tx: Transaction): TransactionForm {
     date: tx.date,
     account_id: String(tx.account_id),
     to_account_id: tx.to_account_id === null ? "" : String(tx.to_account_id),
-    category: tx.category ?? "",
+    category: tx.type === "emi" ? "" : (tx.category ?? ""),
+    interest: tx.interest ?? "",
     note: tx.note ?? "",
   };
 }
@@ -74,8 +92,9 @@ export function toPayload(form: TransactionForm, mode: "create" | "edit"): Recor
   payload.amount = textOrNull(cleanMoney(form.amount));
   payload.date = textOrNull(form.date);
   payload.account_id = idOrNull(form.account_id);
-  if (form.type === "transfer") payload.to_account_id = idOrNull(form.to_account_id);
+  if (TWO_ACCOUNTS.has(form.type)) payload.to_account_id = idOrNull(form.to_account_id);
   else payload.category = textOrNull(form.category);
+  if (form.type === "emi") payload.interest = textOrNull(cleanMoney(form.interest));
   payload.note = textOrNull(form.note);
   return payload;
 }
@@ -93,6 +112,7 @@ export function changedPayload(form: TransactionForm, original: Transaction): Re
 
 // The fields the form shows for a type, in order, which is where field errors can be displayed.
 export function renderedFields(type: TransactionType): (keyof TransactionForm)[] {
+  if (type === "emi") return ["amount", "date", "account_id", "to_account_id", "interest", "note"];
   return ["amount", "date", "account_id", type === "transfer" ? "to_account_id" : "category", "note"];
 }
 
@@ -101,9 +121,35 @@ export function signedAmount(tx: Transaction, viewedAccountId: number | null = n
   const rupees = formatRupees(tx.amount);
   if (tx.type === "income") return `+${rupees}`;
   if (tx.type === "expense") return `-${rupees}`;
+  // Only the principal reaches the loan; the paying account loses the whole EMI.
+  if (tx.type === "emi" && viewedAccountId === tx.to_account_id) {
+    return `+${formatRupees(subtractMoney(tx.amount, tx.interest ?? "0"))}`;
+  }
+  if (tx.type === "emi") return `-${rupees}`;
   if (viewedAccountId === tx.account_id) return `-${rupees}`;
   if (viewedAccountId === tx.to_account_id) return `+${rupees}`;
   return rupees;
+}
+
+// At most 13 whole digits, so paise stay well inside the integers a Number holds exactly.
+const MONEY_TEXT = /^(-?)(\d{1,13})(?:\.(\d{1,2}))?$/;
+
+function toPaise(text: string): number | null {
+  const match = MONEY_TEXT.exec(text.trim());
+  if (!match) return null;
+  const paise = Number(match[2]) * 100 + Number((match[3] ?? "").padEnd(2, "0"));
+  return match[1] ? -paise : paise;
+}
+
+// a − b on money text, exactly: whole paise, never fractional floats. "" when either isn't a
+// plain amount (like "12.5" or "-3.10").
+export function subtractMoney(a: string, b: string): string {
+  const x = toPaise(a);
+  const y = toPaise(b);
+  if (x === null || y === null) return "";
+  const diff = x - y;
+  const abs = Math.abs(diff);
+  return `${diff < 0 ? "-" : ""}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
 }
 
 const INDIA_OFFSET_MS = 5.5 * 60 * 60 * 1000;

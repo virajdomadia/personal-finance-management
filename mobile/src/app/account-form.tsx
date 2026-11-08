@@ -12,7 +12,7 @@ import {
   type ScrollViewInstance,
   type TextInputInstance,
 } from "react-native";
-import { Appbar, Button, Chip, Dialog, HelperText, Portal, Text, TextInput, useTheme } from "react-native-paper";
+import { Appbar, Button, Checkbox, Chip, Dialog, HelperText, Portal, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
@@ -23,6 +23,7 @@ import {
   TYPE_LABELS,
   TYPE_ORDER,
   changedPayload,
+  countError,
   dayError,
   errorMessage,
   formFromAccount,
@@ -45,6 +46,7 @@ const INSTITUTION_LABELS: Record<AccountType, string> = {
   cash: "",
   broker: "Broker name",
   wallet: "Provider",
+  loan: "Lender",
 };
 
 const CASH_NAME = "Cash in hand";
@@ -61,6 +63,11 @@ function blankForm(type: AccountType): AccountForm {
     credit_limit: "",
     statement_day: "",
     due_day: "",
+    interest_rate: "",
+    emi_amount: "",
+    emis_left: "",
+    pay_from_id: "",
+    moved_from_card: "",
   };
 }
 
@@ -71,6 +78,7 @@ export default function AccountFormScreen() {
   const { colors } = useTheme();
   const editing = id !== undefined;
   const [account, setAccount] = useState<Account | null>(null);
+  const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "missing" | "failed">(editing ? "loading" : "ready");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -83,6 +91,7 @@ export default function AccountFormScreen() {
         if (!current) return;
         const found = result.accounts.find((a) => String(a.id) === id);
         setAccount(found ?? null);
+        setAccounts(result.accounts);
         setStatus(found ? "ready" : "missing");
       })
       .catch((err: unknown) => {
@@ -133,7 +142,7 @@ export default function AccountFormScreen() {
     );
   }
 
-  return <FormBody account={editing ? account : null} />;
+  return <FormBody account={editing ? account : null} loadedAccounts={editing ? accounts : null} />;
 }
 
 type FieldInputProps = {
@@ -180,9 +189,24 @@ function FieldInput({
   );
 }
 
-function FormBody({ account }: { account: Account | null }) {
+function FormBody({ account, loadedAccounts }: { account: Account | null; loadedAccounts: Account[] | null }) {
   const editing = account !== null;
   const { token, logOut } = useSession();
+  // The active accounts a loan can be paid from. Adding loads them here; if that fails, the loan
+  // can still be saved without one.
+  const [accounts, setAccounts] = useState<Account[]>(loadedAccounts ?? []);
+  useEffect(() => {
+    if (loadedAccounts !== null) return;
+    let current = true;
+    apiFetch<AccountList>("/accounts", { token: token ?? undefined })
+      .then((result) => {
+        if (current) setAccounts(result.accounts);
+      })
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [loadedAccounts, token]);
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [form, setForm] = useState<AccountForm>(() => (account ? formFromAccount(account) : blankForm("bank")));
@@ -292,6 +316,12 @@ function FormBody({ account }: { account: Account | null }) {
         if (message) local[key] = message;
       }
     }
+    if (type === "loan") {
+      const dueProblem = dayError(form.due_day);
+      if (dueProblem) local.due_day = dueProblem;
+      const count = countError(form.emis_left);
+      if (count) local.emis_left = count;
+    }
     if (Object.keys(local).length > 0) {
       needFocus.current = true;
       setErrors(local);
@@ -375,6 +405,10 @@ function FormBody({ account }: { account: Account | null }) {
   const hint = (key: keyof AccountForm): string | undefined => {
     if (key === "balance" && editing) return "Changing this corrects the balance. Your transactions stay as they are.";
     if (key === "balance" && type === "credit_card") return "Enter what you owe as a positive amount.";
+    if (key === "balance" && type === "loan") return "The principal still to repay, as your lender shows it.";
+    if (key === "emis_left") return "Goes down as you record EMIs.";
+    if (key === "interest_rate") return "Optional. Used to suggest each EMI's interest.";
+    if (key === "pay_from_id") return "For a loan on a credit card, choose the card. Its available credit leaves out what the loan still owes.";
     if (key === "last4") return "Only the last 4 digits. Never enter the full number.";
     if (key === "statement_day" || key === "due_day") return "1 to 31";
     return undefined;
@@ -425,11 +459,18 @@ function FormBody({ account }: { account: Account | null }) {
       />,
     );
 
-  const money = (key: "balance" | "credit_limit", label: string) =>
+  const money = (key: "balance" | "credit_limit" | "emi_amount" | "interest_rate", label: string) =>
     input(key, label, { keyboardType: "numeric", maxLength: MONEY_MAX_LENGTH });
 
   const day = (key: "statement_day" | "due_day", label: string) =>
     input(key, label, { keyboardType: "number-pad", maxLength: 2 });
+
+  const payFrom = accounts.filter((a) => a.type !== "loan" && a.id !== account?.id);
+  // Kept when the linked account was archived after the loan was set up, so the choice still shows.
+  if (account?.pay_from_id != null && !payFrom.some((a) => a.id === account.pay_from_id)) {
+    payFrom.push({ ...account, id: account.pay_from_id, name: "Archived account" });
+  }
+  const payFromCard = accounts.find((a) => String(a.id) === form.pay_from_id && a.type === "credit_card");
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -522,7 +563,7 @@ function FormBody({ account }: { account: Account | null }) {
           )}
 
           {input("name", "Name", { maxLength: 60 })}
-          {money("balance", type === "credit_card" ? "Amount owed (₹)" : "Balance (₹)")}
+          {money("balance", type === "credit_card" ? "Amount owed (₹)" : type === "loan" ? "Outstanding (₹)" : "Balance (₹)")}
 
           {type !== "cash" ? input("institution", INSTITUTION_LABELS[type], { maxLength: 60 }) : null}
 
@@ -561,6 +602,54 @@ function FormBody({ account }: { account: Account | null }) {
               {money("credit_limit", "Credit limit (₹)")}
               {day("statement_day", "Statement day")}
               {day("due_day", "Due day")}
+            </>
+          ) : null}
+
+          {type === "loan" ? (
+            <>
+              {money("emi_amount", "EMI (₹)")}
+              {input("emis_left", "EMIs left", { keyboardType: "number-pad", maxLength: 3 })}
+              {day("due_day", "EMI day")}
+              {money("interest_rate", "Interest rate (% a year)")}
+              {field(
+                "pay_from_id",
+                <View>
+                  <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
+                    EMIs paid from
+                  </Text>
+                  <View style={styles.chips}>
+                    {[{ id: "", name: "Not linked" }, ...payFrom.map((a) => ({ id: String(a.id), name: a.name }))].map((option) => (
+                      <Chip
+                        key={option.id || "none"}
+                        selected={form.pay_from_id === option.id}
+                        showSelectedCheck
+                        disabled={busy}
+                        onPress={() => setForm((f) => ({ ...f, pay_from_id: option.id, moved_from_card: "" }))}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: form.pay_from_id === option.id, disabled: busy }}
+                      >
+                        {option.name}
+                      </Chip>
+                    ))}
+                  </View>
+                </View>,
+              )}
+              {!editing && payFromCard
+                ? field(
+                    "moved_from_card",
+                    <Checkbox.Item
+                      mode="android"
+                      position="leading"
+                      disabled={busy}
+                      status={form.moved_from_card === "yes" ? "checked" : "unchecked"}
+                      onPress={() => set("moved_from_card", form.moved_from_card === "yes" ? "" : "yes")}
+                      label={`This amount is already in ${payFromCard.name}'s balance. Move it from the card to this loan, so it isn't counted twice.`}
+                      labelVariant="bodyMedium"
+                      labelStyle={styles.checkLabel}
+                      style={styles.check}
+                    />,
+                  )
+                : null}
             </>
           ) : null}
 
@@ -608,4 +697,6 @@ const styles = StyleSheet.create({
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8, marginBottom: 8 },
   save: { marginTop: 16 },
   saveContent: { height: 48 },
+  check: { paddingHorizontal: 0 },
+  checkLabel: { textAlign: "left" },
 });

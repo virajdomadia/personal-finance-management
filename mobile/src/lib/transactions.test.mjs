@@ -4,6 +4,8 @@ import { test } from "node:test";
 import {
   blankForm,
   changedPayload,
+  emiForm,
+  subtractMoney,
   formFromTransaction,
   formatDate,
   formatMonth,
@@ -26,6 +28,7 @@ const expense = {
   to_account_id: null,
   to_account_name: null,
   category: "Groceries",
+  interest: null,
   note: null,
   editable: true,
 };
@@ -159,4 +162,64 @@ test("previousDay crosses month and year boundaries", () => {
   assert.equal(previousDay("2026-01-15"), "2026-01-14");
   assert.equal(previousDay("2026-03-01"), "2026-02-28");
   assert.equal(previousDay("2026-01-01"), "2025-12-31");
+});
+
+const emi = {
+  ...expense,
+  id: 3,
+  type: "emi",
+  amount: "7500.00",
+  to_account_id: 9,
+  to_account_name: "Card loan",
+  category: "Loan interest",
+  interest: "289.33",
+};
+
+test("toPayload for an EMI sends the loan and interest, never a category", () => {
+  const form = { ...formFromTransaction(emi), interest: " ₹1,289.33 " };
+  const payload = toPayload(form, "create");
+  assert.equal(payload.to_account_id, 9);
+  assert.equal(payload.interest, "1289.33");
+  assert.equal("category" in payload, false);
+});
+
+test("an untouched EMI has nothing to save", () => {
+  assert.deepEqual(changedPayload(formFromTransaction(emi), emi), {});
+  assert.deepEqual(changedPayload({ ...formFromTransaction(emi), interest: "300" }, emi), { interest: "300" });
+});
+
+test("renderedFields for an EMI", () => {
+  assert.deepEqual(renderedFields("emi"), ["amount", "date", "account_id", "to_account_id", "interest", "note"]);
+});
+
+test("signedAmount shows an EMI as out, and only its principal into the loan", () => {
+  assert.equal(signedAmount(emi), "-₹7,500.00");
+  assert.equal(signedAmount(emi, 7), "-₹7,500.00");
+  assert.equal(signedAmount(emi, 9), "+₹7,210.67");
+});
+
+test("emiForm pre-fills the suggested split and the usual account", () => {
+  const loan = {
+    id: 9,
+    pay_from_id: 7,
+    emi_amount: "7500.00",
+    next_emi: { amount: "7500.00", interest: "289.33", principal: "7210.67" },
+  };
+  const form = emiForm(loan, "2026-11-08");
+  assert.equal(form.type, "emi");
+  assert.equal(form.account_id, "7");
+  assert.equal(form.to_account_id, "9");
+  assert.equal(form.amount, "7500.00");
+  assert.equal(form.interest, "289.33");
+  const unknown = emiForm({ ...loan, pay_from_id: null, next_emi: { amount: "300.00", interest: null, principal: null } }, "2026-11-08");
+  assert.equal(unknown.account_id, "");
+  assert.equal(unknown.interest, "");
+});
+
+test("subtractMoney is exact and refuses what isn't a plain amount", () => {
+  assert.equal(subtractMoney("7500.00", "289.33"), "7210.67");
+  assert.equal(subtractMoney("0.1", "0.2"), "-0.10");
+  assert.equal(subtractMoney("100", "0"), "100.00");
+  assert.equal(subtractMoney("100", "abc"), "");
+  assert.equal(subtractMoney("1.234", "1"), "");
 });
