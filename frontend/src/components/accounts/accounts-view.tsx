@@ -340,6 +340,11 @@ function AccountRow({
         <Link href={`/transactions?account=${account.id}`} className={ROW_ACTION} aria-label={`Transactions for ${account.name}`}>
           Transactions
         </Link>
+        {account.type === "broker" && (
+          <Link href={`/investments?broker=${account.id}`} className={ROW_ACTION} aria-label={`Trades in ${account.name}`}>
+            Trades
+          </Link>
+        )}
         {account.archived ? (
           <button
             type="button"
