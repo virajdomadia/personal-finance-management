@@ -13,6 +13,7 @@ from app.api.balances import LIABILITY_TYPES, balance_of, opening_for
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.loans import Book, NextEmi, emis_at_opening, emis_left, load_book, next_emi
+from app.api.portfolio import holds_shares, investments_totals
 from app.db.session import DbSession
 from app.models.account import Account
 from app.models.transaction import Transaction
@@ -327,6 +328,7 @@ def list_accounts(user: CurrentUser, db: DbSession, archived: bool = False) -> A
     shown.sort(key=list_sort_key)
     book = load_book(db, user.id, accounts)
     have, owe = totals(active, book.flows)
+    have += investments_totals(db, user.id).value
     return AccountList(
         accounts=[to_response(a, book) for a in shown], total_have=fmt(have), total_owe=fmt(owe)
     )
@@ -445,6 +447,11 @@ def update_account(
 def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountResponse:
     account = _get_owned(db, user, id)
     if account.archived_at is None:
+        if account.type == "broker" and holds_shares(db, user.id, account.id):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Sell the shares held in {account.name} before archiving it.",
+            )
         account.archived_at = datetime.now(UTC)
         db.commit()
     return to_response(account, load_book(db, user.id))

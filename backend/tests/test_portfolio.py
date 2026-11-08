@@ -169,3 +169,49 @@ def test_empty_portfolio(headers: Headers) -> None:
             "realised": "0.00",
         },
     }
+
+
+def _dashboard(headers: Headers) -> dict[str, Any]:
+    return client.get("/api/dashboard", headers=headers).json()
+
+
+def _accounts(headers: Headers) -> dict[str, Any]:
+    return client.get("/api/accounts", headers=headers).json()
+
+
+def test_net_worth_counts_investments_at_current_value(headers: Headers) -> None:
+    account, infy = broker(headers), stock(headers)
+    made(headers, stock_id=infy, account_id=account, quantity=10, price="500.00")
+    price(headers, infy, "600.00")
+    assert _accounts(headers)["total_have"] == "11000.00"
+    dash = _dashboard(headers)
+    assert dash["net_worth"] == "11000.00"
+    assert dash["total_have"] == "11000.00"
+    assert dash["investments"] == {
+        "value": "6000.00",
+        "unrealised": "1000.00",
+        "unrealised_percent": "20.00",
+    }
+
+
+def test_buying_keeps_net_worth(headers: Headers) -> None:
+    account, infy = broker(headers), stock(headers)
+    made(headers, stock_id=infy, account_id=account, quantity=10, price="500.00")
+    assert _dashboard(headers)["net_worth"] == "10000.00"
+    assert _accounts(headers)["total_have"] == "10000.00"
+
+
+def test_dashboard_investments_null_without_holdings(headers: Headers) -> None:
+    broker(headers)
+    assert _dashboard(headers)["investments"] is None
+
+
+def test_archive_broker_with_holdings_is_409(headers: Headers) -> None:
+    account, infy = broker(headers), stock(headers)
+    made(headers, stock_id=infy, account_id=account, quantity=10, price="500.00")
+    url = f"/api/accounts/{account}/archive"
+    response = client.post(url, headers=headers)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Sell the shares held in Zerodha before archiving it."
+    made(headers, stock_id=infy, account_id=account, side="sell", quantity=10, price="500.00")
+    assert client.post(url, headers=headers).status_code == 200

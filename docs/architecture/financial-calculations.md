@@ -49,7 +49,7 @@ Net worth is always computed from asset and liability accounts only. Income, exp
 - A card bill payment is a transfer. It lowers the bank and the amount owed by the same figure, so the purchase counts as spending only once, when it was made.
 - Over any sequence of creates, edits and deletes, every balance equals a simple reference model, and net worth equals the sum (`test_random_operations_match_the_reference_model`).
 
-**Planned.** Buying an investment with bank money moves value from cash to investments. It is not an expense and doesn't change net worth on the day. Investments, physical assets and loans join the totals when those domains are built.
+**Built for stocks.** Buying shares with broker cash moves value from cash to investments. It is not an expense and doesn't change net worth on the day. Stocks count at their latest recorded price, or at cost until a price is recorded. Physical assets and other investment types join the totals when those domains are built.
 
 ### Worked example
 
@@ -79,7 +79,7 @@ net cash flow = income − expenses
 
 **Planned.** Investment purchases, loan principal repayments and transfers stay out of cash flow. Loan interest and fees are expenses. Principal repayment only reduces the liability.
 
-## Investment returns (planned)
+## Investment returns (built for stocks)
 
 Three figures, always kept apart:
 
