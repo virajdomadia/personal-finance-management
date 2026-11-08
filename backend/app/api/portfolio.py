@@ -124,6 +124,30 @@ def replay(trades: Iterable[TradeRow]) -> Replay:
     return Replay(positions, realised_by_sell, shortfall)
 
 
+class PortfolioTotals(NamedTuple):
+    invested: Decimal
+    value: Decimal
+    unrealised: Decimal
+    realised: Decimal
+
+
+def holding_value(shares: int, invested: Decimal, price: Decimal | None) -> Decimal:
+    """Current value of a holding; with no recorded price it is held at cost."""
+    return invested if price is None else round_paise(shares * price)
+
+
+def summarise(replay: Replay, prices: dict[int, tuple[date, Decimal]]) -> PortfolioTotals:
+    """Totals over open holdings (invested, value) and over every position (realised)."""
+    invested = value = realised = Decimal("0.00")
+    for pos in replay.positions.values():
+        realised += pos.realised
+        if pos.shares > 0:
+            current = prices.get(pos.stock_id)
+            invested += pos.invested
+            value += holding_value(pos.shares, pos.invested, current[1] if current else None)
+    return PortfolioTotals(invested, value, value - invested, realised)
+
+
 # The one database-aware function here: the rows `replay` works on, for all of a user's trades.
 def load_trade_rows(db: Session, user_id: int) -> list[TradeRow]:
     rows = db.execute(
