@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type Dashboard, formatDueDate, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { Signed } from "@/components/investments/shared";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: Dashboard };
 
@@ -66,6 +67,7 @@ export function DashboardView() {
 function Content({ data }: { data: Dashboard }) {
   const due = data.next_card_due;
   const used = data.credit_used;
+  const investments = data.investments;
 
   return (
     <div className="flex flex-col gap-6">
@@ -76,7 +78,9 @@ function Content({ data }: { data: Dashboard }) {
         <p className="mt-1 text-lg font-semibold tabular-nums [overflow-wrap:anywhere] min-[480px]:text-3xl sm:text-5xl">
           {formatRupees(data.net_worth)}
         </p>
-        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Investments not included yet</p>
+        {data.investments && (
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Includes investments at their current value</p>
+        )}
         {!data.has_accounts && (
           <Link
             href="/accounts"
@@ -101,6 +105,17 @@ function Content({ data }: { data: Dashboard }) {
             <p className={AMOUNT}>{formatRupees(data.total_owe)}</p>
           </Link>
         </div>
+      )}
+
+      {investments && (
+        <Link href="/investments" className={CARD}>
+          <p className={LABEL}>Investments</p>
+          <p className={AMOUNT}>{formatRupees(investments.value)}</p>
+          <p className="mt-1 text-sm">
+            <span className="text-zinc-500 dark:text-zinc-400">Unrealised </span>
+            <Signed value={investments.unrealised} /> <Signed value={investments.unrealised_percent} percentOnly />
+          </p>
+        </Link>
       )}
 
       {(due || used) && (
