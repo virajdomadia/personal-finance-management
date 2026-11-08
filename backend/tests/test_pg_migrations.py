@@ -29,6 +29,16 @@ def migrations_db() -> Iterator[str]:
     engine.dispose()
 
 
+ALL_TABLES = {
+    "users",
+    "accounts",
+    "transactions",
+    "stocks",
+    "stock_trades",
+    "stock_prices",
+}
+
+
 def tables(url: str) -> set[str]:
     engine: Engine = create_engine(url)
     try:
@@ -46,10 +56,10 @@ def test_migrations_match_the_models(migrations_db: str) -> None:
 def test_migrations_downgrade_and_upgrade_cleanly(migrations_db: str) -> None:
     config = alembic_config(migrations_db)
     command.upgrade(config, "head")
-    assert tables(migrations_db) == {"users", "accounts", "transactions"}
+    assert tables(migrations_db) == ALL_TABLES
 
     command.downgrade(config, "base")
     assert tables(migrations_db) == set()
 
     command.upgrade(config, "head")
-    assert tables(migrations_db) == {"users", "accounts", "transactions"}
+    assert tables(migrations_db) == ALL_TABLES
