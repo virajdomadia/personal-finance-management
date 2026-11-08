@@ -540,7 +540,9 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
               <Text variant="bodyLarge">{TYPE_LABELS[type]}</Text>
             </View>
           ) : (
-            <View>
+            field(
+              "type",
+              <View>
               <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
                 Type
               </Text>
@@ -559,7 +561,8 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
                   </Chip>
                 ))}
               </View>
-            </View>
+              </View>,
+            )
           )}
 
           {input("name", "Name", { maxLength: 60 })}
