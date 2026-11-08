@@ -307,8 +307,13 @@ function TransactionRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const title = tx.type === "transfer" ? "Transfer" : tx.category;
-  const accountText = tx.type === "transfer" ? `${tx.account_name} → ${tx.to_account_name}` : tx.account_name;
+  const title = tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? `EMI · ${tx.to_account_name}` : tx.category;
+  const accountText =
+    tx.type === "transfer"
+      ? `${tx.account_name} → ${tx.to_account_name}`
+      : tx.type === "emi" && tx.interest !== null
+        ? `${tx.account_name} · ${formatRupees(tx.interest)} interest`
+        : tx.account_name;
   return (
     <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
       <div className="min-w-32 flex-1">
@@ -384,7 +389,8 @@ function DeleteDialog({
     >
       <div className="px-5 py-4">
         <h2 id="delete-title" className="text-base font-semibold">
-          Delete this {tx.type} of {formatRupees(tx.amount)}?
+          Delete this {TRANSACTION_TYPES.find((t) => t.value === tx.type)?.label.toLowerCase()} of{" "}
+          {formatRupees(tx.amount)}?
         </h2>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
           It&apos;s removed for good, and the account balance moves back. This can&apos;t be undone.

@@ -7,18 +7,27 @@ import { logout } from "@/app/login/actions";
 import {
   type Account,
   type AccountList,
+  OWED_TYPES,
   TYPE_LABELS,
   TYPE_ORDER,
   errorMessage,
+  formatDueDate,
   formatRupees,
   maskLast4,
+  nextDueDate,
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { emiForm, todayIndia } from "@/lib/transactions";
+import { TransactionDialog } from "@/components/transactions/transaction-dialog";
 
 import { AccountDialog } from "./account-dialog";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: AccountList };
-type Dialog = { kind: "none" } | { kind: "form"; account: Account | null } | { kind: "archive"; account: Account };
+type Dialog =
+  | { kind: "none" }
+  | { kind: "form"; account: Account | null }
+  | { kind: "archive"; account: Account }
+  | { kind: "emi"; loan: Account };
 
 const BUTTON =
   "rounded-md px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none disabled:opacity-60";
@@ -67,6 +76,8 @@ export function AccountsView() {
   };
 
   const closeDialog = () => setDialog({ kind: "none" });
+  // Only the active list is ever on screen when adding, editing or recording an EMI.
+  const activeAccounts = load.status === "ready" && !archived ? load.data.accounts : [];
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -115,6 +126,7 @@ export function AccountsView() {
           onAdd={() => setDialog({ kind: "form", account: null })}
           onEdit={(account) => setDialog({ kind: "form", account })}
           onArchive={(account) => setDialog({ kind: "archive", account })}
+          onRecordEmi={(loan) => setDialog({ kind: "emi", loan })}
           onRestore={async (account) => {
             setNotice(null);
             try {
@@ -132,6 +144,27 @@ export function AccountsView() {
         <AccountDialog
           key={dialog.account?.id ?? "new"}
           account={dialog.account}
+          accounts={activeAccounts}
+          onClose={closeDialog}
+          onSaved={() => {
+            setNotice(null);
+            closeDialog();
+            reload();
+          }}
+          onConflict={(message) => {
+            setNotice(message);
+            closeDialog();
+            reload();
+          }}
+        />
+      )}
+
+      {dialog.kind === "emi" && (
+        <TransactionDialog
+          transaction={null}
+          accounts={activeAccounts}
+          defaultAccountId={dialog.loan.pay_from_id}
+          initialForm={emiForm(dialog.loan, todayIndia())}
           onClose={closeDialog}
           onSaved={() => {
             setNotice(null);
@@ -168,6 +201,7 @@ function Content({
   onEdit,
   onArchive,
   onRestore,
+  onRecordEmi,
 }: {
   data: AccountList;
   archived: boolean;
@@ -175,6 +209,7 @@ function Content({
   onEdit: (account: Account) => void;
   onArchive: (account: Account) => void;
   onRestore: (account: Account) => Promise<void>;
+  onRecordEmi: (loan: Account) => void;
 }) {
   const groups = TYPE_ORDER.map((type) => ({
     type,
@@ -198,7 +233,7 @@ function Content({
             <>
               <p className="font-medium">Add your first account</p>
               <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Bank accounts, credit cards, cash, broker balances and wallets all live here.
+                Bank accounts, credit cards, cash, broker balances, wallets and loans all live here.
               </p>
               <button type="button" className={`${PRIMARY} mt-4`} onClick={onAdd}>
                 Add account
@@ -221,6 +256,7 @@ function Content({
                     onEdit={onEdit}
                     onArchive={onArchive}
                     onRestore={onRestore}
+                    onRecordEmi={onRecordEmi}
                   />
                 ))}
               </ul>
@@ -246,14 +282,28 @@ function AccountRow({
   onEdit,
   onArchive,
   onRestore,
+  onRecordEmi,
 }: {
   account: Account;
   onEdit: (account: Account) => void;
   onArchive: (account: Account) => void;
   onRestore: (account: Account) => Promise<void>;
+  onRecordEmi: (loan: Account) => void;
 }) {
   const [restoring, setRestoring] = useState(false);
+  const [today] = useState(todayIndia);
   const card = account.type === "credit_card";
+  const owed = OWED_TYPES.has(account.type);
+  const loan = account.type === "loan";
+  const paidOff = loan && account.balance === "0.00";
+  const loanDetails = loan
+    ? [
+        account.emi_amount ? `EMI ${formatRupees(account.emi_amount)}` : null,
+        account.emis_left !== null ? `${account.emis_left} left` : null,
+        account.due_day !== null && !paidOff ? `next ${formatDueDate(nextDueDate(account.due_day, today))}` : null,
+        account.interest_rate !== null ? `${account.interest_rate}% a year` : null,
+      ].filter(Boolean)
+    : [];
   const details = [
     account.institution && account.institution !== account.name ? account.institution : null,
     account.type === "bank" && account.bank_kind
@@ -269,10 +319,15 @@ function AccountRow({
         {details.length > 0 && (
           <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{details.join(" · ")}</p>
         )}
+        {loanDetails.length > 0 && (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{loanDetails.join(" · ")}</p>
+        )}
       </div>
       <div className="min-w-0 max-w-full text-right tabular-nums [overflow-wrap:anywhere]">
         <p className="text-sm font-medium">
-          {card && <span className="mr-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400">Owed</span>}
+          {owed && (
+            <span className="mr-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400">{paidOff ? "Paid off" : "Owed"}</span>
+          )}
           {formatRupees(account.balance)}
         </p>
         {card && account.available_credit !== null && (
@@ -304,6 +359,16 @@ function AccountRow({
           </button>
         ) : (
           <>
+            {loan && !paidOff && (
+              <button
+                type="button"
+                className={ROW_ACTION}
+                aria-label={`Record an EMI for ${account.name}`}
+                onClick={() => onRecordEmi(account)}
+              >
+                Record EMI
+              </button>
+            )}
             <button type="button" className={ROW_ACTION} aria-label={`Edit ${account.name}`} onClick={() => onEdit(account)}>
               Edit
             </button>

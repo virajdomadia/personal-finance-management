@@ -101,7 +101,7 @@ export default function DashboardScreen() {
             {formatRupees(data.net_worth)}
           </Text>
           <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            Investments and loans not included yet
+            Investments not included yet
           </Text>
           {!data.has_accounts ? (
             <Button mode="contained" onPress={openAccounts} style={styles.addButton}>

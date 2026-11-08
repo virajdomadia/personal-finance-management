@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { logout } from "@/app/login/actions";
-import { type Account, errorMessage, splitErrors } from "@/lib/accounts";
+import { type Account, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { ComboBox, Select } from "@/components/ui/select";
 import {
@@ -16,6 +16,7 @@ import {
   changedPayload,
   formFromTransaction,
   renderedFields,
+  subtractMoney,
   toPayload,
   todayIndia,
 } from "@/lib/transactions";
@@ -27,25 +28,37 @@ const FROM_LABELS: Record<TransactionType, string> = {
   expense: "Paid from",
   income: "Received in",
   transfer: "From account",
+  emi: "Paid from",
 };
 
 type Props = {
   transaction: Transaction | null; // null means adding
   accounts: Account[]; // active accounts
   defaultAccountId: number | null;
+  initialForm?: TransactionForm; // a pre-filled new transaction, such as a loan's next EMI
   onClose: () => void;
   onSaved: (saved: Transaction) => void;
   onConflict: (message: string) => void;
 };
 
-export function TransactionDialog({ transaction, accounts, defaultAccountId, onClose, onSaved, onConflict }: Props) {
+export function TransactionDialog({
+  transaction,
+  accounts,
+  defaultAccountId,
+  initialForm,
+  onClose,
+  onSaved,
+  onConflict,
+}: Props) {
   const editing = transaction !== null;
   const ref = useRef<HTMLDialogElement>(null);
   const savingRef = useRef(false);
   const submitRef = useRef<HTMLButtonElement>(null);
   const needFocus = useRef(false);
   const [form, setForm] = useState<TransactionForm>(() =>
-    transaction ? formFromTransaction(transaction) : blankForm("expense", todayIndia(), defaultAccountId),
+    transaction
+      ? formFromTransaction(transaction)
+      : (initialForm ?? blankForm("expense", todayIndia(), defaultAccountId)),
   );
   const [categories, setCategories] = useState<CategoryList>({ income: [], expense: [] });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -84,7 +97,23 @@ export function TransactionDialog({ transaction, accounts, defaultAccountId, onC
   // Keeps what the types share and resets what only some of them have.
   const changeType = (type: TransactionType) => {
     setErrors({});
-    setForm((f) => ({ ...f, type, category: "", to_account_id: "" }));
+    setForm((f) => ({ ...f, type, category: "", to_account_id: "", interest: "" }));
+  };
+
+  // Picking a loan for a new EMI fills in its suggested split and usual account.
+  const chooseLoan = (value: string) => {
+    const loan = accounts.find((a) => String(a.id) === value);
+    setForm((f) => {
+      if (editing || !loan) return { ...f, to_account_id: value };
+      const usual = loan.pay_from_id !== null && accounts.some((a) => a.id === loan.pay_from_id);
+      return {
+        ...f,
+        to_account_id: value,
+        account_id: usual ? String(loan.pay_from_id) : f.account_id,
+        amount: loan.next_emi?.amount ?? loan.emi_amount ?? f.amount,
+        interest: loan.next_emi?.interest ?? f.interest,
+      };
+    });
   };
 
   async function submit(event: React.FormEvent) {
@@ -158,8 +187,13 @@ export function TransactionDialog({ transaction, accounts, defaultAccountId, onC
     describedBy: errors[key] ? `te-${key}` : undefined,
     onChange: (value: string) => set(key, value),
   });
+  const loans = accounts.filter((a) => a.type === "loan");
+  const types = TRANSACTION_TYPES.filter((t) => t.value !== "emi" || loans.length > 0);
   const accountOptions = (exclude: string) =>
-    accounts.filter((a) => String(a.id) !== exclude).map((a) => ({ value: String(a.id), label: a.name }));
+    accounts
+      .filter((a) => String(a.id) !== exclude && (type !== "emi" || a.type !== "loan"))
+      .map((a) => ({ value: String(a.id), label: a.name }));
+  const principal = subtractMoney(cleanMoney(form.amount), cleanMoney(form.interest));
 
   return (
     <dialog
@@ -186,8 +220,8 @@ export function TransactionDialog({ transaction, accounts, defaultAccountId, onC
           ) : (
             <fieldset disabled={saving}>
               <legend className="mb-1 block text-sm font-medium">Type</legend>
-              <div className="flex gap-4">
-                {TRANSACTION_TYPES.map((option) => (
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {types.map((option) => (
                   <label key={option.value} className="flex items-center gap-1.5 text-sm">
                     <input
                       type="radio"
@@ -218,7 +252,46 @@ export function TransactionDialog({ transaction, accounts, defaultAccountId, onC
             />,
           )}
 
-          {type === "transfer"
+          {type === "emi" && (
+            <>
+              {field(
+                "to_account_id",
+                "Loan",
+                <Select
+                  {...pickerProps("to_account_id")}
+                  onChange={chooseLoan}
+                  placeholder="Choose a loan"
+                  options={loans.map((a) => ({ value: String(a.id), label: a.name }))}
+                />,
+              )}
+              <div>
+                <label htmlFor="t-interest" className="mb-1 block text-sm font-medium">
+                  Interest and charges (₹)
+                </label>
+                <input
+                  {...props("interest")}
+                  aria-describedby={[`th-interest`, errors.interest ? "te-interest" : null].filter(Boolean).join(" ")}
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                />
+                <p id="th-interest" className="mt-1 text-xs text-zinc-500 dark:text-zinc-400" aria-live="polite">
+                  {principal && !principal.startsWith("-")
+                    ? `${formatRupees(principal)} repays the loan. The interest counts as spending. Use your statement's figures if they differ.`
+                    : "Interest, fees and GST in this EMI. The rest repays the loan."}
+                </p>
+                {errors.interest ? (
+                  <p id="te-interest" className="mt-1 text-xs text-red-700 dark:text-red-400">
+                    {errors.interest}
+                  </p>
+                ) : null}
+              </div>
+            </>
+          )}
+
+          {type === "emi"
+            ? null
+            : type === "transfer"
             ? field(
                 "to_account_id",
                 "To account",

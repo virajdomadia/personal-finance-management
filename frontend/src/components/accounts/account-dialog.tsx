@@ -33,6 +33,7 @@ const INSTITUTION_LABELS: Record<AccountType, string> = {
   cash: "",
   broker: "Broker name",
   wallet: "Provider",
+  loan: "Lender",
 };
 
 const CASH_NAME = "Cash in hand";
@@ -52,6 +53,11 @@ function blankForm(type: AccountType): AccountForm {
     credit_limit: "",
     statement_day: "",
     due_day: "",
+    interest_rate: "",
+    emi_amount: "",
+    emis_left: "",
+    pay_from_id: "",
+    moved_from_card: "",
   };
 }
 
@@ -64,14 +70,23 @@ function dayError(raw: string): string | null {
   return day >= 1 && day <= 31 ? null : DAY_MESSAGE;
 }
 
+// Same reason as dayError: a non-number would silently clear the field.
+function countError(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const count = Number(trimmed);
+  return /^\d+$/.test(trimmed) && count >= 1 && count <= 600 ? null : "Enter a number of EMIs from 1 to 600.";
+}
+
 type Props = {
   account: Account | null; // null means adding
+  accounts: Account[]; // active accounts, for the account a loan is paid from
   onClose: () => void;
   onSaved: () => void;
   onConflict: (message: string) => void;
 };
 
-export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) {
+export function AccountDialog({ account, accounts, onClose, onSaved, onConflict }: Props) {
   const editing = account !== null;
   const ref = useRef<HTMLDialogElement>(null);
   const savingRef = useRef(false);
@@ -113,11 +128,15 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
     if (savingRef.current) return;
 
     const local: Record<string, string> = {};
-    if (form.type === "credit_card") {
-      for (const key of ["statement_day", "due_day"] as const) {
+    if (form.type === "credit_card" || form.type === "loan") {
+      for (const key of form.type === "loan" ? (["due_day"] as const) : (["statement_day", "due_day"] as const)) {
         const message = dayError(form[key]);
         if (message) local[key] = message;
       }
+    }
+    if (form.type === "loan") {
+      const message = countError(form.emis_left);
+      if (message) local.emis_left = message;
     }
     if (Object.keys(local).length > 0) {
       needFocus.current = true;
@@ -163,9 +182,20 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
   }
 
   const type = form.type;
+  const payFromOptions = [
+    { value: "", label: "Not linked" },
+    ...accounts.filter((a) => a.type !== "loan" && a.id !== account?.id).map((a) => ({ value: String(a.id), label: a.name })),
+  ];
+  // Kept when the linked account was archived after the loan was set up, so the form shows it.
+  const linked = account?.pay_from_id;
+  if (linked != null && !payFromOptions.some((o) => o.value === String(linked))) {
+    payFromOptions.push({ value: String(linked), label: "Archived account" });
+  }
+  const payFromCard = accounts.find((a) => String(a.id) === form.pay_from_id && a.type === "credit_card");
   const HINTS = new Set<keyof AccountForm>([
-    ...(type === "credit_card" || editing ? (["balance"] as const) : []),
+    ...(type === "credit_card" || type === "loan" || editing ? (["balance"] as const) : []),
     ...(type === "credit_card" ? (["statement_day", "due_day"] as const) : []),
+    ...(type === "loan" ? (["due_day", "interest_rate", "emis_left", "pay_from_id"] as const) : []),
     ...(type === "bank" || type === "credit_card" ? (["last4"] as const) : []),
   ]);
   const field = (key: keyof AccountForm, label: string, input: React.ReactNode, hint?: string) => (
@@ -237,13 +267,15 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
           {field("name", "Name", <input {...props("name")} type="text" autoComplete="off" maxLength={60} required />)}
           {field(
             "balance",
-            type === "credit_card" ? "Amount owed (₹)" : "Balance (₹)",
+            type === "credit_card" ? "Amount owed (₹)" : type === "loan" ? "Outstanding (₹)" : "Balance (₹)",
             <input {...props("balance")} type="text" inputMode="decimal" autoComplete="off" required />,
             editing
               ? "Changing this corrects the balance. Your transactions stay as they are."
               : type === "credit_card"
                 ? "Enter what you owe as a positive amount."
-                : undefined,
+                : type === "loan"
+                  ? "The principal still to repay, as your lender shows it."
+                  : undefined,
           )}
 
           {type !== "cash" &&
@@ -271,6 +303,63 @@ export function AccountDialog({ account, onClose, onSaved, onConflict }: Props) 
                 {field("statement_day", "Statement day", <input {...props("statement_day")} type="text" inputMode="numeric" autoComplete="off" />, "1 to 31")}
                 {field("due_day", "Due day", <input {...props("due_day")} type="text" inputMode="numeric" autoComplete="off" />, "1 to 31")}
               </div>
+            </>
+          )}
+
+          {type === "loan" && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                {field("emi_amount", "EMI (₹)", <input {...props("emi_amount")} type="text" inputMode="decimal" autoComplete="off" />)}
+                {field(
+                  "emis_left",
+                  "EMIs left",
+                  <input {...props("emis_left")} type="text" inputMode="numeric" autoComplete="off" />,
+                  "Goes down as you record EMIs.",
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                {field("due_day", "EMI day", <input {...props("due_day")} type="text" inputMode="numeric" autoComplete="off" />, "1 to 31")}
+                {field(
+                  "interest_rate",
+                  "Interest rate (% a year)",
+                  <input {...props("interest_rate")} type="text" inputMode="decimal" autoComplete="off" />,
+                  "Optional. Used to suggest each EMI's interest.",
+                )}
+              </div>
+              {field(
+                "pay_from_id",
+                "EMIs paid from",
+                <Select
+                  {...selectProps("pay_from_id")}
+                  options={payFromOptions}
+                  onChange={(value) => setForm((f) => ({ ...f, pay_from_id: value, moved_from_card: "" }))}
+                />,
+                "For a loan on a credit card, choose the card. Its available credit leaves out what the loan still owes.",
+              )}
+              {!editing && payFromCard && (
+                <div>
+                  <label className="flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={form.moved_from_card === "yes"}
+                      disabled={saving}
+                      aria-invalid={errors.moved_from_card ? true : undefined}
+                      aria-describedby={errors.moved_from_card ? "e-moved_from_card" : undefined}
+                      onChange={(e) => set("moved_from_card", e.target.checked ? "yes" : "")}
+                    />
+                    <span>
+                      This amount is already in {payFromCard.name}&apos;s balance. Move it from the card to this loan, so
+                      it isn&apos;t counted twice.
+                    </span>
+                  </label>
+                  {errors.moved_from_card ? (
+                    <p id="e-moved_from_card" className="mt-1 text-xs text-red-700 dark:text-red-400">
+                      {errors.moved_from_card}
+                    </p>
+                  ) : null}
+                </div>
+              )}
             </>
           )}
 
