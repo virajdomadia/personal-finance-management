@@ -203,10 +203,14 @@ What the database enforces on its own:
   - A reversal belongs to the same transaction and keeps the original's effective date.
   - Each reversal line hits the same ledger account as the line it reverses, with the opposite amount, and a line is reversed at most once.
 - **Immutability.** `BEFORE UPDATE OR DELETE` triggers on `postings` and `journal_lines` raise an error. They are triggers rather than grants because Neon's application role owns its tables, and an owner bypasses grants. The only exception is the whole-user data deletion procedure, which sets `app.purging_user = <id>` for its own transaction.
-- **Balance and completeness, checked at commit.** A `DEFERRABLE INITIALLY DEFERRED` constraint trigger checks every posting touched by the transaction:
+- **One operation, one timestamp.** A posting must be written by a change made in the same database transaction. Lines can only be added to a posting in the operation that wrote it.
+- **The header.** A transaction's owner and type never change, and every update raises its version by exactly one.
+- **Balance and completeness, checked at commit.** `DEFERRABLE INITIALLY DEFERRED` constraint triggers on new postings and on header inserts and updates check:
   - Its lines sum to 0 and there is at least one line.
   - A reversal has exactly as many lines as its original, each reversing a line of that original.
   - The transaction is consistent: `posted` with exactly one unreversed original posting, or `voided` with none.
+  - A posted transaction's date matches its active posting's date, and its amount matches what that posting moves.
+  - There is a change record for the transaction's current version.
 
 ## Operations
 
@@ -311,7 +315,7 @@ The database constraints above prevent most corruption. `uv run python -m app.cl
 
 Each step is its own commit and deploy, and the migration can stop at any step. Nothing is dropped until the last step.
 
-0. **Prerequisite: PostgreSQL integration tests.** Run the backend suite against a disposable PostgreSQL database as well as SQLite. Cover row locking under concurrent writes, constraint and trigger behaviour, and the existing invariant tests.
+0. **Prerequisite: PostgreSQL integration tests.** Run the backend suite against a disposable PostgreSQL database as well as SQLite. Cover row locking under concurrent writes, constraint and trigger behaviour, and the existing invariant tests. *Done on branch `step0-postgres-tests`; results and limitations are in [testing](testing.md). The schema and triggers in `backend/tests/sql/ledger_prototype.sql` are the tested form of this design.*
 1. **Schema.** Add the `accounts` columns and the new tables, constraints and triggers. Behaviour doesn't change.
 2. **Backfill** with `backfill-ledger`, which is **idempotent**. It writes per user in one transaction, and skips any user, account or transaction that already has its rows, keyed on the unique constraints. Then run `reconcile-ledger`, which reports per account the old and new balances, net worth, transaction counts, pre-opening transactions and any `check-ledger` findings.
 3. **Dual-write.** Every write updates both the old columns and the ledger, in the same database transaction. The test suite runs every scenario through both engines and asserts that all balances and net worth agree. `reconcile-ledger` runs daily in production.

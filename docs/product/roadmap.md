@@ -20,7 +20,7 @@ One developer. Each milestone ends with an exit check, and scope can change afte
 
 Following the [ledger design](../architecture/ledger-design.md) (revision 2). The direction is approved. The migration starts only after the first two items.
 
-- [ ] Backend tests also running on PostgreSQL: locking, constraints, triggers
+- [x] Backend tests also running on PostgreSQL: whole suite, concurrency, migrations, and the ledger prototype's constraints and triggers ([testing](../architecture/testing.md)), on branch `step0-postgres-tests`
 - [ ] `check-ledger`, `backfill-ledger` (idempotent) and `reconcile-ledger` commands
 - [ ] Schema: categories, ledger accounts, changes, postings, journal lines, opening dates
 - [ ] Backfill, then dual-write with daily reconciliation
