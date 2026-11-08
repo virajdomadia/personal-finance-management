@@ -10,6 +10,13 @@ from app.api.balances import balance_of, load_flows
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.loans import linked_owed
+from app.api.portfolio import (
+    latest_prices,
+    load_trade_rows,
+    replay,
+    summarise,
+    unrealised_percent,
+)
 from app.api.routes.accounts import fmt, list_sort_key, totals
 from app.db.session import DbSession
 from app.models.account import Account
@@ -41,6 +48,12 @@ class CreditUsed(BaseModel):
     percent: int
 
 
+class Investments(BaseModel):
+    value: str
+    unrealised: str
+    unrealised_percent: str
+
+
 class DashboardResponse(BaseModel):
     has_accounts: bool
     net_worth: str
@@ -48,6 +61,7 @@ class DashboardResponse(BaseModel):
     total_owe: str
     next_card_due: NextCardDue | None
     credit_used: CreditUsed | None
+    investments: Investments | None
 
 
 @router.get("")
@@ -59,6 +73,10 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
     )
     flows = load_flows(db, user.id)
     have, owe = totals(active, flows)
+    result = replay(load_trade_rows(db, user.id))
+    stocks = summarise(result, latest_prices(db, user.id))
+    has_holdings = any(pos.shares > 0 for pos in result.positions.values())
+    have += stocks.value
     cards = sorted(
         (a for a in active if a.type == "credit_card"),
         key=list_sort_key,
@@ -78,6 +96,14 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
         percent = (used * 100 / limit).quantize(Decimal(1), rounding=ROUND_HALF_UP)
         credit_used = CreditUsed(percent=int(max(percent, Decimal(0))))
 
+    investments = None
+    if has_holdings:
+        investments = Investments(
+            value=fmt(stocks.value),
+            unrealised=fmt(stocks.unrealised),
+            unrealised_percent=fmt(unrealised_percent(stocks.unrealised, stocks.invested)),
+        )
+
     return DashboardResponse(
         has_accounts=bool(active),
         net_worth=fmt(have - owe),
@@ -87,4 +113,5 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
         if due is None
         else NextCardDue(account_id=due[1].id, name=due[1].name, due_date=due[0].isoformat()),
         credit_used=credit_used,
+        investments=investments,
     )

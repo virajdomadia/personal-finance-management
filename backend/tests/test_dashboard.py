@@ -19,6 +19,7 @@ EMPTY = {
     "total_owe": "0.00",
     "next_card_due": None,
     "credit_used": None,
+    "investments": None,
 }
 
 

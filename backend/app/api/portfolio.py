@@ -23,7 +23,7 @@ from typing import NamedTuple
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.stock import StockTrade
+from app.models.stock import StockPrice, StockTrade
 
 PAISE = Decimal("0.01")
 
@@ -164,3 +164,31 @@ def load_trade_rows(db: Session, user_id: int) -> list[TradeRow]:
         ).where(StockTrade.user_id == user_id)
     )
     return [TradeRow(*row) for row in rows]
+
+
+def latest_prices(db: Session, user_id: int) -> dict[int, tuple[date, Decimal]]:
+    """Each stock's current price: the latest date, and on that date the last one recorded."""
+    rows = db.execute(
+        select(StockPrice.stock_id, StockPrice.date, StockPrice.price)
+        .where(StockPrice.user_id == user_id)
+        .order_by(StockPrice.date, StockPrice.id)
+    )
+    # Ascending order, so the last row seen for a stock is its current price.
+    return {stock_id: (day, price) for stock_id, day, price in rows}
+
+
+def unrealised_percent(unrealised: Decimal, invested: Decimal) -> Decimal:
+    """Shown from the rounded figures, so the percent matches the numbers beside it."""
+    invested, unrealised = round_paise(invested), round_paise(unrealised)
+    if invested == 0:
+        return Decimal("0.00")
+    return round_paise(unrealised * 100 / invested)
+
+
+def investments_totals(db: Session, user_id: int) -> PortfolioTotals:
+    return summarise(replay(load_trade_rows(db, user_id)), latest_prices(db, user_id))
+
+
+def holds_shares(db: Session, user_id: int, account_id: int) -> bool:
+    result = replay(r for r in load_trade_rows(db, user_id) if r.account_id == account_id)
+    return any(pos.shares > 0 for pos in result.positions.values())

@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, get_current_user
+from app.api.portfolio import latest_prices
 from app.api.routes.accounts import MAX_ID, Money, clean_text, field_error, fmt
 from app.api.routes.dashboard import today_india
 from app.api.routes.transactions import Day
@@ -94,17 +95,6 @@ def get_owned_stock(db: DbSession, user_id: int, id: int) -> Stock:
     if stock is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stock not found.")
     return stock
-
-
-def latest_prices(db: DbSession, user_id: int) -> dict[int, tuple[date, Decimal]]:
-    """Each stock's current price: the latest date, and on that date the last one recorded."""
-    rows = db.execute(
-        select(StockPrice.stock_id, StockPrice.date, StockPrice.price)
-        .where(StockPrice.user_id == user_id)
-        .order_by(StockPrice.date, StockPrice.id)
-    )
-    # Ascending order, so the last row seen for a stock is its current price.
-    return {stock_id: (day, price) for stock_id, day, price in rows}
 
 
 def _response(stock: Stock, prices: dict[int, tuple[date, Decimal]]) -> StockResponse:

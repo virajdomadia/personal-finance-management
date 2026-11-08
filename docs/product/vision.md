@@ -35,7 +35,7 @@ These are areas of the product, not separate services. They live in one FastAPI 
 | 1 | Financial foundation | Users, accounts, transactions, transfers, categories | Built; ledger redesign planned |
 | 2 | Cash flow | Income, expenses, budgets, recurring commitments | Next |
 | 3 | Assets | Cash, deposits, vehicles, jewellery, property | Planned |
-| 4 | Investments | Stocks, mutual funds, ETFs, gold, lots | Planned |
+| 4 | Investments | Stocks, mutual funds, ETFs, gold, lots | Stocks built; other types planned |
 | 5 | Liabilities | Credit cards, loans, EMIs | Cards and loans built; loans awaiting production testing |
 | 6 | Planning | Goals, savings targets | Planned |
 | 7 | Intelligence | Net worth history, analytics, reports | Planned |

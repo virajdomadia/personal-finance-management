@@ -5,9 +5,15 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, get_current_user
-from app.api.portfolio import holding_value, load_trade_rows, replay, summarise
+from app.api.portfolio import (
+    holding_value,
+    latest_prices,
+    load_trade_rows,
+    replay,
+    summarise,
+    unrealised_percent,
+)
 from app.api.routes.accounts import fmt
-from app.api.routes.stocks import latest_prices
 from app.db.session import DbSession
 from app.models.account import Account
 from app.models.stock import Stock
@@ -68,11 +74,7 @@ class Portfolio(BaseModel):
 
 
 def _percent(unrealised: Decimal, invested: Decimal) -> str:
-    """Shown from the rounded figures, so the percent matches the numbers beside it."""
-    invested, unrealised = invested.quantize(ZERO), unrealised.quantize(ZERO)
-    if invested == 0:
-        return fmt(ZERO)
-    return fmt((unrealised * 100 / invested).quantize(ZERO, rounding=ROUND_HALF_UP))
+    return fmt(unrealised_percent(unrealised, invested))
 
 
 def _figures(stock: Stock, shares: int, invested: Decimal, current: tuple | None) -> dict:

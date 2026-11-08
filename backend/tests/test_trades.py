@@ -103,7 +103,7 @@ def test_buy_lowers_broker_cash(headers: Headers) -> None:
         "realised": None,
     }
     assert balance(headers, account) == "4980.00"
-    assert accounts(headers)["total_have"] == "4980.00"
+    assert accounts(headers)["total_have"] == "10000.00"  # cash 4980 + shares at cost 5020
 
 
 def test_sell_raises_broker_cash(headers: Headers) -> None:
