@@ -45,10 +45,10 @@ Stored as columns on `accounts`, like the loan fields. Existing columns are reus
 | `deposit_amount` | — | required | **new** `Numeric(14,2)`, the monthly instalment, > 0 |
 | `due_day` | — | required | instalment day, 1–31, clamped to the month (existing column) |
 | `tenure_months` | — | required | **new** `Integer`, 1–120 |
-| `deposits_at_opening` | — | required, ≥ 0 | **new** `Integer`. Instalments already paid before the account was added to the app, ≤ `tenure_months` |
+| `deposits_paid` | — | required, ≥ 0 | instalments paid so far, ≤ `tenure_months`. Stored as **new** `deposits_at_opening Integer` = `deposits_paid` − the months with a transfer recorded, the way a loan's `emis_left` is stored |
 | `balance` | required | required | as for every account: the balance today, which sets `opening_balance` |
 
-Every account response gains `opened_on`, `deposit_amount`, `tenure_months`, `deposits_at_opening` and a `deposit` object (below), all null except for these two types. Fields that don't belong to a type are refused, as they are today.
+Every account response gains `opened_on`, `deposit_amount`, `tenure_months` and a `deposit` object (below), all null except for these two types. Fields that don't belong to a type are refused, as they are today.
 
 ### Maturity
 
@@ -73,7 +73,7 @@ The **balance on a date** is `opening_balance` plus the deposit's transactions d
 | `interest_this_year` | the estimate below, for the current financial year up to today |
 | `interest_due` | null, or `{ "year": "2026-27", "amount": "…" }` (below) |
 
-**Interest estimate.** PPF interest for a month is `rate ÷ 12 ÷ 100 × the lowest balance between the end of the 5th and the end of the month`. A deposit made on or before the 5th earns for that month; one made after doesn't. The year's interest is the sum of the months from April to March, rounded once to paise, and is credited on 31 March. Interest credited within the year is left out of the lowest-balance figure (it is only ever credited on 31 March anyway). The current month counts only once its last day has passed.
+**Interest estimate.** PPF interest for a month is `rate ÷ 12 ÷ 100 × the lowest balance between the end of the 5th and the end of the month`. A deposit made on or before the 5th earns for that month; one made after doesn't. The year's interest is the sum of the months from April to March, rounded once to paise, and is credited on 31 March. A month counts once today has reached its last day, so on 31 March the whole year is in.
 
 Worked example, rate 7.1%: balance ₹1,00,000 on 1 April, ₹50,000 deposited on 10 April. April earns on ₹1,00,000 (₹591.67), May to March earn on ₹1,50,000 (₹887.50 × 11 = ₹9,762.50). The year's interest is **₹10,354.17**. Deposited on 4 April instead, every month earns on ₹1,50,000: **₹10,650.00**.
 
@@ -122,8 +122,8 @@ The account form takes the balance today, `opened_on`, and, for an RD, the insta
 ### Rules elsewhere
 
 - A bank can't be archived while it is the `pay_from_id` of an active RD. The message names the RD. An active PPF's `pay_from_id` is cleared instead, since it is only a default.
-- A deposit can't be archived with a balance above ₹0, as for any account.
-- Editing an RD's `deposits_at_opening` follows the loans pattern: the screens show and edit **instalments left**, and the server moves `deposits_at_opening`.
+- A PPF or RD can't be archived while its balance is above ₹0: "Withdraw the balance from {name} before archiving it." (Close RD archives on its own.)
+- Income into a deposit must be category "Interest".
 
 ## Net worth and dashboard
 
