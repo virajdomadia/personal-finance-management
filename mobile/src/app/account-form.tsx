@@ -25,6 +25,7 @@ import {
   changedPayload,
   countError,
   dayError,
+  depositErrors,
   errorMessage,
   formFromAccount,
   renderedFields,
@@ -33,6 +34,7 @@ import {
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
+import { todayIndia } from "@/lib/transactions";
 
 const BANK_KINDS = [
   { value: "savings", label: "Savings" },
@@ -328,6 +330,7 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
       const count = countError(form.emis_left);
       if (count) local.emis_left = count;
     }
+    Object.assign(local, depositErrors(form));
     if (Object.keys(local).length > 0) {
       needFocus.current = true;
       setErrors(local);
@@ -413,7 +416,15 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
     if (key === "balance" && type === "credit_card") return "Enter what you owe as a positive amount.";
     if (key === "balance" && type === "loan") return "The principal still to repay, as your lender shows it.";
     if (key === "emis_left") return "Goes down as you record EMIs.";
-    if (key === "interest_rate") return "Optional. Used to suggest each EMI's interest.";
+    if (key === "interest_rate") {
+      return type === "loan" ? "Optional. Used to suggest each EMI's interest." : "The yearly rate, for example 7.10.";
+    }
+    if (key === "opened_on") return "Use YYYY-MM-DD.";
+    if (key === "deposits_paid") return "Instalments you have already paid, before using this app.";
+    if (key === "tenure_months") return "1 to 120 months.";
+    if (key === "pay_from_id" && (type === "ppf" || type === "rd")) {
+      return type === "rd" ? "The bank your instalments come from." : "Optional. Pre-fills Deposit.";
+    }
     if (key === "pay_from_id") return "For a loan on a credit card, choose the card. Its available credit leaves out what the loan still owes.";
     if (key === "last4") return "Only the last 4 digits. Never enter the full number.";
     if (key === "statement_day" || key === "due_day") return "1 to 31";
@@ -465,13 +476,16 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
       />,
     );
 
-  const money = (key: "balance" | "credit_limit" | "emi_amount" | "interest_rate", label: string) =>
+  const money = (key: "balance" | "credit_limit" | "emi_amount" | "interest_rate" | "deposit_amount", label: string) =>
     input(key, label, { keyboardType: "numeric", maxLength: MONEY_MAX_LENGTH });
 
   const day = (key: "statement_day" | "due_day", label: string) =>
     input(key, label, { keyboardType: "number-pad", maxLength: 2 });
 
-  const payFrom = accounts.filter((a) => a.type !== "loan" && a.id !== account?.id);
+  // A loan can be paid from any account but another loan; a PPF or RD deposit comes from a bank.
+  const payFrom = accounts.filter((a) =>
+    type === "ppf" || type === "rd" ? a.type === "bank" : a.type !== "loan" && a.id !== account?.id,
+  );
   // Kept when the linked account was archived after the loan was set up, so the choice still shows.
   if (account?.pay_from_id != null && !payFrom.some((a) => a.id === account.pay_from_id)) {
     payFrom.push({ ...account, id: account.pay_from_id, name: "Archived account" });
@@ -611,6 +625,64 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
               {money("credit_limit", "Credit limit (₹)")}
               {day("statement_day", "Statement day")}
               {day("due_day", "Due day")}
+            </>
+          ) : null}
+
+          {type === "ppf" || type === "rd" ? (
+            <>
+              {money("interest_rate", "Interest rate (% a year)")}
+              {field(
+                "opened_on",
+                <>
+                  {input("opened_on", "Opened on (YYYY-MM-DD)", { maxLength: 10 })}
+                  <View style={styles.chips}>
+                    <Chip
+                      selected={form.opened_on === todayIndia()}
+                      showSelectedCheck
+                      disabled={busy}
+                      onPress={() => set("opened_on", todayIndia())}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: form.opened_on === todayIndia(), disabled: busy }}
+                    >
+                      Today
+                    </Chip>
+                  </View>
+                </>,
+              )}
+              {type === "rd" ? (
+                <>
+                  {money("deposit_amount", "Monthly instalment (₹)")}
+                  {day("due_day", "Instalment day")}
+                  {input("tenure_months", "Tenure (months)", { keyboardType: "number-pad", maxLength: 3 })}
+                  {input("deposits_paid", "Instalments paid so far", { keyboardType: "number-pad", maxLength: 3 })}
+                </>
+              ) : null}
+              {field(
+                "pay_from_id",
+                <View>
+                  <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
+                    Deposits paid from
+                  </Text>
+                  <View style={styles.chips}>
+                    {[
+                      ...(type === "ppf" ? [{ id: "", name: "Not linked" }] : []),
+                      ...payFrom.map((a) => ({ id: String(a.id), name: a.name })),
+                    ].map((option) => (
+                      <Chip
+                        key={option.id || "none"}
+                        selected={form.pay_from_id === option.id}
+                        showSelectedCheck
+                        disabled={busy}
+                        onPress={() => set("pay_from_id", option.id)}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: form.pay_from_id === option.id, disabled: busy }}
+                      >
+                        {option.name}
+                      </Chip>
+                    ))}
+                  </View>
+                </View>,
+              )}
             </>
           ) : null}
 

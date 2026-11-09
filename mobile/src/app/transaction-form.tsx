@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { type Account, type AccountList, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { instalmentForm, interestForm, ppfDepositForm } from "@/lib/deposits";
 import { useSession } from "@/lib/session";
 import {
   type CategoryList,
@@ -48,8 +49,16 @@ const FROM_LABELS: Record<TransactionType, string> = {
 type Loaded = { accounts: Account[]; categories: CategoryList; transaction: Transaction | null };
 
 export default function TransactionFormScreen() {
-  // `loan` opens a new EMI for that loan, pre-filled with its suggested split.
-  const { id, account, loan } = useLocalSearchParams<{ id?: string; account?: string; loan?: string }>();
+  // `loan` opens a new EMI for that loan, pre-filled with its suggested split. `rd` opens the RD's
+  // next instalment, `ppf` a deposit to that PPF, `interest` the PPF's interest as income.
+  const { id, account, loan, rd, ppf, interest } = useLocalSearchParams<{
+    id?: string;
+    account?: string;
+    loan?: string;
+    rd?: string;
+    ppf?: string;
+    interest?: string;
+  }>();
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const editing = id !== undefined;
@@ -120,11 +129,24 @@ export default function TransactionFormScreen() {
 
   const preselected = account !== undefined && loaded.accounts.some((a) => String(a.id) === account) ? Number(account) : null;
   const forLoan = loaded.accounts.find((a) => a.type === "loan" && String(a.id) === loan);
+  const forRd = loaded.accounts.find((a) => a.type === "rd" && String(a.id) === rd);
+  const forPpf = loaded.accounts.find((a) => a.type === "ppf" && String(a.id) === ppf);
+  const forInterest = loaded.accounts.find((a) => a.type === "ppf" && String(a.id) === interest);
+  const today = todayIndia();
+  const initialForm = forLoan
+    ? emiForm(forLoan, today)
+    : forRd
+      ? instalmentForm(forRd, today)
+      : forPpf
+        ? ppfDepositForm(forPpf, today)
+        : forInterest
+          ? interestForm(forInterest)
+          : undefined;
   return (
     <FormBody
       {...loaded}
       defaultAccountId={preselected ?? loaded.accounts[0]?.id ?? null}
-      initialForm={forLoan ? emiForm(forLoan, todayIndia()) : undefined}
+      initialForm={initialForm}
     />
   );
 }

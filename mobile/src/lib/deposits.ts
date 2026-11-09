@@ -66,3 +66,32 @@ export function closeRdPayload(form: CloseRdForm): Record<string, unknown> {
     account_id: form.account_id === "" ? null : Number(form.account_id),
   };
 }
+
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// "2036-04-01" -> "1 Apr 2036", split from the text so no timezone can shift the day.
+export function formatLongDate(iso: string): string {
+  const [year, month, day] = iso.split("-");
+  return `${Number(day)} ${MONTH_NAMES[Number(month) - 1]} ${year}`;
+}
+
+// The figure lines under a PPF or RD row, all from the server's numbers. Empty for other types.
+export function depositLines(account: Account): string[] {
+  const deposit = account.deposit;
+  if (deposit?.kind === "ppf") {
+    return [
+      `Interest this year ≈ ${formatRupees(deposit.interest_this_year)} (estimate)`,
+      ppfRoomText(deposit),
+      `Matures ${formatLongDate(deposit.maturity_date)}`,
+    ];
+  }
+  if (deposit?.kind === "rd") {
+    const total = deposit.deposits_paid + deposit.deposits_left;
+    return [
+      `Paid ${deposit.deposits_paid} of ${total}`,
+      `Value today ≈ ${formatRupees(deposit.value_today)} (estimate)`,
+      `${formatRupees(deposit.maturity_value)} on ${formatLongDate(deposit.maturity_date)}`,
+    ];
+  }
+  return [];
+}

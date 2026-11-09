@@ -108,3 +108,28 @@ test("closeRdForm and closeRdPayload", () => {
   });
   assert.equal(closeRdPayload({ amount: "1", date: "2026-11-20", account_id: "" }).account_id, null);
 });
+
+test("formatLongDate and depositLines", async () => {
+  const { formatLongDate, depositLines } = await import("./deposits.ts");
+  assert.equal(formatLongDate("2036-04-01"), "1 Apr 2036");
+  assert.deepEqual(depositLines(rd()), [
+    "Paid 3 of 12",
+    "Value today ≈ ₹15,300.00 (estimate)",
+    "₹62,000.50 on 15 Nov 2027",
+  ]);
+  assert.deepEqual(
+    depositLines({
+      type: "ppf",
+      deposit: {
+        kind: "ppf",
+        maturity_date: "2036-04-01",
+        deposited_this_year: "50000.00",
+        year_limit: "150000.00",
+        interest_this_year: "3550.00",
+        interest_due: null,
+      },
+    }),
+    ["Interest this year ≈ ₹3,550.00 (estimate)", "₹50,000 of ₹1,50,000 this year", "Matures 1 Apr 2036"],
+  );
+  assert.deepEqual(depositLines({ type: "bank", deposit: null }), []);
+});
