@@ -144,3 +144,15 @@ def test_formatters_and_stamp_duty():
     assert fmt_units(D("1.0005")) == "1.001"
     assert fmt_units(D("2.5")) == "2.500"
     assert fmt_nav(D("1.00005")) == "1.0001"
+
+
+def test_partial_coin_sale_leaves_the_rest_at_cost():
+    rows = [
+        TradeRow(1, 3, 1, "buy", D1, D("0.00014067"), D("7066965.2378"), D("0"), True, D("994.11")),
+        TradeRow(2, 3, 1, "sell", D2, D("0.00005"), D("7500000"), D("0"), False, D("375.00")),
+    ]
+    r = replay(rows)
+    p = r.positions[(3, 1)]
+    assert r.realised_by_sell[2] == D("21.65")
+    assert p.quantity == D("0.00009067")
+    assert p.invested == D("640.76")

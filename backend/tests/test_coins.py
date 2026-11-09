@@ -209,3 +209,14 @@ def test_fmt_coin_and_price() -> None:
     assert fmt_coin(Decimal("0.000000005")) == "0.00000001"
     assert fmt_coin(Decimal("0.00014067")) == "0.00014067"
     assert fmt_price(Decimal("7504827.5")) == "7504827.5000"
+
+
+def test_delete_coin_with_a_trade_but_no_prices_is_409(headers: Headers) -> None:
+    from tests.test_crypto_trades import buy, exchange
+
+    coin_id = add_coin(headers).json()["id"]
+    assert buy(headers, coin_id=coin_id, account_id=exchange(headers)).status_code == 201
+    assert client.get(f"{URL}/coins/{coin_id}/prices", headers=headers).json() == {"prices": []}
+    response = client.delete(f"{URL}/coins/{coin_id}", headers=headers)
+    assert response.status_code == 409
+    assert response.json()["detail"] == IN_USE
