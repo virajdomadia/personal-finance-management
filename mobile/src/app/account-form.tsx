@@ -459,21 +459,25 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
     key: keyof AccountForm,
     label: string,
     extra: Partial<React.ComponentProps<typeof TextInput>> = {},
+    after?: React.ReactNode,
   ) =>
     field(
       key,
-      <FieldInput
-        name={key}
-        label={label}
-        value={form[key]}
-        invalid={Boolean(errors[key])}
-        disabled={busy}
-        onChange={set}
-        onFocusField={handleFocus}
-        onBlurField={handleBlur}
-        register={registerInput}
-        extra={extra}
-      />,
+      <>
+        <FieldInput
+          name={key}
+          label={label}
+          value={form[key]}
+          invalid={Boolean(errors[key])}
+          disabled={busy}
+          onChange={set}
+          onFocusField={handleFocus}
+          onBlurField={handleBlur}
+          register={registerInput}
+          extra={extra}
+        />
+        {after}
+      </>,
     );
 
   const money = (key: "balance" | "credit_limit" | "emi_amount" | "interest_rate" | "deposit_amount", label: string) =>
@@ -631,23 +635,22 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
           {type === "ppf" || type === "rd" ? (
             <>
               {money("interest_rate", "Interest rate (% a year)")}
-              {field(
+              {input(
                 "opened_on",
-                <>
-                  {input("opened_on", "Opened on (YYYY-MM-DD)", { maxLength: 10 })}
-                  <View style={styles.chips}>
-                    <Chip
-                      selected={form.opened_on === todayIndia()}
-                      showSelectedCheck
-                      disabled={busy}
-                      onPress={() => set("opened_on", todayIndia())}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected: form.opened_on === todayIndia(), disabled: busy }}
-                    >
-                      Today
-                    </Chip>
-                  </View>
-                </>,
+                "Opened on (YYYY-MM-DD)",
+                { maxLength: 10 },
+                <View style={styles.chips}>
+                  <Chip
+                    selected={form.opened_on === todayIndia()}
+                    showSelectedCheck
+                    disabled={busy}
+                    onPress={() => set("opened_on", todayIndia())}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: form.opened_on === todayIndia(), disabled: busy }}
+                  >
+                    Today
+                  </Chip>
+                </View>,
               )}
               {type === "rd" ? (
                 <>
