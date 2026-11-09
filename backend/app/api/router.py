@@ -4,6 +4,7 @@ from app.api.routes import (
     accounts,
     auth,
     dashboard,
+    funds,
     health,
     portfolio,
     stocks,
@@ -17,6 +18,7 @@ api_router.include_router(auth.router)
 api_router.include_router(accounts.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(transactions.router)
+api_router.include_router(funds.router)
 api_router.include_router(stocks.router)
 api_router.include_router(trades.router)
 api_router.include_router(portfolio.router)
