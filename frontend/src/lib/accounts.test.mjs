@@ -128,10 +128,10 @@ test("type labels match the approved table", () => {
     bank: "Bank account",
     credit_card: "Credit card",
     cash: "Cash in hand",
+    broker: "Broker balance",
     wallet: "Wallet or prepaid card",
     ppf: "PPF",
     rd: "Recurring deposit",
-    wallet: "Wallet or prepaid card",
     loan: "Loan",
   });
 });
