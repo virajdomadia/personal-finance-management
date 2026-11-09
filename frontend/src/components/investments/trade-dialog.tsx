@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { logout } from "@/app/login/actions";
-import { type Account, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
+import { type Account, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import {
   type Holding,
@@ -32,6 +32,7 @@ const KINDS: { value: TradeKind; label: string }[] = [
 const NEW_STOCK = "new";
 const QUANTITY_RULE = "Enter a whole number of shares, from 1 to 10,00,00,000.";
 const MAX_QUANTITY = 100_000_000;
+const MONEY = /^\d+(?:\.\d{1,2})?$/;
 const RENDERED = ["stock_id", "account_id", "date", "quantity", "price", "charges", "note"] as const;
 
 type Form = TradeForm & { symbol: string; name: string };
@@ -63,6 +64,22 @@ function startForm(props: Props): Form {
     symbol: "",
     name: "",
   };
+}
+
+// The server's rules for the fields every trade needs, with its messages.
+function localErrors(form: Form): Record<string, string> {
+  const errors: Record<string, string> = {};
+  if (form.account_id === "") errors.account_id = "Choose a broker account.";
+  if (form.date === "") errors.date = "Choose a date.";
+  else if (form.date > todayIndia()) errors.date = "The date can't be in the future.";
+  const quantity = form.quantity.trim();
+  if (!/^\d+$/.test(quantity) || Number(quantity) < 1 || Number(quantity) > MAX_QUANTITY) errors.quantity = QUANTITY_RULE;
+  const price = cleanMoney(form.price);
+  if (!MONEY.test(price)) errors.price = "Enter a price, like 1234.50.";
+  else if (Number(price) <= 0) errors.price = "Price must be greater than 0.";
+  const charges = cleanMoney(form.charges);
+  if (charges !== "" && !MONEY.test(charges)) errors.charges = "Enter an amount, like 1234.50.";
+  return errors;
 }
 
 function kindOf(form: { side: "buy" | "sell"; opening: boolean }): TradeKind {
@@ -116,7 +133,8 @@ export function TradeDialog(props: Props) {
       ...f,
       side: next === "sell" ? "sell" : "buy",
       opening: next === "opening",
-      stock_id: next === "sell" && f.stock_id === NEW_STOCK ? "" : f.stock_id,
+      // A sell can only be of a stock held somewhere, so drop one that isn't (or a new stock).
+      stock_id: next === "sell" && !holdings.some((h) => String(h.stock_id) === f.stock_id) ? "" : f.stock_id,
     }));
   };
 
@@ -124,12 +142,13 @@ export function TradeDialog(props: Props) {
     event.preventDefault();
     if (savingRef.current) return;
 
-    // tradePayload sends NaN for a quantity that isn't a whole number, so check it here first.
-    const quantity = form.quantity.trim();
-    if (!/^\d+$/.test(quantity) || Number(quantity) < 1 || Number(quantity) > MAX_QUANTITY) {
+    // Checked here before anything is sent: tradePayload sends NaN for a quantity that isn't a whole
+    // number, and a new stock must not be created for a trade that is bound to be refused.
+    const local = localErrors(form);
+    if (Object.keys(local).length > 0) {
       needFocus.current = true;
       setFormError(null);
-      setErrors({ quantity: QUANTITY_RULE });
+      setErrors(local);
       return;
     }
 
