@@ -49,6 +49,8 @@ Make daily tracking take seconds.
 
 Possessions such as vehicles, property, jewellery and physical gold, plus fixed and recurring deposits. Purchase details, ownership percentage and a dated valuation history.
 
+**Status:** PPF and RD are built on branch `deposits` ([design](../superpowers/specs/2026-11-09-deposits-design.md)): deposit accounts with maturity dates, interest estimates, due instalments and Close RD, counted in net worth. Vehicles, property, jewellery, physical gold and valuation history are not built.
+
 **Exit:** non-investment assets count towards net worth.
 
 ## Milestone 4: Investments

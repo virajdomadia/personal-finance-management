@@ -304,3 +304,205 @@ def test_listing_uses_a_bounded_number_of_queries(db_session: Session, headers: 
         counts.append(len(seen))
 
     assert counts[0] == counts[1]
+
+
+# Transaction rules
+
+PPF_ONLY = "A PPF account only takes deposits, interest and withdrawals to a bank."
+RD_ONLY = "An RD only takes deposits, interest and withdrawals to a bank."
+
+
+def tx(headers: Headers, **fields: Any) -> Response:
+    return post(headers, date=today_india().isoformat(), **fields)
+
+
+def test_a_deposit_refuses_expenses_and_emis(headers: Headers) -> None:
+    pay = bank(headers)
+    p = ppf(headers).json()["id"]
+    r = rd(headers, pay).json()["id"]
+    loan = make(headers, type="loan", name="Car", balance="50000.00").json()["id"]
+
+    for target, message in ((p, PPF_ONLY), (r, RD_ONLY)):
+        spent = tx(headers, type="expense", account_id=target, amount="10.00", category="Fuel")
+        assert spent.status_code == 422
+        assert messages(spent) == {"account_id": message}
+        paid = tx(
+            headers, type="emi", account_id=target, to_account_id=loan, amount="10.00", interest="1"
+        )
+        assert messages(paid) == {"account_id": message}
+        into = tx(
+            headers, type="emi", account_id=pay, to_account_id=target, amount="10.00", interest="1"
+        )
+        assert messages(into) == {"to_account_id": message}
+
+
+def test_a_deposit_takes_only_interest_as_income(headers: Headers) -> None:
+    p = ppf(headers).json()["id"]
+    r = rd(headers, bank(headers)).json()["id"]
+
+    wrong = tx(headers, type="income", account_id=p, amount="10.00", category="Salary")
+    assert messages(wrong) == {"category": "Interest is the only income a PPF account takes."}
+    wrong = tx(headers, type="income", account_id=r, amount="10.00", category="Salary")
+    assert messages(wrong) == {"category": "Interest is the only income an RD takes."}
+    paid = tx(headers, type="income", account_id=p, amount="10.00", category="Interest")
+    assert paid.status_code == 201
+    paid = tx(headers, type="income", account_id=r, amount="10.00", category="interest")
+    assert paid.status_code == 201
+
+
+def test_a_deposit_transfers_only_with_a_bank(headers: Headers) -> None:
+    pay = bank(headers)
+    p = ppf(headers).json()["id"]
+    r = rd(headers, pay).json()["id"]
+    cash = make(headers, type="cash", name="Wallet", balance="5000.00").json()["id"]
+
+    into = tx(headers, type="transfer", account_id=cash, to_account_id=p, amount="10.00")
+    assert messages(into) == {"account_id": PPF_ONLY}
+    out = tx(headers, type="transfer", account_id=r, to_account_id=cash, amount="10.00")
+    assert messages(out) == {"to_account_id": RD_ONLY}
+    both = tx(headers, type="transfer", account_id=p, to_account_id=r, amount="10.00")
+    assert messages(both) == {"account_id": RD_ONLY, "to_account_id": PPF_ONLY}
+
+    ok = tx(headers, type="transfer", account_id=pay, to_account_id=p, amount="10.00")
+    assert ok.status_code == 201
+    ok = tx(headers, type="transfer", account_id=p, to_account_id=pay, amount="10.00")
+    assert ok.status_code == 201
+
+
+def test_editing_a_transaction_into_a_deposit_is_refused(headers: Headers) -> None:
+    pay = bank(headers)
+    p = ppf(headers).json()["id"]
+    cash = make(headers, type="cash", name="Wallet", balance="5000.00").json()["id"]
+    made = tx(headers, type="transfer", account_id=cash, to_account_id=pay, amount="10.00").json()
+
+    edit = client.patch(
+        f"/api/transactions/{made['id']}", json={"to_account_id": p}, headers=headers
+    )
+    assert edit.status_code == 422
+    assert messages(edit) == {"account_id": PPF_ONLY}
+
+
+def test_an_rd_with_more_transfers_than_its_tenure_can_still_be_renamed(
+    headers: Headers,
+) -> None:
+    pay = bank(headers)
+    created = rd(headers, pay, opened_on="2025-12-01", tenure_months=1, deposits_paid=1).json()
+    transfer(headers, pay, created["id"], "5000.00")  # dated 2026-01-15, a later month
+    path = f"/api/accounts/{created['id']}"
+
+    renamed = client.patch(path, json={"name": "Renamed"}, headers=headers)
+    assert renamed.status_code == 200
+    assert renamed.json()["deposit"]["deposits_paid"] == 2
+
+    changed = client.patch(path, json={"tenure_months": 1}, headers=headers)
+    assert changed.status_code == 422
+    assert messages(changed) == {
+        "deposits_paid": "Enter the instalments paid so far, from 0 to the tenure."
+    }
+
+
+# Close RD
+
+
+def close(headers: Headers, id: int, **fields: Any) -> Response:
+    body = {"amount": "100.00", "date": today_india().isoformat(), **fields}
+    return client.post(f"/api/accounts/{id}/close-rd", json=body, headers=headers)
+
+
+def rd_rows(headers: Headers, id: int) -> list[dict]:
+    rows = client.get(f"/api/transactions?account_id={id}", headers=headers).json()
+    return sorted(rows["transactions"], key=lambda t: (t["type"], t["amount"]))
+
+
+def bank_balance(headers: Headers, id: int) -> str:
+    return one(headers, id)["balance"]
+
+
+def test_close_rd_above_balance_books_interest_then_pays_out(headers: Headers) -> None:
+    pay = bank(headers, balance="1000.00")
+    created = rd(headers, pay, balance="120000.00").json()
+
+    response = close(headers, created["id"], amount="129098.90", account_id=pay)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["balance"] == "0.00"
+    assert body["archived"] is True
+    assert bank_balance(headers, pay) == "130098.90"
+    interest, moved = rd_rows(headers, created["id"])
+    assert (interest["type"], interest["amount"]) == ("income", "9098.90")
+    assert (interest["category"], interest["note"]) == ("Interest", "Interest on closing")
+    assert (moved["type"], moved["amount"], moved["note"]) == ("transfer", "129098.90", "RD closed")
+    assert moved["to_account_id"] == pay
+    assert {interest["date"], moved["date"]} == {today_india().isoformat()}
+
+
+def test_close_rd_below_balance_books_a_fee(headers: Headers) -> None:
+    pay = bank(headers, balance="1000.00")
+    created = rd(headers, pay, balance="20000.00").json()
+
+    response = close(headers, created["id"], amount="19800.00", account_id=pay)
+
+    assert response.status_code == 200
+    assert response.json()["balance"] == "0.00"
+    assert bank_balance(headers, pay) == "20800.00"
+    fee, moved = rd_rows(headers, created["id"])
+    assert (fee["type"], fee["amount"]) == ("expense", "200.00")
+    assert (fee["category"], fee["note"]) == ("Fees and charges", "Closed early")
+    assert (moved["type"], moved["amount"]) == ("transfer", "19800.00")
+
+
+def test_close_rd_at_the_balance_only_transfers(headers: Headers) -> None:
+    pay = bank(headers, balance="1000.00")
+    created = rd(headers, pay, balance="20000.00").json()
+
+    assert close(headers, created["id"], amount="20000.00", account_id=pay).status_code == 200
+
+    rows = rd_rows(headers, created["id"])
+    assert [r["type"] for r in rows] == ["transfer"]
+
+
+def test_close_rd_checks_its_input_and_writes_nothing_on_error(headers: Headers) -> None:
+    pay = bank(headers)
+    old = bank(headers, "Old")
+    client.post(f"/api/accounts/{old}/archive", headers=headers)
+    cash = make(headers, type="cash", name="Wallet", balance="5000.00").json()["id"]
+    created = rd(headers, pay).json()
+    today = today_india()
+    opened = date.fromisoformat(created["opened_on"])
+
+    bad = [
+        ({"account_id": old}, "account_id"),
+        ({"account_id": cash}, "account_id"),
+        ({"account_id": created["id"]}, "account_id"),
+        ({"account_id": 999999}, "account_id"),
+        ({"amount": "0.00"}, "amount"),
+        ({"amount": "-5.00"}, "amount"),
+        ({"date": (today + timedelta(days=1)).isoformat()}, "date"),
+        ({"date": (opened - timedelta(days=1)).isoformat()}, "date"),
+    ]
+    for fields, field in bad:
+        response = close(headers, created["id"], **{"account_id": pay, **fields})
+        assert response.status_code == 422, fields
+        assert field in messages(response), fields
+    empty = client.post(
+        f"/api/accounts/{created['id']}/close-rd", json={"account_id": pay}, headers=headers
+    )
+    assert messages(empty).keys() == {"amount", "date"}
+
+    assert rd_rows(headers, created["id"]) == []
+    assert one(headers, created["id"])["archived"] is False
+
+
+def test_close_rd_refuses_other_accounts_and_a_second_close(headers: Headers) -> None:
+    pay = bank(headers)
+    p = ppf(headers).json()["id"]
+    created = rd(headers, pay).json()
+
+    assert close(headers, p, account_id=pay).status_code == 404
+    assert close(headers, pay, account_id=pay).status_code == 404
+    assert close(headers, 999999, account_id=pay).status_code == 404
+
+    assert close(headers, created["id"], amount="5000.00", account_id=pay).status_code == 200
+    again = close(headers, created["id"], amount="5000.00", account_id=pay)
+    assert again.status_code == 409

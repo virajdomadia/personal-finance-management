@@ -321,8 +321,12 @@ def field_error(field: str, message: str) -> dict[str, Any]:
     return {"loc": ("body", field), "msg": message, "type": "value_error"}
 
 
-def validate_rules(values: dict[str, Any]) -> None:
-    """The per-type rules, applied to a whole account's values (create now, PATCH later)."""
+def validate_rules(values: dict[str, Any], check_paid: bool = True) -> None:
+    """The per-type rules, applied to a whole account's values (create now, PATCH later).
+
+    `check_paid` is False for an edit that leaves the tenure and instalments paid alone: transfers
+    recorded later can push the paid count past the tenure, and that must not block a rename.
+    """
     errors: list[dict[str, Any]] = []
     type_ = values["type"]
 
@@ -352,7 +356,7 @@ def validate_rules(values: dict[str, Any]) -> None:
         errors.append(field_error("emi_amount", "EMI must be greater than 0."))
 
     if type_ in DEPOSIT_TYPES:
-        errors.extend(_deposit_errors(values, type_))
+        errors.extend(_deposit_errors(values, type_, check_paid))
 
     if errors:
         raise RequestValidationError(errors)
@@ -371,7 +375,9 @@ _RD_REQUIRED = {
 }
 
 
-def _deposit_errors(values: dict[str, Any], type_: str) -> list[dict[str, Any]]:
+def _deposit_errors(
+    values: dict[str, Any], type_: str, check_paid: bool = True
+) -> list[dict[str, Any]]:
     errors = []
     required = _REQUIRED | (_RD_REQUIRED if type_ == "rd" else {})
     for field, message in required.items():
@@ -384,7 +390,7 @@ def _deposit_errors(values: dict[str, Any], type_: str) -> list[dict[str, Any]]:
     if amount is not None and amount <= 0:
         errors.append(field_error("deposit_amount", "Instalment must be greater than 0."))
     paid, tenure = values.get("deposits_paid"), values.get("tenure_months")
-    if paid is not None and tenure is not None and paid > tenure:
+    if check_paid and paid is not None and tenure is not None and paid > tenure:
         errors.append(field_error("deposits_paid", _RD_REQUIRED["deposits_paid"]))
     return errors
 
@@ -554,7 +560,7 @@ def update_account(
     }
     changes = body.model_dump(exclude_unset=True)
     values.update(changes)
-    validate_rules(values)
+    validate_rules(values, check_paid=bool({"deposits_paid", "tenure_months"} & changes.keys()))
     if "pay_from_id" in changes:
         _check_links(db, user, values)
     at_opening = None

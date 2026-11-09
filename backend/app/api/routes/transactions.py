@@ -16,6 +16,7 @@ from app.api.balances import Movement, balance_of, load_movements, net_flows
 from app.api.deps import CurrentUser, get_current_user
 from app.api.routes.accounts import (
     CAN_BE_NEGATIVE,
+    DEPOSIT_TYPES,
     MAX_ID,
     MAX_MONEY,
     Money,
@@ -245,16 +246,66 @@ def _validate(values: dict[str, Any], accounts: dict[int, Account]) -> None:
     if type_ != "emi" and values["interest"] is not None:
         errors.append(field_error("interest", "Only an EMI has an interest part."))
 
+    _validate_deposits(values, accounts, errors)
+
     if errors:
         raise RequestValidationError(errors)
+
+
+def _deposit_name(account: Account) -> str:
+    return "PPF account" if account.type == "ppf" else "RD"
+
+
+def _validate_deposits(
+    values: dict[str, Any], accounts: dict[int, Account], errors: list[dict[str, Any]]
+) -> None:
+    """A PPF or RD takes deposits, interest and withdrawals to a bank, and nothing else."""
+    type_ = values["type"]
+    source = accounts.get(values["account_id"] or 0)
+    target = accounts.get(values["to_account_id"] or 0)
+    found: list[tuple[str, str]] = []  # (field, message)
+
+    def deposit(account: Account | None) -> bool:
+        return account is not None and account.type in DEPOSIT_TYPES
+
+    def only(account: Account) -> str:
+        article = "An" if account.type == "rd" else "A"
+        what = f"{article} {_deposit_name(account)}"
+        return f"{what} only takes deposits, interest and withdrawals to a bank."
+
+    if type_ in ("expense", "emi") and source is not None and deposit(source):
+        found.append(("account_id", only(source)))
+    if type_ == "emi" and target is not None and deposit(target):
+        found.append(("to_account_id", only(target)))
+    if type_ == "income" and source is not None and deposit(source):
+        category = values["category"]
+        if category is not None and category.casefold() != "interest":
+            article = "an" if source.type == "rd" else "a"
+            found.append(
+                (
+                    "category",
+                    f"Interest is the only income {article} {_deposit_name(source)} takes.",
+                )
+            )
+    if type_ == "transfer" and source is not None and target is not None:
+        if deposit(target) and source.type != "bank":
+            found.append(("account_id", only(target)))
+        if deposit(source) and target.type != "bank":
+            found.append(("to_account_id", only(source)))
+
+    for field, message in found:
+        errors[:] = [e for e in errors if e["loc"][1] != field]
+        errors.append(field_error(field, message))
 
 
 def _validate_emi(
     values: dict[str, Any], accounts: dict[int, Account], errors: list[dict[str, Any]]
 ) -> None:
     payer = accounts.get(values["account_id"] or 0)
-    if payer is not None and payer.type == "loan" and not any(
-        e["loc"][1] == "account_id" for e in errors
+    if (
+        payer is not None
+        and payer.type == "loan"
+        and not any(e["loc"][1] == "account_id" for e in errors)
     ):
         errors.append(field_error("account_id", "Choose the account the EMI is paid from."))
 

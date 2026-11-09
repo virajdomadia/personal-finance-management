@@ -117,6 +117,42 @@ Funds use the same cost, value and FIFO rules, with these differences. See the [
 
 **Stock `amount` backfill.** When the investment model was generalised, each existing stock trade got `amount = round_paise(quantity × price ± charges)`, the figure the stock code had always computed. Stock figures are therefore unchanged, and a test pins them against the owner's data.
 
+## Deposits (PPF and RD)
+
+**Built (2026-11-09).** See the [deposits design](../superpowers/specs/2026-11-09-deposits-design.md). A PPF or RD is an account whose balance is what the passbook says: deposits plus interest credited, minus withdrawals. It moves only through ordinary transactions. A deposit is a transfer from a bank, interest is an income with category "Interest", and a withdrawal is a transfer to a bank. Nothing else is accepted: an expense, an EMI, or a transfer to or from anything but a bank is refused.
+
+**Estimate shown, not counted.** Every interest figure below is an estimate worked out when you ask for it. It is shown next to the balance, but it is never added to the balance or to net worth. Interest becomes real only when you record what the bank credited. Net worth uses the balance alone. All money is `Decimal` and each figure is rounded half up to paise once, at the end.
+
+### PPF interest
+
+For each month, interest is `rate ÷ 12 ÷ 100 × the lowest balance between the end of the 5th and the end of the month`. A deposit on or before the 5th earns for that month, and one after the 5th doesn't. The year's interest is the sum of April to March, rounded once, and the bank credits it on 31 March. A month counts once today has reached its last day.
+
+Worked example, rate 7.1%, ₹1,00,000 on 1 April and ₹50,000 deposited on 10 April:
+
+| Months | Lowest balance | Interest |
+|---|---|---|
+| April | ₹1,00,000 | ₹591.67 |
+| May to March (11 months) | ₹1,50,000 | ₹887.50 × 11 = ₹9,762.50 |
+| Year | | **₹10,354.17** |
+
+Deposited on 4 April instead, all twelve months earn on ₹1,50,000, which gives **₹10,650.00**. A PPF matures on 1 April, 16 years after the start of the financial year it was opened in: opened 10 June 2020, it matures on 1 April 2036. The yearly limit of ₹1,50,000 is shown and not enforced.
+
+From 31 March, the year just ended is "due" when it ended on or after the day the account was added to the app, and no interest income is recorded between that 31 March and 30 March a year later. The app then offers to record the estimate, which you correct to the passbook figure.
+
+### RD interest
+
+Banks compound an RD quarterly. With `q = 1 + rate ÷ 400`, an amount held for `m` whole months grows to `amount × q^(m ÷ 3)`.
+
+- **Maturity value** is the sum, for k = 1 to n, of `instalment × q^((n − k + 1) ÷ 3)`, where n is the tenure in months. It is what the RD pays if every instalment is on time. ₹5,000 a month for 24 months at 7% gives **₹1,29,098.90**. ₹1,000 a month for 12 months at 6.8% gives **₹12,448.73**.
+- **Interest so far** is the sum, over every instalment paid, of `amount × (q^(m ÷ 3) − 1)`, where m is the whole months from the instalment to today (or to maturity, if earlier). The interest already recorded into the RD is subtracted, and the result is never below zero. Four ₹5,000 instalments at 7%, held 3, 2, 1 and 0 months, give **₹174.66**.
+- **Value today** is the balance plus interest so far.
+
+An instalment never posts on its own. A month is due when its instalment day (clamped to the month's length) is on or before today and no transfer into the RD is dated in that month. Missed months stay due until recorded.
+
+### Closing an RD
+
+Close RD records, in one step: the interest (what you received minus the balance) as an income with category "Interest", then a transfer of what you received to the bank, then archives the RD, which ends at exactly ₹0. If you received less than the balance, as with a penalty for closing early, the shortfall is an expense with category "Fees and charges" instead. Example: balance ₹20,000 and ₹19,800 received gives a ₹200 fee and a ₹19,800 transfer.
+
 ## Dates
 
 "Today" is India's date (UTC+05:30). Future-dated transactions are refused.
