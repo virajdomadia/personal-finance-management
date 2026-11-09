@@ -128,7 +128,9 @@ test("type labels match the approved table", () => {
     bank: "Bank account",
     credit_card: "Credit card",
     cash: "Cash in hand",
-    broker: "Broker balance",
+    wallet: "Wallet or prepaid card",
+    ppf: "PPF",
+    rd: "Recurring deposit",
     wallet: "Wallet or prepaid card",
     loan: "Loan",
   });
@@ -257,4 +259,38 @@ test("investmentsIn is what You have holds beyond the account balances", () => {
   assert.equal(investmentsIn(list("0.07", [])), "0.07");
   assert.equal(investmentsIn(list("90071992547409.93", [account("bank", "0.01")])), "90071992547409.92");
   assert.equal(investmentsIn(list("10.00", [account("bank", "10"), account("cash", "5.00", true)])), null);
+});
+
+test("deposit accounts: labels, applicable fields and payload", () => {
+  assert.equal(TYPE_LABELS.ppf, "PPF");
+  assert.equal(TYPE_LABELS.rd, "Recurring deposit");
+  const form = {
+    ...blank,
+    type: "rd",
+    institution: "SBI",
+    interest_rate: "6.70",
+    opened_on: "2026-08-15",
+    pay_from_id: "7",
+    deposit_amount: "₹5,000",
+    due_day: "15",
+    tenure_months: "12",
+    deposits_paid: "3",
+  };
+  assert.deepEqual(toPayload(form, "create"), {
+    type: "rd",
+    name: "Main",
+    balance: "10",
+    institution: "SBI",
+    interest_rate: "6.70",
+    opened_on: "2026-08-15",
+    pay_from_id: 7,
+    deposit_amount: "5000",
+    due_day: 15,
+    tenure_months: 12,
+    deposits_paid: 3,
+  });
+  const ppf = toPayload({ ...blank, type: "ppf", opened_on: "2020-04-01" }, "edit");
+  assert.equal(ppf.opened_on, "2020-04-01");
+  assert.equal("deposit_amount" in ppf, false);
+  assert.ok(renderedFields("rd", "edit").includes("tenure_months"));
 });

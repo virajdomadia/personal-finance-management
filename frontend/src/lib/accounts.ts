@@ -1,7 +1,28 @@
-export type AccountType = "bank" | "credit_card" | "cash" | "broker" | "wallet" | "loan";
+export type AccountType = "bank" | "credit_card" | "cash" | "broker" | "wallet" | "ppf" | "rd" | "loan";
 
 // The suggested split of a loan's next EMI. Interest is null when it can't be worked out.
 export type NextEmi = { amount: string; interest: string | null; principal: string | null };
+
+export type PpfFigures = {
+  kind: "ppf";
+  maturity_date: string;
+  deposited_this_year: string;
+  year_limit: string;
+  interest_this_year: string;
+  interest_due: { year: string; amount: string; date: string } | null;
+};
+
+export type RdFigures = {
+  kind: "rd";
+  maturity_date: string;
+  deposits_paid: number;
+  deposits_left: number;
+  deposited: string;
+  interest_so_far: string;
+  value_today: string;
+  maturity_value: string;
+  due: string[];
+};
 
 export type Account = {
   id: number;
@@ -20,6 +41,10 @@ export type Account = {
   emis_left: number | null;
   pay_from_id: number | null;
   next_emi: NextEmi | null;
+  opened_on: string | null;
+  deposit_amount: string | null;
+  tenure_months: number | null;
+  deposit: PpfFigures | RdFigures | null;
   archived: boolean;
 };
 
@@ -53,6 +78,10 @@ export type AccountForm = {
   emi_amount: string;
   emis_left: string;
   pay_from_id: string;
+  opened_on: string;
+  deposit_amount: string;
+  tenure_months: string;
+  deposits_paid: string;
   moved_from_card: "" | "yes"; // create only
 };
 
@@ -62,10 +91,12 @@ export const TYPE_LABELS: Record<AccountType, string> = {
   cash: "Cash in hand",
   broker: "Broker balance",
   wallet: "Wallet or prepaid card",
+  ppf: "PPF",
+  rd: "Recurring deposit",
   loan: "Loan",
 };
 
-export const TYPE_ORDER: AccountType[] = ["bank", "credit_card", "cash", "broker", "wallet", "loan"];
+export const TYPE_ORDER: AccountType[] = ["bank", "credit_card", "cash", "broker", "wallet", "ppf", "rd", "loan"];
 
 // Accounts whose balance is what's owed.
 export const OWED_TYPES = new Set<AccountType>(["credit_card", "loan"]);
@@ -77,11 +108,13 @@ const APPLICABLE: Record<AccountType, (keyof AccountForm)[]> = {
   cash: [],
   broker: ["institution"],
   wallet: ["institution"],
+  ppf: ["institution", "interest_rate", "opened_on", "pay_from_id"],
+  rd: ["institution", "interest_rate", "opened_on", "pay_from_id", "deposit_amount", "due_day", "tenure_months", "deposits_paid"],
   loan: ["institution", "due_day", "interest_rate", "emi_amount", "emis_left", "pay_from_id"],
 };
 
-const MONEY_FIELDS = new Set<keyof AccountForm>(["balance", "credit_limit", "interest_rate", "emi_amount"]);
-const NUMBER_FIELDS = new Set<keyof AccountForm>(["statement_day", "due_day", "emis_left", "pay_from_id"]);
+const MONEY_FIELDS = new Set<keyof AccountForm>(["balance", "credit_limit", "interest_rate", "emi_amount", "deposit_amount"]);
+const NUMBER_FIELDS = new Set<keyof AccountForm>(["statement_day", "due_day", "emis_left", "pay_from_id", "tenure_months", "deposits_paid"]);
 
 // Groups the digits on the string itself so money never goes through a float.
 export function formatRupees(value: string): string {
@@ -143,6 +176,10 @@ export function formFromAccount(account: Account): AccountForm {
     emi_amount: account.emi_amount ?? "",
     emis_left: account.emis_left === null ? "" : String(account.emis_left),
     pay_from_id: account.pay_from_id === null ? "" : String(account.pay_from_id),
+    opened_on: account.opened_on ?? "",
+    deposit_amount: account.deposit_amount ?? "",
+    tenure_months: account.tenure_months === null ? "" : String(account.tenure_months),
+    deposits_paid: account.deposit?.kind === "rd" ? String(account.deposit.deposits_paid) : "",
     moved_from_card: "",
   };
 }
