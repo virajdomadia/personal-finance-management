@@ -79,7 +79,7 @@ net cash flow = income − expenses
 
 **Planned.** Investment purchases, loan principal repayments and transfers stay out of cash flow. Loan interest and fees are expenses. Principal repayment only reduces the liability.
 
-## Investment returns (built for stocks)
+## Investment returns (built for stocks and mutual funds)
 
 Three figures, always kept apart:
 
@@ -101,6 +101,21 @@ Acquisition fees (brokerage and charges on a purchase) are included in the cost 
 Market value comes only from recorded prices. (Planned, with the ledger: the ledger carries holdings at cost. The ledger is not built yet.) In net worth, a recorded price always wins over cost. A holding that cost ₹1,00,000 and was last valued at ₹1,20,000 counts as ₹1,20,000. Cost stands in only before the first price is recorded, and is labelled "at cost".
 
 A partial sale takes cost from the oldest lots first (FIFO), always; choosing specific lots is a non-goal for now. Realised gain is the sale proceeds minus those lots' cost, and it is built for stocks. Dividend income and XIRR come later. New contributions raise portfolio value without being returns, so growth and performance are reported separately.
+
+### Mutual fund rules
+
+Funds use the same cost, value and FIFO rules, with these differences. See the [mutual funds design](../superpowers/specs/2026-11-09-mutual-funds-design.md).
+
+- **`amount` is the source of truth.** A buy's `amount` is its cost, and a sell's `amount` is its proceeds. The owner enters it, because units × NAV is never exactly the amount (35.552 × 84.3793 = ₹2,999.81, while the statement says ₹2,999.85). The FIFO replay uses `amount` and never recomputes it.
+- **Stamp duty is part of the cost.** Stamp duty is `round_paise(amount × 0.00005)`, so "invested" equals what left the bank. The suggested units are `round((amount − stamp duty) ÷ NAV, 3)`.
+- **Fractional FIFO.** Units have up to 3 decimals and are summed exactly as `Decimal`. A partial redemption takes `round_paise(cost × taken ÷ lot_units)` from the oldest lot, and the lot keeps the remaining cost, so redeeming every unit leaves no paisa behind.
+- **Value is `round_paise(units × latest NAV)`.** With no NAV recorded, a fund is held at cost and labelled "at cost". Existing units (an opening purchase) store the average purchase NAV, `round(amount ÷ units, 4)`, and never record a NAV.
+- **The ₹1.00 check.** On a purchase, units × NAV must be within ₹1.00 of `amount − charges`. This catches a misplaced decimal without rejecting the statement's own rounding.
+- **Automatic NAVs.** Recording a purchase or redemption that isn't an opening one also records its NAV for that day, unless a NAV already exists for that date. The NAV follows the trade when it is edited or deleted.
+- **SIP due months.** A SIP never posts by itself. From its start month to the current month, a month is due when its debit day (clamped to the month's length, so day 31 falls on 28 or 29 February) is on or before today and no purchase for that SIP is recorded that month. A start date after the debit day makes the following month the first due. Missed months stay due until recorded.
+- **The portfolio** reports stocks and funds separately, plus `overall`: the sum of the figures of both, with its percent worked out from the summed figures.
+
+**Stock `amount` backfill.** When the investment model was generalised, each existing stock trade got `amount = round_paise(quantity × price ± charges)`, the figure the stock code had always computed. Stock figures are therefore unchanged, and a test pins them against the owner's data.
 
 ## Dates
 

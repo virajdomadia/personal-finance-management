@@ -71,7 +71,7 @@ How the later domains post. These are designs, not built:
 
 The ledger carries holdings and possessions at **cost**. Market value is never posted. It lives in append-only valuation tables (`instrument_prices`, `asset_valuations`), and net worth reads it from there. So the investments domain's cost basis is the holding's ledger balance. `check-ledger` verifies that each holding's ledger balance equals the cost basis of its open lots.
 
-**Stocks (built before the ledger):** holdings still map to ledger accounts at cost when the ledger arrives. Whether realised gains become an income account is settled then. Until then they are not income. See the [stocks design](../superpowers/specs/2026-11-08-stocks-design.md).
+**Stocks and mutual funds (built before the ledger):** holdings still map to ledger accounts at cost when the ledger arrives. Whether realised gains become an income account is settled then. Until then they are not income. See the [stocks design](../superpowers/specs/2026-11-08-stocks-design.md) and the [mutual funds design](../superpowers/specs/2026-11-09-mutual-funds-design.md). A fund purchase or redemption moves a bank account by its `amount`, like a stock trade through a broker.
 
 ## Schema
 

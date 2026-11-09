@@ -6,6 +6,8 @@ from sqlalchemy import select
 
 from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import (
+    fmt_nav,
+    fmt_units,
     holding_value,
     latest_prices,
     load_trade_rows,
@@ -14,6 +16,8 @@ from app.api.portfolio import (
     unrealised_percent,
 )
 from app.api.routes.accounts import fmt
+from app.api.routes.funds import MUTUAL_FUND
+from app.api.routes.sips import SipResponse, due_sip_list
 from app.db.session import DbSession
 from app.models.account import Account
 from app.models.investment import Instrument
@@ -66,11 +70,54 @@ class Totals(BaseModel):
     realised: str
 
 
+class FundFigures(BaseModel):
+    fund_id: int
+    symbol: str
+    name: str
+    units: str
+    invested: str
+    average_nav: str
+    nav: str | None
+    nav_date: str | None
+    value: str
+    at_cost: bool
+    unrealised: str
+    unrealised_percent: str
+
+
+class FundHolding(FundFigures):
+    account_id: int
+    account_name: str
+
+
+class FundTotal(FundFigures):
+    pass
+
+
+class FundClosed(BaseModel):
+    fund_id: int
+    symbol: str
+    name: str
+    account_id: int
+    account_name: str
+    realised: str
+
+
+class FundPortfolio(BaseModel):
+    holdings: list[FundHolding]
+    by_fund: list[FundTotal]
+    closed: list[FundClosed]
+    totals: Totals
+    due_sips: list[SipResponse]
+
+
 class Portfolio(BaseModel):
     holdings: list[Holding]
     by_stock: list[StockTotal]
     closed: list[Closed]
     totals: Totals
+    funds: FundPortfolio
+    overall: Totals
 
 
 def _percent(unrealised: Decimal, invested: Decimal) -> str:
@@ -95,6 +142,89 @@ def _figures(stock: Instrument, shares: int, invested: Decimal, current: tuple |
         "unrealised": fmt(unrealised),
         "unrealised_percent": _percent(unrealised, invested),
     }
+
+
+def _fund_figures(
+    fund: Instrument, units: Decimal, invested: Decimal, current: tuple | None
+) -> dict:
+    nav = None if current is None else current[1]
+    value = holding_value(units, invested, nav)
+    unrealised = value - invested
+    return {
+        "fund_id": fund.id,
+        "symbol": fund.symbol,
+        "name": fund.name,
+        "units": fmt_units(units),
+        "invested": fmt(invested),
+        "average_nav": fmt_nav(invested / units),
+        "nav": None if nav is None else fmt_nav(nav),
+        "nav_date": None if current is None else current[0].isoformat(),
+        "value": fmt(value),
+        "at_cost": nav is None,
+        "unrealised": fmt(unrealised),
+        "unrealised_percent": _percent(unrealised, invested),
+    }
+
+
+def _totals(summary) -> Totals:
+    return Totals(
+        invested=fmt(summary.invested),
+        value=fmt(summary.value),
+        unrealised=fmt(summary.unrealised),
+        unrealised_percent=_percent(summary.unrealised, summary.invested),
+        realised=fmt(summary.realised),
+    )
+
+
+def _fund_portfolio(
+    db: DbSession, user_id: int, result, prices: dict, names: dict[int, str]
+) -> FundPortfolio:
+    funds = {
+        f.id: f
+        for f in db.scalars(
+            select(Instrument).where(Instrument.user_id == user_id, Instrument.kind == MUTUAL_FUND)
+        )
+    }
+    holdings: list[FundHolding] = []
+    closed: list[FundClosed] = []
+    combined: dict[int, list] = {}  # fund_id -> [units, invested]
+    for (fund_id, account_id), pos in result.positions.items():
+        fund = funds.get(fund_id)
+        if fund is None:
+            continue
+        if pos.quantity > 0:
+            figures = _fund_figures(fund, pos.quantity, pos.invested, prices.get(fund_id))
+            holdings.append(
+                FundHolding(**figures, account_id=account_id, account_name=names[account_id])
+            )
+            total = combined.setdefault(fund_id, [Decimal("0"), ZERO])
+            total[0] += pos.quantity
+            total[1] += pos.invested
+        elif pos.sold_any:
+            closed.append(
+                FundClosed(
+                    fund_id=fund_id,
+                    symbol=fund.symbol,
+                    name=fund.name,
+                    account_id=account_id,
+                    account_name=names[account_id],
+                    realised=fmt(pos.realised),
+                )
+            )
+    holdings.sort(key=lambda h: (h.symbol, h.account_name))
+    closed.sort(key=lambda c: (c.symbol, c.account_name))
+    by_fund = [
+        FundTotal(**_fund_figures(funds[fund_id], units, invested, prices.get(fund_id)))
+        for fund_id, (units, invested) in combined.items()
+    ]
+    by_fund.sort(key=lambda f: f.symbol)
+    return FundPortfolio(
+        holdings=holdings,
+        by_fund=by_fund,
+        closed=closed,
+        totals=_totals(summarise(result, prices, only=set(funds))),
+        due_sips=due_sip_list(db, user_id),
+    )
 
 
 @router.get("/portfolio")
@@ -146,16 +276,11 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
     ]
     by_stock.sort(key=lambda s: s.symbol)
 
-    totals = summarise(result, prices, only=set(stocks))
     return Portfolio(
         holdings=holdings,
         by_stock=by_stock,
         closed=closed,
-        totals=Totals(
-            invested=fmt(totals.invested),
-            value=fmt(totals.value),
-            unrealised=fmt(totals.unrealised),
-            unrealised_percent=_percent(totals.unrealised, totals.invested),
-            realised=fmt(totals.realised),
-        ),
+        totals=_totals(summarise(result, prices, only=set(stocks))),
+        funds=_fund_portfolio(db, user.id, result, prices, names),
+        overall=_totals(summarise(result, prices)),
     )

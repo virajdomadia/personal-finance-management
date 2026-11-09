@@ -228,11 +228,11 @@ def investments_totals(db: Session, user_id: int, kind: str | None = None) -> Po
     return summarise(replay(load_trade_rows(db, user_id)), latest_prices(db, user_id), only)
 
 
-def holds_shares(db: Session, user_id: int, account_id: int) -> bool:
-    """Whether the account holds any stock."""
+def holds_units(db: Session, user_id: int, account_id: int, kind: str) -> bool:
+    """Whether the account holds any instrument of `kind` ("stock" or "mutual_fund")."""
     kinds = load_kinds(db, user_id)
     result = replay(r for r in load_trade_rows(db, user_id) if r.account_id == account_id)
     return any(
-        pos.quantity > 0 and kinds.get(pos.instrument_id) == "stock"
+        pos.quantity > 0 and kinds.get(pos.instrument_id) == kind
         for pos in result.positions.values()
     )

@@ -69,9 +69,9 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
     flows = load_flows(db, user.id)
     have, owe = totals(active, flows)
     result = replay(load_trade_rows(db, user.id))
-    stocks = summarise(result, latest_prices(db, user.id))
+    overall = summarise(result, latest_prices(db, user.id))
     has_holdings = any(pos.quantity > 0 for pos in result.positions.values())
-    have += stocks.value
+    have += overall.value
     cards = sorted(
         (a for a in active if a.type == "credit_card"),
         key=list_sort_key,
@@ -94,9 +94,9 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
     investments = None
     if has_holdings:
         investments = Investments(
-            value=fmt(stocks.value),
-            unrealised=fmt(stocks.unrealised),
-            unrealised_percent=fmt(unrealised_percent(stocks.unrealised, stocks.invested)),
+            value=fmt(overall.value),
+            unrealised=fmt(overall.unrealised),
+            unrealised_percent=fmt(unrealised_percent(overall.unrealised, overall.invested)),
         )
 
     return DashboardResponse(
