@@ -343,9 +343,11 @@ def test_a_sip_deleted_meanwhile_is_not_found(
             other.commit()
         return real(*args, **kwargs)
 
-    # An edit locks accounts after reading the SIP; a delete locks the SIP row itself.
-    monkeypatch.setattr(routes, "lock_accounts", delete_first)
-    if action == "delete":
+    if action == "edit":
+        # Only an edit locks accounts (after reading the SIP), so only then is the patch applied.
+        monkeypatch.setattr(routes, "lock_accounts", delete_first)
+    else:
+        # A delete doesn't lock accounts; it locks the SIP row itself, so hook that re-read.
         monkeypatch.setattr(routes, "_reread_locked", _after_deleting(engine, id, routes))
     with Session(engine) as db, pytest.raises(HTTPException) as caught:
         if action == "edit":
@@ -366,6 +368,37 @@ def _after_deleting(engine: Engine, id: int, routes: Any) -> Callable[..., Any]:
         return real(db, user_id, sip_id)
 
     return reread
+
+
+def test_an_edit_of_a_sip_moved_meanwhile_asks_to_retry(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.routes import sips as routes
+
+    user, id = _sip(engine)
+    with Session(engine) as db:
+        other_bank = Account(
+            user_id=user.id, type="savings_account", name="Other", opening_balance=Decimal("0")
+        )
+        db.add(other_bank)
+        db.commit()
+        other_id = other_bank.id
+    real = routes.lock_accounts
+    done = []
+
+    def move_first(*args: Any, **kwargs: Any) -> Any:
+        if not done:
+            done.append(True)
+            with Session(engine) as other:
+                other.get(Sip, id).account_id = other_id
+                other.commit()
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(routes, "lock_accounts", move_first)
+    with Session(engine) as db, pytest.raises(HTTPException) as caught:
+        update_sip(id, SipUpdate.model_validate({"amount": "600"}), user, db)
+    assert caught.value.status_code == 409
+    assert caught.value.detail == "This SIP changed while saving. Try again."
 
 
 def _rd_body(bank: int) -> dict[str, Any]:

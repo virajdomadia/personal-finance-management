@@ -548,7 +548,9 @@ def update_account(
     changes = body.model_dump(exclude_unset=True)
     values.update(changes)
     validate_rules(values, check_paid=bool({"deposits_paid", "tenure_months"} & changes.keys()))
-    if "pay_from_id" in changes:
+    # Only a changed bank is locked and checked: archiving a bank locks it first and then its PPFs,
+    # so locking an unchanged one here (after this account) could deadlock with that.
+    if "pay_from_id" in changes and changes["pay_from_id"] != account.pay_from_id:
         _check_links(db, user, values)
     at_opening = None
     if values["deposits_paid"] is not None:

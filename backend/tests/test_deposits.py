@@ -210,6 +210,28 @@ def test_an_rds_pay_from_can_only_be_changed_to_an_active_bank(headers: Headers)
     assert client.patch(path, json={"pay_from_id": other}, headers=headers).status_code == 200
 
 
+def test_an_unchanged_pay_from_is_neither_checked_nor_locked(
+    headers: Headers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.routes import accounts as routes
+
+    pay = bank(headers)
+    other = bank(headers, "Other")
+    created = ppf(headers, pay_from_id=pay).json()
+
+    def refuse(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("the unchanged bank must not be locked or checked")
+
+    monkeypatch.setattr(routes, "_check_links", refuse)
+    path = f"/api/accounts/{created['id']}"
+    response = client.patch(path, json={"pay_from_id": pay, "name": "My PPF"}, headers=headers)
+    assert response.status_code == 200
+    assert one(headers, created["id"])["pay_from_id"] == pay
+    # A different bank still goes through the check.
+    with pytest.raises(AssertionError):
+        client.patch(path, json={"pay_from_id": other}, headers=headers)
+
+
 def test_a_transfer_in_counts_as_an_instalment_and_removes_its_month(headers: Headers) -> None:
     pay = bank(headers)
     created = rd(headers, pay).json()
