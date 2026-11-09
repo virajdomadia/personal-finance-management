@@ -167,6 +167,14 @@ const QUANTITY_RULE = "Enter a whole number of shares, from 1 to 10,00,00,000.";
 const MAX_QUANTITY = 100_000_000;
 const MONEY = /^\d+(?:\.\d{1,2})?$/;
 
+// A "YYYY-MM-DD" that names a real day: 2026-02-31 fails because it doesn't survive a round trip.
+function realDate(text: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const [year, month, day] = text.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
 // The server's rules for the fields every trade needs, with its messages. Checked before saving,
 // because tradePayload sends NaN for a bad quantity and a new stock must not be created for a
 // trade that is bound to be refused. `today` is "YYYY-MM-DD" in India.
@@ -175,7 +183,7 @@ export function tradeErrors(form: TradeForm, today: string): Record<string, stri
   if (form.account_id === "") errors.account_id = "Choose a broker account.";
   const date = form.date.trim();
   if (date === "") errors.date = "Choose a date.";
-  else if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) errors.date = "Enter a date like 2026-11-08.";
+  else if (!realDate(date)) errors.date = "Enter a date like 2026-11-08.";
   else if (date > today) errors.date = "The date can't be in the future.";
   const quantity = form.quantity.trim();
   if (!/^\d+$/.test(quantity) || Number(quantity) < 1 || Number(quantity) > MAX_QUANTITY) errors.quantity = QUANTITY_RULE;

@@ -3,7 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from "react-native";
 import { Appbar, Button, Divider, FAB, List, Surface, Text, TouchableRipple, useTheme } from "react-native-paper";
 
-import { Signed } from "@/components/signed";
+import { Signed, signedLabel } from "@/components/signed";
 import { errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import type { Portfolio, StockTotal } from "@/lib/investments";
@@ -237,7 +237,7 @@ function HoldingRow({ row, onPress }: { row: StockTotal; onPress: () => void }) 
     <TouchableRipple
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${row.symbol}, ${row.name}, ${row.shares} shares, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}`}
+      accessibilityLabel={`${row.symbol}, ${row.name}, ${row.shares} shares, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}`}
       accessibilityHint="Opens its trades and prices"
     >
       <View style={styles.row}>
