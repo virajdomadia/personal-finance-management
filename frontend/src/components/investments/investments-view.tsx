@@ -98,17 +98,24 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [dialog, setDialog] = useState<Dialog>({ kind: "none" });
   const [notice, setNotice] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const latest = useRef(0);
 
   const reload = useCallback(() => {
     const request = ++latest.current;
     fetchData(brokerId)
       .then((data) => {
-        if (request === latest.current) setLoad({ status: "ready", data });
+        if (request === latest.current) {
+          setLoad({ status: "ready", data });
+          setRetrying(false);
+        }
       })
       .catch((err: unknown) => {
         if (isUnauthorized(err)) void logout();
-        else if (request === latest.current) setLoad({ status: "error" });
+        else if (request === latest.current) {
+          setLoad({ status: "error" });
+          setRetrying(false);
+        }
       });
   }, [brokerId]);
 
@@ -116,12 +123,19 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
     reload();
   }, [reload]);
 
+  // A section's "Try again" reloads everything; it shows that it is working until the data lands.
+  const retry = () => {
+    setRetrying(true);
+    reload();
+  };
   const closeDialog = () => setDialog({ kind: "none" });
   const openTrade = (tradeKind: TradeKind) => setDialog({ kind: "trade", trade: null, tradeKind });
   const data = load.status === "ready" ? load.data : null;
   const accounts = data?.accounts.status === "ready" ? data.accounts.data : null;
   const stocksExtra: StocksExtra | null = data && accounts && data.stocks.status === "ready" ? { ...data.stocks.data, ...accounts } : null;
-  const fundsExtra: FundsExtra | null = data && accounts && data.funds.status === "ready" ? data.funds.data : null;
+  const fundsData: FundsExtra | null = data?.funds.status === "ready" ? data.funds.data : null;
+  const fundsExtra: FundsExtra | null = accounts ? fundsData : null;
+  const accountsFailed = data?.accounts.status === "error";
   const brokers = accounts?.active.filter((a) => a.type === "broker") ?? [];
   const banks = accounts?.active.filter((a) => a.type === "bank") ?? [];
   const openFundTrade = (mode: FundTradeMode) =>
@@ -170,8 +184,11 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
           {fundsExtra && <DueSips sips={data.portfolio.funds.due_sips} onRecord={recordSip} />}
           <Content
             portfolio={data.portfolio}
+            stocksLoaded={data.stocks.status === "ready"}
             extra={stocksExtra}
-            onRetry={reload}
+            accountsFailed={accountsFailed}
+            retrying={retrying}
+            onRetry={retry}
             brokerId={brokerId}
             onAdd={openTrade}
             onEdit={(trade) => setDialog({ kind: "trade", trade, tradeKind: trade.opening ? "opening" : trade.side })}
@@ -179,8 +196,11 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
           />
           <Funds
             portfolio={data.portfolio}
-            extra={fundsExtra}
-            onRetry={reload}
+            funds={fundsData}
+            canAdd={accounts !== null}
+            accountsFailed={accountsFailed}
+            retrying={retrying}
+            onRetry={retry}
             onAdd={openFundTrade}
             onAddSip={() => setDialog({ kind: "sip" })}
           />
@@ -256,20 +276,35 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
   );
 }
 
-function SectionError({ onRetry, what }: { onRetry: () => void; what: string }) {
+function SectionError({ onRetry, what, retrying }: { onRetry: () => void; what: string; retrying: boolean }) {
   return (
     <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
       <p>We couldn&apos;t load your {what}.</p>
-      <button type="button" className={`${QUIET} mt-2 -ml-3`} onClick={onRetry}>
-        Try again
+      <button type="button" className={`${QUIET} mt-2 -ml-3`} disabled={retrying} onClick={onRetry}>
+        {retrying ? "Trying again..." : "Try again"}
       </button>
     </div>
   );
 }
 
+// Shown where the buttons and dialogs would be when the accounts they need didn't load.
+function NeedsAccounts({ retrying, onRetry }: { retrying: boolean; onRetry: () => void }) {
+  return (
+    <p className="text-sm text-zinc-600 dark:text-zinc-400">
+      Adding is unavailable until your accounts load.{" "}
+      <button type="button" className={`${QUIET} -mx-1 inline`} disabled={retrying} onClick={onRetry}>
+        {retrying ? "Trying again..." : "Try again"}
+      </button>
+    </p>
+  );
+}
+
 function Content({
   portfolio,
+  stocksLoaded,
   extra,
+  accountsFailed,
+  retrying,
   onRetry,
   brokerId,
   onAdd,
@@ -277,7 +312,10 @@ function Content({
   onDelete,
 }: {
   portfolio: Portfolio;
+  stocksLoaded: boolean;
   extra: StocksExtra | null;
+  accountsFailed: boolean;
+  retrying: boolean;
   onRetry: () => void;
   brokerId: number | null;
   onAdd: (kind: TradeKind) => void;
@@ -310,24 +348,28 @@ function Content({
         )}
       </div>
 
+      {accountsFailed && stocksLoaded && <NeedsAccounts retrying={retrying} onRetry={onRetry} />}
+
       {extra && brokerId !== null && <BrokerTrades extra={extra} brokerId={brokerId} onEdit={onEdit} onDelete={onDelete} />}
 
-      {!extra ? (
-        <SectionError onRetry={onRetry} what="stocks" />
+      {!stocksLoaded ? (
+        <SectionError onRetry={onRetry} what="stocks" retrying={retrying} />
       ) : empty ? (
         <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700">
           <p className="font-medium">Add your shares</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-zinc-600 dark:text-zinc-400">
             Enter shares you already own, or record a buy. Buys and sells move your broker account&apos;s cash.
           </p>
-          <div className="mt-4 flex flex-wrap justify-center gap-2">
-            <button type="button" className={SECONDARY} onClick={() => onAdd("opening")}>
-              Add existing shares
-            </button>
-            <button type="button" className={PRIMARY} onClick={() => onAdd("buy")}>
-              Buy
-            </button>
-          </div>
+          {extra && (
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button type="button" className={SECONDARY} onClick={() => onAdd("opening")}>
+                Add existing shares
+              </button>
+              <button type="button" className={PRIMARY} onClick={() => onAdd("buy")}>
+                Buy
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <>
@@ -519,13 +561,19 @@ function Overall({ portfolio }: { portfolio: Portfolio }) {
 
 function Funds({
   portfolio,
-  extra,
+  funds: fundsData,
+  canAdd,
+  accountsFailed,
+  retrying,
   onRetry,
   onAdd,
   onAddSip,
 }: {
   portfolio: Portfolio;
-  extra: FundsExtra | null;
+  funds: FundsExtra | null;
+  canAdd: boolean;
+  accountsFailed: boolean;
+  retrying: boolean;
   onRetry: () => void;
   onAdd: (mode: FundTradeMode) => void;
   onAddSip: () => void;
@@ -535,7 +583,7 @@ function Funds({
   const hasHoldings = funds.holdings.length > 0;
   // A fund with no units and no past (one just added with its SIP) still gets a row to reach it by.
   const listed = new Set([...funds.by_fund.map((f) => f.fund_id), ...funds.closed.map((c) => c.fund_id)]);
-  const unheld = (extra?.funds ?? []).filter((f) => !listed.has(f.id));
+  const unheld = (fundsData?.funds ?? []).filter((f) => !listed.has(f.id));
 
   return (
     <section aria-labelledby="funds-title" className="flex flex-col gap-8">
@@ -543,7 +591,7 @@ function Funds({
         <h2 id="funds-title" className="text-base font-semibold">
           Mutual funds
         </h2>
-        {extra && (
+        {fundsData && canAdd && (
           <div className="flex flex-wrap gap-2">
             <button type="button" className={QUIET} onClick={onAddSip}>
               Add SIP
@@ -563,8 +611,10 @@ function Funds({
         )}
       </div>
 
-      {!extra ? (
-        <SectionError onRetry={onRetry} what="mutual funds" />
+      {accountsFailed && fundsData && <NeedsAccounts retrying={retrying} onRetry={onRetry} />}
+
+      {!fundsData ? (
+        <SectionError onRetry={onRetry} what="mutual funds" retrying={retrying} />
       ) : empty && unheld.length === 0 ? (
         <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700">
           <p className="font-medium">Add your mutual funds</p>
@@ -572,14 +622,16 @@ function Funds({
             Enter units you already own, or add a SIP and record each instalment with its NAV. Purchases and redemptions move your
             bank balance.
           </p>
-          <div className="mt-4 flex flex-wrap justify-center gap-2">
-            <button type="button" className={SECONDARY} onClick={() => onAdd("opening")}>
-              Add existing units
-            </button>
-            <button type="button" className={SECONDARY} onClick={onAddSip}>
-              Add SIP
-            </button>
-          </div>
+          {canAdd && (
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button type="button" className={SECONDARY} onClick={() => onAdd("opening")}>
+                Add existing units
+              </button>
+              <button type="button" className={SECONDARY} onClick={onAddSip}>
+                Add SIP
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <>

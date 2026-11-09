@@ -44,7 +44,7 @@ const ppf = (o = {}, d = {}) => ({
     deposited_this_year: "50000.00",
     year_limit: "150000.00",
     interest_this_year: "1000.00",
-    interest_due: { year: "2026-27", amount: "10354.17", date: "2027-03-31" },
+    interest_due: { year: "2026-27", amount: "10354.00", date: "2027-03-31" },
     ...d,
   },
   ...o,
@@ -63,7 +63,11 @@ test("rdDueText says what is due, with months when behind", () => {
 });
 
 test("ppfInterestText and ppfRoomText", () => {
-  assert.equal(ppfInterestText(ppf()), "PPF: record interest for 2026-27, about ₹10,354.17.");
+  assert.equal(ppfInterestText(ppf()), "PPF: record interest for 2026-27, about ₹10,354.");
+  assert.equal(
+    ppfInterestText(ppf({}, { interest_due: { year: "2026-27", amount: "10354.50", date: "2027-03-31" } })),
+    "PPF: record interest for 2026-27, about ₹10,354.50.",
+  );
   assert.equal(ppfInterestText(ppf({}, { interest_due: null })), null);
   assert.equal(ppfInterestText(rd()), null);
   assert.equal(ppfRoomText(ppf().deposit), "₹50,000 of ₹1,50,000 this year");
@@ -95,7 +99,7 @@ test("interestForm is income into the deposit", () => {
   assert.equal(form.type, "income");
   assert.equal(form.account_id, "12");
   assert.equal(form.category, "Interest");
-  assert.equal(form.amount, "10354.17");
+  assert.equal(form.amount, "10354.00");
   assert.equal(form.date, "2027-03-31");
 });
 

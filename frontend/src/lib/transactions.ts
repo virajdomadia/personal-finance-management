@@ -197,7 +197,7 @@ export function groupByDate(transactions: Transaction[]): { date: string; transa
   return groups;
 }
 
-const isDeposit = (a: Account | undefined) => a?.type === "ppf" || a?.type === "rd";
+export const isDeposit = (a: Account | undefined) => a?.type === "ppf" || a?.type === "rd";
 const byId = (accounts: Account[], id: string) => accounts.find((a) => String(a.id) === id);
 
 // The accounts the "paid from" / "received in" / "from" picker offers. The server refuses an expense

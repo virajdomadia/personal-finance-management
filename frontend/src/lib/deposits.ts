@@ -18,7 +18,7 @@ export function ppfInterestText(account: Account): string | null {
   const deposit = account.deposit;
   if (account.type !== "ppf" || deposit?.kind !== "ppf" || deposit.interest_due === null) return null;
   const { year, amount } = deposit.interest_due;
-  return `${account.name}: record interest for ${year}, about ${formatRupees(amount)}.`;
+  return `${account.name}: record interest for ${year}, about ${whole(amount)}.`;
 }
 
 export function ppfRoomText(figures: PpfFigures): string {

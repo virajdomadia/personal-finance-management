@@ -17,6 +17,7 @@ import {
   formFromTransaction,
   fromOptions,
   incomeCategories,
+  isDeposit,
   newTransactionForm,
   renderedFields,
   subtractMoney,
@@ -298,6 +299,13 @@ export function TransactionDialog({
                 "to_account_id",
                 "To account",
                 <Select {...pickerProps("to_account_id")} placeholder="Choose an account" options={toOptions(accounts, form).map(option)} />,
+              )
+            : type === "income" && isDeposit(accounts.find((a) => String(a.id) === form.account_id))
+            ? (
+                // Income into a PPF or RD can only be interest, so there is nothing to choose.
+                <p className="text-sm font-medium">
+                  Category: <span className="font-normal">Interest</span>
+                </p>
               )
             : field(
                 "category",
