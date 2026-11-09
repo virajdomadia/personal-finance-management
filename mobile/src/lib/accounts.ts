@@ -36,6 +36,7 @@ export type Dashboard = {
   total_owe: string;
   next_card_due: { account_id: number; name: string; due_date: string } | null;
   credit_used: { percent: number } | null;
+  investments: { value: string; unrealised: string; unrealised_percent: string } | null;
 };
 
 export type AccountForm = {
