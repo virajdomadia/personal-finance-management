@@ -160,7 +160,10 @@ def test_opened_on_cannot_be_in_the_future_or_malformed(headers: Headers) -> Non
     response = ppf(headers, opened_on=future)
     assert response.status_code == 422
     assert response.json()["detail"][0]["msg"] == "The date can't be in the future."
-    assert ppf(headers, opened_on="10/06/2020").status_code == 422
+    for bad in ("10/06/2020", "2020-13-45", 20200610):
+        response = ppf(headers, opened_on=bad)
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["msg"] == "Enter a date, like 2026-01-15."
 
 
 def test_rd_numbers_are_checked(headers: Headers) -> None:
@@ -497,6 +500,40 @@ def test_close_rd_checks_its_input_and_writes_nothing_on_error(headers: Headers)
 
     assert rd_rows(headers, created["id"]) == []
     assert one(headers, created["id"])["archived"] is False
+
+
+def test_close_rd_refuses_a_date_before_later_activity(headers: Headers) -> None:
+    pay = bank(headers)
+    created = rd(headers, pay).json()
+    latest = today_india() - timedelta(days=1)
+    sent = post(
+        headers,
+        type="transfer",
+        account_id=pay,
+        to_account_id=created["id"],
+        amount="5000.00",
+        date=latest.isoformat(),
+    )
+    assert sent.status_code == 201
+
+    early = close(
+        headers,
+        created["id"],
+        amount="10000.00",
+        account_id=pay,
+        date=(latest - timedelta(days=1)).isoformat(),
+    )
+
+    assert early.status_code == 422
+    assert messages(early)["date"] == (
+        f"The RD has transactions after this date. Choose {latest.isoformat()} or later."
+    )
+    assert one(headers, created["id"])["archived"] is False
+    # On the day of the last transaction is fine.
+    on_day = close(
+        headers, created["id"], amount="10000.00", account_id=pay, date=latest.isoformat()
+    )
+    assert on_day.status_code == 200
 
 
 def test_close_rd_refuses_other_accounts_and_a_second_close(headers: Headers) -> None:

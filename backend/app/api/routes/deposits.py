@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import func, or_, select
 
 from app.api.balances import Movement, balance_of, load_movements
 from app.api.dates import today_india
@@ -51,6 +52,21 @@ def close_rd(id: int, body: CloseRd, user: CurrentUser, db: DbSession) -> Accoun
         errors.append(field_error("date", "The date can't be in the future."))
     elif rd.opened_on is not None and body.date < rd.opened_on:
         errors.append(field_error("date", "The date can't be before the RD was opened."))
+    else:
+        latest = db.scalar(
+            select(func.max(Transaction.date)).where(
+                Transaction.user_id == user.id,
+                or_(Transaction.account_id == rd.id, Transaction.to_account_id == rd.id),
+            )
+        )
+        if latest is not None and body.date < latest:
+            errors.append(
+                field_error(
+                    "date",
+                    "The RD has transactions after this date. "
+                    f"Choose {latest.isoformat()} or later.",
+                )
+            )
     bank = None if body.account_id is None else accounts.get(body.account_id)
     if bank is None or bank.type != "bank" or bank.archived_at is not None:
         errors.append(field_error("account_id", "Choose the bank the money goes to."))

@@ -1,5 +1,4 @@
 import calendar
-import re
 from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal
@@ -13,6 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.api.balances import Movement, balance_of, load_movements, net_flows
+from app.api.dates import iso_date
 from app.api.deps import CurrentUser, get_current_user
 from app.api.routes.accounts import (
     CAN_BE_NEGATIVE,
@@ -58,20 +58,6 @@ DEFAULT_CATEGORIES = {
     ],
 }
 
-_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-_DATE_MESSAGE = "Enter a date, like 2026-01-15."
-
-
-def _date(value: Any) -> date | None:
-    if value is None:
-        return None
-    if not isinstance(value, str) or not _ISO_DATE.fullmatch(value):
-        raise PydanticCustomError("date", _DATE_MESSAGE)
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        raise PydanticCustomError("date", _DATE_MESSAGE) from None
-
 
 def _account_id(value: Any) -> int | None:
     if value is None:
@@ -88,7 +74,7 @@ def _type(value: Any) -> Any:
 
 
 Kind = Annotated[TransactionType | None, BeforeValidator(_type)]
-Day = Annotated[date | None, BeforeValidator(_date)]
+Day = Annotated[date | None, BeforeValidator(iso_date)]
 AccountRef = Annotated[int | None, BeforeValidator(_account_id)]
 Category = Annotated[
     str | None, BeforeValidator(lambda v: clean_text(v, "Enter a category.", limit=40))

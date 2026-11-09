@@ -10,7 +10,7 @@ from pydantic_core import PydanticCustomError
 from sqlalchemy import select
 
 from app.api.balances import LIABILITY_TYPES, balance_of, opening_for
-from app.api.dates import today_india
+from app.api.dates import iso_date, today_india
 from app.api.deposits import (
     PpfFigures,
     RdFigures,
@@ -166,21 +166,6 @@ def _count(value: Any) -> int | None:
     return value
 
 
-_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-_DATE_MESSAGE = "Enter a date like 2026-04-01."
-
-
-def _date(value: Any) -> date | None:
-    if value is None:
-        return None
-    if not isinstance(value, str) or not _ISO_DATE.fullmatch(value):
-        raise _reject("date", _DATE_MESSAGE)
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        raise _reject("date", _DATE_MESSAGE) from None
-
-
 def _tenure(value: Any) -> int | None:
     if value is None:
         return None
@@ -233,7 +218,7 @@ Bank = Annotated[BankKind | None, BeforeValidator(_choice(get_args(BankKind)))]
 Rate = Annotated[Decimal | None, BeforeValidator(_rate)]
 Count = Annotated[int | None, BeforeValidator(_count)]
 Ref = Annotated[int | None, BeforeValidator(_ref)]
-Opened = Annotated[date | None, BeforeValidator(_date)]
+Opened = Annotated[date | None, BeforeValidator(iso_date)]
 Tenure = Annotated[int | None, BeforeValidator(_tenure)]
 Paid = Annotated[int | None, BeforeValidator(_paid)]
 Flag = Annotated[bool, BeforeValidator(_flag)]
