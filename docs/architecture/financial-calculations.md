@@ -149,6 +149,10 @@ Banks compound an RD quarterly. With `q = 1 + rate ÷ 400`, an amount held for `
 
 An instalment never posts on its own. A month is due when its instalment day (clamped to the month's length) is on or before today and no transfer into the RD is dated in that month. Missed months stay due until recorded.
 
+### In the investments totals
+
+Active PPF and RD accounts also show on the Investments page and count in the investments totals (`overall` in the portfolio, `investments` on the dashboard) at their balance, never at the estimate. The balance is added to both invested and value, so unrealised is unchanged and its percent is over the larger invested total. Net worth is unaffected, since the deposits are already in it as accounts.
+
 ### Closing an RD
 
 Close RD records, in one step: the interest (what you received minus the balance) as an income with category "Interest", then a transfer of what you received to the bank, then archives the RD, which ends at exactly ₹0. If you received less than the balance, as with a penalty for closing early, the shortfall is an expense with category "Fees and charges" instead. Example: balance ₹20,000 and ₹19,800 received gives a ₹200 fee and a ₹19,800 transfer.

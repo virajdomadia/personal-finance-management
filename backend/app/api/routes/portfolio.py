@@ -4,7 +4,10 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from app.api.dates import today_india
+from app.api.deposits import deposit_rows, with_deposits
 from app.api.deps import CurrentUser, get_current_user
+from app.api.loans import load_book
 from app.api.portfolio import (
     fmt_nav,
     fmt_units,
@@ -15,7 +18,7 @@ from app.api.portfolio import (
     summarise,
     unrealised_percent,
 )
-from app.api.routes.accounts import fmt
+from app.api.routes.accounts import fmt, list_sort_key
 from app.api.routes.funds import MUTUAL_FUND
 from app.api.routes.sips import SipResponse, due_sip_list
 from app.db.session import DbSession
@@ -111,6 +114,21 @@ class FundPortfolio(BaseModel):
     due_sips: list[SipResponse]
 
 
+class DepositAccount(BaseModel):
+    account_id: int
+    name: str
+    type: str
+    balance: str
+    maturity_date: str
+    interest_estimate: str
+
+
+class Deposits(BaseModel):
+    value: str
+    interest_estimate: str
+    accounts: list[DepositAccount]
+
+
 class Portfolio(BaseModel):
     holdings: list[Holding]
     by_stock: list[StockTotal]
@@ -118,6 +136,7 @@ class Portfolio(BaseModel):
     totals: Totals
     funds: FundPortfolio
     overall: Totals
+    deposits: Deposits
 
 
 def _percent(unrealised: Decimal, invested: Decimal) -> str:
@@ -238,8 +257,11 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
             select(Instrument).where(Instrument.user_id == user.id, Instrument.kind == "stock")
         )
     }
-    rows = db.execute(select(Account.id, Account.name).where(Account.user_id == user.id))
-    names = {id_: name for id_, name in rows}
+    accounts = list(db.scalars(select(Account).where(Account.user_id == user.id)).all())
+    names = {a.id: a.name for a in accounts}
+    active = sorted((a for a in accounts if a.archived_at is None), key=list_sort_key)
+    book = load_book(db, user.id, accounts)
+    deposits = deposit_rows(active, book, today_india())
 
     holdings: list[Holding] = []
     closed: list[Closed] = []
@@ -282,5 +304,20 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
         closed=closed,
         totals=_totals(summarise(result, prices, only=set(stocks))),
         funds=_fund_portfolio(db, user.id, result, prices, names),
-        overall=_totals(summarise(result, prices)),
+        overall=_totals(with_deposits(summarise(result, prices), deposits)),
+        deposits=Deposits(
+            value=fmt(sum((d.balance for d in deposits), ZERO)),
+            interest_estimate=fmt(sum((d.interest_estimate for d in deposits), ZERO)),
+            accounts=[
+                DepositAccount(
+                    account_id=d.account.id,
+                    name=d.account.name,
+                    type=d.account.type,
+                    balance=fmt(d.balance),
+                    maturity_date=d.figures.maturity_date,
+                    interest_estimate=fmt(d.interest_estimate),
+                )
+                for d in deposits
+            ],
+        ),
     )

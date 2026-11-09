@@ -5,10 +5,11 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app.api.balances import balance_of, load_flows
+from app.api.balances import balance_of
 from app.api.dates import clamped_date, today_india
+from app.api.deposits import deposit_rows, with_deposits
 from app.api.deps import CurrentUser, get_current_user
-from app.api.loans import linked_owed
+from app.api.loans import linked_owed, load_book
 from app.api.portfolio import (
     latest_prices,
     load_trade_rows,
@@ -23,6 +24,7 @@ from app.models.account import Account
 router = APIRouter(
     prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(get_current_user)]
 )
+
 
 def next_due_date(due_day: int, today: date) -> date:
     """This month's due date (clamped to the month's length), or next month's if already past."""
@@ -66,18 +68,21 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
             select(Account).where(Account.user_id == user.id, Account.archived_at.is_(None))
         ).all()
     )
-    flows = load_flows(db, user.id)
+    book = load_book(db, user.id, active)
+    flows = book.flows
     have, owe = totals(active, flows)
     result = replay(load_trade_rows(db, user.id))
-    overall = summarise(result, latest_prices(db, user.id))
+    market = summarise(result, latest_prices(db, user.id))
     has_holdings = any(pos.quantity > 0 for pos in result.positions.values())
-    have += overall.value
+    have += market.value  # deposits are already in `have` as accounts
+    today = today_india()
+    deposits = deposit_rows(active, book, today)
+    overall = with_deposits(market, deposits)
     cards = sorted(
         (a for a in active if a.type == "credit_card"),
         key=list_sort_key,
     )
 
-    today = today_india()
     dated = [(next_due_date(a.due_day, today), a) for a in cards if a.due_day is not None]
     due = min(dated, key=lambda pair: pair[0], default=None)  # min keeps the first of equal dates
 
@@ -92,7 +97,7 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
         credit_used = CreditUsed(percent=int(max(percent, Decimal(0))))
 
     investments = None
-    if has_holdings:
+    if has_holdings or deposits:
         investments = Investments(
             value=fmt(overall.value),
             unrealised=fmt(overall.unrealised),

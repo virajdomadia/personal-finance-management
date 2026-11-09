@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from app.api.balances import balance_of
 from app.api.dates import INDIA, clamped_date
 from app.api.loans import Book, DepositMove
+from app.api.portfolio import PortfolioTotals
 from app.models.account import Account
 
 PAISE = Decimal("0.01")
@@ -306,3 +307,33 @@ def deposit_figures(account: Account, book: Book, today: date) -> PpfFigures | R
     if account.type == "rd":
         return _rd_figures(account, book, today)
     return None
+
+
+class DepositRow(NamedTuple):
+    account: Account
+    balance: Decimal
+    figures: PpfFigures | RdFigures
+    interest_estimate: Decimal
+
+
+def deposit_rows(active: list[Account], book: Book, today: date) -> list[DepositRow]:
+    """One row per active PPF or RD, in the order `active` has them (balance plus the estimate)."""
+    rows = []
+    for account in active:
+        figures = deposit_figures(account, book, today)
+        if figures is None or account.archived_at is not None:
+            continue
+        estimate = figures.interest_this_year if figures.kind == "ppf" else figures.interest_so_far
+        rows.append(
+            DepositRow(account, balance_of(account, book.flows), figures, Decimal(estimate))
+        )
+    return rows
+
+
+def with_deposits(summary: PortfolioTotals, rows: list[DepositRow]) -> PortfolioTotals:
+    """Market totals with deposits counted at their balance: both invested and value rise by it,
+    so unrealised is unchanged. Estimated interest is not counted."""
+    held = sum((r.balance for r in rows), Decimal("0.00"))
+    return PortfolioTotals(
+        summary.invested + held, summary.value + held, summary.unrealised, summary.realised
+    )

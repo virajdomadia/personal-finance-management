@@ -5,10 +5,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.api.routes import fund_trades, funds, sips
+from app.api.routes import dashboard, fund_trades, funds, sips
+from app.api.routes import portfolio as portfolio_route
 from app.main import app
 from app.models.account import Account
 from tests.test_accounts import Headers, archive, auth
+from tests.test_deposits import ppf, rd
 from tests.test_fund_trades import add_nav, bank, fund, redeem
 from tests.test_fund_trades import made as made_fund
 from tests.test_sips import made as made_sip
@@ -173,6 +175,7 @@ def test_empty_portfolio(headers: Headers) -> None:
     assert portfolio(headers) == {
         "funds": {"holdings": [], "by_fund": [], "closed": [], "totals": empty, "due_sips": []},
         "overall": empty,
+        "deposits": {"value": "0.00", "interest_estimate": "0.00", "accounts": []},
         "holdings": [],
         "by_stock": [],
         "closed": [],
@@ -383,3 +386,121 @@ def test_archive_bank_with_active_sip_is_409(headers: Headers) -> None:
 
 def test_archive_plain_bank_still_works(headers: Headers) -> None:
     assert archive(headers, bank(headers)).status_code == 200
+
+
+# Deposits (PPF and RD) on the portfolio and the dashboard
+
+TODAY = date(2026, 11, 9)
+
+
+@pytest.fixture
+def deposit_day(monkeypatch: pytest.MonkeyPatch) -> None:
+    for module in (portfolio_route, dashboard):
+        monkeypatch.setattr(module, "today_india", lambda: TODAY)
+
+
+def _both_deposits(headers: Headers) -> tuple[int, int]:
+    pay = bank(headers)
+    ppf_id = ppf(headers, balance="100000.00", name="PPF").json()["id"]
+    rd_id = rd(
+        headers, pay, balance="10000.00", opened_on="2026-09-01", deposits_paid=2, name="SBI RD"
+    ).json()["id"]
+    return ppf_id, rd_id
+
+
+def test_deposits_in_the_portfolio(headers: Headers, deposit_day: None) -> None:
+    ppf_id, rd_id = _both_deposits(headers)
+    deposits = portfolio(headers)["deposits"]
+    assert deposits == {
+        "value": "110000.00",
+        "interest_estimate": "4228.83",
+        "accounts": [
+            {
+                "account_id": ppf_id,
+                "name": "PPF",
+                "type": "ppf",
+                "balance": "100000.00",
+                "maturity_date": "2036-04-01",
+                "interest_estimate": "4141.67",
+            },
+            {
+                "account_id": rd_id,
+                "name": "SBI RD",
+                "type": "rd",
+                "balance": "10000.00",
+                "maturity_date": "2028-09-01",
+                "interest_estimate": "87.16",
+            },
+        ],
+    }
+
+
+def test_no_deposits_is_an_empty_object(headers: Headers, deposit_day: None) -> None:
+    assert portfolio(headers)["deposits"] == {
+        "value": "0.00",
+        "interest_estimate": "0.00",
+        "accounts": [],
+    }
+
+
+def _archive_directly(db_session: Session, account_id: int) -> None:
+    # The API refuses to archive a deposit that still holds money, so set it on the row.
+    db_session.get(Account, account_id).archived_at = datetime.now(UTC)  # type: ignore[union-attr]
+    db_session.commit()
+
+
+def test_an_archived_deposit_is_left_out(
+    headers: Headers, deposit_day: None, db_session: Session
+) -> None:
+    ppf_id, rd_id = _both_deposits(headers)
+    _archive_directly(db_session, rd_id)
+    deposits = portfolio(headers)["deposits"]
+    assert [a["account_id"] for a in deposits["accounts"]] == [ppf_id]
+    assert deposits["value"] == "100000.00"
+    assert deposits["interest_estimate"] == "4141.67"
+    assert portfolio(headers)["overall"]["value"] == "100000.00"
+
+
+def test_overall_and_dashboard_count_deposits_at_their_balance(
+    headers: Headers, deposit_day: None
+) -> None:
+    broker_id, infy = broker(headers), stock(headers)
+    made(headers, stock_id=infy, account_id=broker_id, quantity=10, price="500.00")
+    price(headers, infy, "600.00")
+    before = portfolio(headers)
+    _both_deposits(headers)
+    after = portfolio(headers)
+    for key in (*STOCK_KEYS, "funds"):
+        assert after[key] == before[key]
+    assert after["overall"] == {
+        "invested": "115000.00",
+        "value": "116000.00",
+        "unrealised": "1000.00",
+        "unrealised_percent": "0.87",
+        "realised": "0.00",
+    }
+    dash = _dashboard(headers)
+    assert dash["investments"] == {
+        "value": "116000.00",
+        "unrealised": "1000.00",
+        "unrealised_percent": "0.87",
+    }
+    # Deposits were already in net worth as accounts, so they are not counted twice.
+    assert dash["net_worth"] == dash["total_have"] == "171000.00"
+
+
+def test_dashboard_with_only_a_ppf(headers: Headers, deposit_day: None) -> None:
+    assert _dashboard(headers)["investments"] is None
+    ppf(headers, balance="100000.00")
+    assert _dashboard(headers)["investments"] == {
+        "value": "100000.00",
+        "unrealised": "0.00",
+        "unrealised_percent": "0.00",
+    }
+
+
+def test_dashboard_without_active_deposits_or_holdings_is_null(
+    headers: Headers, deposit_day: None, db_session: Session
+) -> None:
+    _archive_directly(db_session, ppf(headers).json()["id"])
+    assert _dashboard(headers)["investments"] is None
