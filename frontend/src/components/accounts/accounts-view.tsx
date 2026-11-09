@@ -13,6 +13,7 @@ import {
   errorMessage,
   formatDueDate,
   formatRupees,
+  investmentsIn,
   maskLast4,
   nextDueDate,
 } from "@/lib/accounts";
@@ -220,7 +221,7 @@ function Content({
     <>
       {!archived && (
         <dl className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Total label="You have" value={data.total_have} />
+          <Total label="You have" value={data.total_have} sub={includedHint(data)} />
           <Total label="You owe" value={data.total_owe} />
         </dl>
       )}
@@ -268,11 +269,17 @@ function Content({
   );
 }
 
-function Total({ label, value }: { label: string; value: string }) {
+function includedHint(data: AccountList): string | null {
+  const investments = investmentsIn(data);
+  return investments === null ? null : `Includes investments ${formatRupees(investments)}`;
+}
+
+function Total({ label, value, sub = null }: { label: string; value: string; sub?: string | null }) {
   return (
     <div className="min-w-0 rounded-lg border border-zinc-200 px-4 py-3 dark:border-zinc-800">
       <dt className="text-sm text-zinc-600 dark:text-zinc-400">{label}</dt>
       <dd className="mt-1 text-2xl font-semibold tabular-nums [overflow-wrap:anywhere]">{formatRupees(value)}</dd>
+      {sub ? <dd className="text-sm text-zinc-500 tabular-nums dark:text-zinc-400">{sub}</dd> : null}
     </div>
   );
 }

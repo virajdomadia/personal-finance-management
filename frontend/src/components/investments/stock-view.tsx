@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { logout } from "@/app/login/actions";
@@ -26,6 +27,7 @@ import {
   isUnauthorized,
   tradeDeleteText,
 } from "./shared";
+import { StockDialog } from "./stock-dialog";
 import { TradeDialog, type TradeKind } from "./trade-dialog";
 
 type Data = {
@@ -43,7 +45,9 @@ type Dialog =
   | { kind: "trade"; trade: Trade | null; tradeKind: TradeKind; accountId: number | null }
   | { kind: "deleteTrade"; trade: Trade }
   | { kind: "price" }
-  | { kind: "deletePrice"; price: Price };
+  | { kind: "deletePrice"; price: Price }
+  | { kind: "rename" }
+  | { kind: "deleteStock" };
 
 async function fetchData(stockId: number): Promise<Data | null> {
   const [stocks, portfolio, trades, prices, active, archived] = await Promise.all([
@@ -73,6 +77,7 @@ export function StockView({ stockId }: { stockId: number }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [brokerFilter, setBrokerFilter] = useState("");
   const latest = useRef(0);
+  const router = useRouter();
 
   const reload = useCallback(() => {
     const request = ++latest.current;
@@ -119,6 +124,12 @@ export function StockView({ stockId }: { stockId: number }) {
             <p className="text-sm text-zinc-600 dark:text-zinc-400 [overflow-wrap:anywhere]">{data.stock.name}</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button type="button" className={QUIET} onClick={() => setDialog({ kind: "rename" })}>
+              Rename
+            </button>
+            <button type="button" className={QUIET} onClick={() => setDialog({ kind: "deleteStock" })}>
+              Delete stock
+            </button>
             <button type="button" className={QUIET} onClick={() => setDialog({ kind: "price" })}>
               Update price
             </button>
@@ -204,6 +215,23 @@ export function StockView({ stockId }: { stockId: number }) {
 
       {dialog.kind === "price" && data && (
         <PriceDialog stock={data.stock} onClose={closeDialog} onSaved={() => done(null)} onConflict={done} />
+      )}
+
+      {dialog.kind === "rename" && data && (
+        <StockDialog stock={data.stock} onClose={closeDialog} onSaved={() => done(null)} onConflict={done} />
+      )}
+
+      {dialog.kind === "deleteStock" && data && (
+        <ConfirmDelete
+          title={`Delete ${data.stock.symbol}?`}
+          body="Only a stock with no trades and no prices can be deleted. This can't be undone."
+          path={`/investments/stocks/${data.stock.id}`}
+          onClose={closeDialog}
+          onDone={(message) => {
+            if (message === null) router.push("/investments");
+            else done(message);
+          }}
+        />
       )}
 
       {dialog.kind === "deletePrice" && (

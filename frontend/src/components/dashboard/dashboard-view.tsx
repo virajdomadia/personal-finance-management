@@ -79,7 +79,7 @@ function Content({ data }: { data: Dashboard }) {
           {formatRupees(data.net_worth)}
         </p>
         {data.investments && (
-          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Includes investments at their current value</p>
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Includes investments at their latest price (or cost if no price yet)</p>
         )}
         {!data.has_accounts && (
           <Link
