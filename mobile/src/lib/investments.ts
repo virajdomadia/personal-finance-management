@@ -1,4 +1,5 @@
 import { cleanMoney, formatRupees } from "./accounts.ts";
+import type { FundsPortfolio } from "./funds.ts";
 import { formatDate } from "./transactions.ts";
 
 export type TradeSide = "buy" | "sell";
@@ -58,17 +59,21 @@ export type ClosedPosition = {
   realised: string;
 };
 
+export type Totals = {
+  invested: string;
+  value: string;
+  unrealised: string;
+  unrealised_percent: string;
+  realised: string;
+};
+
 export type Portfolio = {
   holdings: Holding[];
   by_stock: StockTotal[];
   closed: ClosedPosition[];
-  totals: {
-    invested: string;
-    value: string;
-    unrealised: string;
-    unrealised_percent: string;
-    realised: string;
-  };
+  totals: Totals;
+  funds: FundsPortfolio;
+  overall: Totals;
 };
 
 export type TradeForm = {
@@ -168,7 +173,7 @@ const MAX_QUANTITY = 100_000_000;
 const MONEY = /^\d+(?:\.\d{1,2})?$/;
 
 // A "YYYY-MM-DD" that names a real day: 2026-02-31 fails because it doesn't survive a round trip.
-function realDate(text: string): boolean {
+export function realDate(text: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
   const [year, month, day] = text.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));
