@@ -6,6 +6,7 @@ import {
   blankForm,
   fromOptions,
   incomeCategories,
+  newTransactionForm,
   toOptions,
   changedPayload,
   emiForm,
@@ -262,4 +263,16 @@ test("applyDepositRules sets Interest and clears refused picks", () => {
   assert.equal(applyDepositRules(f({ type: "transfer", account_id: "2", to_account_id: "3" }), set).account_id, "");
   const ok = f({ type: "transfer", account_id: "1", to_account_id: "3" });
   assert.deepEqual(applyDepositRules(ok, set), ok);
+});
+
+test("a new form never starts on a deposit the expense can't be paid from", () => {
+  assert.equal(newTransactionForm("2026-01-01", 3, set).account_id, "");
+  assert.equal(newTransactionForm("2026-01-01", 1, set).account_id, "1");
+  assert.equal(newTransactionForm("2026-01-01", null, set).account_id, "");
+});
+
+test("transfer pickers leave deposits out against a non-bank account", () => {
+  assert.deepEqual(ids(toOptions(set, f({ type: "transfer", account_id: "2" }))), [1, 5]);
+  assert.deepEqual(ids(fromOptions("transfer", set, f({ type: "transfer", to_account_id: "2" }))), [1, 5]);
+  assert.deepEqual(ids(toOptions(set, f({ type: "transfer", account_id: "1" }))), [2, 3, 4, 5]);
 });

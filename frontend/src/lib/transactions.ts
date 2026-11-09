@@ -209,7 +209,11 @@ export function fromOptions(type: TransactionType, accounts: Account[], form: Tr
     if (String(a.id) === form.account_id) return true;
     if (type === "expense") return !isDeposit(a);
     if (type === "emi") return !isDeposit(a) && a.type !== "loan";
-    if (type === "transfer") return String(a.id) !== form.to_account_id && (!isDeposit(toAccount) || a.type === "bank");
+    if (type === "transfer") {
+      if (String(a.id) === form.to_account_id) return false;
+      // A deposit only trades with a bank, so against anything else, or into a deposit, only banks.
+      return (!isDeposit(toAccount) && !(toAccount && toAccount.type !== "bank" && isDeposit(a))) || a.type === "bank";
+    }
     return true;
   });
 }
@@ -218,7 +222,9 @@ export function fromOptions(type: TransactionType, accounts: Account[], form: Tr
 export function toOptions(accounts: Account[], form: TransactionForm): Account[] {
   const from = byId(accounts, form.account_id);
   return accounts.filter(
-    (a) => String(a.id) === form.to_account_id || (String(a.id) !== form.account_id && (!isDeposit(from) || a.type === "bank")),
+    (a) =>
+      String(a.id) === form.to_account_id ||
+      (String(a.id) !== form.account_id && (a.type === "bank" ? true : !isDeposit(from) && !(from && from.type !== "bank" && isDeposit(a)))),
   );
 }
 
@@ -240,4 +246,10 @@ export function applyDepositRules(form: TransactionForm, accounts: Account[]): T
     if (isDeposit(to) && from && from.type !== "bank") next = { ...next, account_id: "" };
   }
   return next;
+}
+
+// The form for a new transaction: an expense paid from `accountId`, unless that is a PPF or RD, which
+// an expense can't be paid from; then no account is chosen.
+export function newTransactionForm(date: string, accountId: number | null, accounts: Account[]): TransactionForm {
+  return applyDepositRules(blankForm("expense", date, accountId), accounts);
 }

@@ -13,11 +13,11 @@ import {
   type TransactionForm,
   type TransactionType,
   applyDepositRules,
-  blankForm,
   changedPayload,
   formFromTransaction,
   fromOptions,
   incomeCategories,
+  newTransactionForm,
   renderedFields,
   subtractMoney,
   toOptions,
@@ -62,7 +62,7 @@ export function TransactionDialog({
   const [form, setForm] = useState<TransactionForm>(() =>
     transaction
       ? formFromTransaction(transaction)
-      : (initialForm ?? blankForm("expense", todayIndia(), defaultAccountId)),
+      : (initialForm ?? newTransactionForm(todayIndia(), defaultAccountId, accounts)),
   );
   const [categories, setCategories] = useState<CategoryList>({ income: [], expense: [] });
   const [errors, setErrors] = useState<Record<string, string>>({});
