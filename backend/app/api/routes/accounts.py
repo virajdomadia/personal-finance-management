@@ -445,7 +445,8 @@ def update_account(
 
 @router.post("/{id}/archive")
 def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountResponse:
-    account = _get_owned(db, user, id)
+    # Locked so that a trade saved meanwhile can't put shares in a broker being archived.
+    account = _get_owned(db, user, id, lock=True)
     if account.archived_at is None:
         if account.type == "broker" and holds_shares(db, user.id, account.id):
             raise HTTPException(

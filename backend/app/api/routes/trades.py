@@ -173,6 +173,31 @@ def _get_owned(db: Session, user_id: int, id: int) -> StockTrade:
     return trade
 
 
+def _lock_trade(
+    db: Session, user_id: int, id: int, other_ids: list[int] | None = None
+) -> tuple[StockTrade, dict[int, Account]]:
+    """The trade, re-read after its account (and `other_ids`) are locked.
+
+    Read before the lock, the trade could have been moved to another account meanwhile, and that
+    account's balance would then be checked unlocked. If it moved, start over with the new one.
+    """
+    others = other_ids or []
+    account_id = _get_owned(db, user_id, id).account_id
+    while True:
+        accounts = lock_accounts(db, user_id, [account_id, *others])
+        trade = db.scalar(
+            select(StockTrade)
+            .where(StockTrade.id == id, StockTrade.user_id == user_id)
+            .execution_options(populate_existing=True)
+        )
+        if trade is None:  # deleted meanwhile
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Trade not found.")
+        if trade.account_id == account_id:
+            return trade, accounts
+        account_id = trade.account_id
+        db.rollback()  # nothing is written yet; this only lets go of the locks taken above
+
+
 def _require_active(accounts: dict[int, Account], ids: list[int | None]) -> None:
     for account_id in ids:
         account = None if account_id is None else accounts.get(account_id)
@@ -327,8 +352,10 @@ def create_trade(body: TradeCreate, user: CurrentUser, db: DbSession) -> TradeRe
 
 @router.patch("/trades/{id}")
 def update_trade(id: int, body: TradeUpdate, user: CurrentUser, db: DbSession) -> TradeResponse:
-    trade = _get_owned(db, user.id, id)
     changes = body.model_dump(exclude_unset=True)
+    # The old account is locked too, because moving a trade changes its cash as well.
+    moved_to = [changes["account_id"]] if changes.get("account_id") is not None else []
+    trade, accounts = _lock_trade(db, user.id, id, moved_to)
     if "charges" in changes and changes["charges"] is None:
         changes["charges"] = Decimal(0)
     values = {
@@ -343,8 +370,6 @@ def update_trade(id: int, body: TradeUpdate, user: CurrentUser, db: DbSession) -
         "note": trade.note,
         **changes,
     }
-    # The old account is locked too, because moving a trade changes its cash as well.
-    accounts = lock_accounts(db, user.id, [trade.account_id, values["account_id"]])
     _require_active(accounts, [trade.account_id, values["account_id"]])
     _, account = _save_checks(db, user.id, accounts, values, existing_id=trade.id)
     for field, value in values.items():
@@ -355,8 +380,7 @@ def update_trade(id: int, body: TradeUpdate, user: CurrentUser, db: DbSession) -
 
 @router.delete("/trades/{id}")
 def delete_trade(id: int, user: CurrentUser, db: DbSession) -> dict[str, int]:
-    trade = _get_owned(db, user.id, id)
-    accounts = lock_accounts(db, user.id, [trade.account_id])
+    trade, accounts = _lock_trade(db, user.id, id)
     _require_active(accounts, [trade.account_id])
     rows = [r for r in load_trade_rows(db, user.id) if r.id != trade.id]
     _shortfall_check(db, user.id, rows, None)

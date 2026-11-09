@@ -119,6 +119,12 @@ def _duplicate(symbol: str) -> RequestValidationError:
     return RequestValidationError([field_error("symbol", f"You already have {symbol}.")])
 
 
+def _in_use() -> HTTPException:
+    return HTTPException(
+        status.HTTP_409_CONFLICT, "This stock has trades or prices. Delete them first."
+    )
+
+
 @router.get("/stocks")
 def list_stocks(user: CurrentUser, db: DbSession) -> StockList:
     stocks = db.scalars(select(Stock).where(Stock.user_id == user.id).order_by(Stock.symbol)).all()
@@ -181,11 +187,13 @@ def delete_stock(id: int, user: CurrentUser, db: DbSession) -> Deleted:
     has_price = db.scalar(select(StockPrice.id).where(StockPrice.stock_id == stock.id).limit(1))
     has_trade = db.scalar(select(StockTrade.id).where(StockTrade.stock_id == stock.id).limit(1))
     if has_price is not None or has_trade is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "This stock has trades or prices. Delete them first."
-        )
+        raise _in_use()
     db.delete(stock)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:  # a trade or price was saved for it meanwhile
+        db.rollback()
+        raise _in_use() from None
     return Deleted(id=id)
 
 
