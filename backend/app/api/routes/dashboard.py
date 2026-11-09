@@ -75,7 +75,7 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
     have, owe = totals(active, flows)
     result = replay(load_trade_rows(db, user.id))
     stocks = summarise(result, latest_prices(db, user.id))
-    has_holdings = any(pos.shares > 0 for pos in result.positions.values())
+    has_holdings = any(pos.quantity > 0 for pos in result.positions.values())
     have += stocks.value
     cards = sorted(
         (a for a in active if a.type == "credit_card"),

@@ -1,7 +1,8 @@
 """An account's balance is its opening balance plus the money its transactions moved.
 
-Stock trades move a broker account's cash too. They join as movements with negative ids
-(`-trade.id`), so they never clash with a transaction id. Opening buys move no cash.
+Investment trades move their account's cash too (a broker's for stocks), by their `amount`.
+They join as movements with negative ids (`-trade.id`), so they never clash with a transaction
+id. Opening buys move no cash.
 
 Summed in Python with Decimal rather than SQL SUM, because the test database (SQLite) stores
 numerics as floats.

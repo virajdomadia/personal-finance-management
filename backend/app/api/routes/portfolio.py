@@ -16,7 +16,7 @@ from app.api.portfolio import (
 from app.api.routes.accounts import fmt
 from app.db.session import DbSession
 from app.models.account import Account
-from app.models.stock import Stock
+from app.models.investment import Instrument
 
 router = APIRouter(
     prefix="/investments", tags=["investments"], dependencies=[Depends(get_current_user)]
@@ -77,7 +77,7 @@ def _percent(unrealised: Decimal, invested: Decimal) -> str:
     return fmt(unrealised_percent(unrealised, invested))
 
 
-def _figures(stock: Stock, shares: int, invested: Decimal, current: tuple | None) -> dict:
+def _figures(stock: Instrument, shares: int, invested: Decimal, current: tuple | None) -> dict:
     price = None if current is None else current[1]
     value = holding_value(shares, invested, price)
     unrealised = value - invested
@@ -101,7 +101,13 @@ def _figures(stock: Stock, shares: int, invested: Decimal, current: tuple | None
 def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
     result = replay(load_trade_rows(db, user.id))
     prices = latest_prices(db, user.id)
-    stocks = {s.id: s for s in db.scalars(select(Stock).where(Stock.user_id == user.id))}
+    # Only stocks here; other kinds of instrument have their own screens.
+    stocks = {
+        s.id: s
+        for s in db.scalars(
+            select(Instrument).where(Instrument.user_id == user.id, Instrument.kind == "stock")
+        )
+    }
     rows = db.execute(select(Account.id, Account.name).where(Account.user_id == user.id))
     names = {id_: name for id_, name in rows}
 
@@ -109,14 +115,17 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
     closed: list[Closed] = []
     combined: dict[int, list] = {}  # stock_id -> [shares, invested]
     for (stock_id, account_id), pos in result.positions.items():
-        stock = stocks[stock_id]
-        if pos.shares > 0:
-            figures = _figures(stock, pos.shares, pos.invested, prices.get(stock_id))
+        stock = stocks.get(stock_id)
+        if stock is None:
+            continue
+        shares = int(pos.quantity)
+        if shares > 0:
+            figures = _figures(stock, shares, pos.invested, prices.get(stock_id))
             holdings.append(
                 Holding(**figures, account_id=account_id, account_name=names[account_id])
             )
             total = combined.setdefault(stock_id, [0, ZERO])
-            total[0] += pos.shares
+            total[0] += shares
             total[1] += pos.invested
         elif pos.sold_any:
             closed.append(
@@ -137,7 +146,7 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
     ]
     by_stock.sort(key=lambda s: s.symbol)
 
-    totals = summarise(result, prices)
+    totals = summarise(result, prices, only=set(stocks))
     return Portfolio(
         holdings=holdings,
         by_stock=by_stock,

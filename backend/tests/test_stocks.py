@@ -5,10 +5,12 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.main import app
-from app.models.stock import Stock, StockTrade
+from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade
+from app.models.user import User
 from tests.test_accounts import Headers, auth, locs, make
 
 client = TestClient(app)
@@ -185,23 +187,94 @@ def test_delete_stock_with_prices_is_409(headers: Headers) -> None:
 
 def test_delete_stock_with_trades_is_409(headers: Headers, db_session: Session) -> None:
     id = add_stock(headers).json()["id"]
-    stock = db_session.get(Stock, id)
+    stock = db_session.get(Instrument, id)
     assert stock is not None
     account = make(headers, type="broker", name="Zerodha").json()["id"]
     db_session.add(
-        StockTrade(
+        InvestmentTrade(
             user_id=stock.user_id,
-            stock_id=id,
+            instrument_id=id,
             account_id=account,
             side="buy",
             date=date(2026, 1, 1),
             quantity=1,
             price=Decimal(1),
             charges=Decimal(0),
+            amount=Decimal(1),
         )
     )
     db_session.commit()
     assert client.delete(f"{URL}/stocks/{id}", headers=headers).status_code == 409
+
+
+def test_stock_routes_ignore_funds(headers: Headers, db_session: Session) -> None:
+    user = db_session.scalar(select(User))
+    assert user is not None
+    fund = Instrument(user_id=user.id, kind="mutual_fund", symbol="INFY", name="A fund")
+    db_session.add(fund)
+    db_session.commit()
+    bank = make(
+        headers, type="bank", name="SBI", bank_kind="savings", institution="SBI", last4="1234"
+    ).json()["id"]
+    fund_trade = InvestmentTrade(
+        user_id=user.id,
+        instrument_id=fund.id,
+        account_id=bank,
+        side="buy",
+        date=date(2026, 1, 1),
+        quantity=Decimal("1.500"),
+        price=Decimal("10.1234"),
+        charges=Decimal(0),
+        amount=Decimal("15.19"),
+    )
+    db_session.add(fund_trade)
+    db_session.commit()
+    nav = InstrumentPrice(
+        user_id=user.id, instrument_id=fund.id, date=date(2026, 1, 1), price=Decimal("10.1234")
+    )
+    db_session.add(nav)
+    db_session.commit()
+
+    assert stocks(headers) == []
+    created = add_stock(headers, "INFY")
+    assert created.status_code == 201
+    assert [s["symbol"] for s in stocks(headers)] == ["INFY"]
+    assert [s["id"] for s in stocks(headers)] == [created.json()["id"]]
+
+    assert client.get(f"{URL}/stocks/{fund.id}/prices", headers=headers).status_code == 404
+    assert add_price(headers, fund.id, "2026-01-10", "10").status_code == 404
+    patched = client.patch(f"{URL}/stocks/{fund.id}", json={"name": "X"}, headers=headers)
+    assert patched.status_code == 404
+    assert client.delete(f"{URL}/stocks/{fund.id}", headers=headers).status_code == 404
+    assert client.delete(f"{URL}/prices/{nav.id}", headers=headers).status_code == 404
+
+    broker = make(headers, type="broker", name="Zerodha", balance="5000.00").json()["id"]
+    body = {
+        "stock_id": fund.id,
+        "account_id": broker,
+        "side": "buy",
+        "date": "2026-01-02",
+        "quantity": 1,
+        "price": "10.00",
+    }
+    response = client.post(f"{URL}/trades", json=body, headers=headers)
+    assert response.status_code == 422
+    assert locs(response) == [["body", "stock_id"]]
+    assert response.json()["detail"][0]["msg"] == "Choose a stock."
+
+    assert client.get(f"{URL}/trades", headers=headers).json() == {"trades": []}
+    listed = client.get(f"{URL}/trades", params={"stock_id": fund.id}, headers=headers)
+    assert listed.json() == {"trades": []}
+    assert (
+        client.patch(
+            f"{URL}/trades/{fund_trade.id}", json={"note": "x"}, headers=headers
+        ).status_code
+        == 404
+    )
+    assert client.delete(f"{URL}/trades/{fund_trade.id}", headers=headers).status_code == 404
+    portfolio = client.get(f"{URL}/portfolio", headers=headers).json()
+    assert portfolio["holdings"] == [] and portfolio["by_stock"] == []
+    assert portfolio["totals"]["invested"] == "0.00"
 
 
 def test_requires_login() -> None:
