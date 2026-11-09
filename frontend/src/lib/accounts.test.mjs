@@ -259,6 +259,8 @@ test("investmentsIn is what You have holds beyond the account balances", () => {
   assert.equal(investmentsIn(list("0.07", [])), "0.07");
   assert.equal(investmentsIn(list("90071992547409.93", [account("bank", "0.01")])), "90071992547409.92");
   assert.equal(investmentsIn(list("10.00", [account("bank", "10"), account("cash", "5.00", true)])), null);
+  // PPF and RD balances are part of You have, not investments.
+  assert.equal(investmentsIn(list("1800.00", [account("bank", "100.00"), account("ppf", "1000.00"), account("rd", "700.00")])), null);
 });
 
 test("deposit accounts: labels, applicable fields and payload", () => {

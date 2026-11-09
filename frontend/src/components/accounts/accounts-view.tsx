@@ -466,7 +466,7 @@ function AccountRow({
           </p>
         )}
       </div>
-      <div className="flex shrink-0 gap-1">
+      <div className="flex max-w-full flex-wrap gap-1">
         <Link href={`/transactions?account=${account.id}`} className={ROW_ACTION} aria-label={`Transactions for ${account.name}`}>
           Transactions
         </Link>

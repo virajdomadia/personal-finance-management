@@ -277,7 +277,7 @@ function toPaise(value: string): bigint {
 }
 
 // Mirrors HAVE_TYPES in backend/app/api/routes/accounts.py.
-const HAVE_TYPES = new Set<AccountType>(["bank", "cash", "broker", "wallet"]);
+const HAVE_TYPES = new Set<AccountType>(["bank", "cash", "broker", "wallet", "ppf", "rd"]);
 
 // "You have" is the active accounts' balances plus investments. This is the investments part,
 // or null when there is none. Only meaningful for the active list, which holds every active account.
