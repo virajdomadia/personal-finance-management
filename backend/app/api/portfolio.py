@@ -43,6 +43,13 @@ def fmt_nav(value: Decimal) -> str:
     return str(value.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP))
 
 
+fmt_price = fmt_nav
+
+
+def fmt_coin(value: Decimal) -> str:
+    return format(value.quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP), "f")
+
+
 def stamp_duty(amount: Decimal) -> Decimal:
     return round_paise(amount * Decimal("0.00005"))
 
