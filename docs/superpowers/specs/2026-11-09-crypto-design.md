@@ -119,7 +119,7 @@ After deployment, a reviewed SQL script (tested on the dev database with a rollb
 - Creates the `broker` account "CoinDCX" (institution CoinDCX, opening balance ₹0) if the owner doesn't already have one.
 - Creates the coins BTC "Bitcoin" and ETH "Ethereum".
 - Adds **one opening purchase per coin**, dated 14 Apr 2026 (the first buy): BTC 0.00014067 for ₹994.11, and ETH 0.00485 for ₹994.11. Opening purchases move no cash.
-- Leaves the past ₹500 Bank of India → CoinDCX transfers alone. They predate the owner's use of the app, so the Bank of India balance already reflects them through its opening balance and they aren't recorded as transactions. Creating them would double-count. *Claude's call.* The dev-database dry run prints any existing account or transaction mentioning CoinDCX, so if one turns up, the script reuses that account instead of creating a second.
+- Leaves the past ₹500 Bank of India → CoinDCX transfers alone. They predate the owner's use of the app, so the Bank of India balance already reflects them through its opening balance and they aren't recorded as transactions. Creating them would double-count. *Claude's call.* The script itself reuses an existing active account named CoinDCX (any case) instead of creating a second, and prints any transactions already on it.
 - Records today's prices: BTC ₹75,04,827.50, ETH ₹2,13,349.10.
 
 Why not the four buys each: CoinDCX shows no per-trade price or fee, and the quantities don't add up to the holdings. One opening lot per coin matches CoinDCX's own invested figure and average price exactly.
