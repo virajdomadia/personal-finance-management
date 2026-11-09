@@ -34,6 +34,11 @@ function Screens() {
             <Stack.Screen name="trade-form" />
             <Stack.Screen name="price-form" />
             <Stack.Screen name="stock-form" />
+            <Stack.Screen name="fund" />
+            <Stack.Screen name="fund-trade-form" />
+            <Stack.Screen name="nav-form" />
+            <Stack.Screen name="sip-form" />
+            <Stack.Screen name="fund-form" />
           </Stack.Protected>
           <Stack.Protected guard={!loggedIn}>
             <Stack.Screen name="login" />

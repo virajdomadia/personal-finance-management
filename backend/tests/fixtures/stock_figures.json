@@ -1,0 +1,312 @@
+{
+  "/api/accounts": {
+    "accounts": [
+      {
+        "archived": false,
+        "available_credit": null,
+        "balance": "25000.00",
+        "bank_kind": null,
+        "credit_limit": null,
+        "due_day": null,
+        "emi_amount": null,
+        "emis_left": null,
+        "id": 3,
+        "institution": "SBI",
+        "interest_rate": null,
+        "last4": null,
+        "name": "SBI",
+        "next_emi": null,
+        "pay_from_id": null,
+        "statement_day": null,
+        "type": "bank"
+      },
+      {
+        "archived": false,
+        "available_credit": null,
+        "balance": "1419.96",
+        "bank_kind": null,
+        "credit_limit": null,
+        "due_day": null,
+        "emi_amount": null,
+        "emis_left": null,
+        "id": 2,
+        "institution": "Groww",
+        "interest_rate": null,
+        "last4": null,
+        "name": "Groww",
+        "next_emi": null,
+        "pay_from_id": null,
+        "statement_day": null,
+        "type": "broker"
+      },
+      {
+        "archived": false,
+        "available_credit": null,
+        "balance": "48997.91",
+        "bank_kind": null,
+        "credit_limit": null,
+        "due_day": null,
+        "emi_amount": null,
+        "emis_left": null,
+        "id": 1,
+        "institution": "Zerodha",
+        "interest_rate": null,
+        "last4": null,
+        "name": "Zerodha",
+        "next_emi": null,
+        "pay_from_id": null,
+        "statement_day": null,
+        "type": "broker"
+      }
+    ],
+    "total_have": "93910.26",
+    "total_owe": "0.00"
+  },
+  "/api/dashboard": {
+    "credit_used": null,
+    "has_accounts": true,
+    "investments": {
+      "unrealised": "1817.82",
+      "unrealised_percent": "10.90",
+      "value": "18492.39"
+    },
+    "net_worth": "93910.26",
+    "next_card_due": null,
+    "total_have": "93910.26",
+    "total_owe": "0.00"
+  },
+  "/api/investments/portfolio": {
+    "by_stock": [
+      {
+        "at_cost": true,
+        "average_cost": "1602.66",
+        "invested": "4807.99",
+        "name": "HDFC Bank",
+        "price": null,
+        "price_date": null,
+        "shares": 3,
+        "stock_id": 3,
+        "symbol": "HDFCBANK",
+        "unrealised": "0.00",
+        "unrealised_percent": "0.00",
+        "value": "4807.99"
+      },
+      {
+        "at_cost": false,
+        "average_cost": "1483.32",
+        "invested": "11866.58",
+        "name": "Infosys",
+        "price": "1710.55",
+        "price_date": "2026-10-25",
+        "shares": 8,
+        "stock_id": 1,
+        "symbol": "INFY",
+        "unrealised": "1817.82",
+        "unrealised_percent": "15.32",
+        "value": "13684.40"
+      }
+    ],
+    "closed": [
+      {
+        "account_id": 2,
+        "account_name": "Groww",
+        "name": "Tata Consultancy Services",
+        "realised": "419.96",
+        "stock_id": 2,
+        "symbol": "TCS"
+      }
+    ],
+    "holdings": [
+      {
+        "account_id": 1,
+        "account_name": "Zerodha",
+        "at_cost": true,
+        "average_cost": "1602.66",
+        "invested": "4807.99",
+        "name": "HDFC Bank",
+        "price": null,
+        "price_date": null,
+        "shares": 3,
+        "stock_id": 3,
+        "symbol": "HDFCBANK",
+        "unrealised": "0.00",
+        "unrealised_percent": "0.00",
+        "value": "4807.99"
+      },
+      {
+        "account_id": 1,
+        "account_name": "Zerodha",
+        "at_cost": false,
+        "average_cost": "1483.32",
+        "invested": "11866.58",
+        "name": "Infosys",
+        "price": "1710.55",
+        "price_date": "2026-10-25",
+        "shares": 8,
+        "stock_id": 1,
+        "symbol": "INFY",
+        "unrealised": "1817.82",
+        "unrealised_percent": "15.32",
+        "value": "13684.40"
+      }
+    ],
+    "totals": {
+      "invested": "16674.57",
+      "realised": "1589.94",
+      "unrealised": "1817.82",
+      "unrealised_percent": "10.90",
+      "value": "18492.39"
+    }
+  },
+  "/api/investments/stocks": {
+    "stocks": [
+      {
+        "id": 3,
+        "name": "HDFC Bank",
+        "price": null,
+        "price_date": null,
+        "symbol": "HDFCBANK"
+      },
+      {
+        "id": 1,
+        "name": "Infosys",
+        "price": "1710.55",
+        "price_date": "2026-10-25",
+        "symbol": "INFY"
+      },
+      {
+        "id": 2,
+        "name": "Tata Consultancy Services",
+        "price": "4010.75",
+        "price_date": "2026-10-20",
+        "symbol": "TCS"
+      }
+    ]
+  },
+  "/api/investments/stocks/1/prices": {
+    "prices": [
+      {
+        "date": "2026-10-25",
+        "id": 2,
+        "price": "1710.55"
+      },
+      {
+        "date": "2026-10-25",
+        "id": 1,
+        "price": "1700.00"
+      }
+    ]
+  },
+  "/api/investments/stocks/2/prices": {
+    "prices": [
+      {
+        "date": "2026-10-20",
+        "id": 3,
+        "price": "4010.75"
+      }
+    ]
+  },
+  "/api/investments/stocks/3/prices": {
+    "prices": []
+  },
+  "/api/investments/trades": {
+    "trades": [
+      {
+        "account_id": 2,
+        "account_name": "Groww",
+        "amount": "16031.95",
+        "charges": "11.05",
+        "date": "2026-10-20",
+        "id": 5,
+        "note": null,
+        "opening": false,
+        "price": "4010.75",
+        "quantity": 4,
+        "realised": "419.96",
+        "side": "sell",
+        "stock_id": 2,
+        "symbol": "TCS"
+      },
+      {
+        "account_id": 1,
+        "account_name": "Zerodha",
+        "amount": "4807.99",
+        "charges": "4.99",
+        "date": "2026-10-15",
+        "id": 6,
+        "note": null,
+        "opening": false,
+        "price": "1601.00",
+        "quantity": 3,
+        "realised": null,
+        "side": "buy",
+        "stock_id": 3,
+        "symbol": "HDFCBANK"
+      },
+      {
+        "account_id": 1,
+        "account_name": "Zerodha",
+        "amount": "11321.73",
+        "charges": "21.07",
+        "date": "2026-10-12",
+        "id": 3,
+        "note": null,
+        "opening": false,
+        "price": "1620.40",
+        "quantity": 7,
+        "realised": "1169.98",
+        "side": "sell",
+        "stock_id": 1,
+        "symbol": "INFY"
+      },
+      {
+        "account_id": 1,
+        "account_name": "Zerodha",
+        "amount": "7515.83",
+        "charges": "15.33",
+        "date": "2026-10-05",
+        "id": 2,
+        "note": null,
+        "opening": false,
+        "price": "1500.10",
+        "quantity": 5,
+        "realised": null,
+        "side": "buy",
+        "stock_id": 1,
+        "symbol": "INFY"
+      },
+      {
+        "account_id": 2,
+        "account_name": "Groww",
+        "amount": "15611.99",
+        "charges": "9.99",
+        "date": "2026-10-03",
+        "id": 4,
+        "note": null,
+        "opening": false,
+        "price": "3900.50",
+        "quantity": 4,
+        "realised": null,
+        "side": "buy",
+        "stock_id": 2,
+        "symbol": "TCS"
+      },
+      {
+        "account_id": 1,
+        "account_name": "Zerodha",
+        "amount": "14502.50",
+        "charges": "0.00",
+        "date": "2026-10-01",
+        "id": 1,
+        "note": null,
+        "opening": true,
+        "price": "1450.25",
+        "quantity": 10,
+        "realised": null,
+        "side": "buy",
+        "stock_id": 1,
+        "symbol": "INFY"
+      }
+    ]
+  }
+}

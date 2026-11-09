@@ -13,9 +13,10 @@ from app.api.balances import LIABILITY_TYPES, balance_of, opening_for
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.loans import Book, NextEmi, emis_at_opening, emis_left, load_book, next_emi
-from app.api.portfolio import holds_shares, investments_totals
+from app.api.portfolio import holds_units, investments_totals
 from app.db.session import DbSession
 from app.models.account import Account
+from app.models.investment import Sip
 from app.models.transaction import Transaction
 
 router = APIRouter(prefix="/accounts", tags=["accounts"], dependencies=[Depends(get_current_user)])
@@ -448,11 +449,26 @@ def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
     # Locked so that a trade saved meanwhile can't put shares in a broker being archived.
     account = _get_owned(db, user, id, lock=True)
     if account.archived_at is None:
-        if account.type == "broker" and holds_shares(db, user.id, account.id):
+        if account.type == "broker" and holds_units(db, user.id, account.id, "stock"):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 f"Sell the shares held in {account.name} before archiving it.",
             )
+        if account.type == "bank":
+            if holds_units(db, user.id, account.id, "mutual_fund"):
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    f"Redeem the fund units held in {account.name} before archiving it.",
+                )
+            if db.scalar(
+                select(Sip.id)
+                .where(Sip.user_id == user.id, Sip.account_id == account.id, Sip.active)
+                .limit(1)
+            ):
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    f"Stop the SIPs paid from {account.name} before archiving it.",
+                )
         account.archived_at = datetime.now(UTC)
         db.commit()
     return to_response(account, load_book(db, user.id))

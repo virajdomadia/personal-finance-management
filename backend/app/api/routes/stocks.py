@@ -16,12 +16,13 @@ from app.api.routes.accounts import MAX_ID, Money, clean_text, field_error, fmt
 from app.api.routes.dashboard import today_india
 from app.api.routes.transactions import Day
 from app.db.session import DbSession
-from app.models.stock import Stock, StockPrice, StockTrade
+from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade
 
 router = APIRouter(
     prefix="/investments", tags=["investments"], dependencies=[Depends(get_current_user)]
 )
 
+STOCK = "stock"
 _SYMBOL = re.compile(r"[A-Z0-9&.\-]{1,20}")
 _BAD_SYMBOL = "Use 1 to 20 letters, digits, &, - or ."
 
@@ -35,6 +36,8 @@ def _symbol(value: Any) -> str | None:
     return text
 
 
+BAD_SYMBOL = _BAD_SYMBOL
+check_symbol = _symbol
 Symbol = Annotated[str | None, BeforeValidator(_symbol)]
 StockName = Annotated[str | None, BeforeValidator(lambda v: clean_text(v, "Enter a name.", 60))]
 
@@ -87,17 +90,22 @@ class Deleted(BaseModel):
     id: int
 
 
-def get_owned_stock(db: DbSession, user_id: int, id: int) -> Stock:
+def get_owned_stock(db: DbSession, user_id: int, id: int) -> Instrument:
+    """The user's stock with this id. Another kind of instrument is not found, like a stranger's."""
     # Ids outside the column's range can't exist; asking the database would be a 500.
     stock = None
     if 1 <= id <= MAX_ID:
-        stock = db.scalar(select(Stock).where(Stock.id == id, Stock.user_id == user_id))
+        stock = db.scalar(
+            select(Instrument).where(
+                Instrument.id == id, Instrument.user_id == user_id, Instrument.kind == STOCK
+            )
+        )
     if stock is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stock not found.")
     return stock
 
 
-def _response(stock: Stock, prices: dict[int, tuple[date, Decimal]]) -> StockResponse:
+def _response(stock: Instrument, prices: dict[int, tuple[date, Decimal]]) -> StockResponse:
     current = prices.get(stock.id)
     return StockResponse(
         id=stock.id,
@@ -109,9 +117,13 @@ def _response(stock: Stock, prices: dict[int, tuple[date, Decimal]]) -> StockRes
 
 
 def _taken(db: DbSession, user_id: int, symbol: str, except_id: int | None = None) -> bool:
-    query = select(Stock.id).where(Stock.user_id == user_id, func.upper(Stock.symbol) == symbol)
+    query = select(Instrument.id).where(
+        Instrument.user_id == user_id,
+        Instrument.kind == STOCK,
+        func.upper(Instrument.symbol) == symbol,
+    )
     if except_id is not None:
-        query = query.where(Stock.id != except_id)
+        query = query.where(Instrument.id != except_id)
     return db.scalar(query.limit(1)) is not None
 
 
@@ -127,7 +139,11 @@ def _in_use() -> HTTPException:
 
 @router.get("/stocks")
 def list_stocks(user: CurrentUser, db: DbSession) -> StockList:
-    stocks = db.scalars(select(Stock).where(Stock.user_id == user.id).order_by(Stock.symbol)).all()
+    stocks = db.scalars(
+        select(Instrument)
+        .where(Instrument.user_id == user.id, Instrument.kind == STOCK)
+        .order_by(Instrument.symbol)
+    ).all()
     prices = latest_prices(db, user.id)
     return StockList(stocks=[_response(s, prices) for s in stocks])
 
@@ -144,7 +160,7 @@ def create_stock(body: StockCreate, user: CurrentUser, db: DbSession) -> StockRe
     assert body.symbol is not None and body.name is not None
     if _taken(db, user.id, body.symbol):
         raise _duplicate(body.symbol)
-    stock = Stock(user_id=user.id, symbol=body.symbol, name=body.name)
+    stock = Instrument(user_id=user.id, kind=STOCK, symbol=body.symbol, name=body.name)
     db.add(stock)
     try:
         db.commit()
@@ -184,8 +200,12 @@ def update_stock(id: int, body: StockUpdate, user: CurrentUser, db: DbSession) -
 @router.delete("/stocks/{id}")
 def delete_stock(id: int, user: CurrentUser, db: DbSession) -> Deleted:
     stock = get_owned_stock(db, user.id, id)
-    has_price = db.scalar(select(StockPrice.id).where(StockPrice.stock_id == stock.id).limit(1))
-    has_trade = db.scalar(select(StockTrade.id).where(StockTrade.stock_id == stock.id).limit(1))
+    has_price = db.scalar(
+        select(InstrumentPrice.id).where(InstrumentPrice.instrument_id == stock.id).limit(1)
+    )
+    has_trade = db.scalar(
+        select(InvestmentTrade.id).where(InvestmentTrade.instrument_id == stock.id).limit(1)
+    )
     if has_price is not None or has_trade is not None:
         raise _in_use()
     db.delete(stock)
@@ -201,9 +221,9 @@ def delete_stock(id: int, user: CurrentUser, db: DbSession) -> Deleted:
 def list_prices(id: int, user: CurrentUser, db: DbSession) -> PriceList:
     stock = get_owned_stock(db, user.id, id)
     rows = db.scalars(
-        select(StockPrice)
-        .where(StockPrice.stock_id == stock.id)
-        .order_by(StockPrice.date.desc(), StockPrice.id.desc())
+        select(InstrumentPrice)
+        .where(InstrumentPrice.instrument_id == stock.id)
+        .order_by(InstrumentPrice.date.desc(), InstrumentPrice.id.desc())
     ).all()
     return PriceList(
         prices=[PriceResponse(id=p.id, date=p.date.isoformat(), price=fmt(p.price)) for p in rows]
@@ -225,7 +245,9 @@ def create_price(id: int, body: PriceCreate, user: CurrentUser, db: DbSession) -
     if errors:
         raise RequestValidationError(errors)
     assert body.date is not None and body.price is not None
-    price = StockPrice(user_id=user.id, stock_id=stock.id, date=body.date, price=body.price)
+    price = InstrumentPrice(
+        user_id=user.id, instrument_id=stock.id, date=body.date, price=body.price
+    )
     db.add(price)
     db.commit()
     return PriceResponse(id=price.id, date=price.date.isoformat(), price=fmt(price.price))
@@ -235,8 +257,15 @@ def create_price(id: int, body: PriceCreate, user: CurrentUser, db: DbSession) -
 def delete_price(id: int, user: CurrentUser, db: DbSession) -> Deleted:
     price = None
     if 1 <= id <= MAX_ID:
+        # Only a stock's price; a fund's NAV is not found here.
         price = db.scalar(
-            select(StockPrice).where(StockPrice.id == id, StockPrice.user_id == user.id)
+            select(InstrumentPrice)
+            .join(Instrument, Instrument.id == InstrumentPrice.instrument_id)
+            .where(
+                InstrumentPrice.id == id,
+                InstrumentPrice.user_id == user.id,
+                Instrument.kind == STOCK,
+            )
         )
     if price is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Price not found.")

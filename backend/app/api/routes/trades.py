@@ -1,10 +1,9 @@
 """Stock buys and sells. Each moves its broker account's cash (see `balances.load_movements`).
 
-Every save (create, edit, delete) replays all of the user's trades with the change applied, and
-is refused if any sell would then sell more shares than were held on its date.
+Every save (create, edit, delete) replays the user's stock trades with the change applied, and
+is refused if any sell would then sell more shares than were held on its date (`trade_checks`).
 """
 
-from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any
 
@@ -15,16 +14,23 @@ from pydantic_core import PydanticCustomError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.balances import Movement, load_movements
 from app.api.deps import CurrentUser, get_current_user
-from app.api.portfolio import TradeRow, load_trade_rows, replay, trade_cash, trade_value
+from app.api.portfolio import TradeRow, load_trade_rows, replay, stock_amount
 from app.api.routes.accounts import MAX_ID, MAX_MONEY, Flag, Money, field_error, fmt
 from app.api.routes.dashboard import today_india
-from app.api.routes.stocks import get_owned_stock
-from app.api.routes.transactions import Day, Note, balance_problem, lock_accounts
+from app.api.routes.stocks import STOCK, get_owned_stock
+from app.api.routes.transactions import Day, Note, lock_accounts
+from app.api.trade_checks import (
+    NEW_ID,
+    ShortMessages,
+    check_cash_and_holdings,
+    check_delete,
+    lock_trade,
+    require_active,
+)
 from app.db.session import DbSession
 from app.models.account import Account
-from app.models.stock import Stock, StockTrade
+from app.models.investment import Instrument, InvestmentTrade
 
 router = APIRouter(
     prefix="/investments", tags=["investments"], dependencies=[Depends(get_current_user)]
@@ -35,9 +41,12 @@ _QUANTITY_RULE = "Enter a whole number of shares, from 1 to 10,00,00,000."
 _CHOOSE_STOCK = "Choose a stock."
 _CHOOSE_BROKER = "Choose a broker account."
 _CHOOSE_SIDE = "Choose buy or sell."
-_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-# A trade being created has no id yet. This one sorts after every real id on the same date.
-NEW_ID = MAX_ID + 1
+STOCK_SHORT = ShortMessages(
+    kind=STOCK,
+    field="quantity",
+    own="You'd be selling more {symbol} than you held on {day}.",
+    other="This would leave the sale of {symbol} on {day} selling more than was held.",
+)
 
 
 def _id(message: str) -> Any:
@@ -122,89 +131,45 @@ class TradeList(BaseModel):
     trades: list[TradeResponse]
 
 
-def _row(t: StockTrade) -> TradeRow:
-    return TradeRow(
-        t.id, t.stock_id, t.account_id, t.side, t.date, t.quantity, t.price, t.charges, t.opening
+def _columns(values: dict[str, Any]) -> dict[str, Any]:
+    """A stock trade's API fields as model columns, with the amount it moved worked out."""
+    columns = {k: v for k, v in values.items() if k != "stock_id"}
+    columns["instrument_id"] = values["stock_id"]
+    columns["amount"] = stock_amount(
+        values["side"], values["quantity"], values["price"], values["charges"]
     )
+    return columns
 
 
 def _response(
-    t: StockTrade, stock: Stock, account: Account, realised: dict[int, Decimal]
+    t: InvestmentTrade, stock: Instrument, account: Account, realised: dict[int, Decimal]
 ) -> TradeResponse:
     gain = realised.get(t.id) if t.side == "sell" else None
     return TradeResponse(
         id=t.id,
-        stock_id=t.stock_id,
+        stock_id=t.instrument_id,
         symbol=stock.symbol,
         account_id=t.account_id,
         account_name=account.name,
         side=t.side,
         date=t.date.isoformat(),
-        quantity=t.quantity,
+        quantity=int(t.quantity),  # whole shares
         price=fmt(t.price),
         charges=fmt(t.charges),
         opening=t.opening,
         note=t.note,
-        amount=fmt(trade_value(_row(t))),
+        amount=fmt(t.amount),
         realised=None if gain is None else fmt(gain),
     )
 
 
-def _saved_response(db: Session, user_id: int, t: StockTrade, account: Account) -> TradeResponse:
+def _saved_response(
+    db: Session, user_id: int, t: InvestmentTrade, account: Account
+) -> TradeResponse:
     realised = replay(load_trade_rows(db, user_id)).realised_by_sell
-    stock = db.get(Stock, t.stock_id)
+    stock = db.get(Instrument, t.instrument_id)
     assert stock is not None
     return _response(t, stock, account, realised)
-
-
-def _day(d: date) -> str:
-    return f"{d.day} {_MONTHS[d.month - 1]} {d.year}"
-
-
-def _get_owned(db: Session, user_id: int, id: int) -> StockTrade:
-    # Ids outside the column's range can't exist; asking the database would be a 500.
-    trade = None
-    if 1 <= id <= MAX_ID:
-        trade = db.scalar(
-            select(StockTrade).where(StockTrade.id == id, StockTrade.user_id == user_id)
-        )
-    if trade is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Trade not found.")
-    return trade
-
-
-def _lock_trade(
-    db: Session, user_id: int, id: int, other_ids: list[int] | None = None
-) -> tuple[StockTrade, dict[int, Account]]:
-    """The trade, re-read after its account (and `other_ids`) are locked.
-
-    Read before the lock, the trade could have been moved to another account meanwhile, and that
-    account's balance would then be checked unlocked. If it moved, start over with the new one.
-    """
-    others = other_ids or []
-    account_id = _get_owned(db, user_id, id).account_id
-    while True:
-        accounts = lock_accounts(db, user_id, [account_id, *others])
-        trade = db.scalar(
-            select(StockTrade)
-            .where(StockTrade.id == id, StockTrade.user_id == user_id)
-            .execution_options(populate_existing=True)
-        )
-        if trade is None:  # deleted meanwhile
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Trade not found.")
-        if trade.account_id == account_id:
-            return trade, accounts
-        account_id = trade.account_id
-        db.rollback()  # nothing is written yet; this only lets go of the locks taken above
-
-
-def _require_active(accounts: dict[int, Account], ids: list[int | None]) -> None:
-    for account_id in ids:
-        account = None if account_id is None else accounts.get(account_id)
-        if account is not None and account.archived_at is not None:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT, f"Restore {account.name} before changing this trade."
-            )
 
 
 def _validate_fields(values: dict[str, Any]) -> None:
@@ -235,7 +200,7 @@ def _validate_fields(values: dict[str, Any]) -> None:
 
 def _stock_and_account(
     db: Session, user_id: int, values: dict[str, Any], accounts: dict[int, Account]
-) -> tuple[Stock, Account]:
+) -> tuple[Instrument, Account]:
     errors = []
     stock = None
     try:
@@ -255,30 +220,13 @@ def _stock_and_account(
     return stock, account
 
 
-def _shortfall_check(
-    db: Session, user_id: int, rows: list[TradeRow], saving_id: int | None
-) -> None:
-    """Refuse the change if, with it applied (`rows`), any sell sells more than was held."""
-    short = replay(rows).shortfall
-    if short is None:
-        return
-    symbol = db.scalar(select(Stock.symbol).where(Stock.id == short.stock_id))
-    if short.id == saving_id:
-        message = f"You'd be selling more {symbol} than you held on {_day(short.date)}."
-        raise RequestValidationError([field_error("quantity", message)])
-    raise HTTPException(
-        status.HTTP_409_CONFLICT,
-        f"This would leave the sale of {symbol} on {_day(short.date)} selling more than was held.",
-    )
-
-
 def _save_checks(
     db: Session,
     user_id: int,
     accounts: dict[int, Account],
     values: dict[str, Any],
     existing_id: int | None,
-) -> tuple[Stock, Account]:
+) -> tuple[Instrument, Account]:
     """Checks for a create or an edit, in order. `values` is the whole trade after the change."""
     _validate_fields(values)
     stock, account = _stock_and_account(db, user_id, values, accounts)
@@ -302,17 +250,9 @@ def _save_checks(
         values["price"],
         values["charges"],
         values["opening"],
+        stock_amount(values["side"], values["quantity"], values["price"], values["charges"]),
     )
-    before = load_movements(db, user_id)
-    after = [m for m in before if existing_id is None or m.id != -existing_id]
-    if not row.opening:
-        after.append(Movement(-row.id, row.side, abs(trade_cash(row)), row.account_id, None))
-    problem = balance_problem(accounts, before, after)
-    if problem:
-        raise RequestValidationError([field_error("price", problem)])
-
-    rows = [r for r in load_trade_rows(db, user_id) if r.id != existing_id]
-    _shortfall_check(db, user_id, [*rows, row], row.id)
+    check_cash_and_holdings(db, user_id, accounts, row, existing_id, "price", STOCK_SHORT)
     return stock, account
 
 
@@ -323,18 +263,29 @@ def list_trades(
     stock_id: Annotated[int | None, Query(ge=1, le=MAX_ID)] = None,
     account_id: Annotated[int | None, Query(ge=1, le=MAX_ID)] = None,
 ) -> TradeList:
-    query = select(StockTrade).where(StockTrade.user_id == user.id)
+    query = (
+        select(InvestmentTrade)
+        .join(Instrument, Instrument.id == InvestmentTrade.instrument_id)
+        .where(InvestmentTrade.user_id == user.id, Instrument.kind == STOCK)
+    )
     if stock_id is not None:
-        query = query.where(StockTrade.stock_id == stock_id)
+        query = query.where(InvestmentTrade.instrument_id == stock_id)
     if account_id is not None:
-        query = query.where(StockTrade.account_id == account_id)
-    found = db.scalars(query.order_by(StockTrade.date.desc(), StockTrade.id.desc())).all()
+        query = query.where(InvestmentTrade.account_id == account_id)
+    found = db.scalars(query.order_by(InvestmentTrade.date.desc(), InvestmentTrade.id.desc())).all()
     # Realised P&L depends on every earlier trade of the holding, so replay them all.
     realised = replay(load_trade_rows(db, user.id)).realised_by_sell
-    stocks = {s.id: s for s in db.scalars(select(Stock).where(Stock.user_id == user.id))}
+    stocks = {
+        s.id: s
+        for s in db.scalars(
+            select(Instrument).where(Instrument.user_id == user.id, Instrument.kind == STOCK)
+        )
+    }
     accounts = {a.id: a for a in db.scalars(select(Account).where(Account.user_id == user.id))}
     return TradeList(
-        trades=[_response(t, stocks[t.stock_id], accounts[t.account_id], realised) for t in found]
+        trades=[
+            _response(t, stocks[t.instrument_id], accounts[t.account_id], realised) for t in found
+        ]
     )
 
 
@@ -344,7 +295,7 @@ def create_trade(body: TradeCreate, user: CurrentUser, db: DbSession) -> TradeRe
     values["charges"] = values["charges"] if values["charges"] is not None else Decimal(0)
     accounts = lock_accounts(db, user.id, [values["account_id"]])
     _, account = _save_checks(db, user.id, accounts, values, existing_id=None)
-    trade = StockTrade(user_id=user.id, **values)
+    trade = InvestmentTrade(user_id=user.id, **_columns(values))
     db.add(trade)
     db.commit()
     return _saved_response(db, user.id, trade, account)
@@ -355,11 +306,11 @@ def update_trade(id: int, body: TradeUpdate, user: CurrentUser, db: DbSession) -
     changes = body.model_dump(exclude_unset=True)
     # The old account is locked too, because moving a trade changes its cash as well.
     moved_to = [changes["account_id"]] if changes.get("account_id") is not None else []
-    trade, accounts = _lock_trade(db, user.id, id, moved_to)
+    trade, accounts = lock_trade(db, user.id, id, STOCK, moved_to)
     if "charges" in changes and changes["charges"] is None:
         changes["charges"] = Decimal(0)
     values = {
-        "stock_id": trade.stock_id,
+        "stock_id": trade.instrument_id,
         "account_id": trade.account_id,
         "side": trade.side,
         "date": trade.date,
@@ -370,9 +321,9 @@ def update_trade(id: int, body: TradeUpdate, user: CurrentUser, db: DbSession) -
         "note": trade.note,
         **changes,
     }
-    _require_active(accounts, [trade.account_id, values["account_id"]])
+    require_active(accounts, [trade.account_id, values["account_id"]])
     _, account = _save_checks(db, user.id, accounts, values, existing_id=trade.id)
-    for field, value in values.items():
+    for field, value in _columns(values).items():
         setattr(trade, field, value)
     db.commit()
     return _saved_response(db, user.id, trade, account)
@@ -380,14 +331,8 @@ def update_trade(id: int, body: TradeUpdate, user: CurrentUser, db: DbSession) -
 
 @router.delete("/trades/{id}")
 def delete_trade(id: int, user: CurrentUser, db: DbSession) -> dict[str, int]:
-    trade, accounts = _lock_trade(db, user.id, id)
-    _require_active(accounts, [trade.account_id])
-    rows = [r for r in load_trade_rows(db, user.id) if r.id != trade.id]
-    _shortfall_check(db, user.id, rows, None)
-    before = load_movements(db, user.id)
-    problem = balance_problem(accounts, before, [m for m in before if m.id != -trade.id])
-    if problem:
-        raise HTTPException(status.HTTP_409_CONFLICT, problem)
+    trade, accounts = lock_trade(db, user.id, id, STOCK)
+    check_delete(db, user.id, accounts, trade, STOCK_SHORT)
     db.delete(trade)
     db.commit()
     return {"id": id}

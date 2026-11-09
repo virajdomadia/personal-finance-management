@@ -1,4 +1,5 @@
 import { cleanMoney, formatRupees } from "./accounts.ts";
+import type { FundsPortfolio } from "./funds.ts";
 
 export type TradeSide = "buy" | "sell";
 
@@ -57,17 +58,21 @@ export type ClosedPosition = {
   realised: string;
 };
 
+export type Totals = {
+  invested: string;
+  value: string;
+  unrealised: string;
+  unrealised_percent: string;
+  realised: string;
+};
+
 export type Portfolio = {
   holdings: Holding[];
   by_stock: StockTotal[];
   closed: ClosedPosition[];
-  totals: {
-    invested: string;
-    value: string;
-    unrealised: string;
-    unrealised_percent: string;
-    realised: string;
-  };
+  totals: Totals;
+  funds: FundsPortfolio;
+  overall: Totals;
 };
 
 export type TradeForm = {

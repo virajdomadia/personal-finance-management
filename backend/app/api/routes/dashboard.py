@@ -1,4 +1,3 @@
-import calendar
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -7,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.api.balances import balance_of, load_flows
-from app.api.dates import today_india
+from app.api.dates import clamped_date, today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.loans import linked_owed
 from app.api.portfolio import (
@@ -25,17 +24,13 @@ router = APIRouter(
     prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(get_current_user)]
 )
 
-def _clamped(year: int, month: int, day: int) -> date:
-    return date(year, month, min(day, calendar.monthrange(year, month)[1]))
-
-
 def next_due_date(due_day: int, today: date) -> date:
     """This month's due date (clamped to the month's length), or next month's if already past."""
-    this_month = _clamped(today.year, today.month, due_day)
+    this_month = clamped_date(today.year, today.month, due_day)
     if this_month >= today:
         return this_month
     year, month = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
-    return _clamped(year, month, due_day)
+    return clamped_date(year, month, due_day)
 
 
 class NextCardDue(BaseModel):
@@ -74,9 +69,9 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
     flows = load_flows(db, user.id)
     have, owe = totals(active, flows)
     result = replay(load_trade_rows(db, user.id))
-    stocks = summarise(result, latest_prices(db, user.id))
-    has_holdings = any(pos.shares > 0 for pos in result.positions.values())
-    have += stocks.value
+    overall = summarise(result, latest_prices(db, user.id))
+    has_holdings = any(pos.quantity > 0 for pos in result.positions.values())
+    have += overall.value
     cards = sorted(
         (a for a in active if a.type == "credit_card"),
         key=list_sort_key,
@@ -99,9 +94,9 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
     investments = None
     if has_holdings:
         investments = Investments(
-            value=fmt(stocks.value),
-            unrealised=fmt(stocks.unrealised),
-            unrealised_percent=fmt(unrealised_percent(stocks.unrealised, stocks.invested)),
+            value=fmt(overall.value),
+            unrealised=fmt(overall.unrealised),
+            unrealised_percent=fmt(unrealised_percent(overall.unrealised, overall.invested)),
         )
 
     return DashboardResponse(
