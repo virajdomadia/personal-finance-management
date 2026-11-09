@@ -1,8 +1,8 @@
 """Investments of every kind: stocks and mutual funds share these tables.
 
-`Instrument.kind` is "stock" or "mutual_fund". A trade's `amount` is the money it moved: a buy's
-cost and a sell's proceeds, charges included. For stocks the server computes it from quantity,
-price and charges; for funds the owner enters it.
+`Instrument.kind` is "stock", "mutual_fund" or "crypto". A trade's `amount` is the money it
+moved: a buy's cost and a sell's proceeds, charges included. For stocks the server computes it
+from quantity, price and charges; for funds the owner enters it.
 """
 
 import datetime as dt
@@ -32,7 +32,7 @@ class Instrument(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    kind: Mapped[str] = mapped_column(String(12))  # "stock" or "mutual_fund"
+    kind: Mapped[str] = mapped_column(String(12))  # "stock", "mutual_fund" or "crypto"
     symbol: Mapped[str] = mapped_column(String(20))
     name: Mapped[str] = mapped_column(String(60))
     created_at: Mapped[dt.datetime] = mapped_column(
@@ -75,7 +75,7 @@ class InvestmentTrade(Base):
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), index=True)
     side: Mapped[str] = mapped_column(String(4))  # "buy" or "sell"
     date: Mapped[dt.date] = mapped_column(Date)
-    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 3))  # shares or units
+    quantity: Mapped[Decimal] = mapped_column(Numeric(24, 8))  # shares, units or coins
     price: Mapped[Decimal] = mapped_column(Numeric(14, 4))  # price or NAV
     charges: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     # A buy's cost or a sell's proceeds, charges included.
