@@ -305,7 +305,11 @@ function Trades({
   const locked = archivedIds(data.archived);
   // The brokers this stock was traded in, in the order they first appear.
   const brokers = [...new Map(data.trades.map((t) => [t.account_id, t.account_name])).entries()];
-  const shown = filter === "" ? data.trades : data.trades.filter((t) => String(t.account_id) === filter);
+  // A filter on a broker with no trades left here (its last one deleted or moved) falls back to all,
+  // since the picker that could clear it may no longer be shown.
+  const effective = brokers.some(([id]) => String(id) === filter) ? filter : "";
+  const filterName = brokers.find(([id]) => String(id) === effective)?.[1];
+  const shown = effective === "" ? data.trades : data.trades.filter((t) => String(t.account_id) === effective);
   return (
     <section aria-labelledby="trades-title">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2 px-1">
@@ -316,7 +320,7 @@ function Trades({
           <Select
             ariaLabel="Filter trades by broker"
             className="w-48"
-            value={filter}
+            value={effective}
             options={[{ value: "", label: "All brokers" }, ...brokers.map(([id, name]) => ({ value: String(id), label: name }))]}
             onChange={onFilter}
           />
@@ -324,7 +328,7 @@ function Trades({
       </div>
       {shown.length === 0 ? (
         <div className="rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-          <p>No trades yet.</p>
+          <p>{filterName ? `No trades in ${filterName} yet.` : "No trades yet."}</p>
           <button type="button" className={`${QUIET} mt-2`} onClick={onAdd}>
             Add existing shares
           </button>
