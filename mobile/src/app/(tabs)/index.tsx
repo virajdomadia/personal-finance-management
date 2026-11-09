@@ -4,6 +4,7 @@ import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 
 import { Button, Card, Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Signed } from "@/components/signed";
 import { type Dashboard, formatDueDate, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -100,9 +101,11 @@ export default function DashboardScreen() {
           <Text variant="displaySmall" adjustsFontSizeToFit numberOfLines={1} style={styles.heroAmount}>
             {formatRupees(data.net_worth)}
           </Text>
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            Investments not included yet
-          </Text>
+          {data.investments ? (
+            <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+              Includes investments at their current value
+            </Text>
+          ) : null}
           {!data.has_accounts ? (
             <Button mode="contained" onPress={openAccounts} style={styles.addButton}>
               Add your first account
@@ -130,6 +133,26 @@ export default function DashboardScreen() {
             </Card.Content>
           </Card>
         </>
+      ) : null}
+
+      {data.investments ? (
+        <Card mode="outlined" onPress={() => router.navigate("/investments")} accessibilityRole="button">
+          <Card.Content style={styles.investments}>
+            <View style={styles.figure}>
+              <Text variant="labelLarge">Investments</Text>
+              <Text variant="titleLarge" style={styles.figureAmount}>
+                {formatRupees(data.investments.value)}
+              </Text>
+            </View>
+            <View style={styles.unrealised}>
+              <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+                Unrealised
+              </Text>
+              <Signed value={data.investments.unrealised} variant="bodySmall" />
+              <Signed value={data.investments.unrealised_percent} percent variant="bodySmall" />
+            </View>
+          </Card.Content>
+        </Card>
       ) : null}
 
       {due || used ? (
@@ -169,4 +192,6 @@ const styles = StyleSheet.create({
   addButton: { marginTop: 8, alignSelf: "flex-start" },
   figure: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
   figureAmount: { flexShrink: 1, textAlign: "right" },
+  investments: { gap: 4 },
+  unrealised: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 },
 });
