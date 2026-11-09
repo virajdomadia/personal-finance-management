@@ -13,7 +13,7 @@ from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import fmt_nav, latest_prices
 from app.api.routes.accounts import MAX_ID, clean_text, field_error
 from app.api.routes.dashboard import today_india
-from app.api.routes.stocks import _BAD_SYMBOL, Deleted, Symbol
+from app.api.routes.stocks import Deleted, check_symbol
 from app.api.routes.transactions import Day
 from app.db.session import DbSession
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade, Sip
@@ -54,6 +54,13 @@ Units = Annotated[
 ]
 _BAD_NAV = "Enter a NAV above 0, with up to 4 decimals, like 84.3793."
 Nav = Annotated[Decimal | None, BeforeValidator(_decimal(4, Decimal(10) ** 10, _BAD_NAV))]
+# Blank means "none given": a new fund gets a derived symbol, an edit keeps the current one.
+FundSymbol = Annotated[
+    str | None,
+    BeforeValidator(
+        lambda v: None if v is None or (isinstance(v, str) and not v.strip()) else check_symbol(v)
+    ),
+]
 FundName = Annotated[str | None, BeforeValidator(lambda v: clean_text(v, _NO_NAME, 60))]
 
 
@@ -62,14 +69,14 @@ class FundCreate(BaseModel):
 
     # Required fields are optional here so that missing ones are reported like any other rule.
     name: FundName = None
-    symbol: Symbol = None
+    symbol: FundSymbol = None
 
 
 class FundUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: FundName = None
-    symbol: Symbol = None
+    symbol: FundSymbol = None
 
 
 class NavCreate(BaseModel):
@@ -197,8 +204,6 @@ def update_fund(id: int, body: FundUpdate, user: CurrentUser, db: DbSession) -> 
     fund = get_owned_fund(db, user.id, id)
     changes = body.model_dump(exclude_unset=True)
     errors = []
-    if "symbol" in changes and changes["symbol"] is None:
-        errors.append(field_error("symbol", _BAD_SYMBOL))
     if "name" in changes and changes["name"] is None:
         errors.append(field_error("name", _NO_NAME))
     if errors:

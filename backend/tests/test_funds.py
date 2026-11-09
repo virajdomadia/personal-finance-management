@@ -195,3 +195,20 @@ def test_delete_fund_refused_with_nav(headers: Headers) -> None:
 def test_stock_routes_ignore_funds(headers: Headers) -> None:
     add_fund(headers)
     assert client.get(f"{URL}/stocks", headers=headers).json() == {"stocks": []}
+
+
+@pytest.mark.parametrize("blank", ["", "   ", None])
+def test_blank_symbol_on_create_is_derived(headers: Headers, blank: str | None) -> None:
+    response = add_fund(headers, symbol=blank)
+    assert response.status_code == 201
+    assert response.json()["symbol"] == "PPFCRG"
+
+
+@pytest.mark.parametrize("blank", ["", "   ", None])
+def test_blank_symbol_on_patch_keeps_current(headers: Headers, blank: str | None) -> None:
+    fund = add_fund(headers, symbol="KEEP").json()["id"]
+    response = client.patch(
+        f"{URL}/funds/{fund}", json={"name": "Renamed", "symbol": blank}, headers=headers
+    )
+    assert response.status_code == 200
+    assert response.json()["symbol"] == "KEEP" and response.json()["name"] == "Renamed"

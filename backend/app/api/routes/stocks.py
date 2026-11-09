@@ -36,6 +36,8 @@ def _symbol(value: Any) -> str | None:
     return text
 
 
+BAD_SYMBOL = _BAD_SYMBOL
+check_symbol = _symbol
 Symbol = Annotated[str | None, BeforeValidator(_symbol)]
 StockName = Annotated[str | None, BeforeValidator(lambda v: clean_text(v, "Enter a name.", 60))]
 
