@@ -467,8 +467,10 @@ def _check_links(
     pay_from = None
     if pay_from_id is not None:
         if 1 <= pay_from_id <= MAX_ID:
+            query = select(Account).where(Account.id == pay_from_id, Account.user_id == user.id)
+            # A deposit's bank is locked, so it can't be archived while the link is being saved.
             pay_from = db.scalar(
-                select(Account).where(Account.id == pay_from_id, Account.user_id == user.id)
+                query.with_for_update() if values["type"] in DEPOSIT_TYPES else query
             )
         if values["type"] in DEPOSIT_TYPES:
             if pay_from is None or pay_from.type != "bank":

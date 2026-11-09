@@ -20,6 +20,8 @@ from sqlalchemy import Engine, create_engine, func, select, text
 from sqlalchemy.orm import Session
 
 from app.api.balances import balance_of, load_flows
+from app.api.routes.accounts import AccountCreate, AccountUpdate, create_account, update_account
+from app.api.routes.sips import SipUpdate, delete_sip, update_sip
 from app.api.routes.transactions import (
     TransactionCreate,
     TransactionUpdate,
@@ -28,7 +30,6 @@ from app.api.routes.transactions import (
     lock_accounts,
     update_transaction,
 )
-from app.api.routes.sips import SipUpdate, delete_sip, update_sip
 from app.models.account import Account
 from app.models.investment import Instrument, Sip
 from app.models.transaction import Transaction
@@ -365,3 +366,61 @@ def _after_deleting(engine: Engine, id: int, routes: Any) -> Callable[..., Any]:
         return real(db, user_id, sip_id)
 
     return reread
+
+
+def _rd_body(bank: int) -> dict[str, Any]:
+    return {
+        "type": "rd",
+        "name": "RD",
+        "balance": "0",
+        "interest_rate": "7.00",
+        "opened_on": "2026-01-01",
+        "deposit_amount": "1000.00",
+        "due_day": 1,
+        "tenure_months": 12,
+        "deposits_paid": 0,
+        "pay_from_id": bank,
+    }
+
+
+def _waits_for_the_bank_lock(engine: Engine, bank: int, action: Callable[[Session], Any]) -> str:
+    """Hold the bank's row lock, as an archive would, and archive it before letting go."""
+    holder = Session(engine)
+    pool = ThreadPoolExecutor(1)
+    try:
+        holder.execute(select(Account).where(Account.id == bank).with_for_update())
+        second = pool.submit(attempt, engine, action)
+        time.sleep(0.5)
+        waited = not second.done()
+        holder.execute(text("UPDATE accounts SET archived_at = now() WHERE id = :id"), {"id": bank})
+        holder.commit()
+        result = second.result(timeout=10)
+    finally:
+        holder.close()
+        pool.shutdown()
+    assert waited, "the save didn't wait for the bank's lock"
+    return result
+
+
+def test_creating_an_rd_waits_for_its_bank_and_is_refused_once_archived(engine: Engine) -> None:
+    user, [bank] = setup(engine, ("bank", "1000.00"))
+    body = AccountCreate.model_validate(_rd_body(bank))
+    result = _waits_for_the_bank_lock(engine, bank, lambda db: create_account(body, user, db))
+    assert result == "refused"
+    with Session(engine) as db:
+        assert db.scalar(select(func.count()).select_from(Account).where(Account.type == "rd")) == 0
+
+
+def test_pointing_an_rd_at_a_bank_waits_for_it_and_is_refused_once_archived(
+    engine: Engine,
+) -> None:
+    user, [bank, other] = setup(engine, ("bank", "1000.00"), ("bank", "1000.00"))
+    with Session(engine, expire_on_commit=False) as db:
+        rd = create_account(AccountCreate.model_validate(_rd_body(other)), user, db)
+    change = AccountUpdate.model_validate({"pay_from_id": bank})
+    result = _waits_for_the_bank_lock(
+        engine, bank, lambda db: update_account(rd.id, change, user, db)
+    )
+    assert result == "refused"
+    with Session(engine) as db:
+        assert db.get(Account, rd.id).pay_from_id == other
