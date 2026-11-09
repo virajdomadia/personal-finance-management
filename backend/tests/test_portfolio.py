@@ -5,11 +5,16 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.api.routes import dashboard, fund_trades, funds, sips
+from app.api.routes import coins, crypto_trades, dashboard, fund_trades, funds, sips
 from app.api.routes import portfolio as portfolio_route
 from app.main import app
 from app.models.account import Account
 from tests.test_accounts import Headers, archive, auth
+from tests.test_coins import add_coin_price
+from tests.test_crypto_trades import coin, exchange
+from tests.test_crypto_trades import existing as existing_coin
+from tests.test_crypto_trades import made as made_coin
+from tests.test_crypto_trades import sell as sell_coin
 from tests.test_deposits import ppf, rd
 from tests.test_fund_trades import add_nav, bank, fund, redeem
 from tests.test_fund_trades import made as made_fund
@@ -23,7 +28,7 @@ URL = "/api/investments/portfolio"
 
 @pytest.fixture
 def headers(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> Headers:
-    for module in (funds, fund_trades, sips):
+    for module in (funds, fund_trades, sips, coins, crypto_trades):
         monkeypatch.setattr(module, "today_india", lambda: date(2026, 11, 9))
     return auth(db_session, monkeypatch)
 
@@ -174,6 +179,7 @@ def test_empty_portfolio(headers: Headers) -> None:
     }
     assert portfolio(headers) == {
         "funds": {"holdings": [], "by_fund": [], "closed": [], "totals": empty, "due_sips": []},
+        "crypto": {"holdings": [], "by_coin": [], "closed": [], "totals": empty},
         "overall": empty,
         "deposits": {"value": "0.00", "interest_estimate": "0.00", "accounts": []},
         "holdings": [],
@@ -504,3 +510,113 @@ def test_dashboard_without_active_deposits_or_holdings_is_null(
 ) -> None:
     _archive_directly(db_session, ppf(headers).json()["id"])
     assert _dashboard(headers)["investments"] is None
+
+
+def owner_coins(headers: Headers) -> tuple[int, int, int]:
+    account, btc, eth = exchange(headers), coin(headers, "BTC"), coin(headers, "ETH")
+    existing_coin(headers, coin_id=btc, account_id=account)
+    existing_coin(headers, coin_id=eth, account_id=account, quantity="0.00485")
+    add_coin_price(headers, btc, "2026-11-05", "7504827.5")
+    add_coin_price(headers, eth, "2026-11-05", "213349.1")
+    return account, btc, eth
+
+
+def test_crypto_figures(headers: Headers) -> None:
+    account, btc, eth = owner_coins(headers)
+    body = portfolio(headers)["crypto"]
+    assert body["by_coin"] == [
+        {
+            "coin_id": btc,
+            "symbol": "BTC",
+            "name": "BTC",
+            "quantity": "0.00014067",
+            "invested": "994.11",
+            "average_price": "7066965.2378",
+            "price": "7504827.5000",
+            "price_date": "2026-11-05",
+            "value": "1055.70",
+            "at_cost": False,
+            "unrealised": "61.59",
+            "unrealised_percent": "6.20",
+        },
+        {
+            "coin_id": eth,
+            "symbol": "ETH",
+            "name": "ETH",
+            "quantity": "0.00485000",
+            "invested": "994.11",
+            "average_price": "204971.1340",
+            "price": "213349.1000",
+            "price_date": "2026-11-05",
+            "value": "1034.74",
+            "at_cost": False,
+            "unrealised": "40.63",
+            "unrealised_percent": "4.09",
+        },
+    ]
+    assert [(h["account_id"], h["account_name"]) for h in body["holdings"]] == [
+        (account, "CoinDCX")
+    ] * 2
+    assert body["closed"] == []
+    assert body["totals"] == {
+        "invested": "1988.22",
+        "value": "2090.44",
+        "unrealised": "102.22",
+        "unrealised_percent": "5.14",
+        "realised": "0.00",
+    }
+
+
+def test_coin_without_price_is_at_cost(headers: Headers) -> None:
+    account, btc = exchange(headers), coin(headers)
+    existing_coin(headers, coin_id=btc, account_id=account)
+    row = portfolio(headers)["crypto"]["by_coin"][0]
+    assert (row["price"], row["price_date"], row["at_cost"]) == (None, None, True)
+    assert (row["value"], row["unrealised"]) == ("994.11", "0.00")
+
+
+def test_closed_coin_position(headers: Headers) -> None:
+    account, btc = exchange(headers), coin(headers)
+    made_coin(headers, coin_id=btc, account_id=account)
+    assert sell_coin(headers, coin_id=btc, account_id=account).status_code == 201
+    body = portfolio(headers)["crypto"]
+    assert body["holdings"] == [] and body["by_coin"] == []
+    assert [(c["symbol"], c["account_id"]) for c in body["closed"]] == [("BTC", account)]
+
+
+def test_overall_adds_crypto(headers: Headers) -> None:
+    broker_id, infy = broker(headers), stock(headers)
+    made(headers, stock_id=infy, account_id=broker_id, quantity=10, price="500.00")
+    price(headers, infy, "600.00")
+    stock_only = portfolio(headers)
+    owner_coins(headers)
+    both = portfolio(headers)
+    for key in (*STOCK_KEYS, "funds"):
+        assert both[key] == stock_only[key]
+    assert both["overall"] == {
+        "invested": "6988.22",
+        "value": "8090.44",
+        "unrealised": "1102.22",
+        "unrealised_percent": "15.77",
+        "realised": "0.00",
+    }
+
+
+def test_buying_crypto_keeps_net_worth(headers: Headers) -> None:
+    account, btc = exchange(headers), coin(headers)
+    made_coin(headers, coin_id=btc, account_id=account)
+    dash = _dashboard(headers)
+    assert dash["net_worth"] == "5000.00"
+    assert dash["investments"]["value"] == "754.43"
+    assert dash["investments"]["unrealised"] == "0.00"
+
+
+def test_archive_broker_with_coins_is_409(headers: Headers) -> None:
+    account, btc = exchange(headers), coin(headers)
+    made_coin(headers, coin_id=btc, account_id=account)
+    url = f"/api/accounts/{account}/archive"
+    response = client.post(url, headers=headers)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Sell the coins held in CoinDCX before archiving it."
+    assert sell_coin(headers, coin_id=btc, account_id=account).status_code == 201
+    assert client.post(url, headers=headers).status_code == 200

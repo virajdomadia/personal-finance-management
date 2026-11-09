@@ -595,6 +595,11 @@ def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
                 status.HTTP_409_CONFLICT,
                 f"Sell the shares held in {account.name} before archiving it.",
             )
+        if account.type == "broker" and holds_units(db, user.id, account.id, "crypto"):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Sell the coins held in {account.name} before archiving it.",
+            )
         if account.type == "bank":
             if holds_units(db, user.id, account.id, "mutual_fund"):
                 raise HTTPException(
