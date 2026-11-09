@@ -57,6 +57,7 @@ export default function StockScreen() {
   const [filter, setFilter] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [deletingPrice, setDeletingPrice] = useState<Price | null>(null);
+  const [deletingStock, setDeletingStock] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const deletingRef = useRef(false);
   const latest = useRef(0);
@@ -103,7 +104,10 @@ export default function StockScreen() {
   // The dialog renders above the app's lock cover, so it must not stay open when the app leaves.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state !== "active" && !deletingRef.current) setDeletingPrice(null);
+      if (state !== "active" && !deletingRef.current) {
+        setDeletingPrice(null);
+        setDeletingStock(false);
+      }
     });
     return () => subscription.remove();
   }, []);
@@ -145,6 +149,34 @@ export default function StockScreen() {
     // A successful reload clears the notice, so a delete failure is shown after it.
     await reload();
     if (failure !== null) setNotice(failure);
+  }
+
+  // Only a stock with no trades and no prices can go; otherwise the server's reason is shown.
+  async function removeStock() {
+    if (!deletingStock || deletingRef.current || load.status !== "ready") return;
+    deletingRef.current = true;
+    setDeleting(true);
+    let failure: string | null = null;
+    try {
+      await apiFetch(`/investments/stocks/${load.data.stock.id}`, { method: "DELETE", token: token ?? undefined });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        void logOut();
+        return;
+      }
+      failure = errorMessage(err instanceof ApiError ? { detail: err.detail } : err);
+    } finally {
+      deletingRef.current = false;
+      setDeleting(false);
+      setDeletingStock(false);
+    }
+    if (failure === null) {
+      router.back();
+      return;
+    }
+    // A successful reload clears the notice, so a delete failure is shown after it.
+    await reload();
+    setNotice(failure);
   }
 
   const data = load.status === "ready" ? load.data : null;
@@ -212,6 +244,12 @@ export default function StockScreen() {
       <Appbar.Header>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title={stock.symbol} />
+        <Appbar.Action
+          icon="pencil-outline"
+          accessibilityLabel="Rename stock"
+          onPress={() => go({ pathname: "/stock-form", params: { stockId } })}
+        />
+        <Appbar.Action icon="delete-outline" accessibilityLabel="Delete stock" onPress={() => setDeletingStock(true)} />
       </Appbar.Header>
 
       <ScrollView
@@ -427,6 +465,22 @@ export default function StockScreen() {
               Cancel
             </Button>
             <Button onPress={() => void removePrice()} loading={deleting} disabled={deleting}>
+              Delete
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+        <Dialog visible={deletingStock} onDismiss={() => (deleting ? undefined : setDeletingStock(false))}>
+          <Dialog.Title>Delete {stock.symbol}?</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium">
+              Only a stock with no trades and no prices can be deleted. This can&apos;t be undone.
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setDeletingStock(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button onPress={() => void removeStock()} loading={deleting} disabled={deleting}>
               Delete
             </Button>
           </Dialog.Actions>

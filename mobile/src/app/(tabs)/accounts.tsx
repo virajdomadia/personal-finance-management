@@ -12,6 +12,7 @@ import {
   TYPE_ORDER,
   errorMessage,
   formatRupees,
+  investmentsIn,
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -83,6 +84,7 @@ export default function AccountsScreen() {
   }, []);
 
   const data = useMemo(() => (list ? sections(list.accounts) : []), [list]);
+  const investments = list ? investmentsIn(list) : null;
 
   return (
     <View style={styles.screen}>
@@ -137,6 +139,11 @@ export default function AccountsScreen() {
                   <Text variant="titleLarge" style={styles.totalAmount}>
                     {formatRupees(list.total_have)}
                   </Text>
+                  {investments !== null ? (
+                    <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+                      Includes investments {formatRupees(investments)}
+                    </Text>
+                  ) : null}
                 </View>
                 <View style={styles.total}>
                   <Text variant="labelLarge">You owe</Text>
