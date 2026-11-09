@@ -181,3 +181,10 @@ test("tradeTitle and tradeDeleteText", () => {
   assert.match(tradeDeleteText(trade).body, /Zerodha's cash moves back/);
   assert.match(tradeDeleteText({ ...trade, opening: true }).body, /holding shrinks/);
 });
+
+test("tradeErrors refuses dates that don't exist", () => {
+  assert.equal(tradeErrors({ ...form, date: "2026-02-31" }, "2026-11-09").date, "Enter a date like 2026-11-08.");
+  assert.equal(tradeErrors({ ...form, date: "2026-13-01" }, "2026-11-09").date, "Enter a date like 2026-11-08.");
+  assert.equal(tradeErrors({ ...form, date: "2025-02-29" }, "2026-11-09").date, "Enter a date like 2026-11-08.");
+  assert.equal(tradeErrors({ ...form, date: "2024-02-29" }, "2026-11-09").date, undefined);
+});

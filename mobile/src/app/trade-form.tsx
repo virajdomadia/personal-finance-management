@@ -487,6 +487,9 @@ function FormBody(props: Loaded & { kind: Kind; defaultStockId?: string; default
       setConfirming(false);
       if (err instanceof ApiError && err.status === 401) {
         void logOut();
+      } else if (err instanceof ApiError && err.status === 404) {
+        // The trade is already gone, so there is nothing left to edit or delete.
+        setMissing(errorMessage({ detail: err.detail }));
       } else {
         needFocus.current = true;
         setGeneral([errorMessage(err instanceof ApiError ? { detail: err.detail } : err)]);

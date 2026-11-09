@@ -16,7 +16,7 @@ import {
 } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Signed } from "@/components/signed";
+import { Signed, signedLabel } from "@/components/signed";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type Portfolio, type Price, type Stock, type Trade, tradeTitle } from "@/lib/investments";
@@ -74,6 +74,7 @@ export default function StockScreen() {
       const data = await fetchData(id, token ?? undefined);
       if (mine !== latest.current) return;
       setLoad(data ? { status: "ready", data } : { status: "missing" });
+      setNotice(null);
     } catch (err) {
       if (mine !== latest.current) return;
       if (err instanceof ApiError && err.status === 401) {
@@ -127,21 +128,23 @@ export default function StockScreen() {
     if (!deletingPrice || deletingRef.current) return;
     deletingRef.current = true;
     setDeleting(true);
+    let failure: string | null = null;
     try {
       await apiFetch(`/investments/prices/${deletingPrice.id}`, { method: "DELETE", token: token ?? undefined });
-      setNotice(null);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         void logOut();
         return;
       }
-      setNotice(errorMessage(err instanceof ApiError ? { detail: err.detail } : err));
+      failure = errorMessage(err instanceof ApiError ? { detail: err.detail } : err);
     } finally {
       deletingRef.current = false;
       setDeleting(false);
       setDeletingPrice(null);
     }
-    void reload();
+    // A successful reload clears the notice, so a delete failure is shown after it.
+    await reload();
+    if (failure !== null) setNotice(failure);
   }
 
   const data = load.status === "ready" ? load.data : null;
@@ -187,6 +190,8 @@ export default function StockScreen() {
   const total = data.portfolio.by_stock.find((s) => s.stock_id === stock.id);
   const holdings = data.portfolio.holdings.filter((h) => h.stock_id === stock.id);
   const locked = new Set(data.archived.map((a) => a.id));
+  // Shares in an archived broker can't be sold until it's restored.
+  const sellable = holdings.filter((h) => !locked.has(h.account_id));
   // The brokers this stock was traded in, in the order they first appear.
   const brokers = [...new Map(data.trades.map((t) => [t.account_id, t.account_name])).entries()];
   // A filter on a broker with no trades left here falls back to all.
@@ -271,10 +276,10 @@ export default function StockScreen() {
               <Button mode="text" icon="tag-outline" onPress={() => go({ pathname: "/price-form", params: { stockId } })}>
                 Update price
               </Button>
-              {holdings.length > 0 ? (
+              {sellable.length > 0 ? (
                 <Button
                   mode="outlined"
-                  onPress={() => trade(holdings.length === 1 ? { side: "sell", accountId: String(holdings[0].account_id) } : { side: "sell" })}
+                  onPress={() => trade(sellable.length === 1 ? { side: "sell", accountId: String(sellable[0].account_id) } : { side: "sell" })}
                 >
                   Sell
                 </Button>
@@ -460,7 +465,7 @@ function TradeRow({ trade, archived, onPress }: { trade: Trade; archived: boolea
       onPress={onPress}
       disabled={archived}
       accessibilityRole={archived ? undefined : "button"}
-      accessibilityLabel={`${title}, ${details.join(", ")}, ${cash} ${formatRupees(trade.amount)}${archived ? ", archived broker" : ""}`}
+      accessibilityLabel={`${title}, ${details.join(", ")}, ${cash} ${formatRupees(trade.amount)}${trade.realised !== null ? `, realised ${signedLabel(trade.realised)}` : ""}${archived ? ", archived broker" : ""}`}
       accessibilityHint={archived ? undefined : "Opens the trade to edit or delete"}
     >
       <View style={styles.row}>
