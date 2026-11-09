@@ -196,3 +196,60 @@ export function groupByDate(transactions: Transaction[]): { date: string; transa
   }
   return groups;
 }
+
+export const isDeposit = (a: Account | undefined) => a?.type === "ppf" || a?.type === "rd";
+const byId = (accounts: Account[], id: string) => accounts.find((a) => String(a.id) === id);
+
+// The accounts the "paid from" / "received in" / "from" picker offers. The server refuses an expense
+// or EMI paid from a PPF or RD, and a transfer between two deposits or from/to a non-bank; so those
+// aren't offered. The account already chosen stays listed so a pre-filled form still shows it.
+export function fromOptions(type: TransactionType, accounts: Account[], form: TransactionForm): Account[] {
+  const toAccount = byId(accounts, form.to_account_id);
+  return accounts.filter((a) => {
+    if (String(a.id) === form.account_id) return true;
+    if (type === "expense") return !isDeposit(a);
+    if (type === "emi") return !isDeposit(a) && a.type !== "loan";
+    if (type === "transfer") {
+      if (String(a.id) === form.to_account_id) return false;
+      // A deposit only trades with a bank, so against anything else, or into a deposit, only banks.
+      return (!isDeposit(toAccount) && !(toAccount && toAccount.type !== "bank" && isDeposit(a))) || a.type === "bank";
+    }
+    return true;
+  });
+}
+
+// The transfer's "to" picker: never the "from" account, and banks only when "from" is a deposit.
+export function toOptions(accounts: Account[], form: TransactionForm): Account[] {
+  const from = byId(accounts, form.account_id);
+  return accounts.filter(
+    (a) =>
+      String(a.id) === form.to_account_id ||
+      (String(a.id) !== form.account_id && (a.type === "bank" ? true : !isDeposit(from) && !(from && from.type !== "bank" && isDeposit(a)))),
+  );
+}
+
+// Income into a PPF or RD can only be interest, so that is the one category offered.
+export function incomeCategories(accounts: Account[], form: TransactionForm, categories: string[]): string[] {
+  return isDeposit(byId(accounts, form.account_id)) ? ["Interest"] : categories;
+}
+
+// After the user changes a field, drop or fix what the deposit rules no longer allow. Not applied
+// to a pre-filled form, which is already valid.
+export function applyDepositRules(form: TransactionForm, accounts: Account[]): TransactionForm {
+  const from = byId(accounts, form.account_id);
+  const to = byId(accounts, form.to_account_id);
+  let next = form;
+  if ((form.type === "expense" || form.type === "emi") && isDeposit(from)) next = { ...next, account_id: "" };
+  if (form.type === "income" && isDeposit(from)) next = { ...next, category: "Interest" };
+  if (form.type === "transfer") {
+    if (isDeposit(from) && to && to.type !== "bank") next = { ...next, to_account_id: "" };
+    if (isDeposit(to) && from && from.type !== "bank") next = { ...next, account_id: "" };
+  }
+  return next;
+}
+
+// The form for a new transaction: an expense paid from `accountId`, unless that is a PPF or RD, which
+// an expense can't be paid from; then no account is chosen.
+export function newTransactionForm(date: string, accountId: number | null, accounts: Account[]): TransactionForm {
+  return applyDepositRules(blankForm("expense", date, accountId), accounts);
+}

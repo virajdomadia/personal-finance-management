@@ -66,14 +66,52 @@ export type Totals = {
   realised: string;
 };
 
+export type DepositRow = {
+  account_id: number;
+  name: string;
+  type: "ppf" | "rd";
+  balance: string;
+  maturity_date: string;
+  interest_estimate: string;
+};
+
+export type Deposits = {
+  value: string;
+  interest_estimate: string;
+  accounts: DepositRow[];
+};
+
 export type Portfolio = {
   holdings: Holding[];
   by_stock: StockTotal[];
   closed: ClosedPosition[];
   totals: Totals;
   funds: FundsPortfolio;
+  deposits: Deposits;
   overall: Totals;
 };
+
+// One independently loaded piece of the Investments page.
+export type Part<T> = { status: "ready"; data: T } | { status: "error" };
+
+// Runs a request so its failure becomes an error part instead of failing the page. Errors for
+// which `fatal` is true (such as a 401, which must sign the user out) still throw.
+export async function settle<T>(request: Promise<T>, fatal: (err: unknown) => boolean = () => false): Promise<Part<T>> {
+  try {
+    return { status: "ready", data: await request };
+  } catch (err) {
+    if (fatal(err)) throw err;
+    return { status: "error" };
+  }
+}
+
+// The kinds of holding the page has: the "All investments" line is only worth showing for two or more.
+export function holdingKinds(portfolio: Portfolio): number {
+  const stocks = portfolio.by_stock.length + portfolio.closed.length > 0;
+  const funds = portfolio.funds.by_fund.length + portfolio.funds.closed.length > 0;
+  const deposits = portfolio.deposits.accounts.length > 0;
+  return Number(stocks) + Number(funds) + Number(deposits);
+}
 
 export type TradeForm = {
   stock_id: string;

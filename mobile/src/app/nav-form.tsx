@@ -10,12 +10,13 @@ import {
   View,
   type TextInputInstance,
 } from "react-native";
-import { Appbar, Button, Chip, HelperText, Text, TextInput, useTheme } from "react-native-paper";
+import { Appbar, Button, HelperText, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { errorMessage, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type Fund, type Nav, formatNav } from "@/lib/funds";
+import { DateField } from "@/components/date-field";
 import { useSession } from "@/lib/session";
 import { formatDate, previousDay, todayIndia } from "@/lib/transactions";
 
@@ -216,27 +217,18 @@ export default function NavFormScreen() {
 
             {input("nav", "NAV (₹)", { keyboardType: "decimal-pad", maxLength: 16, placeholder: "84.3793", autoFocus: true })}
 
-            <View>
-              {input("date", "As of (YYYY-MM-DD)", { maxLength: 10 })}
-              <View style={styles.chips}>
-                {[
-                  ["Today", today],
-                  ["Yesterday", yesterday],
-                ].map(([label, value]) => (
-                  <Chip
-                    key={label}
-                    selected={form.date === value}
-                    showSelectedCheck
-                    disabled={busy}
-                    onPress={() => setForm((f) => ({ ...f, date: value }))}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: form.date === value, disabled: busy }}
-                  >
-                    {label}
-                  </Chip>
-                ))}
-              </View>
-            </View>
+            <DateField
+              label="As of"
+              value={form.date}
+              onChange={(iso) => setForm((f) => ({ ...f, date: iso }))}
+              disabled={busy}
+              maxDate={today}
+              error={errors.date}
+              chips={[
+                { label: "Today", value: today },
+                { label: "Yesterday", value: yesterday },
+              ]}
+            />
 
             <Button
               mode="contained"

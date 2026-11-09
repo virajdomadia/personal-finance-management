@@ -161,6 +161,23 @@ def _owned_sip(db: Session, user_id: int, id: int) -> Sip:
     return sip
 
 
+def _reread_locked(db: Session, user_id: int, id: int) -> Sip:
+    """The SIP re-read under its own row lock, after the first read that found it.
+
+    Another request may have deleted it in between (404), and an UPDATE or DELETE of a row that
+    is gone would end as a 500.
+    """
+    sip = db.scalar(
+        select(Sip)
+        .where(Sip.id == id, Sip.user_id == user_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    )
+    if sip is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "SIP not found.")
+    return sip
+
+
 def _check_amount(amount: Decimal | None, errors: list[Any]) -> None:
     if amount is None:
         errors.append(field_error("amount", _NO_AMOUNT))
@@ -231,7 +248,11 @@ def update_sip(id: int, body: SipUpdate, user: CurrentUser, db: DbSession) -> Si
     moved_to = changes.get("account_id")
     sip = _owned_sip(db, user.id, id)
     # The SIP's own bank is locked too, so it can't be archived while the SIP is being saved.
-    accounts = lock_accounts(db, user.id, [sip.account_id, moved_to])
+    seen = sip.account_id
+    accounts = lock_accounts(db, user.id, [seen, moved_to])
+    sip = _reread_locked(db, user.id, id)
+    if sip.account_id != seen:  # moved meanwhile, so the wrong bank was locked
+        raise HTTPException(status.HTTP_409_CONFLICT, "This SIP changed while saving. Try again.")
     errors: list[Any] = []
     if "account_id" in changes:
         if moved_to is None:
@@ -268,7 +289,7 @@ def _instalments(db: Session, sip: Sip) -> int:
 def delete_sip(id: int, user: CurrentUser, db: DbSession) -> Deleted:
     sip = _owned_sip(db, user.id, id)
     # Locking the row makes a purchase linking to it wait, so the count below stays true.
-    db.execute(select(Sip.id).where(Sip.id == sip.id).with_for_update())
+    sip = _reread_locked(db, user.id, id)
     stopped = HTTPException(status.HTTP_409_CONFLICT, "This SIP has instalments. Stop it instead.")
     if _instalments(db, sip):
         raise stopped

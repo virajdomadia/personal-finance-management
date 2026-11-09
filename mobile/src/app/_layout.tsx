@@ -29,6 +29,7 @@ function Screens() {
             <Stack.Screen name="account-form" />
             <Stack.Screen name="archived-accounts" />
             <Stack.Screen name="transaction-form" />
+            <Stack.Screen name="close-rd-form" />
             <Stack.Screen name="account-transactions" />
             <Stack.Screen name="stock" />
             <Stack.Screen name="trade-form" />

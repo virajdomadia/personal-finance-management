@@ -1,31 +1,19 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl, SectionList, StyleSheet, View } from "react-native";
-import { Appbar, Button, Divider, FAB, Surface, Text, useTheme } from "react-native-paper";
+import { Appbar, Button, Divider, FAB, Surface, Text, TouchableRipple, useTheme } from "react-native-paper";
 
 import { AccountRow } from "@/components/account-row";
 import {
   type Account,
   type AccountList,
-  type AccountType,
-  TYPE_LABELS,
-  TYPE_ORDER,
   errorMessage,
   formatRupees,
   investmentsIn,
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { accountSections, ppfInterestText, rdDueText } from "@/lib/deposits";
 import { useSession } from "@/lib/session";
-
-type Section = { type: AccountType; data: Account[] };
-
-function sections(accounts: Account[]): Section[] {
-  return TYPE_ORDER.map((type) => ({
-    type,
-    data: accounts
-      .filter((account) => account.type === type),
-  })).filter((section) => section.data.length > 0);
-}
 
 export default function AccountsScreen() {
   const { token, logOut } = useSession();
@@ -83,7 +71,31 @@ export default function AccountsScreen() {
     router.push({ pathname: "/transaction-form", params: { loan: String(loan.id) } });
   }, []);
 
-  const data = useMemo(() => (list ? sections(list.accounts) : []), [list]);
+  // A transaction pre-filled for a deposit: `rd` is the next instalment, `ppf` a deposit, `interest` the PPF's interest.
+  const openTransaction = useCallback((params: { rd: string } | { ppf: string } | { interest: string }) => {
+    if (navigating.current) return;
+    navigating.current = true;
+    router.push({ pathname: "/transaction-form", params });
+  }, []);
+
+  const closeRd = useCallback((rd: Account) => {
+    if (navigating.current) return;
+    navigating.current = true;
+    router.push({ pathname: "/close-rd-form", params: { id: String(rd.id) } });
+  }, []);
+
+  const dueCards = useMemo(() => {
+    const cards: { key: string; text: string; params: { rd: string } | { interest: string } }[] = [];
+    for (const account of list?.accounts ?? []) {
+      const rd = rdDueText(account);
+      if (rd) cards.push({ key: `rd-${account.id}`, text: rd, params: { rd: String(account.id) } });
+      const ppf = ppfInterestText(account);
+      if (ppf) cards.push({ key: `ppf-${account.id}`, text: ppf, params: { interest: String(account.id) } });
+    }
+    return cards;
+  }, [list]);
+
+  const data = useMemo(() => (list ? accountSections(list.accounts) : []), [list]);
   const investments = list ? investmentsIn(list) : null;
 
   return (
@@ -133,6 +145,20 @@ export default function AccountsScreen() {
                   {error} Pull down to try again.
                 </Text>
               ) : null}
+              {dueCards.map((card) => (
+                <Surface key={card.key} elevation={2} style={[styles.due, { backgroundColor: colors.secondaryContainer }]}>
+                  <TouchableRipple
+                    onPress={() => openTransaction(card.params)}
+                    accessibilityRole="button"
+                    accessibilityLabel={card.text}
+                    style={styles.dueTouch}
+                  >
+                    <Text variant="bodyMedium" style={{ color: colors.onSecondaryContainer }}>
+                      {card.text}
+                    </Text>
+                  </TouchableRipple>
+                </Surface>
+              ))}
               <Surface elevation={1} style={styles.totals}>
                 <View style={styles.total}>
                   <Text variant="labelLarge">You have</Text>
@@ -160,7 +186,7 @@ export default function AccountsScreen() {
               accessibilityRole="header"
               style={[styles.sectionHeader, { color: colors.primary }]}
             >
-              {TYPE_LABELS[section.type]}
+              {section.title}
             </Text>
           )}
           renderItem={({ item }) => (
@@ -177,6 +203,48 @@ export default function AccountsScreen() {
                   >
                     Record EMI
                   </Button>
+                ) : item.type === "ppf" ? (
+                  <>
+                    <Button
+                      compact
+                      icon="bank-transfer-in"
+                      accessibilityLabel={`Deposit to ${item.name}`}
+                      onPress={() => openTransaction({ ppf: String(item.id) })}
+                    >
+                      Deposit
+                    </Button>
+                    {item.deposit?.kind === "ppf" && item.deposit.interest_due !== null ? (
+                      <Button
+                        compact
+                        icon="percent"
+                        accessibilityLabel={`Record interest for ${item.name}`}
+                        onPress={() => openTransaction({ interest: String(item.id) })}
+                      >
+                        Record interest
+                      </Button>
+                    ) : null}
+                  </>
+                ) : item.type === "rd" ? (
+                  <>
+                    {item.deposit?.kind === "rd" && item.deposit.due.length > 0 ? (
+                      <Button
+                        compact
+                        icon="cash-check"
+                        accessibilityLabel={`Record an instalment for ${item.name}`}
+                        onPress={() => openTransaction({ rd: String(item.id) })}
+                      >
+                        Record instalment
+                      </Button>
+                    ) : null}
+                    <Button
+                      compact
+                      icon="close-circle-outline"
+                      accessibilityLabel={`Close ${item.name}`}
+                      onPress={() => closeRd(item)}
+                    >
+                      Close RD
+                    </Button>
+                  </>
                 ) : undefined
               }
             />
@@ -208,6 +276,8 @@ const styles = StyleSheet.create({
   centerText: { textAlign: "center" },
   content: { paddingBottom: 96 },
   header: { padding: 16 },
+  due: { borderRadius: 12, marginBottom: 12, overflow: "hidden" },
+  dueTouch: { padding: 16 },
   totals: { borderRadius: 12, padding: 16, gap: 12 },
   total: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
   totalAmount: { flexShrink: 1, textAlign: "right" },

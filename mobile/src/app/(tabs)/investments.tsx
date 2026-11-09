@@ -19,11 +19,12 @@ import { Signed, signedLabel } from "@/components/signed";
 import { errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type FundTotal, type FundTradeMode, type Sip, dueText, formatNav, formatUnits } from "@/lib/funds";
-import type { Portfolio, StockTotal, Totals } from "@/lib/investments";
+import type { DepositRow, DepositsPortfolio, Portfolio, StockTotal, Totals } from "@/lib/investments";
 import { useSession } from "@/lib/session";
+import { formatDate } from "@/lib/transactions";
 
 type Kind = "buy" | "sell" | "opening";
-type Segment = "stocks" | "funds";
+type Segment = "stocks" | "funds" | "deposits";
 type Go = (target: Parameters<typeof router.push>[0]) => void;
 
 export default function InvestmentsScreen() {
@@ -92,6 +93,8 @@ export default function InvestmentsScreen() {
     go({ pathname: "/stock", params: { id: String(row.stock_id), symbol: row.symbol } });
   const openFund = (row: { fund_id: number; symbol: string }) =>
     go({ pathname: "/fund", params: { id: String(row.fund_id), symbol: row.symbol } });
+  // Deposits are accounts, so their actions (deposit, interest, close) live on the Accounts tab.
+  const openAccounts = () => router.navigate("/accounts");
   const addFundTrade = (mode: FundTradeMode) => go({ pathname: "/fund-trade-form", params: { mode } });
   // Opens Record SIP for the SIP's oldest due month, with everything but the NAV filled in.
   const recordSip = (sip: Sip) =>
@@ -193,6 +196,38 @@ export default function InvestmentsScreen() {
         }
       />
     );
+  } else if (segment === "deposits") {
+    const deposits = portfolio.deposits;
+    const rows = deposits?.accounts ?? [];
+    body = (
+      <FlatList
+        data={rows}
+        keyExtractor={(row) => String(row.account_id)}
+        refreshControl={refreshControl}
+        contentContainerStyle={styles.content}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            {errorLine}
+            {rows.length > 0 && deposits ? <DepositsSummary deposits={deposits} /> : null}
+            {rows.length > 0 ? <SectionTitle label="Deposits" /> : null}
+          </View>
+        }
+        ItemSeparatorComponent={DepositGap}
+        renderItem={({ item }) => <DepositCard row={item} onPress={() => openAccounts()} />}
+        ListEmptyComponent={
+          <View style={styles.empty}>
+            <Text variant="titleMedium">No PPF or RD yet</Text>
+            <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant, textAlign: "center" }}>
+              Add a PPF or recurring deposit as an account. It shows here with its balance and the interest it has
+              earned so far.
+            </Text>
+            <Button mode="outlined" onPress={() => openAccounts()}>
+              Go to Accounts
+            </Button>
+          </View>
+        }
+      />
+    );
   } else {
     const funds = portfolio.funds;
     const empty = funds.by_fund.length === 0 && funds.closed.length === 0;
@@ -276,14 +311,15 @@ export default function InvestmentsScreen() {
         }}
         style={styles.segments}
         buttons={[
-          { value: "stocks", label: "Stocks", icon: "chart-line" },
-          { value: "funds", label: "Mutual funds", icon: "chart-donut" },
+          { value: "stocks", label: "Stocks" },
+          { value: "funds", label: "Mutual funds" },
+          { value: "deposits", label: "Deposits" },
         ]}
       />
 
       {body}
 
-      {segment === "stocks" ? (
+      {segment === "deposits" ? null : segment === "stocks" ? (
         <FAB.Group
           open={fabOpen}
           visible={focused && portfolio !== null}
@@ -374,6 +410,64 @@ function SummaryCard({ totals }: { totals: Totals }) {
       <Line label="Realised P&L">
         <Signed value={totals.realised} variant="titleMedium" style={styles.right} />
       </Line>
+    </Surface>
+  );
+}
+
+function DepositsSummary({ deposits }: { deposits: DepositsPortfolio }) {
+  const { colors } = useTheme();
+  return (
+    <Surface elevation={1} style={styles.summary}>
+      <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
+        In deposits
+      </Text>
+      <Text variant="headlineMedium" adjustsFontSizeToFit numberOfLines={1} style={styles.value}>
+        {formatRupees(deposits.value)}
+      </Text>
+      <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
+        ≈ {formatRupees(deposits.interest_estimate)} interest (estimate)
+      </Text>
+    </Surface>
+  );
+}
+
+function DepositGap() {
+  return <View style={styles.gap} />;
+}
+
+// One PPF or RD. The whole card opens the Accounts tab, where its actions are.
+function DepositCard({ row, onPress }: { row: DepositRow; onPress: () => void }) {
+  const { colors } = useTheme();
+  const kindLabel = row.type === "ppf" ? "PPF" : "RD";
+  const maturity = row.maturity_date ? `Matures ${formatDate(row.maturity_date)}` : null;
+  return (
+    <Surface elevation={1} style={styles.depositCard}>
+      <TouchableRipple
+        onPress={onPress}
+        borderless
+        style={styles.dueRipple}
+        accessibilityRole="button"
+        accessibilityLabel={`${row.name}, ${kindLabel}, balance ${formatRupees(row.balance)}, about ${formatRupees(row.interest_estimate)} interest estimated${maturity ? `, ${maturity.toLowerCase()}` : ""}`}
+        accessibilityHint="Opens Accounts"
+      >
+        <View style={styles.row}>
+          <View style={styles.main}>
+            <Text variant="titleMedium">{row.name}</Text>
+            <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+              {kindLabel}
+              {maturity ? ` · ${maturity}` : ""}
+            </Text>
+          </View>
+          <View style={styles.amounts}>
+            <Text variant="titleMedium" style={styles.right}>
+              {formatRupees(row.balance)}
+            </Text>
+            <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
+              ≈ {formatRupees(row.interest_estimate)} interest (estimate)
+            </Text>
+          </View>
+        </View>
+      </TouchableRipple>
     </Surface>
   );
 }
@@ -530,6 +624,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
   main: { flex: 1, gap: 2 },
   amounts: { flexShrink: 1, maxWidth: "55%", alignItems: "flex-end" },
+  gap: { height: 8 },
+  depositCard: { borderRadius: 12, marginHorizontal: 16 },
   footer: { marginTop: 8 },
   empty: { alignItems: "center", gap: 12, padding: 32 },
 });

@@ -1,7 +1,7 @@
-from datetime import datetime
+import datetime as dt
 from decimal import Decimal
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, func
+from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -28,8 +28,16 @@ class Account(Base):
     emis_at_opening: Mapped[int | None]
     # The account a loan's EMIs are paid from. A card's available credit excludes these loans.
     pay_from_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
-    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
+    # PPF and RD only. `deposits_at_opening` is the RD instalments paid before the app's own
+    # transfers; instalments paid = it plus the months with a transfer in (app/api/deposits.py).
+    opened_on: Mapped[dt.date | None] = mapped_column(Date)
+    deposit_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    tenure_months: Mapped[int | None]
+    deposits_at_opening: Mapped[int | None]
+    archived_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

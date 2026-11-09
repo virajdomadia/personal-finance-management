@@ -20,6 +20,8 @@ from sqlalchemy import Engine, create_engine, func, select, text
 from sqlalchemy.orm import Session
 
 from app.api.balances import balance_of, load_flows
+from app.api.routes.accounts import AccountCreate, AccountUpdate, create_account, update_account
+from app.api.routes.sips import SipUpdate, delete_sip, update_sip
 from app.api.routes.transactions import (
     TransactionCreate,
     TransactionUpdate,
@@ -29,6 +31,7 @@ from app.api.routes.transactions import (
     update_transaction,
 )
 from app.models.account import Account
+from app.models.investment import Instrument, Sip
 from app.models.transaction import Transaction
 from app.models.user import User
 
@@ -234,3 +237,223 @@ def test_a_failure_after_writing_leaves_nothing_behind(engine: Engine) -> None:
         update_transaction(id, TransactionUpdate.model_validate({"amount": "900.00"}), user, db)
 
     assert balances(engine, user)[cash] == Decimal("900.00")
+
+
+def _delete_behind_the_back(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch, id: int, move_to: int | None = None
+) -> None:
+    """After the route reads the transaction but before it locks accounts, another request runs."""
+    from app.api.routes import transactions as routes
+
+    real = routes.lock_accounts
+    done = []
+
+    def lock_after_other_request(*args: Any, **kwargs: Any) -> Any:
+        if not done:
+            done.append(True)
+            with Session(engine) as other:
+                tx = other.get(Transaction, id)
+                assert tx is not None
+                if move_to is None:
+                    other.delete(tx)
+                else:
+                    tx.account_id = move_to
+                other.commit()
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(routes, "lock_accounts", lock_after_other_request)
+
+
+def _one_expense(engine: Engine, *accounts: tuple[str, str]) -> tuple[Any, list[int], int]:
+    user, ids = setup(engine, *accounts)
+    with Session(engine, expire_on_commit=False) as db:
+        return user, ids, expense(user, ids[0], "100.00")(db).id
+
+
+def test_an_edit_of_a_transaction_deleted_meanwhile_is_not_found(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user, _, id = _one_expense(engine, ("cash", "1000.00"))
+    _delete_behind_the_back(engine, monkeypatch, id)
+    with Session(engine) as db, pytest.raises(HTTPException) as caught:
+        update_transaction(id, TransactionUpdate.model_validate({"amount": "50.00"}), user, db)
+    assert caught.value.status_code == 404
+    assert caught.value.detail == "Transaction not found."
+
+
+def test_a_delete_of_a_transaction_deleted_meanwhile_is_not_found(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user, _, id = _one_expense(engine, ("cash", "1000.00"))
+    _delete_behind_the_back(engine, monkeypatch, id)
+    with Session(engine) as db, pytest.raises(HTTPException) as caught:
+        delete_transaction(id, user, db)
+    assert caught.value.status_code == 404
+    assert caught.value.detail == "Transaction not found."
+
+
+def test_an_edit_or_delete_of_a_transaction_moved_meanwhile_asks_to_retry(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    user, [cash, bank], id = _one_expense(engine, ("cash", "1000.00"), ("savings_account", "0"))
+    _delete_behind_the_back(engine, monkeypatch, id, move_to=bank)
+    with Session(engine) as db, pytest.raises(HTTPException) as caught:
+        update_transaction(id, TransactionUpdate.model_validate({"amount": "50.00"}), user, db)
+    assert caught.value.status_code == 409
+    assert caught.value.detail == "This transaction changed while saving. Try again."
+
+    # The same for a delete: the transaction now sits on the other account.
+    _delete_behind_the_back(engine, monkeypatch, id, move_to=cash)
+    with Session(engine) as db, pytest.raises(HTTPException) as caught:
+        delete_transaction(id, user, db)
+    assert caught.value.status_code == 409
+
+
+def _sip(engine: Engine) -> tuple[Any, int]:
+    user, [bank] = setup(engine, ("savings_account", "1000.00"))
+    with Session(engine) as db:
+        fund = Instrument(user_id=user.id, kind="mutual_fund", symbol="F", name="A fund")
+        db.add(fund)
+        db.flush()
+        sip = Sip(
+            user_id=user.id,
+            instrument_id=fund.id,
+            account_id=bank,
+            amount=Decimal("500"),
+            day=5,
+            start_date=date(2026, 1, 1),
+        )
+        db.add(sip)
+        db.commit()
+        return user, sip.id
+
+
+@pytest.mark.parametrize("action", ["edit", "delete"])
+def test_a_sip_deleted_meanwhile_is_not_found(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    from app.api.routes import sips as routes
+
+    user, id = _sip(engine)
+    real = routes.lock_accounts
+
+    def delete_first(*args: Any, **kwargs: Any) -> Any:
+        with Session(engine) as other:
+            other.delete(other.get(Sip, id))
+            other.commit()
+        return real(*args, **kwargs)
+
+    if action == "edit":
+        # Only an edit locks accounts (after reading the SIP), so only then is the patch applied.
+        monkeypatch.setattr(routes, "lock_accounts", delete_first)
+    else:
+        # A delete doesn't lock accounts; it locks the SIP row itself, so hook that re-read.
+        monkeypatch.setattr(routes, "_reread_locked", _after_deleting(engine, id, routes))
+    with Session(engine) as db, pytest.raises(HTTPException) as caught:
+        if action == "edit":
+            update_sip(id, SipUpdate.model_validate({"amount": "600"}), user, db)
+        else:
+            delete_sip(id, user, db)
+    assert caught.value.status_code == 404
+    assert caught.value.detail == "SIP not found."
+
+
+def _after_deleting(engine: Engine, id: int, routes: Any) -> Callable[..., Any]:
+    real = routes._reread_locked
+
+    def reread(db: Session, user_id: int, sip_id: int) -> Any:
+        with Session(engine) as other:
+            other.delete(other.get(Sip, id))
+            other.commit()
+        return real(db, user_id, sip_id)
+
+    return reread
+
+
+def test_an_edit_of_a_sip_moved_meanwhile_asks_to_retry(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.routes import sips as routes
+
+    user, id = _sip(engine)
+    with Session(engine) as db:
+        other_bank = Account(
+            user_id=user.id, type="savings_account", name="Other", opening_balance=Decimal("0")
+        )
+        db.add(other_bank)
+        db.commit()
+        other_id = other_bank.id
+    real = routes.lock_accounts
+    done = []
+
+    def move_first(*args: Any, **kwargs: Any) -> Any:
+        if not done:
+            done.append(True)
+            with Session(engine) as other:
+                other.get(Sip, id).account_id = other_id
+                other.commit()
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(routes, "lock_accounts", move_first)
+    with Session(engine) as db, pytest.raises(HTTPException) as caught:
+        update_sip(id, SipUpdate.model_validate({"amount": "600"}), user, db)
+    assert caught.value.status_code == 409
+    assert caught.value.detail == "This SIP changed while saving. Try again."
+
+
+def _rd_body(bank: int) -> dict[str, Any]:
+    return {
+        "type": "rd",
+        "name": "RD",
+        "balance": "0",
+        "interest_rate": "7.00",
+        "opened_on": "2026-01-01",
+        "deposit_amount": "1000.00",
+        "due_day": 1,
+        "tenure_months": 12,
+        "deposits_paid": 0,
+        "pay_from_id": bank,
+    }
+
+
+def _waits_for_the_bank_lock(engine: Engine, bank: int, action: Callable[[Session], Any]) -> str:
+    """Hold the bank's row lock, as an archive would, and archive it before letting go."""
+    holder = Session(engine)
+    pool = ThreadPoolExecutor(1)
+    try:
+        holder.execute(select(Account).where(Account.id == bank).with_for_update())
+        second = pool.submit(attempt, engine, action)
+        time.sleep(0.5)
+        waited = not second.done()
+        holder.execute(text("UPDATE accounts SET archived_at = now() WHERE id = :id"), {"id": bank})
+        holder.commit()
+        result = second.result(timeout=10)
+    finally:
+        holder.close()
+        pool.shutdown()
+    assert waited, "the save didn't wait for the bank's lock"
+    return result
+
+
+def test_creating_an_rd_waits_for_its_bank_and_is_refused_once_archived(engine: Engine) -> None:
+    user, [bank] = setup(engine, ("bank", "1000.00"))
+    body = AccountCreate.model_validate(_rd_body(bank))
+    result = _waits_for_the_bank_lock(engine, bank, lambda db: create_account(body, user, db))
+    assert result == "refused"
+    with Session(engine) as db:
+        assert db.scalar(select(func.count()).select_from(Account).where(Account.type == "rd")) == 0
+
+
+def test_pointing_an_rd_at_a_bank_waits_for_it_and_is_refused_once_archived(
+    engine: Engine,
+) -> None:
+    user, [bank, other] = setup(engine, ("bank", "1000.00"), ("bank", "1000.00"))
+    with Session(engine, expire_on_commit=False) as db:
+        rd = create_account(AccountCreate.model_validate(_rd_body(other)), user, db)
+    change = AccountUpdate.model_validate({"pay_from_id": bank})
+    result = _waits_for_the_bank_lock(
+        engine, bank, lambda db: update_account(rd.id, change, user, db)
+    )
+    assert result == "refused"
+    with Session(engine) as db:
+        assert db.get(Account, rd.id).pay_from_id == other

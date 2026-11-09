@@ -1,5 +1,5 @@
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal, get_args
 
@@ -10,7 +10,14 @@ from pydantic_core import PydanticCustomError
 from sqlalchemy import select
 
 from app.api.balances import LIABILITY_TYPES, balance_of, opening_for
-from app.api.dates import today_india
+from app.api.dates import iso_date, today_india
+from app.api.deposits import (
+    PpfFigures,
+    RdFigures,
+    deposit_figures,
+    rd_deposits_paid,
+    rd_months_recorded,
+)
 from app.api.deps import CurrentUser, get_current_user
 from app.api.loans import Book, NextEmi, emis_at_opening, emis_left, load_book, next_emi
 from app.api.portfolio import holds_units, investments_totals
@@ -21,11 +28,21 @@ from app.models.transaction import Transaction
 
 router = APIRouter(prefix="/accounts", tags=["accounts"], dependencies=[Depends(get_current_user)])
 
-AccountType = Literal["bank", "credit_card", "cash", "broker", "wallet", "loan"]
+AccountType = Literal["bank", "credit_card", "cash", "broker", "wallet", "ppf", "rd", "loan"]
 BankKind = Literal["savings", "salary", "current"]
 
-TYPE_ORDER = {"bank": 0, "credit_card": 1, "cash": 2, "broker": 3, "wallet": 4, "loan": 5}
-HAVE_TYPES = {"bank", "cash", "broker", "wallet"}
+TYPE_ORDER = {
+    "bank": 0,
+    "credit_card": 1,
+    "cash": 2,
+    "broker": 3,
+    "wallet": 4,
+    "ppf": 5,
+    "rd": 6,
+    "loan": 7,
+}
+HAVE_TYPES = {"bank", "cash", "broker", "wallet", "ppf", "rd"}
+DEPOSIT_TYPES = {"ppf", "rd"}
 
 # Optional details each type may carry; a non-null value for any other detail is rejected.
 # `emis_left` is stored as `emis_at_opening` (see app/api/loans.py); the rest are columns.
@@ -39,14 +56,29 @@ STORED = {
     "interest_rate",
     "emi_amount",
     "pay_from_id",
+    "opened_on",
+    "deposit_amount",
+    "tenure_months",
 }
-DETAILS = STORED | {"emis_left"}
+# `emis_left` and `deposits_paid` are stored as counts at opening (see loans.py, deposits.py).
+DETAILS = STORED | {"emis_left", "deposits_paid"}
 APPLICABLE = {
     "bank": {"institution", "bank_kind", "last4"},
     "credit_card": {"institution", "last4", "credit_limit", "statement_day", "due_day"},
     "cash": set(),
     "broker": {"institution"},
     "wallet": {"institution"},
+    "ppf": {"institution", "interest_rate", "opened_on", "pay_from_id"},
+    "rd": {
+        "institution",
+        "interest_rate",
+        "opened_on",
+        "pay_from_id",
+        "deposit_amount",
+        "due_day",
+        "tenure_months",
+        "deposits_paid",
+    },
     "loan": {"institution", "due_day", "interest_rate", "emi_amount", "emis_left", "pay_from_id"},
 }
 MAX_ID = 2147483647  # the largest value of an integer primary key
@@ -134,6 +166,23 @@ def _count(value: Any) -> int | None:
     return value
 
 
+def _tenure(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 120:
+        raise _reject("tenure", "Enter the tenure in months, from 1 to 120.")
+    return value
+
+
+def _paid(value: Any) -> int | None:
+    # The upper bound is the tenure, which validate_rules checks.
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 120:
+        raise _reject("paid", "Enter the instalments paid so far, from 0 to the tenure.")
+    return value
+
+
 def _ref(value: Any) -> int | None:
     if value is None:
         return None
@@ -169,6 +218,9 @@ Bank = Annotated[BankKind | None, BeforeValidator(_choice(get_args(BankKind)))]
 Rate = Annotated[Decimal | None, BeforeValidator(_rate)]
 Count = Annotated[int | None, BeforeValidator(_count)]
 Ref = Annotated[int | None, BeforeValidator(_ref)]
+Opened = Annotated[date | None, BeforeValidator(iso_date)]
+Tenure = Annotated[int | None, BeforeValidator(_tenure)]
+Paid = Annotated[int | None, BeforeValidator(_paid)]
 Flag = Annotated[bool, BeforeValidator(_flag)]
 
 
@@ -189,6 +241,10 @@ class AccountCreate(BaseModel):
     emi_amount: Money = None
     emis_left: Count = None
     pay_from_id: Ref = None
+    opened_on: Opened = None
+    deposit_amount: Money = None
+    tenure_months: Tenure = None
+    deposits_paid: Paid = None
     # Loans paid from a card: the balance is already in the card's, so move it off the card.
     moved_from_card: Flag = False
 
@@ -210,6 +266,10 @@ class AccountUpdate(BaseModel):
     emi_amount: Money = None
     emis_left: Count = None
     pay_from_id: Ref = None
+    opened_on: Opened = None
+    deposit_amount: Money = None
+    tenure_months: Tenure = None
+    deposits_paid: Paid = None
 
 
 class AccountResponse(BaseModel):
@@ -230,6 +290,10 @@ class AccountResponse(BaseModel):
     pay_from_id: int | None
     next_emi: NextEmi | None
     archived: bool
+    opened_on: str | None
+    deposit_amount: str | None
+    tenure_months: int | None
+    deposit: PpfFigures | RdFigures | None
 
 
 class AccountList(BaseModel):
@@ -242,8 +306,12 @@ def field_error(field: str, message: str) -> dict[str, Any]:
     return {"loc": ("body", field), "msg": message, "type": "value_error"}
 
 
-def validate_rules(values: dict[str, Any]) -> None:
-    """The per-type rules, applied to a whole account's values (create now, PATCH later)."""
+def validate_rules(values: dict[str, Any], check_paid: bool = True) -> None:
+    """The per-type rules, applied to a whole account's values (create now, PATCH later).
+
+    `check_paid` is False for an edit that leaves the tenure and instalments paid alone: transfers
+    recorded later can push the paid count past the tenure, and that must not block a rename.
+    """
     errors: list[dict[str, Any]] = []
     type_ = values["type"]
 
@@ -272,8 +340,44 @@ def validate_rules(values: dict[str, Any]) -> None:
     if emi is not None and emi <= 0:
         errors.append(field_error("emi_amount", "EMI must be greater than 0."))
 
+    if type_ in DEPOSIT_TYPES:
+        errors.extend(_deposit_errors(values, type_, check_paid))
+
     if errors:
         raise RequestValidationError(errors)
+
+
+_REQUIRED = {
+    "interest_rate": "Enter the yearly interest rate.",
+    "opened_on": "Choose the date it was opened.",
+}
+_RD_REQUIRED = {
+    "pay_from_id": "Choose the bank the instalments come from.",
+    "deposit_amount": "Enter the monthly instalment.",
+    "due_day": "Choose the instalment day.",
+    "tenure_months": "Enter the tenure in months, from 1 to 120.",
+    "deposits_paid": "Enter the instalments paid so far, from 0 to the tenure.",
+}
+
+
+def _deposit_errors(
+    values: dict[str, Any], type_: str, check_paid: bool = True
+) -> list[dict[str, Any]]:
+    errors = []
+    required = _REQUIRED | (_RD_REQUIRED if type_ == "rd" else {})
+    for field, message in required.items():
+        if values.get(field) is None:
+            errors.append(field_error(field, message))
+    opened = values.get("opened_on")
+    if opened is not None and opened > today_india():
+        errors.append(field_error("opened_on", "The date can't be in the future."))
+    amount = values.get("deposit_amount")
+    if amount is not None and amount <= 0:
+        errors.append(field_error("deposit_amount", "Instalment must be greater than 0."))
+    paid, tenure = values.get("deposits_paid"), values.get("tenure_months")
+    if check_paid and paid is not None and tenure is not None and paid > tenure:
+        errors.append(field_error("deposits_paid", _RD_REQUIRED["deposits_paid"]))
+    return errors
 
 
 def fmt(value: Decimal) -> str:
@@ -307,6 +411,10 @@ def to_response(account: Account, book: Book) -> AccountResponse:
         pay_from_id=account.pay_from_id,
         next_emi=next_emi(account, book),
         archived=account.archived_at is not None,
+        opened_on=None if account.opened_on is None else account.opened_on.isoformat(),
+        deposit_amount=_money_text(account.deposit_amount),
+        tenure_months=account.tenure_months,
+        deposit=deposit_figures(account, book, today_india()),
     )
 
 
@@ -338,16 +446,27 @@ def list_accounts(user: CurrentUser, db: DbSession, archived: bool = False) -> A
 def _check_links(
     db: DbSession, user: CurrentUser, values: dict[str, Any], moved_from_card: bool = False
 ) -> None:
-    """A loan's pay-from account must be the user's own, active, and not a loan."""
+    """A pay-from account must be the user's own and active: not a loan, or for a deposit a bank."""
     errors: list[dict[str, Any]] = []
     pay_from_id = values.get("pay_from_id")
     pay_from = None
     if pay_from_id is not None:
         if 1 <= pay_from_id <= MAX_ID:
+            query = select(Account).where(Account.id == pay_from_id, Account.user_id == user.id)
+            # A deposit's bank is locked, so it can't be archived while the link is being saved.
             pay_from = db.scalar(
-                select(Account).where(Account.id == pay_from_id, Account.user_id == user.id)
+                query.with_for_update() if values["type"] in DEPOSIT_TYPES else query
             )
-        if pay_from is None or pay_from.type == "loan":
+        if values["type"] in DEPOSIT_TYPES:
+            if pay_from is None or pay_from.type != "bank":
+                errors.append(field_error("pay_from_id", "Choose a bank account."))
+            elif pay_from.archived_at is not None:
+                errors.append(
+                    field_error(
+                        "pay_from_id", f"{pay_from.name} is archived. Restore it to use it."
+                    )
+                )
+        elif pay_from is None or pay_from.type == "loan" or pay_from.type in DEPOSIT_TYPES:
             errors.append(field_error("pay_from_id", "Choose the account EMIs are paid from."))
         elif pay_from.archived_at is not None:
             errors.append(
@@ -377,6 +496,7 @@ def create_account(body: AccountCreate, user: CurrentUser, db: DbSession) -> Acc
         # Moved from a card, the loan starts at 0 and the transfer below makes it owed.
         opening_balance=Decimal(0) if moved else values["balance"],
         emis_at_opening=values["emis_left"],
+        deposits_at_opening=values["deposits_paid"],
         **{field: values[field] for field in STORED},
     )
     db.add(account)
@@ -412,6 +532,16 @@ def _get_owned(db: DbSession, user: CurrentUser, id: int, lock: bool = False) ->
 def update_account(
     id: int, body: AccountUpdate, user: CurrentUser, db: DbSession
 ) -> AccountResponse:
+    changes = body.model_dump(exclude_unset=True)
+    new_bank = changes.get("pay_from_id")
+    if new_bank is not None and new_bank != db.scalar(
+        select(Account.pay_from_id).where(Account.id == id, Account.user_id == user.id)
+    ):
+        from app.api.routes.transactions import lock_accounts  # it imports this module
+
+        # A changed bank is locked together with this account, in id order, like any transaction
+        # save, so two requests can't each hold one and wait for the other.
+        lock_accounts(db, user.id, [id, new_bank])
     # Locked so that a transaction saved meanwhile can't throw off the opening balance below.
     account = _get_owned(db, user, id, lock=True)
     if account.archived_at is not None:
@@ -422,13 +552,22 @@ def update_account(
         "balance": balance_of(account, book.flows),
         **{field: getattr(account, field) for field in STORED},
         "emis_left": emis_left(account, book),
+        "deposits_paid": rd_deposits_paid(account, book),
         "name": account.name,
     }
-    changes = body.model_dump(exclude_unset=True)
     values.update(changes)
-    validate_rules(values)
-    if "pay_from_id" in changes:
+    validate_rules(values, check_paid=bool({"deposits_paid", "tenure_months"} & changes.keys()))
+    # Only a changed bank is locked (above) and checked: archiving a bank locks it first and then
+    # its PPFs, so locking an unchanged one after this account could deadlock with that.
+    if "pay_from_id" in changes and changes["pay_from_id"] != account.pay_from_id:
         _check_links(db, user, values)
+    at_opening = None
+    if values["deposits_paid"] is not None:
+        at_opening = values["deposits_paid"] - rd_months_recorded(account, book)
+        if at_opening < 0:
+            raise RequestValidationError(
+                [field_error("deposits_paid", "More instalments are already recorded than that.")]
+            )
     # Correcting a balance moves the opening balance, so the transactions stay as they are.
     opening = opening_for(account, values["balance"], book.flows)
     if abs(opening) >= MAX_MONEY:
@@ -440,6 +579,8 @@ def update_account(
     for field in STORED:
         setattr(account, field, values[field])
     account.emis_at_opening = emis_at_opening(values["emis_left"], account, book)
+    if values["deposits_paid"] is not None:
+        account.deposits_at_opening = at_opening
     db.commit()
     return to_response(account, load_book(db, user.id))
 
@@ -469,6 +610,36 @@ def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
                     status.HTTP_409_CONFLICT,
                     f"Stop the SIPs paid from {account.name} before archiving it.",
                 )
+        if account.type in DEPOSIT_TYPES:
+            book = load_book(db, user.id)
+            if balance_of(account, book.flows) > 0:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    f"Withdraw the balance from {account.name} before archiving it.",
+                )
+        if account.type == "bank":
+            paid_by = db.scalar(
+                select(Account).where(
+                    Account.user_id == user.id,
+                    Account.type == "rd",
+                    Account.pay_from_id == account.id,
+                    Account.archived_at.is_(None),
+                )
+            )
+            if paid_by is not None:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    f"Close or move the RD {paid_by.name} before archiving {account.name}.",
+                )
+            for ppf in db.scalars(
+                select(Account).where(
+                    Account.user_id == user.id,
+                    Account.type == "ppf",
+                    Account.pay_from_id == account.id,
+                    Account.archived_at.is_(None),
+                )
+            ):
+                ppf.pay_from_id = None
         account.archived_at = datetime.now(UTC)
         db.commit()
     return to_response(account, load_book(db, user.id))
@@ -478,6 +649,32 @@ def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
 def restore_account(id: int, user: CurrentUser, db: DbSession) -> AccountResponse:
     account = _get_owned(db, user, id)
     if account.archived_at is not None:
+        if account.type in DEPOSIT_TYPES and account.pay_from_id is not None:
+            bank = db.get(Account, account.pay_from_id)
+            if bank is not None and bank.archived_at is not None:
+                if account.type == "rd":
+                    raise HTTPException(
+                        status.HTTP_409_CONFLICT,
+                        f"Restore or choose another bank for {account.name} first: "
+                        f"{bank.name} is archived.",
+                    )
+                account.pay_from_id = None
+        if account.type == "rd" and balance_of(account, load_book(db, user.id).flows) == 0:
+            paid_out = db.scalar(
+                select(Transaction.id)
+                .join(Account, Account.id == Transaction.to_account_id)
+                .where(
+                    Transaction.user_id == user.id,
+                    Transaction.type == "transfer",
+                    Transaction.account_id == account.id,
+                    Account.type == "bank",
+                )
+                .limit(1)
+            )
+            if paid_out is not None:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, "This RD was closed. Its record stays in the archive."
+                )
         account.archived_at = None
         db.commit()
     return to_response(account, load_book(db, user.id))

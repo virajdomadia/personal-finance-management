@@ -7,6 +7,7 @@ import {
   errorMessage,
   formFromAccount,
   formatDueDate,
+  formatFullDate,
   formatRupees,
   investmentsIn,
   maskLast4,
@@ -130,6 +131,8 @@ test("type labels match the approved table", () => {
     cash: "Cash in hand",
     broker: "Broker balance",
     wallet: "Wallet or prepaid card",
+    ppf: "PPF",
+    rd: "Recurring deposit",
     loan: "Loan",
   });
 });
@@ -257,4 +260,66 @@ test("investmentsIn is what You have holds beyond the account balances", () => {
   assert.equal(investmentsIn(list("0.07", [])), "0.07");
   assert.equal(investmentsIn(list("90071992547409.93", [account("bank", "0.01")])), "90071992547409.92");
   assert.equal(investmentsIn(list("10.00", [account("bank", "10"), account("cash", "5.00", true)])), null);
+  // PPF and RD balances are part of You have, not investments.
+  assert.equal(investmentsIn(list("1800.00", [account("bank", "100.00"), account("ppf", "1000.00"), account("rd", "700.00")])), null);
+});
+
+test("deposit accounts: labels, applicable fields and payload", () => {
+  assert.equal(TYPE_LABELS.ppf, "PPF");
+  assert.equal(TYPE_LABELS.rd, "Recurring deposit");
+  const form = {
+    ...blank,
+    type: "rd",
+    institution: "SBI",
+    interest_rate: "6.70",
+    opened_on: "2026-08-15",
+    pay_from_id: "7",
+    deposit_amount: "₹5,000",
+    due_day: "15",
+    tenure_months: "12",
+    deposits_paid: "3",
+  };
+  assert.deepEqual(toPayload(form, "create"), {
+    type: "rd",
+    name: "Main",
+    balance: "10",
+    institution: "SBI",
+    interest_rate: "6.70",
+    opened_on: "2026-08-15",
+    pay_from_id: 7,
+    deposit_amount: "5000",
+    due_day: 15,
+    tenure_months: 12,
+    deposits_paid: 3,
+  });
+  const ppf = toPayload({ ...blank, type: "ppf", opened_on: "2020-04-01" }, "edit");
+  assert.equal(ppf.opened_on, "2020-04-01");
+  assert.equal("deposit_amount" in ppf, false);
+  assert.ok(renderedFields("rd", "edit").includes("tenure_months"));
+});
+
+test("formatFullDate reads the ISO string without a Date", () => {
+  assert.equal(formatFullDate("2036-04-01"), "1 Apr 2036");
+  assert.equal(formatFullDate("2026-11-25"), "25 Nov 2026");
+});
+
+test("changedPayload for an RD leaves out unchanged deposits_paid and tenure_months, and sends changed ones as numbers", () => {
+  const rd = {
+    ...account,
+    type: "rd",
+    name: "SBI RD",
+    credit_limit: null,
+    available_credit: null,
+    statement_day: null,
+    institution: "SBI",
+    tenure_months: 24,
+    deposits_paid: 3,
+    deposit: { kind: "rd", deposits_paid: 3 },
+  };
+  const same = changedPayload(formFromAccount(rd), rd);
+  assert.equal("deposits_paid" in same, false);
+  assert.equal("tenure_months" in same, false);
+  const changed = changedPayload({ ...formFromAccount(rd), deposits_paid: "4", tenure_months: "36" }, rd);
+  assert.equal(changed.deposits_paid, 4);
+  assert.equal(changed.tenure_months, 36);
 });

@@ -11,6 +11,7 @@ import {
   maskLast4,
   nextDueDate,
 } from "@/lib/accounts";
+import { depositLines } from "@/lib/deposits";
 import { todayIndia } from "@/lib/transactions";
 
 function detailLine(account: Account, showType: boolean): string {
@@ -49,6 +50,7 @@ export function AccountRow({ account, onPress, showType = false, action }: Props
   const paidOff = account.type === "loan" && account.balance === "0.00";
   const detail = detailLine(account, showType);
   const loan = loanLine(account);
+  const deposit = depositLines(account);
   const amount = formatRupees(account.balance);
   const available = owed && account.available_credit !== null ? formatRupees(account.available_credit) : null;
 
@@ -73,6 +75,11 @@ export function AccountRow({ account, onPress, showType = false, action }: Props
                 {loan}
               </Text>
             ) : null}
+            {deposit.map((line) => (
+              <Text key={line} variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+                {line}
+              </Text>
+            ))}
           </View>
           <View style={styles.amounts}>
             {owed ? (
@@ -117,7 +124,9 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   action: {
-    alignItems: "flex-end",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
     paddingHorizontal: 8,
     paddingBottom: 4,
   },

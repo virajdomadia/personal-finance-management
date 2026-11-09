@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  applyDepositRules,
   blankForm,
+  fromOptions,
+  incomeCategories,
+  newTransactionForm,
+  toOptions,
   changedPayload,
   emiForm,
   subtractMoney,
@@ -215,4 +220,59 @@ test("subtractMoney is exact and refuses what isn't a plain amount", () => {
   assert.equal(subtractMoney("100", "0"), "100.00");
   assert.equal(subtractMoney("100", "abc"), "");
   assert.equal(subtractMoney("1.234", "1"), "");
+});
+
+const acct = (id, type) => ({ id, type, name: `${type}${id}` });
+const set = [acct(1, "bank"), acct(2, "cash"), acct(3, "ppf"), acct(4, "rd"), acct(5, "loan")];
+const ids = (list) => list.map((a) => a.id);
+const f = (o) => ({ ...blankForm("expense", "2026-01-01", null), ...o });
+
+test("expense and EMI 'paid from' leave out PPF and RD", () => {
+  assert.deepEqual(ids(fromOptions("expense", set, f())), [1, 2, 5]);
+  assert.deepEqual(ids(fromOptions("emi", set, f({ type: "emi" }))), [1, 2]);
+});
+
+test("income 'received in' allows deposits", () => {
+  assert.deepEqual(ids(fromOptions("income", set, f({ type: "income" }))), [1, 2, 3, 4, 5]);
+});
+
+test("transfer pickers list banks only against a deposit, and never the other side", () => {
+  const toDeposit = f({ type: "transfer", to_account_id: "3" });
+  assert.deepEqual(ids(fromOptions("transfer", set, toDeposit)), [1]);
+  const fromDeposit = f({ type: "transfer", account_id: "4" });
+  assert.deepEqual(ids(toOptions(set, fromDeposit)), [1]);
+  const fromBank = f({ type: "transfer", account_id: "1" });
+  assert.deepEqual(ids(toOptions(set, fromBank)), [2, 3, 4, 5]);
+});
+
+test("a pre-selected account stays listed even when the rules would hide it", () => {
+  assert.deepEqual(ids(fromOptions("expense", set, f({ account_id: "3" }))), [1, 2, 3, 5]);
+  assert.deepEqual(ids(toOptions(set, f({ type: "transfer", account_id: "3", to_account_id: "2" }))), [1, 2]);
+});
+
+test("income categories narrow to Interest for a deposit", () => {
+  const cats = ["Salary", "Interest"];
+  assert.deepEqual(incomeCategories(set, f({ type: "income", account_id: "3" }), cats), ["Interest"]);
+  assert.deepEqual(incomeCategories(set, f({ type: "income", account_id: "1" }), cats), cats);
+});
+
+test("applyDepositRules sets Interest and clears refused picks", () => {
+  assert.equal(applyDepositRules(f({ type: "income", account_id: "4", category: "Salary" }), set).category, "Interest");
+  assert.equal(applyDepositRules(f({ type: "expense", account_id: "3" }), set).account_id, "");
+  assert.equal(applyDepositRules(f({ type: "transfer", account_id: "3", to_account_id: "2" }), set).to_account_id, "");
+  assert.equal(applyDepositRules(f({ type: "transfer", account_id: "2", to_account_id: "3" }), set).account_id, "");
+  const ok = f({ type: "transfer", account_id: "1", to_account_id: "3" });
+  assert.deepEqual(applyDepositRules(ok, set), ok);
+});
+
+test("a new form never starts on a deposit the expense can't be paid from", () => {
+  assert.equal(newTransactionForm("2026-01-01", 3, set).account_id, "");
+  assert.equal(newTransactionForm("2026-01-01", 1, set).account_id, "1");
+  assert.equal(newTransactionForm("2026-01-01", null, set).account_id, "");
+});
+
+test("transfer pickers leave deposits out against a non-bank account", () => {
+  assert.deepEqual(ids(toOptions(set, f({ type: "transfer", account_id: "2" }))), [1, 5]);
+  assert.deepEqual(ids(fromOptions("transfer", set, f({ type: "transfer", to_account_id: "2" }))), [1, 5]);
+  assert.deepEqual(ids(toOptions(set, f({ type: "transfer", account_id: "1" }))), [2, 3, 4, 5]);
 });

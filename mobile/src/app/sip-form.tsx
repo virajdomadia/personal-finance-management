@@ -31,6 +31,7 @@ import { type Account, type AccountList, cleanMoney, errorMessage, splitErrors }
 import { ApiError, apiFetch } from "@/lib/api";
 import { type Fund, type Sip, type SipForm, blankSipForm, sipFormFrom, sipPayload } from "@/lib/funds";
 import { realDate } from "@/lib/investments";
+import { DateField } from "@/components/date-field";
 import { useSession } from "@/lib/session";
 import { todayIndia } from "@/lib/transactions";
 
@@ -526,7 +527,13 @@ function FormBody(props: Loaded & { defaultFundId?: string }) {
             ? null
             : field(
                 "start_date",
-                input("start_date", "First instalment (YYYY-MM-DD)", { maxLength: 10 }),
+                <DateField
+                  label="First instalment"
+                  value={form.start_date}
+                  onChange={(iso) => set("start_date", iso)}
+                  disabled={busy}
+                  invalid={Boolean(errors.start_date)}
+                />,
                 <HelperText type="info" visible>
                   Months from here on show as due until you record them.
                 </HelperText>,

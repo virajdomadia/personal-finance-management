@@ -19,16 +19,22 @@ import {
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { emiForm, todayIndia } from "@/lib/transactions";
+import { depositLines, instalmentForm, interestForm, ppfDepositForm, ppfInterestText, rdDueText } from "@/lib/deposits";
 import { TransactionDialog } from "@/components/transactions/transaction-dialog";
 
 import { AccountDialog } from "./account-dialog";
+import { CloseRdDialog } from "./close-rd-dialog";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: AccountList };
 type Dialog =
   | { kind: "none" }
   | { kind: "form"; account: Account | null }
   | { kind: "archive"; account: Account }
-  | { kind: "emi"; loan: Account };
+  | { kind: "emi"; loan: Account }
+  | { kind: "instalment"; account: Account }
+  | { kind: "ppf-deposit"; account: Account }
+  | { kind: "ppf-interest"; account: Account }
+  | { kind: "close-rd"; account: Account };
 
 const BUTTON =
   "rounded-md px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none disabled:opacity-60";
@@ -128,6 +134,8 @@ export function AccountsView() {
           onEdit={(account) => setDialog({ kind: "form", account })}
           onArchive={(account) => setDialog({ kind: "archive", account })}
           onRecordEmi={(loan) => setDialog({ kind: "emi", loan })}
+          onDeposit={(account, kind) => setDialog({ kind, account })}
+          onCloseRd={(account) => setDialog({ kind: "close-rd", account })}
           onRestore={async (account) => {
             setNotice(null);
             try {
@@ -180,6 +188,50 @@ export function AccountsView() {
         />
       )}
 
+      {(dialog.kind === "instalment" || dialog.kind === "ppf-deposit" || dialog.kind === "ppf-interest") && (
+        <TransactionDialog
+          transaction={null}
+          accounts={activeAccounts}
+          defaultAccountId={dialog.kind === "ppf-interest" ? dialog.account.id : dialog.account.pay_from_id}
+          initialForm={
+            dialog.kind === "instalment"
+              ? instalmentForm(dialog.account, todayIndia())
+              : dialog.kind === "ppf-deposit"
+                ? ppfDepositForm(dialog.account, todayIndia())
+                : interestForm(dialog.account)
+          }
+          onClose={closeDialog}
+          onSaved={() => {
+            setNotice(null);
+            closeDialog();
+            reload();
+          }}
+          onConflict={(message) => {
+            setNotice(message);
+            closeDialog();
+            reload();
+          }}
+        />
+      )}
+
+      {dialog.kind === "close-rd" && (
+        <CloseRdDialog
+          account={dialog.account}
+          accounts={activeAccounts}
+          onClose={closeDialog}
+          onDone={() => {
+            setNotice(null);
+            closeDialog();
+            reload();
+          }}
+          onConflict={(message) => {
+            setNotice(message);
+            closeDialog();
+            reload();
+          }}
+        />
+      )}
+
       {dialog.kind === "archive" && (
         <ArchiveDialog
           account={dialog.account}
@@ -203,6 +255,8 @@ function Content({
   onArchive,
   onRestore,
   onRecordEmi,
+  onDeposit,
+  onCloseRd,
 }: {
   data: AccountList;
   archived: boolean;
@@ -211,11 +265,32 @@ function Content({
   onArchive: (account: Account) => void;
   onRestore: (account: Account) => Promise<void>;
   onRecordEmi: (loan: Account) => void;
+  onDeposit: (account: Account, kind: "instalment" | "ppf-deposit" | "ppf-interest") => void;
+  onCloseRd: (account: Account) => void;
 }) {
+  const dueLines = archived
+    ? []
+    : data.accounts.flatMap((account) => {
+        const rd = rdDueText(account);
+        const ppf = ppfInterestText(account);
+        return [
+          ...(rd ? [{ key: `rd-${account.id}`, text: rd, label: "Record instalment", run: () => onDeposit(account, "instalment") }] : []),
+          ...(ppf ? [{ key: `ppf-${account.id}`, text: ppf, label: "Record interest", run: () => onDeposit(account, "ppf-interest") }] : []),
+        ];
+      });
   const groups = TYPE_ORDER.map((type) => ({
     type,
     accounts: data.accounts.filter((a) => a.type === type),
   })).filter((g) => g.accounts.length > 0);
+
+  // PPF and RD share one "Deposits" group.
+  const sections: { key: string; title: string; accounts: Account[] }[] = [];
+  for (const g of groups) {
+    const deposit = g.type === "ppf" || g.type === "rd";
+    const last = sections[sections.length - 1];
+    if (deposit && last?.key === "deposits") last.accounts.push(...g.accounts);
+    else sections.push({ key: deposit ? "deposits" : g.type, title: deposit ? "Deposits" : TYPE_LABELS[g.type], accounts: [...g.accounts] });
+  }
 
   return (
     <>
@@ -224,6 +299,22 @@ function Content({
           <Total label="You have" value={data.total_have} sub={includedHint(data)} />
           <Total label="You owe" value={data.total_owe} />
         </dl>
+      )}
+
+      {dueLines.length > 0 && (
+        <ul aria-label="Due now" className="mb-6 flex flex-col gap-2">
+          {dueLines.map((line) => (
+            <li
+              key={line.key}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+            >
+              <span className="min-w-0 [overflow-wrap:anywhere]">{line.text}</span>
+              <button type="button" className={ROW_ACTION} onClick={line.run}>
+                {line.label}
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
 
       {groups.length === 0 ? (
@@ -244,10 +335,10 @@ function Content({
         </div>
       ) : (
         <div className="flex flex-col gap-6">
-          {groups.map(({ type, accounts }) => (
-            <section key={type} aria-labelledby={`group-${type}`}>
-              <h2 id={`group-${type}`} className="mb-1 px-1 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
-                {TYPE_LABELS[type]}
+          {sections.map(({ key, title, accounts }) => (
+            <section key={key} aria-labelledby={`group-${key}`}>
+              <h2 id={`group-${key}`} className="mb-1 px-1 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
+                {title}
               </h2>
               <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
                 {accounts.map((account) => (
@@ -258,6 +349,8 @@ function Content({
                     onArchive={onArchive}
                     onRestore={onRestore}
                     onRecordEmi={onRecordEmi}
+                    onDeposit={onDeposit}
+                    onCloseRd={onCloseRd}
                   />
                 ))}
               </ul>
@@ -290,12 +383,16 @@ function AccountRow({
   onArchive,
   onRestore,
   onRecordEmi,
+  onDeposit,
+  onCloseRd,
 }: {
   account: Account;
   onEdit: (account: Account) => void;
   onArchive: (account: Account) => void;
   onRestore: (account: Account) => Promise<void>;
   onRecordEmi: (loan: Account) => void;
+  onDeposit: (account: Account, kind: "instalment" | "ppf-deposit" | "ppf-interest") => void;
+  onCloseRd: (account: Account) => void;
 }) {
   const [restoring, setRestoring] = useState(false);
   const [today] = useState(todayIndia);
@@ -311,6 +408,8 @@ function AccountRow({
         account.interest_rate !== null ? `${account.interest_rate}% a year` : null,
       ].filter(Boolean)
     : [];
+  const figures = account.deposit;
+  const lines = depositLines(account);
   const details = [
     account.institution && account.institution !== account.name ? account.institution : null,
     account.type === "bank" && account.bank_kind
@@ -325,6 +424,9 @@ function AccountRow({
         <p className="text-sm font-medium [overflow-wrap:anywhere]">{account.name}</p>
         {details.length > 0 && (
           <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{details.join(" · ")}</p>
+        )}
+        {lines.length > 0 && (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{lines.join(" · ")}</p>
         )}
         {loanDetails.length > 0 && (
           <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{loanDetails.join(" · ")}</p>
@@ -343,7 +445,7 @@ function AccountRow({
           </p>
         )}
       </div>
-      <div className="flex shrink-0 gap-1">
+      <div className="flex max-w-full flex-wrap gap-1">
         <Link href={`/transactions?account=${account.id}`} className={ROW_ACTION} aria-label={`Transactions for ${account.name}`}>
           Transactions
         </Link>
@@ -379,6 +481,26 @@ function AccountRow({
                 onClick={() => onRecordEmi(account)}
               >
                 Record EMI
+              </button>
+            )}
+            {account.type === "ppf" && (
+              <button type="button" className={ROW_ACTION} aria-label={`Deposit into ${account.name}`} onClick={() => onDeposit(account, "ppf-deposit")}>
+                Deposit
+              </button>
+            )}
+            {figures?.kind === "ppf" && figures.interest_due !== null && (
+              <button type="button" className={ROW_ACTION} aria-label={`Record interest for ${account.name}`} onClick={() => onDeposit(account, "ppf-interest")}>
+                Record interest
+              </button>
+            )}
+            {figures?.kind === "rd" && figures.due.length > 0 && (
+              <button type="button" className={ROW_ACTION} aria-label={`Record an instalment for ${account.name}`} onClick={() => onDeposit(account, "instalment")}>
+                Record instalment
+              </button>
+            )}
+            {account.type === "rd" && (
+              <button type="button" className={ROW_ACTION} aria-label={`Close ${account.name}`} onClick={() => onCloseRd(account)}>
+                Close RD
               </button>
             )}
             <button type="button" className={ROW_ACTION} aria-label={`Edit ${account.name}`} onClick={() => onEdit(account)}>

@@ -1,5 +1,4 @@
 import calendar
-import re
 from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal
@@ -13,9 +12,11 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.api.balances import Movement, balance_of, load_movements, net_flows
+from app.api.dates import iso_date
 from app.api.deps import CurrentUser, get_current_user
 from app.api.routes.accounts import (
     CAN_BE_NEGATIVE,
+    DEPOSIT_TYPES,
     MAX_ID,
     MAX_MONEY,
     Money,
@@ -57,20 +58,6 @@ DEFAULT_CATEGORIES = {
     ],
 }
 
-_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-_DATE_MESSAGE = "Enter a date, like 2026-01-15."
-
-
-def _date(value: Any) -> date | None:
-    if value is None:
-        return None
-    if not isinstance(value, str) or not _ISO_DATE.fullmatch(value):
-        raise PydanticCustomError("date", _DATE_MESSAGE)
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        raise PydanticCustomError("date", _DATE_MESSAGE) from None
-
 
 def _account_id(value: Any) -> int | None:
     if value is None:
@@ -87,7 +74,7 @@ def _type(value: Any) -> Any:
 
 
 Kind = Annotated[TransactionType | None, BeforeValidator(_type)]
-Day = Annotated[date | None, BeforeValidator(_date)]
+Day = Annotated[date | None, BeforeValidator(iso_date)]
 AccountRef = Annotated[int | None, BeforeValidator(_account_id)]
 Category = Annotated[
     str | None, BeforeValidator(lambda v: clean_text(v, "Enter a category.", limit=40))
@@ -245,16 +232,66 @@ def _validate(values: dict[str, Any], accounts: dict[int, Account]) -> None:
     if type_ != "emi" and values["interest"] is not None:
         errors.append(field_error("interest", "Only an EMI has an interest part."))
 
+    _validate_deposits(values, accounts, errors)
+
     if errors:
         raise RequestValidationError(errors)
+
+
+def _deposit_name(account: Account) -> str:
+    return "PPF account" if account.type == "ppf" else "RD"
+
+
+def _validate_deposits(
+    values: dict[str, Any], accounts: dict[int, Account], errors: list[dict[str, Any]]
+) -> None:
+    """A PPF or RD takes deposits, interest and withdrawals to a bank, and nothing else."""
+    type_ = values["type"]
+    source = accounts.get(values["account_id"] or 0)
+    target = accounts.get(values["to_account_id"] or 0)
+    found: list[tuple[str, str]] = []  # (field, message)
+
+    def deposit(account: Account | None) -> bool:
+        return account is not None and account.type in DEPOSIT_TYPES
+
+    def only(account: Account) -> str:
+        article = "An" if account.type == "rd" else "A"
+        what = f"{article} {_deposit_name(account)}"
+        return f"{what} only takes deposits, interest and withdrawals to a bank."
+
+    if type_ in ("expense", "emi") and source is not None and deposit(source):
+        found.append(("account_id", only(source)))
+    if type_ == "emi" and target is not None and deposit(target):
+        found.append(("to_account_id", only(target)))
+    if type_ == "income" and source is not None and deposit(source):
+        category = values["category"]
+        if category is not None and category.casefold() != "interest":
+            article = "an" if source.type == "rd" else "a"
+            found.append(
+                (
+                    "category",
+                    f"Interest is the only income {article} {_deposit_name(source)} takes.",
+                )
+            )
+    if type_ == "transfer" and source is not None and target is not None:
+        if deposit(target) and source.type != "bank":
+            found.append(("account_id", only(target)))
+        if deposit(source) and target.type != "bank":
+            found.append(("to_account_id", only(source)))
+
+    for field, message in found:
+        errors[:] = [e for e in errors if e["loc"][1] != field]
+        errors.append(field_error(field, message))
 
 
 def _validate_emi(
     values: dict[str, Any], accounts: dict[int, Account], errors: list[dict[str, Any]]
 ) -> None:
     payer = accounts.get(values["account_id"] or 0)
-    if payer is not None and payer.type == "loan" and not any(
-        e["loc"][1] == "account_id" for e in errors
+    if (
+        payer is not None
+        and payer.type == "loan"
+        and not any(e["loc"][1] == "account_id" for e in errors)
     ):
         errors.append(field_error("account_id", "Choose the account the EMI is paid from."))
 
@@ -355,6 +392,33 @@ def _get_owned(db: Session, user_id: int, id: int) -> Transaction:
     return tx
 
 
+def _lock_transaction(
+    db: Session, user_id: int, id: int, also: Iterable[int | None] = ()
+) -> tuple[Transaction, dict[int, Account]]:
+    """The transaction and its accounts, locked, then the transaction re-read under its own lock.
+
+    The first read only says which accounts to lock. By the time they are locked, another request
+    may have deleted the transaction (404) or moved it to other accounts, which would leave the
+    wrong ones locked (409, so the client retries).
+    """
+    first = _get_owned(db, user_id, id)
+    seen = (first.account_id, first.to_account_id)
+    accounts = lock_accounts(db, user_id, [*seen, *also])
+    tx = db.scalar(
+        select(Transaction)
+        .where(Transaction.id == id, Transaction.user_id == user_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    )
+    if tx is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Transaction not found.")
+    if (tx.account_id, tx.to_account_id) != seen:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This transaction changed while saving. Try again."
+        )
+    return tx, accounts
+
+
 def _require_active(tx: Transaction, accounts: dict[int, Account]) -> None:
     for account_id in (tx.account_id, tx.to_account_id):
         account = None if account_id is None else accounts[account_id]
@@ -441,8 +505,11 @@ def get_transaction(id: int, user: CurrentUser, db: DbSession) -> TransactionRes
 def update_transaction(
     id: int, body: TransactionUpdate, user: CurrentUser, db: DbSession
 ) -> TransactionResponse:
-    tx = _get_owned(db, user.id, id)
     changes = body.model_dump(exclude_unset=True)
+    # The old accounts are locked too, because moving a transaction changes their balances as well.
+    tx, accounts = _lock_transaction(
+        db, user.id, id, [changes.get("account_id"), changes.get("to_account_id")]
+    )
     values = {
         "type": tx.type,
         "account_id": tx.account_id,
@@ -455,12 +522,6 @@ def update_transaction(
         "note": tx.note,
         **changes,
     }
-    # The old accounts are locked too, because moving a transaction changes their balances as well.
-    accounts = lock_accounts(
-        db,
-        user.id,
-        [tx.account_id, tx.to_account_id, values["account_id"], values["to_account_id"]],
-    )
     _require_active(tx, accounts)
     _save_checks(db, user.id, accounts, values, existing_id=tx.id)
     for field, value in values.items():
@@ -471,8 +532,7 @@ def update_transaction(
 
 @router.delete("/{id}")
 def delete_transaction(id: int, user: CurrentUser, db: DbSession) -> dict[str, int]:
-    tx = _get_owned(db, user.id, id)
-    accounts = lock_accounts(db, user.id, [tx.account_id, tx.to_account_id])
+    tx, accounts = _lock_transaction(db, user.id, id)
     _require_active(tx, accounts)
     before = load_movements(db, user.id)
     problem = balance_problem(accounts, before, [m for m in before if m.id != tx.id])

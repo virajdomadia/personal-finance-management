@@ -4,12 +4,13 @@ An EMI is one `emi` transaction: its account pays the whole amount, the loan (`t
 repaid the amount minus `interest`, and only the interest counts as spending.
 """
 
+import datetime as dt
 from collections.abc import Iterable
 from decimal import ROUND_HALF_UP, Decimal
 from typing import NamedTuple
 
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.balances import balance_of, load_flows
@@ -26,12 +27,21 @@ class NextEmi(BaseModel):
     principal: str | None
 
 
+class DepositMove(NamedTuple):
+    """One transaction touching a PPF or RD: money `in` or `out` by transfer, or `interest`."""
+
+    date: dt.date
+    kind: str
+    amount: Decimal
+
+
 class Book(NamedTuple):
     """Everything an account's response needs that isn't on its own row."""
 
     flows: dict[int, Decimal]
     emis_recorded: dict[int, int]  # by loan id
     linked_owed: dict[int, Decimal]  # what active loans paid from each account still owe
+    deposit_moves: dict[int, list[DepositMove]]  # by PPF or RD id
 
 
 def _round(value: Decimal) -> Decimal:
@@ -55,11 +65,51 @@ def linked_owed(accounts: Iterable[Account], flows: dict[int, Decimal]) -> dict[
     return owed
 
 
+def load_deposit_moves(
+    db: Session, user_id: int, accounts: Iterable[Account]
+) -> dict[int, list[DepositMove]]:
+    ids = [a.id for a in accounts if a.type in ("ppf", "rd")]
+    moves: dict[int, list[DepositMove]] = {i: [] for i in ids}
+    if not ids:
+        return moves
+    rows = db.execute(
+        select(
+            Transaction.type,
+            Transaction.account_id,
+            Transaction.to_account_id,
+            Transaction.date,
+            Transaction.amount,
+        )
+        .where(
+            Transaction.user_id == user_id,
+            Transaction.type.in_(("transfer", "income")),
+            or_(Transaction.account_id.in_(ids), Transaction.to_account_id.in_(ids)),
+        )
+        .order_by(Transaction.date, Transaction.id)
+    )
+    for type_, account_id, to_account_id, day, amount in rows:
+        if type_ == "income":
+            if account_id in moves:
+                moves[account_id].append(DepositMove(day, "interest", amount))
+            continue
+        if to_account_id in moves:
+            moves[to_account_id].append(DepositMove(day, "in", amount))
+        if account_id in moves:
+            moves[account_id].append(DepositMove(day, "out", amount))
+    return moves
+
+
 def load_book(db: Session, user_id: int, accounts: Iterable[Account] | None = None) -> Book:
     if accounts is None:
         accounts = db.scalars(select(Account).where(Account.user_id == user_id)).all()
     flows = load_flows(db, user_id)
-    return Book(flows, emis_recorded(db, user_id), linked_owed(accounts, flows))
+    accounts = list(accounts)
+    return Book(
+        flows,
+        emis_recorded(db, user_id),
+        linked_owed(accounts, flows),
+        load_deposit_moves(db, user_id, accounts),
+    )
 
 
 def emis_left(account: Account, book: Book) -> int | None:

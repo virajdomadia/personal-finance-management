@@ -99,6 +99,10 @@ def test_response_shape(headers: Headers) -> None:
         "pay_from_id": None,
         "next_emi": None,
         "archived": False,
+        "opened_on": None,
+        "deposit_amount": None,
+        "tenure_months": None,
+        "deposit": None,
     }
 
 
