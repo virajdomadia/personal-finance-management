@@ -253,3 +253,22 @@ def test_sips_are_per_user(
     mine = new_sip(headers, fund_id, bank(them))
     assert locs(mine) == [["body", "account_id"]]
     assert client.patch(f"{URL}/0", json={"day": 6}, headers=headers).status_code == 404
+
+
+@pytest.mark.postgres
+def test_delete_loses_a_race_with_an_instalment(
+    headers: Headers, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fund_id, account_id = setup(headers)
+    sip_id = made(headers, fund_id, account_id)["id"]
+    real = sips._instalments
+
+    def late(db: Session, sip: Any) -> int:
+        count = real(db, sip)
+        buy(headers, fund_id=fund_id, account_id=account_id, date="2026-10-05", sip_id=sip_id)
+        return count  # counted before the instalment landed
+
+    monkeypatch.setattr(sips, "_instalments", late)
+    response = client.delete(f"{URL}/{sip_id}", headers=headers)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "This SIP has instalments. Stop it instead."

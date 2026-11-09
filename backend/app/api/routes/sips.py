@@ -13,6 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, get_current_user
@@ -248,14 +249,29 @@ def update_sip(id: int, body: SipUpdate, user: CurrentUser, db: DbSession) -> Si
     return _responses(db, user.id, [sip.id])[0]
 
 
+def _instalments(db: Session, sip: Sip) -> int:
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(InvestmentTrade)
+            .where(InvestmentTrade.sip_id == sip.id)
+        )
+        or 0
+    )
+
+
 @router.delete("/sips/{id}")
 def delete_sip(id: int, user: CurrentUser, db: DbSession) -> Deleted:
     sip = _owned_sip(db, user.id, id)
-    used = db.scalar(
-        select(func.count()).select_from(InvestmentTrade).where(InvestmentTrade.sip_id == sip.id)
-    )
-    if used:
-        raise HTTPException(status.HTTP_409_CONFLICT, "This SIP has instalments. Stop it instead.")
-    db.delete(sip)
-    db.commit()
+    # Locking the row makes a purchase linking to it wait, so the count below stays true.
+    db.execute(select(Sip.id).where(Sip.id == sip.id).with_for_update())
+    stopped = HTTPException(status.HTTP_409_CONFLICT, "This SIP has instalments. Stop it instead.")
+    if _instalments(db, sip):
+        raise stopped
+    try:
+        db.delete(sip)
+        db.commit()
+    except IntegrityError:  # an instalment was recorded after all
+        db.rollback()
+        raise stopped from None
     return Deleted(id=id)

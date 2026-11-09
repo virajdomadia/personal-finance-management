@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
+from sqlalchemy import delete as sql_delete
 from sqlalchemy.orm import Session
 
 from app.api.routes import fund_trades, funds
@@ -563,3 +564,21 @@ def test_another_kinds_shortfall_never_blocks_a_save(
     assert response.json()["detail"] == (
         "This would leave the sale of INFY on 1 Nov 2026 selling more than was held."
     )
+
+
+@pytest.mark.postgres
+def test_purchase_for_a_sip_deleted_meanwhile_is_422(
+    headers: Headers, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fund_id, account_id = fund(headers), bank(headers)
+    sip_id = sip(db_session, headers, fund_id, account_id)
+    real = fund_trades._check_sip
+
+    def check_then_delete(db: Session, user_id: int, values: dict[str, Any]) -> None:
+        real(db, user_id, values)
+        db.execute(sql_delete(Sip).where(Sip.id == sip_id))  # gone before the purchase is saved
+
+    monkeypatch.setattr(fund_trades, "_check_sip", check_then_delete)
+    response = buy(headers, fund_id=fund_id, account_id=account_id, sip_id=sip_id)
+    assert error(response) == ([["body", "sip_id"]], "Choose a SIP for this fund.")
+    assert trades(headers) == []

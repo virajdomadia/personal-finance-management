@@ -6,13 +6,14 @@ linked to the trade (`sync_trade_nav`), unless the fund already has a NAV on tha
 """
 
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, get_current_user
@@ -393,6 +394,11 @@ def list_fund_trades(
     )
 
 
+def _sip_gone(db: Session) -> NoReturn:
+    db.rollback()
+    raise RequestValidationError([field_error("sip_id", _CHOOSE_SIP)]) from None
+
+
 def _defaults(values: dict[str, Any]) -> dict[str, Any]:
     if values.get("charges") is None:
         values["charges"] = Decimal(0)
@@ -406,9 +412,12 @@ def create_fund_trade(body: FundTradeCreate, user: CurrentUser, db: DbSession) -
     account, price = _save_checks(db, user.id, accounts, values, existing_id=None)
     trade = InvestmentTrade(user_id=user.id, **_columns(values, price))
     db.add(trade)
-    db.flush()  # gives the trade its id, for its NAV row
-    sync_trade_nav(db, trade)
-    db.commit()
+    try:
+        db.flush()  # gives the trade its id, for its NAV row
+        sync_trade_nav(db, trade)
+        db.commit()
+    except IntegrityError:  # its SIP was deleted since it was checked
+        _sip_gone(db)
     return _saved_response(db, user.id, trade, account)
 
 
@@ -440,9 +449,12 @@ def update_fund_trade(
     account, price = _save_checks(db, user.id, accounts, values, existing_id=trade.id)
     for field, value in _columns(values, price).items():
         setattr(trade, field, value)
-    db.flush()
-    sync_trade_nav(db, trade)
-    db.commit()
+    try:
+        db.flush()
+        sync_trade_nav(db, trade)
+        db.commit()
+    except IntegrityError:  # its SIP was deleted since it was checked
+        _sip_gone(db)
     return _saved_response(db, user.id, trade, account)
 
 
