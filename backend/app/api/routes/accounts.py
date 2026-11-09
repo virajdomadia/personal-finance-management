@@ -1,9 +1,10 @@
+import calendar
 import re
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal, get_args
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
@@ -20,10 +21,10 @@ from app.api.deposits import (
 )
 from app.api.deps import CurrentUser, get_current_user
 from app.api.loans import Book, NextEmi, emis_at_opening, emis_left, load_book, next_emi
-from app.api.portfolio import holds_units, investments_totals
+from app.api.portfolio import fmt_coin, fmt_units, holds_units, investments_totals
 from app.db.session import DbSession
 from app.models.account import Account
-from app.models.investment import Sip
+from app.models.investment import Instrument, InvestmentTrade, Sip
 from app.models.transaction import Transaction
 
 router = APIRouter(prefix="/accounts", tags=["accounts"], dependencies=[Depends(get_current_user)])
@@ -557,8 +558,8 @@ def update_account(
     }
     values.update(changes)
     validate_rules(values, check_paid=bool({"deposits_paid", "tenure_months"} & changes.keys()))
-    # Only a changed bank is locked (above) and checked: archiving a bank locks it first and then
-    # its PPFs, so locking an unchanged one after this account could deadlock with that.
+    # Only a changed bank is locked (above) and checked: archiving a bank locks it and its PPFs in
+    # id order, so locking an unchanged one after this account, out of order, could deadlock.
     if "pay_from_id" in changes and changes["pay_from_id"] != account.pay_from_id:
         _check_links(db, user, values)
     at_opening = None
@@ -587,8 +588,26 @@ def update_account(
 
 @router.post("/{id}/archive")
 def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountResponse:
+    from app.api.routes.transactions import lock_accounts  # it imports this module
+
+    # The bank's PPFs are cleared below, so they're locked with it, all in id order like a PPF
+    # edit locks its PPF and new bank; locking the bank first could deadlock with that edit.
+    ppf_ids = (
+        db.scalars(
+            select(Account.id).where(
+                Account.user_id == user.id,
+                Account.type == "ppf",
+                Account.pay_from_id == id,
+                Account.archived_at.is_(None),
+            )
+        ).all()
+        if 1 <= id <= MAX_ID
+        else []
+    )
     # Locked so that a trade saved meanwhile can't put shares in a broker being archived.
-    account = _get_owned(db, user, id, lock=True)
+    account = lock_accounts(db, user.id, [id, *ppf_ids]).get(id)
+    if account is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found.")
     if account.archived_at is None:
         if account.type == "broker" and holds_units(db, user.id, account.id, "stock"):
             raise HTTPException(
@@ -648,6 +667,74 @@ def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
         account.archived_at = datetime.now(UTC)
         db.commit()
     return to_response(account, load_book(db, user.id))
+
+
+class Activity(BaseModel):
+    trade_id: int
+    kind: str
+    instrument_id: int
+    symbol: str
+    name: str
+    side: str
+    date: str
+    quantity: str
+    amount: str
+    signed_amount: str
+    sip_id: int | None
+
+
+class ActivityList(BaseModel):
+    items: list[Activity]
+
+
+def _quantity(kind: str, quantity: Decimal) -> str:
+    if kind == "stock":
+        return str(int(quantity))  # whole shares
+    if kind == "crypto":
+        return fmt_coin(quantity)
+    return fmt_units(quantity)
+
+
+@router.get("/{id}/investment-activity")
+def investment_activity(
+    id: int,
+    user: CurrentUser,
+    db: DbSession,
+    month: Annotated[str, Query(pattern=r"^[1-9][0-9]{3}-(0[1-9]|1[0-2])$")],
+) -> ActivityList:
+    """The trades whose cash moved through this account in a month, newest first."""
+    account = _get_owned(db, user, id)
+    year, number = int(month[:4]), int(month[5:])
+    rows = db.execute(
+        select(InvestmentTrade, Instrument)
+        .join(Instrument, Instrument.id == InvestmentTrade.instrument_id)
+        .where(
+            InvestmentTrade.user_id == user.id,
+            InvestmentTrade.account_id == account.id,
+            InvestmentTrade.opening.is_(False),
+            InvestmentTrade.date >= date(year, number, 1),
+            InvestmentTrade.date <= date(year, number, calendar.monthrange(year, number)[1]),
+        )
+        .order_by(InvestmentTrade.date.desc(), InvestmentTrade.id.desc())
+    ).all()
+    return ActivityList(
+        items=[
+            Activity(
+                trade_id=trade.id,
+                kind=instrument.kind,
+                instrument_id=instrument.id,
+                symbol=instrument.symbol,
+                name=instrument.name,
+                side=trade.side,
+                date=trade.date.isoformat(),
+                quantity=_quantity(instrument.kind, trade.quantity),
+                amount=fmt(trade.amount),
+                signed_amount=fmt(trade.amount if trade.side == "sell" else -trade.amount),
+                sip_id=trade.sip_id,
+            )
+            for trade, instrument in rows
+        ]
+    )
 
 
 @router.post("/{id}/restore")

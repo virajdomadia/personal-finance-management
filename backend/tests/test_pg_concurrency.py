@@ -20,7 +20,13 @@ from sqlalchemy import Engine, create_engine, func, select, text
 from sqlalchemy.orm import Session
 
 from app.api.balances import balance_of, load_flows
-from app.api.routes.accounts import AccountCreate, AccountUpdate, create_account, update_account
+from app.api.routes.accounts import (
+    AccountCreate,
+    AccountUpdate,
+    archive_account,
+    create_account,
+    update_account,
+)
 from app.api.routes.sips import SipUpdate, delete_sip, update_sip
 from app.api.routes.transactions import (
     TransactionCreate,
@@ -457,3 +463,54 @@ def test_pointing_an_rd_at_a_bank_waits_for_it_and_is_refused_once_archived(
     assert result == "refused"
     with Session(engine) as db:
         assert db.get(Account, rd.id).pay_from_id == other
+
+
+def _ppf_below_its_bank(engine: Engine) -> tuple[Any, int, int, int]:
+    """A PPF whose id is lower than the bank it's paid from, plus a second bank to move it to."""
+    user, [ppf, bank, other] = setup(engine, ("ppf", "0.00"), ("bank", "0.00"), ("bank", "0.00"))
+    with Session(engine) as db:
+        row = db.get(Account, ppf)
+        assert row is not None
+        row.interest_rate, row.opened_on, row.pay_from_id = Decimal("7.10"), date(2026, 1, 1), bank
+        db.commit()
+    return user, ppf, bank, other
+
+
+def _settled(engine: Engine, action: Callable[[Session], Any]) -> str:
+    """Like attempt, but any other error (a deadlock is an OperationalError) is returned too."""
+    try:
+        return attempt(engine, action)
+    except Exception as error:
+        return f"{type(error).__name__}: {error}"
+
+
+def _archive_while_moving_its_ppf(engine: Engine) -> tuple[list[str], int, int, int]:
+    """One round: archive the bank and move its PPF to the other bank at the same moment."""
+    user, ppf, bank, other = _ppf_below_its_bank(engine)
+    move = AccountUpdate.model_validate({"pay_from_id": other})
+    actions: list[Callable[[Session], Any]] = [
+        lambda db: archive_account(bank, user, db),
+        lambda db: update_account(ppf, move, user, db),
+    ]
+    gate = threading.Barrier(len(actions))
+
+    def run(action: Callable[[Session], Any]) -> str:
+        gate.wait()
+        return _settled(engine, action)
+
+    with ThreadPoolExecutor(len(actions)) as pool:
+        return list(pool.map(run, actions)), ppf, bank, other
+
+
+def test_archive_bank_and_ppf_edit_lock_in_id_order(engine: Engine) -> None:
+    """Archiving a bank while its PPF moves to another bank, in rounds to vary who goes first."""
+    for _ in range(10):
+        results, ppf, bank, other = _archive_while_moving_its_ppf(engine)
+
+        assert results == ["ok", "ok"]  # neither side deadlocked or was refused
+        with Session(engine) as db:
+            assert db.get(Account, bank).archived_at is not None
+            # The archive clears only a PPF still paid from the bank; the move always stands.
+            assert db.get(Account, ppf).pay_from_id == other
+        with engine.begin() as conn:
+            conn.execute(text("TRUNCATE users, accounts, transactions RESTART IDENTITY CASCADE"))
