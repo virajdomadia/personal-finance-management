@@ -12,11 +12,15 @@ import {
   type Transaction,
   type TransactionForm,
   type TransactionType,
+  applyDepositRules,
   blankForm,
   changedPayload,
   formFromTransaction,
+  fromOptions,
+  incomeCategories,
   renderedFields,
   subtractMoney,
+  toOptions,
   toPayload,
   todayIndia,
 } from "@/lib/transactions";
@@ -92,12 +96,13 @@ export function TransactionDialog({
     (invalid ?? submitRef.current)?.focus();
   }, [errors, formError, saving]);
 
-  const set = (key: keyof TransactionForm, value: string) => setForm((f) => ({ ...f, [key]: value }));
+  const set = (key: keyof TransactionForm, value: string) =>
+    setForm((f) => applyDepositRules({ ...f, [key]: value }, accounts));
 
   // Keeps what the types share and resets what only some of them have.
   const changeType = (type: TransactionType) => {
     setErrors({});
-    setForm((f) => ({ ...f, type, category: "", to_account_id: "", interest: "" }));
+    setForm((f) => applyDepositRules({ ...f, type, category: "", to_account_id: "", interest: "" }, accounts));
   };
 
   // Picking a loan for a new EMI fills in its suggested split and usual account.
@@ -189,10 +194,7 @@ export function TransactionDialog({
   });
   const loans = accounts.filter((a) => a.type === "loan");
   const types = TRANSACTION_TYPES.filter((t) => t.value !== "emi" || loans.length > 0);
-  const accountOptions = (exclude: string) =>
-    accounts
-      .filter((a) => String(a.id) !== exclude && (type !== "emi" || a.type !== "loan"))
-      .map((a) => ({ value: String(a.id), label: a.name }));
+  const option = (a: Account) => ({ value: String(a.id), label: a.name });
   const principal = subtractMoney(cleanMoney(form.amount), cleanMoney(form.interest));
 
   return (
@@ -248,7 +250,7 @@ export function TransactionDialog({
             <Select
               {...pickerProps("account_id")}
               placeholder="Choose an account"
-              options={accountOptions(type === "transfer" ? form.to_account_id : "")}
+              options={fromOptions(type, accounts, form).map(option)}
             />,
           )}
 
@@ -295,7 +297,7 @@ export function TransactionDialog({
             ? field(
                 "to_account_id",
                 "To account",
-                <Select {...pickerProps("to_account_id")} placeholder="Choose an account" options={accountOptions(form.account_id)} />,
+                <Select {...pickerProps("to_account_id")} placeholder="Choose an account" options={toOptions(accounts, form).map(option)} />,
               )
             : field(
                 "category",
@@ -303,7 +305,7 @@ export function TransactionDialog({
                 <ComboBox
                   {...pickerProps("category")}
                   maxLength={40}
-                  options={categories[type].map((name) => ({ value: name, label: name }))}
+                  options={(type === "income" ? incomeCategories(accounts, form, categories.income) : categories[type]).map((name) => ({ value: name, label: name }))}
                 />,
               )}
 
