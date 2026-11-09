@@ -1,4 +1,5 @@
 import { type Account, cleanMoney, formatRupees } from "./accounts.ts";
+import { formatCoinQty } from "./crypto.ts";
 
 export type TransactionType = "income" | "expense" | "transfer" | "emi";
 
@@ -252,4 +253,25 @@ export function applyDepositRules(form: TransactionForm, accounts: Account[]): T
 // an expense can't be paid from; then no account is chosen.
 export function newTransactionForm(date: string, accountId: number | null, accounts: Account[]): TransactionForm {
   return applyDepositRules(blankForm("expense", date, accountId), accounts);
+}
+
+// One buy or sell on an account's investment activity list, from GET /accounts/{id}/investment-activity.
+export type Activity = {
+  trade_id: number;
+  kind: "stock" | "mutual_fund" | "crypto";
+  instrument_id: number;
+  symbol: string;
+  name: string;
+  side: "buy" | "sell";
+  date: string;
+  quantity: string;
+  amount: string;
+  signed_amount: string;
+  sip_id: number | null;
+};
+
+export function activityLabel(a: Activity): string {
+  if (a.sip_id !== null) return `SIP: ${a.name}`;
+  const quantity = a.kind === "crypto" ? formatCoinQty(a.quantity) : a.quantity;
+  return `${a.side === "buy" ? "Bought" : "Sold"} ${quantity} ${a.symbol}`;
 }

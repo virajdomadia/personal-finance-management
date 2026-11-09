@@ -1,4 +1,5 @@
 import { cleanMoney, formatRupees } from "./accounts.ts";
+import type { CryptoPortfolio } from "./crypto.ts";
 import type { FundsPortfolio } from "./funds.ts";
 
 export type TradeSide = "buy" | "sell";
@@ -87,6 +88,7 @@ export type Portfolio = {
   closed: ClosedPosition[];
   totals: Totals;
   funds: FundsPortfolio;
+  crypto: CryptoPortfolio;
   deposits: Deposits;
   overall: Totals;
 };

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  activityLabel,
   applyDepositRules,
   blankForm,
   fromOptions,
@@ -275,4 +276,21 @@ test("transfer pickers leave deposits out against a non-bank account", () => {
   assert.deepEqual(ids(toOptions(set, f({ type: "transfer", account_id: "2" }))), [1, 5]);
   assert.deepEqual(ids(fromOptions("transfer", set, f({ type: "transfer", to_account_id: "2" }))), [1, 5]);
   assert.deepEqual(ids(toOptions(set, f({ type: "transfer", account_id: "1" }))), [2, 3, 4, 5]);
+});
+
+test("activityLabel words each kind of investment activity", () => {
+  const base = { trade_id: 1, instrument_id: 1, date: "2026-11-01", amount: "1.00", signed_amount: "-1.00", sip_id: null };
+  assert.equal(
+    activityLabel({ ...base, kind: "crypto", symbol: "BTC", name: "Bitcoin", side: "buy", quantity: "0.00004000" }),
+    "Bought 0.00004 BTC",
+  );
+  assert.equal(activityLabel({ ...base, kind: "stock", symbol: "INFY", name: "Infosys", side: "sell", quantity: "10" }), "Sold 10 INFY");
+  assert.equal(
+    activityLabel({ ...base, kind: "mutual_fund", symbol: "PPFCRG", name: "Parag Parikh Flexi Cap", side: "buy", quantity: "35.552", sip_id: 4 }),
+    "SIP: Parag Parikh Flexi Cap",
+  );
+  assert.equal(
+    activityLabel({ ...base, kind: "mutual_fund", symbol: "PPFCRG", name: "Parag Parikh Flexi Cap", side: "buy", quantity: "35.552" }),
+    "Bought 35.552 PPFCRG",
+  );
 });
