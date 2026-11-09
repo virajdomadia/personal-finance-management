@@ -9,11 +9,16 @@ A bank whose method differs is matched by changing only `rd_maturity_value` and
 `rd_interest_so_far`.
 """
 
-from datetime import date
+from datetime import UTC, date
 from decimal import ROUND_HALF_UP, Decimal, localcontext
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
-from app.api.dates import clamped_date
+from pydantic import BaseModel
+
+from app.api.balances import balance_of
+from app.api.dates import INDIA, clamped_date
+from app.api.loans import Book, DepositMove
+from app.models.account import Account
 
 PAISE = Decimal("0.01")
 
@@ -167,3 +172,124 @@ def rd_due_months(
 
 def rd_months_paid(transfer_dates: list[date]) -> int:
     return len({(d.year, d.month) for d in transfer_dates})
+
+
+PPF_YEAR_LIMIT = Decimal("150000.00")
+
+
+class PpfInterestDue(BaseModel):
+    year: str
+    amount: str
+    date: str
+
+
+class PpfFigures(BaseModel):
+    kind: Literal["ppf"]
+    maturity_date: str
+    deposited_this_year: str
+    year_limit: str
+    interest_this_year: str
+    interest_due: PpfInterestDue | None
+
+
+class RdFigures(BaseModel):
+    kind: Literal["rd"]
+    maturity_date: str
+    deposits_paid: int
+    deposits_left: int
+    deposited: str
+    interest_so_far: str
+    value_today: str
+    maturity_value: str
+    due: list[str]
+
+
+def _fmt(value: Decimal) -> str:
+    return f"{value + 0:.2f}"
+
+
+def _transfers_in(moves: list[DepositMove]) -> list[Dated]:
+    return [Dated(m.date, m.amount) for m in moves if m.kind == "in"]
+
+
+def rd_months_recorded(account: Account, book: Book) -> int:
+    return rd_months_paid(
+        [m.date for m in book.deposit_moves.get(account.id, []) if m.kind == "in"]
+    )
+
+
+def rd_deposits_paid(account: Account, book: Book) -> int | None:
+    if account.deposits_at_opening is None:
+        return None
+    return account.deposits_at_opening + rd_months_recorded(account, book)
+
+
+def _ppf_figures(account: Account, book: Book, today: date) -> PpfFigures | None:
+    if account.opened_on is None or account.interest_rate is None:
+        return None
+    moves = book.deposit_moves.get(account.id, [])
+    signed = [Dated(m.date, -m.amount if m.kind == "out" else m.amount) for m in moves]
+    year = financial_year(today)
+    deposited = sum(
+        (m.amount for m in moves if m.kind == "in" and financial_year(m.date) == year),
+        Decimal(0),
+    )
+    rate = account.interest_rate
+    opening = account.opening_balance
+    created = account.created_at
+    added_on = (created if created.tzinfo else created.replace(tzinfo=UTC)).astimezone(INDIA).date()
+    due = ppf_interest_due(
+        opening, signed, [m.date for m in moves if m.kind == "interest"], rate, added_on, today
+    )
+    return PpfFigures(
+        kind="ppf",
+        maturity_date=ppf_maturity(account.opened_on).isoformat(),
+        deposited_this_year=_fmt(deposited),
+        year_limit=_fmt(PPF_YEAR_LIMIT),
+        interest_this_year=_fmt(ppf_year_interest(opening, signed, rate, year, today)),
+        interest_due=None
+        if due is None
+        else PpfInterestDue(
+            year=fy_label(due[0]), amount=_fmt(due[1]), date=date(due[0] + 1, 3, 31).isoformat()
+        ),
+    )
+
+
+def _rd_figures(account: Account, book: Book, today: date) -> RdFigures | None:
+    opened, amount, tenure = account.opened_on, account.deposit_amount, account.tenure_months
+    rate, at_opening, due_day = account.interest_rate, account.deposits_at_opening, account.due_day
+    if None in (opened, amount, tenure, rate, at_opening, due_day):
+        return None
+    assert opened and amount and tenure and rate is not None and at_opening is not None and due_day
+    moves = book.deposit_moves.get(account.id, [])
+    transfers = _transfers_in(moves)
+    paid = at_opening + rd_months_paid([t.date for t in transfers])
+    maturity = rd_maturity(opened, tenure)
+    recorded = sum((m.amount for m in moves if m.kind == "interest"), Decimal(0))
+    interest = rd_interest_so_far(
+        rd_instalments(opened, amount, at_opening, transfers), rate, today, maturity, recorded
+    )
+    return RdFigures(
+        kind="rd",
+        maturity_date=maturity.isoformat(),
+        deposits_paid=paid,
+        deposits_left=max(tenure - paid, 0),
+        deposited=_fmt(sum((t.amount for t in transfers), Decimal(0)) + at_opening * amount),
+        interest_so_far=_fmt(interest),
+        value_today=_fmt(balance_of(account, book.flows) + interest),
+        maturity_value=_fmt(rd_maturity_value(amount, rate, tenure)),
+        due=[
+            d.isoformat()
+            for d in rd_due_months(
+                opened, due_day, tenure, at_opening, [t.date for t in transfers], today
+            )
+        ],
+    )
+
+
+def deposit_figures(account: Account, book: Book, today: date) -> PpfFigures | RdFigures | None:
+    if account.type == "ppf":
+        return _ppf_figures(account, book, today)
+    if account.type == "rd":
+        return _rd_figures(account, book, today)
+    return None
