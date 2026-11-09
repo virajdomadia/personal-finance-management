@@ -34,6 +34,7 @@ import {
 } from "@/lib/accounts";
 import { payFromAccounts } from "@/lib/deposits";
 import { ApiError, apiFetch } from "@/lib/api";
+import { DateField } from "@/components/date-field";
 import { useSession } from "@/lib/session";
 import { todayIndia } from "@/lib/transactions";
 
@@ -420,7 +421,6 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
     if (key === "interest_rate") {
       return type === "loan" ? "Optional. Used to suggest each EMI's interest." : "The yearly rate, for example 7.10.";
     }
-    if (key === "opened_on") return "Use YYYY-MM-DD.";
     if (key === "deposits_paid") return "Instalments you have already paid, before using this app.";
     if (key === "tenure_months") return "1 to 120 months.";
     if (key === "pay_from_id" && (type === "ppf" || type === "rd")) {
@@ -634,22 +634,16 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
           {type === "ppf" || type === "rd" ? (
             <>
               {money("interest_rate", "Interest rate (% a year)")}
-              {input(
+              {field(
                 "opened_on",
-                "Opened on (YYYY-MM-DD)",
-                { maxLength: 10 },
-                <View style={styles.chips}>
-                  <Chip
-                    selected={form.opened_on === todayIndia()}
-                    showSelectedCheck
-                    disabled={busy}
-                    onPress={() => set("opened_on", todayIndia())}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: form.opened_on === todayIndia(), disabled: busy }}
-                  >
-                    Today
-                  </Chip>
-                </View>,
+                <DateField
+                  label="Opened on"
+                  value={form.opened_on}
+                  onChange={(iso) => set("opened_on", iso)}
+                  disabled={busy}
+                  maxDate={todayIndia()}
+                  invalid={Boolean(errors.opened_on)}
+                />,
               )}
               {type === "rd" ? (
                 <>

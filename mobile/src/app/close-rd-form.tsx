@@ -11,6 +11,7 @@ import {
 import { Appbar, Button, Chip, HelperText, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { DateField } from "@/components/date-field";
 import { type Account, type AccountList, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type CloseRdForm, closeRdForm, closeRdPayload } from "@/lib/deposits";
@@ -54,7 +55,7 @@ export default function CloseRdScreen() {
         if (!current) return;
         setAccounts(result.accounts);
         const rd = result.accounts.find((a) => a.type === "rd" && String(a.id) === id);
-        if (rd) setForm((existing) => existing ?? closeRdForm(rd, todayIndia()));
+        if (rd) setForm((existing) => existing ?? closeRdForm(rd, todayIndia(), result.accounts));
       })
       .catch((err: unknown) => {
         if (!current) return;
@@ -145,7 +146,7 @@ export default function CloseRdScreen() {
         setErrors(result.fields);
         setGeneral(result.general);
       } else if (err instanceof ApiError && (err.status === 409 || err.status === 404)) {
-        setGeneral([errorMessage({ detail: err.detail })]);
+        setGeneral([errorMessage(err)]);
       } else {
         setGeneral([errorMessage(err)]);
       }
@@ -199,43 +200,18 @@ export default function CloseRdScreen() {
             ) : null}
           </View>
 
-          <View>
-            <TextInput
-              mode="outlined"
-              label="Date (YYYY-MM-DD)"
-              value={form.date}
-              onChangeText={(text) => set("date", text)}
-              error={Boolean(errors.date)}
-              disabled={busy}
-              maxLength={10}
-              autoComplete="off"
-              importantForAutofill="no"
-              autoCorrect={false}
-            />
-            <View style={styles.chips}>
-              {[
-                { label: "Today", value: today },
-                { label: "Yesterday", value: yesterday },
-              ].map((option) => (
-                <Chip
-                  key={option.label}
-                  selected={form.date === option.value}
-                  showSelectedCheck
-                  disabled={busy}
-                  onPress={() => set("date", option.value)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: form.date === option.value, disabled: busy }}
-                >
-                  {option.label}
-                </Chip>
-              ))}
-            </View>
-            {errors.date ? (
-              <HelperText type="error" visible>
-                {errors.date}
-              </HelperText>
-            ) : null}
-          </View>
+          <DateField
+            label="Date"
+            value={form.date}
+            onChange={(iso) => set("date", iso)}
+            disabled={busy}
+            maxDate={today}
+            error={errors.date}
+            chips={[
+              { label: "Today", value: today },
+              { label: "Yesterday", value: yesterday },
+            ]}
+          />
 
           <View>
             <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>

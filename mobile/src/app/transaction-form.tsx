@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { type Account, type AccountList, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { instalmentForm, interestForm, ppfDepositForm } from "@/lib/deposits";
+import { DateField } from "@/components/date-field";
 import { useSession } from "@/lib/session";
 import {
   type CategoryList,
@@ -25,9 +26,13 @@ import {
   type Transaction,
   type TransactionForm,
   type TransactionType,
-  blankForm,
   changedPayload,
+  applyDepositRules,
   emiForm,
+  fromOptions,
+  incomeCategories,
+  startForm,
+  toOptions,
   formFromTransaction,
   previousDay,
   renderedFields,
@@ -145,7 +150,7 @@ export default function TransactionFormScreen() {
   return (
     <FormBody
       {...loaded}
-      defaultAccountId={preselected ?? loaded.accounts[0]?.id ?? null}
+      preselectedId={preselected}
       initialForm={initialForm}
     />
   );
@@ -188,9 +193,9 @@ function FormBody({
   accounts,
   categories,
   transaction,
-  defaultAccountId,
+  preselectedId,
   initialForm,
-}: Loaded & { defaultAccountId: number | null; initialForm?: TransactionForm }) {
+}: Loaded & { preselectedId: number | null; initialForm?: TransactionForm }) {
   const editing = transaction !== null;
   const { token, logOut } = useSession();
   const { colors } = useTheme();
@@ -198,7 +203,7 @@ function FormBody({
   const [form, setForm] = useState<TransactionForm>(() =>
     transaction
       ? formFromTransaction(transaction)
-      : (initialForm ?? blankForm("expense", todayIndia(), defaultAccountId)),
+      : (initialForm ?? startForm(accounts, todayIndia(), preselectedId)),
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
@@ -286,35 +291,47 @@ function FormBody({
     }
   }, [errors, general, saving, type, scrollToField]);
 
-  const set = useCallback((key: keyof TransactionForm, value: string) => setForm((f) => ({ ...f, [key]: value })), []);
+  // Every change is followed by the deposit rules, so an account the rules no longer allow is cleared at once.
+  const set = useCallback(
+    (key: keyof TransactionForm, value: string) => setForm((f) => applyDepositRules({ ...f, [key]: value }, accounts)),
+    [accounts],
+  );
 
   // Keeps what the types share and resets what only some of them have.
   const changeType = (next: TransactionType) => {
     if (next === type) return;
     setErrors({});
     setGeneral([]);
-    setForm((f) => ({ ...f, type: next, category: "", to_account_id: "", interest: "" }));
+    setForm((f) => applyDepositRules({ ...f, type: next, category: "", to_account_id: "", interest: "" }, accounts));
   };
 
   // Picking a loan for a new EMI fills in its suggested split and usual account.
   const chooseLoan = (loanId: string) => {
     const loan = accounts.find((a) => String(a.id) === loanId);
     setForm((f) => {
-      if (editing || !loan) return { ...f, to_account_id: loanId };
+      if (editing || !loan) return applyDepositRules({ ...f, to_account_id: loanId }, accounts);
       const usual = loan.pay_from_id !== null && accounts.some((a) => a.id === loan.pay_from_id);
-      return {
-        ...f,
-        to_account_id: loanId,
-        account_id: usual ? String(loan.pay_from_id) : f.account_id,
-        amount: loan.next_emi?.amount ?? loan.emi_amount ?? f.amount,
-        interest: loan.next_emi?.interest ?? f.interest,
-      };
+      return applyDepositRules(
+        {
+          ...f,
+          to_account_id: loanId,
+          account_id: usual ? String(loan.pay_from_id) : f.account_id,
+          amount: loan.next_emi?.amount ?? loan.emi_amount ?? f.amount,
+          interest: loan.next_emi?.interest ?? f.interest,
+        },
+        accounts,
+      );
     });
   };
 
   // A transfer can't go from an account to itself, so picking the "to" account as "from" clears it.
   const changeFrom = (accountId: string) =>
-    setForm((f) => ({ ...f, account_id: accountId, to_account_id: f.to_account_id === accountId ? "" : f.to_account_id }));
+    setForm((f) =>
+      applyDepositRules(
+        { ...f, account_id: accountId, to_account_id: f.to_account_id === accountId ? "" : f.to_account_id },
+        accounts,
+      ),
+    );
 
   async function save() {
     if (savingRef.current || deletingRef.current) return;
@@ -449,8 +466,10 @@ function FormBody({
   const suggestions = type === "transfer" || type === "emi" ? [] : categories[type];
   const loans = accounts.filter((a) => a.type === "loan");
   const types = TRANSACTION_TYPES.filter((t) => t.value !== "emi" || loans.length > 0);
-  // An EMI is paid from an ordinary account, never from another loan.
-  const payers = type === "emi" ? accounts.filter((a) => a.type !== "loan") : accounts;
+  // Expenses and EMIs can't be paid from a PPF or RD, and a deposit only moves money with a bank.
+  const payers = fromOptions(type, accounts, form);
+  const categoryChoices = type === "income" ? incomeCategories(accounts, form, suggestions) : suggestions;
+  const interestOnly = type === "income" && categoryChoices.length === 1 && categoryChoices !== suggestions;
   const principal = subtractMoney(cleanMoney(form.amount), cleanMoney(form.interest));
 
   return (
@@ -506,11 +525,18 @@ function FormBody({
           {field(
             "date",
             <>
-              {input("date", "Date (YYYY-MM-DD)", { maxLength: 10 })}
-              <View style={styles.chips}>
-                {choice("Today", form.date === today, () => set("date", today))}
-                {choice("Yesterday", form.date === yesterday, () => set("date", yesterday))}
-              </View>
+              <DateField
+                label={"Date"}
+                value={form.date}
+                onChange={(iso) => set("date", iso)}
+                disabled={busy}
+                maxDate={today}
+                invalid={Boolean(errors.date)}
+                chips={[
+                  { label: "Today", value: today },
+                  { label: "Yesterday", value: yesterday },
+                ]}
+              />
             </>,
           )}
 
@@ -555,18 +581,16 @@ function FormBody({
                 <>
                   {heading("To account")}
                   <View style={styles.chips}>
-                    {accounts
-                      .filter((a) => String(a.id) !== form.account_id)
-                      .map((a) => choice(a.name, form.to_account_id === String(a.id), () => set("to_account_id", String(a.id)), String(a.id)))}
+                    {toOptions(accounts, form).map((a) => choice(a.name, form.to_account_id === String(a.id), () => set("to_account_id", String(a.id)), String(a.id)))}
                   </View>
                 </>,
               )
             : field(
                 "category",
                 <>
-                  {input("category", "Category", { maxLength: 40 })}
+                  {interestOnly ? heading("Category") : input("category", "Category", { maxLength: 40 })}
                   <View style={styles.chips}>
-                    {suggestions.map((name) =>
+                    {categoryChoices.map((name) =>
                       choice(name, form.category.trim().toLowerCase() === name.toLowerCase(), () => set("category", name)),
                     )}
                   </View>

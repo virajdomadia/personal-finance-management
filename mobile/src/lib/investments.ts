@@ -67,12 +67,25 @@ export type Totals = {
   realised: string;
 };
 
+// One active PPF or RD. The estimate comes from the server; the app never works out interest.
+export type DepositRow = {
+  account_id: number;
+  name: string;
+  type: "ppf" | "rd";
+  balance: string;
+  maturity_date: string | null;
+  interest_estimate: string;
+};
+
+export type DepositsPortfolio = { value: string; interest_estimate: string; accounts: DepositRow[] };
+
 export type Portfolio = {
   holdings: Holding[];
   by_stock: StockTotal[];
   closed: ClosedPosition[];
   totals: Totals;
   funds: FundsPortfolio;
+  deposits: DepositsPortfolio;
   overall: Totals;
 };
 

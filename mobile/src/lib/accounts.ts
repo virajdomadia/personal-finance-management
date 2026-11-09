@@ -254,6 +254,7 @@ export function depositErrors(form: AccountForm): Record<string, string> {
   if (form.pay_from_id.trim() === "") errors.pay_from_id = "Choose the bank the instalments come from.";
   const amount = cleanMoney(form.deposit_amount);
   if (amount === "") errors.deposit_amount = "Enter the monthly instalment.";
+  else if (!/^[+-]?\d+(\.\d+)?$/.test(amount)) errors.deposit_amount = "Enter an amount, like 1234.50.";
   else if (/^[+]?0*(\.0*)?$/.test(amount)) errors.deposit_amount = "Instalment must be greater than 0.";
   const day = form.due_day.trim();
   if (day === "") errors.due_day = "Choose the instalment day.";
@@ -265,7 +266,9 @@ export function depositErrors(form: AccountForm): Record<string, string> {
   const tenureOk = /^\d+$/.test(tenure) && Number(tenure) >= 1 && Number(tenure) <= 120;
   if (!tenureOk) errors.tenure_months = TENURE_MESSAGE;
   const paid = form.deposits_paid.trim();
-  if (!/^\d+$/.test(paid) || (tenureOk && Number(paid) > Number(tenure))) errors.deposits_paid = PAID_MESSAGE;
+  // With a bad tenure there is no ceiling to compare against, so 120 (the longest tenure) is the limit.
+  const paidCeiling = tenureOk ? Number(tenure) : 120;
+  if (!/^\d+$/.test(paid) || Number(paid) > paidCeiling) errors.deposits_paid = PAID_MESSAGE;
   return errors;
 }
 

@@ -51,11 +51,14 @@ export function interestForm(account: Account): TransactionForm {
 
 export type CloseRdForm = { amount: string; date: string; account_id: string };
 
-export function closeRdForm(account: Account, today: string): CloseRdForm {
+// The RD's usual bank is pre-selected only while it is still an active bank; otherwise the user must choose.
+export function closeRdForm(account: Account, today: string, banks?: Account[]): CloseRdForm {
+  const usual = idText(account.pay_from_id);
+  const offered = banks === undefined || banks.some((b) => b.type === "bank" && !b.archived && String(b.id) === usual);
   return {
     amount: account.deposit?.kind === "rd" ? account.deposit.maturity_value : "",
     date: today,
-    account_id: idText(account.pay_from_id),
+    account_id: offered ? usual : "",
   };
 }
 

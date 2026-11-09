@@ -388,3 +388,17 @@ test("depositErrors words the required fields as the server does", () => {
   assert.equal(depositErrors(rdForm({ deposit_amount: "0" })).deposit_amount, "Instalment must be greater than 0.");
   assert.equal(depositErrors(rdForm({ due_day: "40" })).due_day, "Enter a day from 1 to 31.");
 });
+
+test("depositErrors gives a non-numeric instalment the server's money message", () => {
+  assert.equal(depositErrors(rdForm({ deposit_amount: "abc" })).deposit_amount, "Enter an amount, like 1234.50.");
+  assert.equal(depositErrors(rdForm({ deposit_amount: "12 34" })).deposit_amount, "Enter an amount, like 1234.50.");
+  assert.equal(depositErrors(rdForm({ deposit_amount: "1,500.50" })).deposit_amount, undefined);
+});
+
+test("depositErrors still checks deposits_paid when the tenure is invalid", () => {
+  assert.equal(depositErrors(rdForm({ tenure_months: "", deposits_paid: "5" })).deposits_paid, undefined);
+  assert.equal(depositErrors(rdForm({ tenure_months: "abc", deposits_paid: "x" })).deposits_paid, "Enter the instalments paid so far, from 0 to the tenure.");
+  assert.equal(depositErrors(rdForm({ tenure_months: "0", deposits_paid: "121" })).deposits_paid, "Enter the instalments paid so far, from 0 to the tenure.");
+  assert.equal(depositErrors(rdForm({ tenure_months: "121", deposits_paid: "120" })).deposits_paid, undefined);
+  assert.equal(depositErrors(rdForm({ tenure_months: "", deposits_paid: "-1" })).deposits_paid, "Enter the instalments paid so far, from 0 to the tenure.");
+});

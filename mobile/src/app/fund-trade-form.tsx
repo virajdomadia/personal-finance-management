@@ -37,6 +37,7 @@ import {
   unitsMismatch,
 } from "@/lib/funds";
 import { realDate } from "@/lib/investments";
+import { DateField } from "@/components/date-field";
 import { useSession } from "@/lib/session";
 import { previousDay, todayIndia } from "@/lib/transactions";
 
@@ -864,11 +865,18 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
           {field(
             "date",
             <>
-              {input("date", mode === "opening" ? "Bought around (YYYY-MM-DD)" : "Date (YYYY-MM-DD)", { maxLength: 10 })}
-              <View style={styles.chips}>
-                {choice("Today", form.date === today, () => set("date", today))}
-                {choice("Yesterday", form.date === yesterday, () => set("date", yesterday))}
-              </View>
+              <DateField
+                label={mode === "opening" ? "Bought around" : "Date"}
+                value={form.date}
+                onChange={(iso) => set("date", iso)}
+                disabled={busy}
+                maxDate={today}
+                invalid={Boolean(errors.date)}
+                chips={[
+                  { label: "Today", value: today },
+                  { label: "Yesterday", value: yesterday },
+                ]}
+              />
             </>,
           )}
 

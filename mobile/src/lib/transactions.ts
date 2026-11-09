@@ -208,3 +208,67 @@ export function groupByDate(transactions: Transaction[]): { date: string; transa
 // Set by the form when it saves, and read by the list when it regains focus, so the list can move
 // to the month the transaction landed in rather than have it seem to vanish.
 export const savedMonth: { current: string | null } = { current: null };
+
+const isDeposit = (a: Account | undefined) => a?.type === "ppf" || a?.type === "rd";
+const byId = (accounts: Account[], id: string) => accounts.find((a) => String(a.id) === id);
+const isActiveBank = (a: Account) => a.type === "bank" && !a.archived;
+
+// The accounts the "paid from" / "received in" / "from" picker offers. The server refuses an expense
+// or EMI paid from a PPF or RD, and a transfer between a deposit and anything but a bank; so those
+// aren't offered. The account already chosen stays listed so a pre-filled form still shows it.
+export function fromOptions(type: TransactionType, accounts: Account[], form: TransactionForm): Account[] {
+  const toAccount = byId(accounts, form.to_account_id);
+  return accounts.filter((a) => {
+    if (String(a.id) === form.account_id) return true;
+    if (type === "expense") return !isDeposit(a);
+    if (type === "emi") return !isDeposit(a) && a.type !== "loan";
+    if (type === "transfer") return String(a.id) !== form.to_account_id && (!isDeposit(toAccount) || isActiveBank(a));
+    return true;
+  });
+}
+
+// The transfer's "to" picker: never the "from" account. Only a bank can pay into a deposit and only
+// a bank can receive from one, so a deposit "from" lists active banks and a non-bank "from" lists no deposits.
+export function toOptions(accounts: Account[], form: TransactionForm): Account[] {
+  const from = byId(accounts, form.account_id);
+  return accounts.filter((a) => {
+    if (String(a.id) === form.to_account_id) return true;
+    if (String(a.id) === form.account_id) return false;
+    if (isDeposit(from)) return isActiveBank(a);
+    if (from && from.type !== "bank" && isDeposit(a)) return false;
+    return true;
+  });
+}
+
+// The account a new form starts with: the one asked for, else the first that isn't a deposit, which
+// an expense can't be paid from.
+export function defaultAccountId(accounts: Account[], preferred: number | null): number | null {
+  if (preferred !== null) return preferred;
+  return (accounts.find((a) => !isDeposit(a)) ?? accounts[0])?.id ?? null;
+}
+
+// A new blank expense form. If its account is a deposit (opened from that account's page), the rules
+// clear it once up front, so the picker never shows a choice the first edit would silently drop.
+export function startForm(accounts: Account[], date: string, preferred: number | null): TransactionForm {
+  return applyDepositRules(blankForm("expense", date, defaultAccountId(accounts, preferred)), accounts);
+}
+
+// Income into a PPF or RD can only be interest, so that is the one category offered.
+export function incomeCategories(accounts: Account[], form: TransactionForm, categories: string[]): string[] {
+  return isDeposit(byId(accounts, form.account_id)) ? ["Interest"] : categories;
+}
+
+// After the user changes a field, drop or fix what the deposit rules no longer allow. Not applied
+// to a pre-filled form, which is already valid.
+export function applyDepositRules(form: TransactionForm, accounts: Account[]): TransactionForm {
+  const from = byId(accounts, form.account_id);
+  const to = byId(accounts, form.to_account_id);
+  let next = form;
+  if ((form.type === "expense" || form.type === "emi") && isDeposit(from)) next = { ...next, account_id: "" };
+  if (form.type === "income" && isDeposit(from)) next = { ...next, category: "Interest" };
+  if (form.type === "transfer") {
+    if (isDeposit(from) && to && !isActiveBank(to)) next = { ...next, to_account_id: "" };
+    if (isDeposit(to) && from && !isActiveBank(from)) next = { ...next, account_id: "" };
+  }
+  return next;
+}

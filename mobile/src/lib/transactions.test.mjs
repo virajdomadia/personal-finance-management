@@ -2,14 +2,20 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  applyDepositRules,
   blankForm,
+  defaultAccountId,
+  startForm,
   changedPayload,
   emiForm,
   subtractMoney,
   formFromTransaction,
   formatDate,
   formatMonth,
+  fromOptions,
   groupByDate,
+  incomeCategories,
+  toOptions,
   previousDay,
   renderedFields,
   shiftMonth,
@@ -222,4 +228,72 @@ test("subtractMoney is exact and refuses what isn't a plain amount", () => {
   assert.equal(subtractMoney("100", "0"), "100.00");
   assert.equal(subtractMoney("100", "abc"), "");
   assert.equal(subtractMoney("1.234", "1"), "");
+});
+
+const acct = (id, type, extra = {}) => ({ id, type, name: `${type} ${id}`, archived: false, ...extra });
+const bank = acct(1, "bank");
+const bank2 = acct(2, "bank");
+const cash = acct(3, "cash");
+const ppf = acct(4, "ppf");
+const rd = acct(5, "rd");
+const loan = acct(6, "loan");
+const card = acct(7, "credit_card");
+const all = [bank, bank2, cash, ppf, rd, loan, card];
+const form = (type, account_id = "", to_account_id = "", category = "") => ({ ...blankForm(type, "2026-01-01", null), account_id, to_account_id, category });
+const ids = (list) => list.map((a) => a.id);
+
+test("expense and EMI payers leave out PPF and RD", () => {
+  assert.deepEqual(ids(fromOptions("expense", all, form("expense"))), [1, 2, 3, 6, 7]);
+  assert.deepEqual(ids(fromOptions("emi", all, form("emi"))), [1, 2, 3, 7]);
+});
+
+test("income can be received in a deposit", () => {
+  assert.deepEqual(ids(fromOptions("income", all, form("income"))), [1, 2, 3, 4, 5, 6, 7]);
+});
+
+test("a pre-selected account stays listed even if the rules would hide it", () => {
+  assert.ok(ids(fromOptions("expense", all, form("expense", "5"))).includes(5));
+});
+
+test("a transfer into a deposit offers banks as the source, and out of one banks as the target", () => {
+  assert.deepEqual(ids(fromOptions("transfer", all, form("transfer", "", "4"))), [1, 2]);
+  assert.deepEqual(ids(toOptions(all, form("transfer", "4"))), [1, 2]);
+  assert.deepEqual(ids(toOptions(all, form("transfer", "1"))), [2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(ids(fromOptions("transfer", all, form("transfer", "", "1"))), [2, 3, 4, 5, 6, 7]);
+});
+
+test("archived banks are not offered next to a deposit", () => {
+  const old = acct(9, "bank", { archived: true });
+  assert.deepEqual(ids(toOptions([bank, old, ppf], form("transfer", "4"))), [1]);
+});
+
+test("income into a deposit offers only Interest", () => {
+  assert.deepEqual(incomeCategories(all, form("income", "4"), ["Salary", "Interest"]), ["Interest"]);
+  assert.deepEqual(incomeCategories(all, form("income", "1"), ["Salary", "Interest"]), ["Salary", "Interest"]);
+});
+
+test("applyDepositRules fixes what a change leaves invalid", () => {
+  assert.equal(applyDepositRules(form("expense", "4"), all).account_id, "");
+  assert.equal(applyDepositRules(form("emi", "5", "6"), all).account_id, "");
+  assert.equal(applyDepositRules(form("income", "4", "", "Salary"), all).category, "Interest");
+  assert.equal(applyDepositRules(form("transfer", "4", "3"), all).to_account_id, "");
+  assert.equal(applyDepositRules(form("transfer", "3", "4"), all).account_id, "");
+  const ok = form("transfer", "1", "4");
+  assert.equal(applyDepositRules(ok, all), ok);
+});
+
+test("a non-bank source offers no deposits as the transfer target", () => {
+  assert.deepEqual(ids(toOptions(all, form("transfer", "3"))), [1, 2, 6, 7]);
+  assert.deepEqual(ids(toOptions(all, form("transfer", "7"))), [1, 2, 3, 6]);
+  assert.deepEqual(ids(toOptions(all, form("transfer", "3", "4"))), [1, 2, 4, 6, 7]);
+});
+
+test("a new form never starts on a deposit", () => {
+  assert.equal(defaultAccountId([ppf, rd, bank], null), 1);
+  assert.equal(defaultAccountId([ppf], null), 4);
+  assert.equal(defaultAccountId([], null), null);
+  assert.equal(startForm([ppf, bank], "2026-01-01", null).account_id, "1");
+  assert.equal(startForm([ppf, bank], "2026-01-01", 4).account_id, "");
+  assert.equal(startForm([ppf, bank], "2026-01-01", 1).account_id, "1");
+  assert.equal(startForm([ppf], "2026-01-01", null).account_id, "");
 });

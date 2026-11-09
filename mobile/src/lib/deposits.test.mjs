@@ -110,6 +110,14 @@ test("closeRdForm and closeRdPayload", () => {
   assert.equal(closeRdPayload({ amount: "1", date: "2026-11-20", account_id: "" }).account_id, null);
 });
 
+test("closeRdForm clears a pay-from that isn't an active bank", () => {
+  const banks = [{ id: 7, type: "bank", archived: false }, { id: 8, type: "bank", archived: false }];
+  assert.equal(closeRdForm(rd(), "2026-11-20", banks).account_id, "7");
+  assert.equal(closeRdForm(rd({ pay_from_id: 9 }), "2026-11-20", banks).account_id, "");
+  assert.equal(closeRdForm(rd({ pay_from_id: 7 }), "2026-11-20", []).account_id, "");
+  assert.equal(closeRdForm(rd({ pay_from_id: null }), "2026-11-20", banks).account_id, "");
+});
+
 test("formatLongDate and depositLines", async () => {
   const { formatLongDate, depositLines } = await import("./deposits.ts");
   assert.equal(formatLongDate("2036-04-01"), "1 Apr 2036");
