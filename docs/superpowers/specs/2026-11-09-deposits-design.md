@@ -149,6 +149,16 @@ Each platform gets its own UI on the shared backend, never a copy of the other.
 - **Android:** the Accounts tab gains the same group as its own cards, due cards at the top, the new types on the account form, and phone forms for deposit, instalment, interest and Close RD. Recording an instalment is one tap to open and one to save.
 - Both clients only display the server's figures. No interest arithmetic in a client.
 
+## Deposits on the Investments page (decided with the owner, after the first build)
+
+The owner asked why PPF and RD sit under Accounts and not Investments, and chose **both**. Storage doesn't change: they stay accounts, and deposits stay transfers. What changes is where they show up:
+
+- **Portfolio API:** `GET /investments/portfolio` gains a `deposits` object: `value` (the sum of active PPF and RD balances), `interest_estimate` (the sum of each PPF's `interest_this_year` and each RD's `interest_so_far`), and `accounts` (one row per active PPF/RD: `account_id`, `name`, `type`, `balance`, `maturity_date`, and the estimate). The existing keys keep their shapes.
+- **Overall figures:** `overall` and the dashboard's `investments` figure include deposits. Their balance adds to both `invested` and `value`, so `unrealised` doesn't change and its percent is worked out over the larger invested total. The estimate is still not counted. The dashboard shows the investments figure whenever there are holdings **or** deposits.
+- **Web:** the Investments page gains a **Deposits** section beside Stocks and Mutual funds, with the total, the interest estimate, and one row per deposit linking to its account actions. Each section loads and fails on its own, so one failing endpoint no longer blanks the page (the earlier follow-up from the mutual funds review).
+- **Android:** the Investments tab's segmented control gains **Deposits**, with the same figures.
+- The Accounts page keeps its Deposits group and the due lines.
+
 ## Importing the owner's accounts
 
 After deployment, the owner's PPF and RD go in through a reviewed SQL script, as before, tested on the dev database with a rollback first, and run by the owner. It needs from the owner's passbook and RD advice:
@@ -169,7 +179,7 @@ The PPF goes in with the 1 April balance as its opening balance and this year's 
 ## Follow-ups moved to later specs
 
 From the mutual funds review. None of them touches deposits, so they go with the work that touches their code:
-- **Crypto spec:** the bank account page doesn't list fund or stock debits; the web Investments page fails as a whole if the fund endpoints error; a SIP moving bank can show unlinked old-bank months as due again; `update_sip` reads the SIP before locking accounts; the missing test for a hand-entered NAV on the same date.
+- **Crypto spec:** the bank account page doesn't list fund or stock debits; a SIP moving bank can show unlinked old-bank months as due again; `update_sip` reads the SIP before locking accounts; the missing test for a hand-entered NAV on the same date.
 - **Owner's phone test** (unchanged): NAV autofocus on Record SIP, and the return after deleting a fund.
 
 ## Design calls made by Claude ("do what's best"), not yet confirmed by the owner
