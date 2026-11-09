@@ -18,11 +18,12 @@ const rd = (o = {}, d = {}) => ({
   name: "SBI RD",
   pay_from_id: 7,
   deposit_amount: "5000.00",
+  tenure_months: 12,
   deposit: {
     kind: "rd",
     maturity_date: "2027-11-15",
     deposits_paid: 3,
-    deposits_left: 9,
+    deposits_left: 5,
     deposited: "15000.00",
     interest_so_far: "300.00",
     value_today: "15300.00",
@@ -132,4 +133,27 @@ test("formatLongDate and depositLines", async () => {
     ["Interest this year ≈ ₹3,550.00 (estimate)", "₹50,000 of ₹1,50,000 this year", "Matures 1 Apr 2036"],
   );
   assert.deepEqual(depositLines({ type: "bank", deposit: null }), []);
+});
+
+test("a PPF or RD is paid from banks only; a loan from anything but loans and deposits", async () => {
+  const { payFromAccounts } = await import("./deposits.ts");
+  const list = ["bank", "credit_card", "cash", "loan", "ppf", "rd"].map((type, i) => ({ id: i + 1, type }));
+  const types = (accounts) => accounts.map((a) => a.type);
+  assert.deepEqual(types(payFromAccounts(list, "rd")), ["bank"]);
+  assert.deepEqual(types(payFromAccounts(list, "ppf")), ["bank"]);
+  assert.deepEqual(types(payFromAccounts(list, "loan")), ["bank", "credit_card", "cash"]);
+  assert.deepEqual(types(payFromAccounts(list, "loan", 1)), ["credit_card", "cash"]);
+});
+
+test("accountSections puts PPF and RD in one Deposits group, in type order", async () => {
+  const { accountSections } = await import("./deposits.ts");
+  const list = [
+    { id: 1, type: "loan" },
+    { id: 2, type: "rd" },
+    { id: 3, type: "bank" },
+    { id: 4, type: "ppf" },
+  ];
+  const sections = accountSections(list);
+  assert.deepEqual(sections.map((s) => s.title), ["Bank account", "Deposits", "Loan"]);
+  assert.deepEqual(sections[1].data.map((a) => a.type), ["ppf", "rd"]);
 });

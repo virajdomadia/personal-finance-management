@@ -1,4 +1,4 @@
-import { type Account, type PpfFigures, cleanMoney, formatDueDate, formatRupees } from "./accounts.ts";
+import { type Account, type AccountType, type PpfFigures, TYPE_LABELS, TYPE_ORDER, cleanMoney, formatDueDate, formatRupees } from "./accounts.ts";
 import { type TransactionForm, blankForm } from "./transactions.ts";
 
 const idText = (id: number | null) => (id === null ? "" : String(id));
@@ -86,12 +86,34 @@ export function depositLines(account: Account): string[] {
     ];
   }
   if (deposit?.kind === "rd") {
-    const total = deposit.deposits_paid + deposit.deposits_left;
     return [
-      `Paid ${deposit.deposits_paid} of ${total}`,
+      `Paid ${deposit.deposits_paid} of ${account.tenure_months}`,
       `Value today ≈ ${formatRupees(deposit.value_today)} (estimate)`,
       `${formatRupees(deposit.maturity_value)} on ${formatLongDate(deposit.maturity_date)}`,
     ];
   }
   return [];
+}
+
+// Accounts a form can offer as "paid from": a PPF or RD comes from an active bank; a loan from any
+// account but a loan or a deposit. Never the account being edited.
+export function payFromAccounts(accounts: Account[], type: AccountType, editingId?: number): Account[] {
+  if (type === "ppf" || type === "rd") return accounts.filter((a) => a.type === "bank");
+  return accounts.filter((a) => a.type !== "loan" && a.type !== "ppf" && a.type !== "rd" && a.id !== editingId);
+}
+
+export type AccountSection = { key: string; title: string; data: Account[] };
+
+// The Accounts tab's groups in TYPE_ORDER; PPF and RD share one "Deposits" group.
+export function accountSections(accounts: Account[]): AccountSection[] {
+  const sections: AccountSection[] = [];
+  for (const type of TYPE_ORDER) {
+    const data = accounts.filter((a) => a.type === type);
+    if (data.length === 0) continue;
+    const deposit = type === "ppf" || type === "rd";
+    const last = sections[sections.length - 1];
+    if (deposit && last?.key === "deposits") last.data.push(...data);
+    else sections.push({ key: deposit ? "deposits" : type, title: deposit ? "Deposits" : TYPE_LABELS[type], data });
+  }
+  return sections;
 }

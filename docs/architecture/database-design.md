@@ -46,7 +46,7 @@ Named here so that later work fits. Each gets its own design doc before it's bui
 | Domain | Tables | Notes |
 |---|---|---|
 | Ledger | `categories`, `category_changes`, `ledger_accounts`, `transaction_changes`, `postings`, `journal_lines` | The only tables created with the ledger. Full schema in the [ledger design](ledger-design.md). |
-| Accounts | add `opening_date`, `opening_date_source`, `currency` and a generated `ledger_kind` to `accounts`; type `loan` (built), `deposit` later | A credit card stays one account, which is also its liability ledger account. There is never a second record of the same balance. |
+| Accounts | add `opening_date`, `opening_date_source`, `currency` and a generated `ledger_kind` to `accounts`; types `loan`, `ppf` and `rd` (built; see the Deposits row) | A credit card stays one account, which is also its liability ledger account. There is never a second record of the same balance. |
 | Budgets | `budgets` (category, period, amount) | Spending comes from expense ledger lines |
 | Recurring | `recurring_templates` | Reminds and pre-fills. Never posts on its own. |
 | Assets | `assets`, `asset_valuations` | Purchase date and value, ownership %, dated valuations |

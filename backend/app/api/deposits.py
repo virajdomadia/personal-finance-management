@@ -266,8 +266,14 @@ def _rd_figures(account: Account, book: Book, today: date) -> RdFigures | None:
     paid = at_opening + rd_months_paid([t.date for t in transfers])
     maturity = rd_maturity(opened, tenure)
     recorded = sum((m.amount for m in moves if m.kind == "interest"), Decimal(0))
-    interest = rd_interest_so_far(
-        rd_instalments(opened, amount, at_opening, transfers), rate, today, maturity, recorded
+    # A closed RD earns nothing more and has nothing due.
+    closed = account.archived_at is not None
+    interest = (
+        Decimal(0)
+        if closed
+        else rd_interest_so_far(
+            rd_instalments(opened, amount, at_opening, transfers), rate, today, maturity, recorded
+        )
     )
     return RdFigures(
         kind="rd",
@@ -278,7 +284,9 @@ def _rd_figures(account: Account, book: Book, today: date) -> RdFigures | None:
         interest_so_far=_fmt(interest),
         value_today=_fmt(balance_of(account, book.flows) + interest),
         maturity_value=_fmt(rd_maturity_value(amount, rate, tenure)),
-        due=[
+        due=[]
+        if closed
+        else [
             d.isoformat()
             for d in rd_due_months(
                 opened, due_day, tenure, at_opening, [t.date for t in transfers], today

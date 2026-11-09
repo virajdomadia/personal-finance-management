@@ -32,6 +32,7 @@ import {
   splitErrors,
   toPayload,
 } from "@/lib/accounts";
+import { payFromAccounts } from "@/lib/deposits";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { todayIndia } from "@/lib/transactions";
@@ -49,7 +50,7 @@ const INSTITUTION_LABELS: Record<AccountType, string> = {
   broker: "Broker name",
   wallet: "Provider",
   ppf: "Bank or post office",
-  rd: "Bank name",
+  rd: "Bank or post office",
   loan: "Lender",
 };
 
@@ -487,9 +488,7 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
     input(key, label, { keyboardType: "number-pad", maxLength: 2 });
 
   // A loan can be paid from any account but another loan; a PPF or RD deposit comes from a bank.
-  const payFrom = accounts.filter((a) =>
-    type === "ppf" || type === "rd" ? a.type === "bank" : a.type !== "loan" && a.id !== account?.id,
-  );
+  const payFrom = payFromAccounts(accounts, type, account?.id);
   // Kept when the linked account was archived after the loan was set up, so the choice still shows.
   if (account?.pay_from_id != null && !payFrom.some((a) => a.id === account.pay_from_id)) {
     payFrom.push({ ...account, id: account.pay_from_id, name: "Archived account" });

@@ -243,12 +243,17 @@ def test_editing_an_rd_keeps_its_figures(headers: Headers) -> None:
     assert response.json()["deposit"] == created["deposit"]
 
 
-def test_a_ppf_added_today_asks_for_no_back_interest(headers: Headers) -> None:
+def test_a_ppf_added_today_asks_for_no_back_interest(
+    headers: Headers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A fixed date that is not a 31 March, so the test gives the same answer every day.
+    fixed = date(2026, 11, 9)
+    monkeypatch.setattr("app.api.routes.accounts.today_india", lambda: fixed)
     created = ppf(headers).json()
 
     # created_at is today, so no financial year that ended earlier is asked for.
     assert created["deposit"]["interest_due"] is None
-    income(headers, created["id"], "10.00", category="Interest", date=today_india().isoformat())
+    income(headers, created["id"], "10.00", category="Interest", date=fixed.isoformat())
     assert one(headers, created["id"])["deposit"]["interest_due"] is None
 
 
@@ -506,3 +511,47 @@ def test_close_rd_refuses_other_accounts_and_a_second_close(headers: Headers) ->
     assert close(headers, created["id"], amount="5000.00", account_id=pay).status_code == 200
     again = close(headers, created["id"], amount="5000.00", account_id=pay)
     assert again.status_code == 409
+
+
+def test_a_closed_rd_shows_no_interest_or_due_lines_and_stays_closed(headers: Headers) -> None:
+    pay = bank(headers, balance="1000.00")
+    created = rd(headers, pay, balance="120000.00", opened_on=first_of_month(5).isoformat()).json()
+    assert close(headers, created["id"], amount="129098.90", account_id=pay).status_code == 200
+
+    shown = client.get("/api/accounts?archived=true", headers=headers).json()["accounts"]
+    closed = next(a for a in shown if a["id"] == created["id"])
+    assert closed["deposit"]["interest_so_far"] == "0.00"
+    assert closed["deposit"]["due"] == []
+    assert closed["deposit"]["value_today"] == closed["balance"] == "0.00"
+
+    restored = client.post(f"/api/accounts/{created['id']}/restore", headers=headers)
+    assert restored.status_code == 409
+    assert restored.json()["detail"] == "This RD was closed. Its record stays in the archive."
+
+
+def test_an_archived_empty_rd_with_no_payout_can_be_restored(headers: Headers) -> None:
+    pay = bank(headers)
+    created = rd(headers, pay, balance="0.00", deposits_paid=0).json()
+    assert client.post(f"/api/accounts/{created['id']}/archive", headers=headers).status_code == 200
+
+    restored = client.post(f"/api/accounts/{created['id']}/restore", headers=headers)
+
+    assert restored.status_code == 200
+    assert restored.json()["archived"] is False
+
+
+def test_a_loan_cannot_be_paid_from_a_ppf_or_rd(headers: Headers) -> None:
+    pay = bank(headers)
+    for deposit in (ppf(headers).json()["id"], rd(headers, pay).json()["id"]):
+        response = make(
+            headers,
+            type="loan",
+            name="Car",
+            balance="1000.00",
+            interest_rate="9.00",
+            emi_amount="100.00",
+            emis_left=10,
+            pay_from_id=deposit,
+        )
+        assert response.status_code == 422
+        assert "Choose the account EMIs are paid from." in response.text

@@ -16,6 +16,7 @@ import {
   splitErrors,
   toPayload,
 } from "@/lib/accounts";
+import { payFromAccounts } from "@/lib/deposits";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Select } from "@/components/ui/select";
 import { todayIndia } from "@/lib/transactions";
@@ -190,8 +191,8 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict 
 
   const type = form.type;
   const payFromOptions = [
-    { value: "", label: "Not linked" },
-    ...accounts.filter((a) => a.type !== "loan" && a.id !== account?.id).map((a) => ({ value: String(a.id), label: a.name })),
+    ...(type === "rd" ? [] : [{ value: "", label: "Not linked" }]),
+    ...payFromAccounts(accounts, type, account?.id).map((a) => ({ value: String(a.id), label: a.name })),
   ];
   // Kept when the linked account was archived after the loan was set up, so the form shows it.
   const linked = account?.pay_from_id;

@@ -7,26 +7,13 @@ import { AccountRow } from "@/components/account-row";
 import {
   type Account,
   type AccountList,
-  type AccountType,
-  TYPE_LABELS,
-  TYPE_ORDER,
   errorMessage,
   formatRupees,
   investmentsIn,
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { ppfInterestText, rdDueText } from "@/lib/deposits";
+import { accountSections, ppfInterestText, rdDueText } from "@/lib/deposits";
 import { useSession } from "@/lib/session";
-
-type Section = { type: AccountType; data: Account[] };
-
-function sections(accounts: Account[]): Section[] {
-  return TYPE_ORDER.map((type) => ({
-    type,
-    data: accounts
-      .filter((account) => account.type === type),
-  })).filter((section) => section.data.length > 0);
-}
 
 export default function AccountsScreen() {
   const { token, logOut } = useSession();
@@ -108,7 +95,7 @@ export default function AccountsScreen() {
     return cards;
   }, [list]);
 
-  const data = useMemo(() => (list ? sections(list.accounts) : []), [list]);
+  const data = useMemo(() => (list ? accountSections(list.accounts) : []), [list]);
   const investments = list ? investmentsIn(list) : null;
 
   return (
@@ -199,7 +186,7 @@ export default function AccountsScreen() {
               accessibilityRole="header"
               style={[styles.sectionHeader, { color: colors.primary }]}
             >
-              {TYPE_LABELS[section.type]}
+              {section.title}
             </Text>
           )}
           renderItem={({ item }) => (

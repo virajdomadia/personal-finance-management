@@ -19,7 +19,7 @@ import {
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { emiForm, todayIndia } from "@/lib/transactions";
-import { instalmentForm, interestForm, ppfDepositForm, ppfInterestText, ppfRoomText, rdDueText } from "@/lib/deposits";
+import { depositLines, instalmentForm, interestForm, ppfDepositForm, ppfInterestText, rdDueText } from "@/lib/deposits";
 import { TransactionDialog } from "@/components/transactions/transaction-dialog";
 
 import { AccountDialog } from "./account-dialog";
@@ -42,14 +42,6 @@ const PRIMARY = `${BUTTON} bg-zinc-900 font-medium text-white hover:bg-zinc-700 
 const QUIET = `${BUTTON} text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800`;
 const ROW_ACTION =
   "rounded px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none disabled:opacity-60 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100";
-
-const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-// "2036-04-01" -> "1 Apr 2036", from the text so no timezone shifts the day.
-function formatFullDate(iso: string): string {
-  const [year, month, day] = iso.split("-");
-  return `${Number(day)} ${MONTH_NAMES[Number(month) - 1]} ${year}`;
-}
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof ApiError && err.status === 401;
@@ -417,20 +409,7 @@ function AccountRow({
       ].filter(Boolean)
     : [];
   const figures = account.deposit;
-  const depositLines: string[] =
-    figures?.kind === "ppf"
-      ? [
-          `Interest this year ≈ ${formatRupees(figures.interest_this_year)} (estimate)`,
-          ppfRoomText(figures),
-          `Matures ${formatFullDate(figures.maturity_date)}`,
-        ]
-      : figures?.kind === "rd"
-        ? [
-            `Paid ${figures.deposits_paid} of ${figures.deposits_paid + figures.deposits_left}`,
-            `Value today ≈ ${formatRupees(figures.value_today)} (estimate)`,
-            `${formatRupees(figures.maturity_value)} on ${formatFullDate(figures.maturity_date)}`,
-          ]
-        : [];
+  const lines = depositLines(account);
   const details = [
     account.institution && account.institution !== account.name ? account.institution : null,
     account.type === "bank" && account.bank_kind
@@ -446,8 +425,8 @@ function AccountRow({
         {details.length > 0 && (
           <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{details.join(" · ")}</p>
         )}
-        {depositLines.length > 0 && (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{depositLines.join(" · ")}</p>
+        {lines.length > 0 && (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{lines.join(" · ")}</p>
         )}
         {loanDetails.length > 0 && (
           <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{loanDetails.join(" · ")}</p>

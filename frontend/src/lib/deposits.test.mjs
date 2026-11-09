@@ -18,11 +18,12 @@ const rd = (o = {}, d = {}) => ({
   name: "SBI RD",
   pay_from_id: 7,
   deposit_amount: "5000.00",
+  tenure_months: 12,
   deposit: {
     kind: "rd",
     maturity_date: "2027-11-15",
     deposits_paid: 3,
-    deposits_left: 9,
+    deposits_left: 5,
     deposited: "15000.00",
     interest_so_far: "300.00",
     value_today: "15300.00",
@@ -107,4 +108,24 @@ test("closeRdForm and closeRdPayload", () => {
     account_id: 7,
   });
   assert.equal(closeRdPayload({ amount: "1", date: "2026-11-20", account_id: "" }).account_id, null);
+});
+
+test("depositLines uses the tenure for the instalment total", async () => {
+  const { depositLines } = await import("./deposits.ts");
+  assert.deepEqual(depositLines(rd()), [
+    "Paid 3 of 12",
+    "Value today ≈ ₹15,300.00 (estimate)",
+    "₹62,000.50 on 15 Nov 2027",
+  ]);
+  assert.deepEqual(depositLines({ type: "bank", deposit: null }), []);
+});
+
+test("a PPF or RD is paid from banks only; a loan from anything but loans and deposits", async () => {
+  const { payFromAccounts } = await import("./deposits.ts");
+  const list = ["bank", "credit_card", "cash", "loan", "ppf", "rd"].map((type, i) => ({ id: i + 1, type }));
+  const types = (accounts) => accounts.map((a) => a.type);
+  assert.deepEqual(types(payFromAccounts(list, "rd")), ["bank"]);
+  assert.deepEqual(types(payFromAccounts(list, "ppf")), ["bank"]);
+  assert.deepEqual(types(payFromAccounts(list, "loan")), ["bank", "credit_card", "cash"]);
+  assert.deepEqual(types(payFromAccounts(list, "loan", 1)), ["credit_card", "cash"]);
 });

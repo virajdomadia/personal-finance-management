@@ -1,4 +1,4 @@
-import { type Account, type PpfFigures, cleanMoney, formatDueDate, formatRupees } from "./accounts.ts";
+import { type Account, type AccountType, type PpfFigures, cleanMoney, formatDueDate, formatRupees } from "./accounts.ts";
 import { type TransactionForm, blankForm } from "./transactions.ts";
 
 const idText = (id: number | null) => (id === null ? "" : String(id));
@@ -65,4 +65,39 @@ export function closeRdPayload(form: CloseRdForm): Record<string, unknown> {
     date: form.date,
     account_id: form.account_id === "" ? null : Number(form.account_id),
   };
+}
+
+// Accounts a form can offer as "paid from": a PPF or RD comes from an active bank; a loan from any
+// account but a loan or a deposit. Never the account being edited.
+export function payFromAccounts(accounts: Account[], type: AccountType, editingId?: number): Account[] {
+  if (type === "ppf" || type === "rd") return accounts.filter((a) => a.type === "bank");
+  return accounts.filter((a) => a.type !== "loan" && a.type !== "ppf" && a.type !== "rd" && a.id !== editingId);
+}
+
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// "2036-04-01" -> "1 Apr 2036", from the text so no timezone shifts the day.
+export function formatLongDate(iso: string): string {
+  const [year, month, day] = iso.split("-");
+  return `${Number(day)} ${MONTH_NAMES[Number(month) - 1]} ${year}`;
+}
+
+// The figure lines under a PPF or RD row, all from the server's numbers. Empty for other types.
+export function depositLines(account: Account): string[] {
+  const deposit = account.deposit;
+  if (deposit?.kind === "ppf") {
+    return [
+      `Interest this year ≈ ${formatRupees(deposit.interest_this_year)} (estimate)`,
+      ppfRoomText(deposit),
+      `Matures ${formatLongDate(deposit.maturity_date)}`,
+    ];
+  }
+  if (deposit?.kind === "rd") {
+    return [
+      `Paid ${deposit.deposits_paid} of ${account.tenure_months}`,
+      `Value today ≈ ${formatRupees(deposit.value_today)} (estimate)`,
+      `${formatRupees(deposit.maturity_value)} on ${formatLongDate(deposit.maturity_date)}`,
+    ];
+  }
+  return [];
 }

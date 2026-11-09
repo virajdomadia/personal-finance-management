@@ -479,7 +479,7 @@ def _check_links(
                         "pay_from_id", f"{pay_from.name} is archived. Restore it to use it."
                     )
                 )
-        elif pay_from is None or pay_from.type == "loan":
+        elif pay_from is None or pay_from.type == "loan" or pay_from.type in DEPOSIT_TYPES:
             errors.append(field_error("pay_from_id", "Choose the account EMIs are paid from."))
         elif pay_from.archived_at is not None:
             errors.append(
@@ -651,6 +651,22 @@ def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
 def restore_account(id: int, user: CurrentUser, db: DbSession) -> AccountResponse:
     account = _get_owned(db, user, id)
     if account.archived_at is not None:
+        if account.type == "rd" and balance_of(account, load_book(db, user.id).flows) == 0:
+            paid_out = db.scalar(
+                select(Transaction.id)
+                .join(Account, Account.id == Transaction.to_account_id)
+                .where(
+                    Transaction.user_id == user.id,
+                    Transaction.type == "transfer",
+                    Transaction.account_id == account.id,
+                    Account.type == "bank",
+                )
+                .limit(1)
+            )
+            if paid_out is not None:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, "This RD was closed. Its record stays in the archive."
+                )
         account.archived_at = None
         db.commit()
     return to_response(account, load_book(db, user.id))
