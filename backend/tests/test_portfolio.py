@@ -413,7 +413,7 @@ def test_deposits_in_the_portfolio(headers: Headers, deposit_day: None) -> None:
     deposits = portfolio(headers)["deposits"]
     assert deposits == {
         "value": "110000.00",
-        "interest_estimate": "4228.83",
+        "interest_estimate": "4229.16",
         "accounts": [
             {
                 "account_id": ppf_id,
@@ -421,7 +421,7 @@ def test_deposits_in_the_portfolio(headers: Headers, deposit_day: None) -> None:
                 "type": "ppf",
                 "balance": "100000.00",
                 "maturity_date": "2036-04-01",
-                "interest_estimate": "4141.67",
+                "interest_estimate": "4142.00",
             },
             {
                 "account_id": rd_id,
@@ -457,7 +457,7 @@ def test_an_archived_deposit_is_left_out(
     deposits = portfolio(headers)["deposits"]
     assert [a["account_id"] for a in deposits["accounts"]] == [ppf_id]
     assert deposits["value"] == "100000.00"
-    assert deposits["interest_estimate"] == "4141.67"
+    assert deposits["interest_estimate"] == "4142.00"
     assert portfolio(headers)["overall"]["value"] == "100000.00"
 
 

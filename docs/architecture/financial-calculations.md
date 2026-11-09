@@ -125,7 +125,7 @@ Funds use the same cost, value and FIFO rules, with these differences. See the [
 
 ### PPF interest
 
-For each month, interest is `rate ÷ 12 ÷ 100 × the lowest balance between the end of the 5th and the end of the month`. A deposit on or before the 5th earns for that month, and one after the 5th doesn't. The year's interest is the sum of April to March, rounded once, and the bank credits it on 31 March. A month counts once today has reached its last day.
+For each month, interest is `rate ÷ 12 ÷ 100 × the lowest balance between the end of the 5th and the end of the month`. A deposit on or before the 5th earns for that month, and one after the 5th doesn't. The year's interest is the sum of April to March, rounded once to the nearest rupee, as the owner's passbook shows (₹94.67 becomes ₹95), and the bank credits it on 31 March. A month counts once today has reached its last day.
 
 Worked example, rate 7.1%, ₹1,00,000 on 1 April and ₹50,000 deposited on 10 April:
 
@@ -133,9 +133,10 @@ Worked example, rate 7.1%, ₹1,00,000 on 1 April and ₹50,000 deposited on 10 
 |---|---|---|
 | April | ₹1,00,000 | ₹591.67 |
 | May to March (11 months) | ₹1,50,000 | ₹887.50 × 11 = ₹9,762.50 |
-| Year | | **₹10,354.17** |
+| Sum | | ₹10,354.1667 |
+| Year, to the nearest rupee | | **₹10,354** |
 
-Deposited on 4 April instead, all twelve months earn on ₹1,50,000, which gives **₹10,650.00**. A PPF matures on 1 April, 16 years after the start of the financial year it was opened in: opened 10 June 2020, it matures on 1 April 2036. The yearly limit of ₹1,50,000 is shown and not enforced.
+Deposited on 4 April instead, all twelve months earn on ₹1,50,000, which gives **₹10,650**. A PPF matures on 1 April, 16 years after the start of the financial year it was opened in: opened 10 June 2020, it matures on 1 April 2036. The yearly limit of ₹1,50,000 is shown and not enforced.
 
 From 31 March, the year just ended is "due" when it ended on or after the day the account was added to the app, and no interest income is recorded between that 31 March and 30 March a year later. The app then offers to record the estimate, which you correct to the passbook figure.
 

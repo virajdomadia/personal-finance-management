@@ -2,7 +2,8 @@
 
 Two rules live here:
 - PPF: interest for a month is rate / 12 / 100 on the lowest balance between the end of the 5th and
-  the end of the month; the year's months (April to March) are summed and rounded once.
+  the end of the month; the year's months (April to March) are summed and rounded once
+  to the nearest rupee, as a bank passbook shows.
 - RD: quarterly compounding, an amount held for m whole months grows by (1 + rate / 400) ** (m / 3).
 
 A bank whose method differs is matched by changing only `rd_maturity_value` and
@@ -81,7 +82,10 @@ def _month_lowest(opening: Decimal, moves: list[Dated], year: int, month: int) -
 def ppf_year_interest(
     opening: Decimal, moves: list[Dated], rate: Decimal, year: int, today: date
 ) -> Decimal:
-    """PPF interest for FY `year` over the months whose last day is on or before `today`."""
+    """PPF interest for FY `year` over the months whose last day is on or before `today`.
+
+    The sum is rounded once, half up, to whole rupees (the passbook credits 94.67 as 95).
+    """
     total = Decimal(0)
     with localcontext() as ctx:
         ctx.prec = 34
@@ -91,7 +95,7 @@ def ppf_year_interest(
             last = clamped_date(y, m, 31)
             if last <= today:
                 total += _month_lowest(opening, moves, y, m) * rate / 1200
-    return _paise(total)
+    return total.quantize(Decimal(1), rounding=ROUND_HALF_UP).quantize(PAISE)
 
 
 def ppf_interest_due(

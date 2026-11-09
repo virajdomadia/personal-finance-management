@@ -70,11 +70,18 @@ def test_rd_interest_stops_at_maturity():
 def test_ppf_year_interest():
     moves = [Dated(date(2026, 4, 10), D(50000))]
     end = date(2027, 3, 31)
-    assert ppf_year_interest(D(100000), moves, RATE, 2026, end) == D("10354.17")
+    assert ppf_year_interest(D(100000), moves, RATE, 2026, end) == D("10354.00")
     early = [Dated(date(2026, 4, 4), D(50000))]
     assert ppf_year_interest(D(100000), early, RATE, 2026, end) == D("10650.00")
     got = ppf_year_interest(D(100000), moves, RATE, 2026, date(2027, 3, 30))
-    assert got == D("10354.17") - D("887.50")
+    assert got == D("9467.00")
+
+
+def test_ppf_year_interest_matches_the_owners_passbook():
+    # Opened 16 Jan 2026: Jan 0 (deposit after the 5th), Feb 5000, Mar 11000 at 7.1%.
+    # 5000 * 7.1 / 1200 + 11000 * 7.1 / 1200 = 29.583 + 65.083 = 94.667, credited as 95.
+    moves = [Dated(date(2026, 1, 16), D(5000)), Dated(date(2026, 3, 2), D(6000))]
+    assert ppf_year_interest(D(0), moves, D("7.1"), 2025, date(2026, 3, 31)) == D("95.00")
 
 
 def test_ppf_interest_due():
@@ -114,18 +121,18 @@ def test_a_ppf_withdrawal_lowers_the_months_lowest_balance():
     april = date(2026, 4, 30)
     withdrawal = [Dated(date(2026, 4, 10), D(-30000))]
     # 70,000 is the lowest balance after the 10th: 70000 * 7.1 / 1200.
-    assert ppf_year_interest(D(100000), withdrawal, RATE, 2026, april) == D("414.17")
+    assert ppf_year_interest(D(100000), withdrawal, RATE, 2026, april) == D("414.00")
     # A withdrawal and a later deposit in the same month: the lowest point still counts.
     both = withdrawal + [Dated(date(2026, 4, 20), D(30000))]
-    assert ppf_year_interest(D(100000), both, RATE, 2026, april) == D("414.17")
+    assert ppf_year_interest(D(100000), both, RATE, 2026, april) == D("414.00")
 
 
 def test_a_ppf_deposit_counts_only_if_made_by_the_5th():
     april = date(2026, 4, 30)
     on_the_5th = [Dated(date(2026, 4, 5), D(50000))]
     on_the_6th = [Dated(date(2026, 4, 6), D(50000))]
-    assert ppf_year_interest(D(100000), on_the_5th, RATE, 2026, april) == D("887.50")
-    assert ppf_year_interest(D(100000), on_the_6th, RATE, 2026, april) == D("591.67")
+    assert ppf_year_interest(D(100000), on_the_5th, RATE, 2026, april) == D("888.00")
+    assert ppf_year_interest(D(100000), on_the_6th, RATE, 2026, april) == D("592.00")
 
 
 def test_rd_due_day_31_follows_the_end_of_february():

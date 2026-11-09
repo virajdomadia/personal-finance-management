@@ -73,15 +73,15 @@ The **balance on a date** is `opening_balance` plus the deposit's transactions d
 | `interest_this_year` | the estimate below, for the current financial year up to today |
 | `interest_due` | null, or `{ "year": "2026-27", "amount": "…" }` (below) |
 
-**Interest estimate.** PPF interest for a month is `rate ÷ 12 ÷ 100 × the lowest balance between the end of the 5th and the end of the month`. A deposit made on or before the 5th earns for that month; one made after doesn't. The year's interest is the sum of the months from April to March, rounded once to paise, and is credited on 31 March. A month counts once today has reached its last day, so on 31 March the whole year is in.
+**Interest estimate.** PPF interest for a month is `rate ÷ 12 ÷ 100 × the lowest balance between the end of the 5th and the end of the month`. A deposit made on or before the 5th earns for that month; one made after doesn't. The year's interest is the sum of the months from April to March, rounded once to the nearest rupee, as the owner's passbook shows (a year of ₹94.67 is credited as ₹95), and is credited on 31 March. A month counts once today has reached its last day, so on 31 March the whole year is in.
 
-Worked example, rate 7.1%: balance ₹1,00,000 on 1 April, ₹50,000 deposited on 10 April. April earns on ₹1,00,000 (₹591.67), May to March earn on ₹1,50,000 (₹887.50 × 11 = ₹9,762.50). The year's interest is **₹10,354.17**. Deposited on 4 April instead, every month earns on ₹1,50,000: **₹10,650.00**.
+Worked example, rate 7.1%: balance ₹1,00,000 on 1 April, ₹50,000 deposited on 10 April. April earns on ₹1,00,000 (₹591.67), May to March earn on ₹1,50,000 (₹887.50 × 11 = ₹9,762.50). The sum is ₹10,354.1667, so the year's interest is **₹10,354**. Deposited on 4 April instead, every month earns on ₹1,50,000: **₹10,650**.
 
 **Interest due.** From 31 March, the year just ended is due when:
 - that year ended on or after the date the account was added to the app (`created_at`, India's date), so interest already in the opening balance is never asked for again, and
 - no `income` into the PPF is dated between 31 March of that year's end and 30 March a year later.
 
-`amount` is that year's estimate. The screens show "PPF: record interest for 2026-27, about ₹10,354.17", and recording opens an income form pre-filled with that amount, the date 31 March, category "Interest" and the PPF as the account. The owner corrects it to the passbook figure.
+`amount` is that year's estimate. The screens show "PPF: record interest for 2026-27, about ₹10,354", and recording opens an income form pre-filled with that amount, the date 31 March, category "Interest" and the PPF as the account. The owner corrects it to the passbook figure.
 
 #### RD
 
