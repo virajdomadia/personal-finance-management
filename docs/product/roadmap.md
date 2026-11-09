@@ -55,7 +55,7 @@ Possessions such as vehicles, property, jewellery and physical gold, plus fixed 
 
 Instruments (stocks, mutual funds, ETFs, gold, others) and buy and sell trades with fees. Lots with cost basis allocated on sale, dividends, manual price updates, and realised and unrealised returns.
 
-**Status:** stocks are built on branch `stocks` ([design](../superpowers/specs/2026-11-08-stocks-design.md)): trades through broker accounts, FIFO cost basis, manual prices, realised and unrealised returns, and stocks in net worth and the dashboard. Mutual funds, ETFs, gold and dividends linked to a stock are not built.
+**Status:** stocks are built on branch `stocks` ([design](../superpowers/specs/2026-11-08-stocks-design.md)): trades through broker accounts, FIFO cost basis, manual prices, realised and unrealised returns, and stocks in net worth and the dashboard. Mutual funds, ETFs, gold and dividends linked to a stock are not built. The Android stock screens are built but still need the device test against the deployed API, which happens after the website works in production.
 
 **Exit:** complete manual portfolio tracking.
 
