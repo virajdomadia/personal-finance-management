@@ -2,6 +2,8 @@ import { type Account, type AccountType, type PpfFigures, TYPE_LABELS, TYPE_ORDE
 import { type TransactionForm, blankForm } from "./transactions.ts";
 
 const idText = (id: number | null) => (id === null ? "" : String(id));
+const isOffered = (id: number | null, accounts?: Account[]) =>
+  id !== null && (accounts === undefined || accounts.some((a) => a.id === id && a.type === "bank" && !a.archived));
 const whole = (money: string) => formatRupees(money.replace(/\.00$/, ""));
 
 // "SBI RD: ₹5,000 instalment due since 15 Nov. Record it." or null when nothing is due.
@@ -18,7 +20,7 @@ export function ppfInterestText(account: Account): string | null {
   const deposit = account.deposit;
   if (account.type !== "ppf" || deposit?.kind !== "ppf" || deposit.interest_due === null) return null;
   const { year, amount } = deposit.interest_due;
-  return `${account.name}: record interest for ${year}, about ${formatRupees(amount)}.`;
+  return `${account.name}: record interest for ${year}, about ${whole(amount)}.`;
 }
 
 export function ppfRoomText(figures: PpfFigures): string {
@@ -26,10 +28,13 @@ export function ppfRoomText(figures: PpfFigures): string {
 }
 
 // The RD's next instalment: a transfer from its usual account, dated at the oldest one due.
-export function instalmentForm(account: Account, today: string): TransactionForm {
+// `accounts`, when given, is what can be picked: a usual bank that isn't an active bank there
+// (archived, say) starts empty instead of showing a choice that would be refused.
+export function instalmentForm(account: Account, today: string, accounts?: Account[]): TransactionForm {
   const due = account.deposit?.kind === "rd" ? account.deposit.due[0] : undefined;
+  const usual = isOffered(account.pay_from_id, accounts) ? account.pay_from_id : null;
   return {
-    ...blankForm("transfer", due ?? today, account.pay_from_id),
+    ...blankForm("transfer", due ?? today, usual),
     to_account_id: String(account.id),
     amount: account.deposit_amount ?? "",
   };
@@ -53,12 +58,10 @@ export type CloseRdForm = { amount: string; date: string; account_id: string };
 
 // The RD's usual bank is pre-selected only while it is still an active bank; otherwise the user must choose.
 export function closeRdForm(account: Account, today: string, banks?: Account[]): CloseRdForm {
-  const usual = idText(account.pay_from_id);
-  const offered = banks === undefined || banks.some((b) => b.type === "bank" && !b.archived && String(b.id) === usual);
   return {
     amount: account.deposit?.kind === "rd" ? account.deposit.maturity_value : "",
     date: today,
-    account_id: offered ? usual : "",
+    account_id: isOffered(account.pay_from_id, banks) ? idText(account.pay_from_id) : "",
   };
 }
 

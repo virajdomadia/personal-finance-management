@@ -44,7 +44,7 @@ const ppf = (o = {}, d = {}) => ({
     deposited_this_year: "50000.00",
     year_limit: "150000.00",
     interest_this_year: "1000.00",
-    interest_due: { year: "2026-27", amount: "10354.17", date: "2027-03-31" },
+    interest_due: { year: "2026-27", amount: "10354.00", date: "2027-03-31" },
     ...d,
   },
   ...o,
@@ -63,7 +63,11 @@ test("rdDueText says what is due, with months when behind", () => {
 });
 
 test("ppfInterestText and ppfRoomText", () => {
-  assert.equal(ppfInterestText(ppf()), "PPF: record interest for 2026-27, about ₹10,354.17.");
+  assert.equal(ppfInterestText(ppf()), "PPF: record interest for 2026-27, about ₹10,354.");
+  assert.equal(
+    ppfInterestText(ppf({}, { interest_due: { year: "2026-27", amount: "10354.50", date: "2027-03-31" } })),
+    "PPF: record interest for 2026-27, about ₹10,354.50.",
+  );
   assert.equal(ppfInterestText(ppf({}, { interest_due: null })), null);
   assert.equal(ppfInterestText(rd()), null);
   assert.equal(ppfRoomText(ppf().deposit), "₹50,000 of ₹1,50,000 this year");
@@ -95,7 +99,7 @@ test("interestForm is income into the deposit", () => {
   assert.equal(form.type, "income");
   assert.equal(form.account_id, "12");
   assert.equal(form.category, "Interest");
-  assert.equal(form.amount, "10354.17");
+  assert.equal(form.amount, "10354.00");
   assert.equal(form.date, "2027-03-31");
 });
 
@@ -116,6 +120,17 @@ test("closeRdForm clears a pay-from that isn't an active bank", () => {
   assert.equal(closeRdForm(rd({ pay_from_id: 9 }), "2026-11-20", banks).account_id, "");
   assert.equal(closeRdForm(rd({ pay_from_id: 7 }), "2026-11-20", []).account_id, "");
   assert.equal(closeRdForm(rd({ pay_from_id: null }), "2026-11-20", banks).account_id, "");
+});
+
+test("instalmentForm starts with no account when the usual bank isn't an active bank", () => {
+  const banks = [{ id: 7, type: "bank", archived: false }, { id: 8, type: "bank", archived: false }];
+  assert.equal(instalmentForm(rd(), "2026-11-20", banks).account_id, "7");
+  assert.equal(instalmentForm(rd(), "2026-11-20").account_id, "7");
+  assert.equal(instalmentForm(rd(), "2026-11-20", [{ id: 7, type: "bank", archived: true }]).account_id, "");
+  assert.equal(instalmentForm(rd({ pay_from_id: 9 }), "2026-11-20", banks).account_id, "");
+  const kept = instalmentForm(rd(), "2026-11-20", [{ id: 7, type: "bank", archived: true }]);
+  assert.equal(kept.to_account_id, "11");
+  assert.equal(kept.amount, "5000.00");
 });
 
 test("formatLongDate and depositLines", async () => {

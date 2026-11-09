@@ -31,6 +31,7 @@ import {
   emiForm,
   fromOptions,
   incomeCategories,
+  isDeposit,
   startForm,
   toOptions,
   formFromTransaction,
@@ -141,7 +142,7 @@ export default function TransactionFormScreen() {
   const initialForm = forLoan
     ? emiForm(forLoan, today)
     : forRd
-      ? instalmentForm(forRd, today)
+      ? instalmentForm(forRd, today, loaded.accounts)
       : forPpf
         ? ppfDepositForm(forPpf, today)
         : forInterest
@@ -468,8 +469,8 @@ function FormBody({
   const types = TRANSACTION_TYPES.filter((t) => t.value !== "emi" || loans.length > 0);
   // Expenses and EMIs can't be paid from a PPF or RD, and a deposit only moves money with a bank.
   const payers = fromOptions(type, accounts, form);
-  const categoryChoices = type === "income" ? incomeCategories(accounts, form, suggestions) : suggestions;
-  const interestOnly = type === "income" && categoryChoices.length === 1 && categoryChoices !== suggestions;
+    const categoryChoices = type === "income" ? incomeCategories(accounts, form, suggestions) : suggestions;
+  const interestOnly = type === "income" && isDeposit(accounts.find((a) => String(a.id) === form.account_id));
   const principal = subtractMoney(cleanMoney(form.amount), cleanMoney(form.interest));
 
   return (

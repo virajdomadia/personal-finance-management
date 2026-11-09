@@ -209,7 +209,7 @@ export function groupByDate(transactions: Transaction[]): { date: string; transa
 // to the month the transaction landed in rather than have it seem to vanish.
 export const savedMonth: { current: string | null } = { current: null };
 
-const isDeposit = (a: Account | undefined) => a?.type === "ppf" || a?.type === "rd";
+export const isDeposit = (a: Account | undefined) => a?.type === "ppf" || a?.type === "rd";
 const byId = (accounts: Account[], id: string) => accounts.find((a) => String(a.id) === id);
 const isActiveBank = (a: Account) => a.type === "bank" && !a.archived;
 
@@ -222,7 +222,11 @@ export function fromOptions(type: TransactionType, accounts: Account[], form: Tr
     if (String(a.id) === form.account_id) return true;
     if (type === "expense") return !isDeposit(a);
     if (type === "emi") return !isDeposit(a) && a.type !== "loan";
-    if (type === "transfer") return String(a.id) !== form.to_account_id && (!isDeposit(toAccount) || isActiveBank(a));
+    if (type === "transfer") {
+      if (String(a.id) === form.to_account_id) return false;
+      // A deposit only trades with a bank: into a deposit only active banks, and no deposit against a non-bank.
+      return (!isDeposit(toAccount) || isActiveBank(a)) && !(toAccount && toAccount.type !== "bank" && isDeposit(a));
+    }
     return true;
   });
 }

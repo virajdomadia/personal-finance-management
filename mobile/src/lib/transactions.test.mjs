@@ -262,6 +262,13 @@ test("a transfer into a deposit offers banks as the source, and out of one banks
   assert.deepEqual(ids(fromOptions("transfer", all, form("transfer", "", "1"))), [2, 3, 4, 5, 6, 7]);
 });
 
+test("a transfer to a non-bank leaves out PPF and RD as the source", () => {
+  assert.deepEqual(ids(fromOptions("transfer", all, form("transfer", "", "3"))), [1, 2, 6, 7]);
+  assert.deepEqual(ids(fromOptions("transfer", all, form("transfer", "", "7"))), [1, 2, 3, 6]);
+  // The one already chosen stays listed, and a bank target still lists everything else.
+  assert.ok(ids(fromOptions("transfer", all, form("transfer", "4", "3"))).includes(4));
+});
+
 test("archived banks are not offered next to a deposit", () => {
   const old = acct(9, "bank", { archived: true });
   assert.deepEqual(ids(toOptions([bank, old, ppf], form("transfer", "4"))), [1]);
