@@ -103,7 +103,7 @@ export default function DashboardScreen() {
           </Text>
           {data.investments ? (
             <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-              Includes investments at their current value
+              Includes investments at their latest price (or cost if no price yet)
             </Text>
           ) : null}
           {!data.has_accounts ? (

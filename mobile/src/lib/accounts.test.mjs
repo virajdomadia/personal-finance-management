@@ -10,6 +10,7 @@ import {
   formFromAccount,
   formatDueDate,
   formatRupees,
+  investmentsIn,
   nextDueDate,
   maskLast4,
   renderedFields,
@@ -264,4 +265,15 @@ test("countError accepts blank or a whole number from 1 to 600", () => {
   assert.equal(countError(" 3 "), null);
   assert.equal(countError("600"), null);
   for (const bad of ["0", "601", "2.5", "abc", "-1"]) assert.equal(countError(bad), "Enter a number of EMIs from 1 to 600.");
+});
+
+test("investmentsIn is what You have holds beyond the account balances", () => {
+  const account = (type, balance, archived = false) => ({ type, balance, archived });
+  const list = (total_have, accounts) => ({ accounts, total_have, total_owe: "0.00" });
+  const accounts = [account("bank", "1000.10"), account("broker", "-200.05"), account("credit_card", "500.00")];
+  assert.equal(investmentsIn(list("2300.55", accounts)), "1500.50");
+  assert.equal(investmentsIn(list("800.05", accounts)), null);
+  assert.equal(investmentsIn(list("0.07", [])), "0.07");
+  assert.equal(investmentsIn(list("90071992547409.93", [account("bank", "0.01")])), "90071992547409.92");
+  assert.equal(investmentsIn(list("10.00", [account("bank", "10"), account("cash", "5.00", true)])), null);
 });
