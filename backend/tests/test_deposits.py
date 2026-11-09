@@ -232,6 +232,61 @@ def test_an_unchanged_pay_from_is_neither_checked_nor_locked(
         client.patch(path, json={"pay_from_id": other}, headers=headers)
 
 
+def test_a_changed_pay_from_is_locked_together_with_its_account(
+    headers: Headers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.routes import transactions as routes
+
+    pay = bank(headers)
+    other = bank(headers, "Other")
+    created = ppf(headers, pay_from_id=pay).json()
+    calls: list[list[int | None]] = []
+    real = routes.lock_accounts
+
+    def spy(db: Session, user_id: int, ids: Any) -> Any:
+        calls.append(sorted(ids))
+        return real(db, user_id, ids)
+
+    monkeypatch.setattr(routes, "lock_accounts", spy)
+    path = f"/api/accounts/{created['id']}"
+
+    assert client.patch(path, json={"pay_from_id": other}, headers=headers).status_code == 200
+    assert calls == [sorted([created["id"], other])]
+    assert one(headers, created["id"])["pay_from_id"] == other
+    # An unchanged bank takes no extra lock, and a bad one is still refused.
+    assert client.patch(path, json={"pay_from_id": other}, headers=headers).status_code == 200
+    assert len(calls) == 1
+    assert client.patch(path, json={"pay_from_id": 999999}, headers=headers).status_code == 422
+
+
+def test_restoring_a_ppf_clears_an_archived_pay_from(headers: Headers) -> None:
+    pay = bank(headers)
+    created = ppf(headers, pay_from_id=pay, balance="0.00").json()
+    assert client.post(f"/api/accounts/{created['id']}/archive", headers=headers).status_code == 200
+    assert client.post(f"/api/accounts/{pay}/archive", headers=headers).status_code == 200
+
+    restored = client.post(f"/api/accounts/{created['id']}/restore", headers=headers)
+
+    assert restored.status_code == 200
+    assert restored.json()["pay_from_id"] is None
+
+
+def test_restoring_an_rd_whose_bank_is_archived_is_refused(headers: Headers) -> None:
+    pay = bank(headers, "HDFC")
+    created = rd(headers, pay, name="SBI RD", balance="0.00", deposits_paid=0).json()
+    assert client.post(f"/api/accounts/{created['id']}/archive", headers=headers).status_code == 200
+    assert client.post(f"/api/accounts/{pay}/archive", headers=headers).status_code == 200
+
+    refused = client.post(f"/api/accounts/{created['id']}/restore", headers=headers)
+
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == (
+        "Restore or choose another bank for SBI RD first: HDFC is archived."
+    )
+    client.post(f"/api/accounts/{pay}/restore", headers=headers)
+    assert client.post(f"/api/accounts/{created['id']}/restore", headers=headers).status_code == 200
+
+
 def test_a_transfer_in_counts_as_an_instalment_and_removes_its_month(headers: Headers) -> None:
     pay = bank(headers)
     created = rd(headers, pay).json()

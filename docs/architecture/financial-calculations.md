@@ -121,7 +121,7 @@ Funds use the same cost, value and FIFO rules, with these differences. See the [
 
 **Built (2026-11-09).** See the [deposits design](../superpowers/specs/2026-11-09-deposits-design.md). A PPF or RD is an account whose balance is what the passbook says: deposits plus interest credited, minus withdrawals. It moves only through ordinary transactions. A deposit is a transfer from a bank, interest is an income with category "Interest", and a withdrawal is a transfer to a bank. Nothing else is accepted: an expense, an EMI, or a transfer to or from anything but a bank is refused.
 
-**Estimate shown, not counted.** Every interest figure below is an estimate worked out when you ask for it. It is shown next to the balance, but it is never added to the balance or to net worth. Interest becomes real only when you record what the bank credited. Net worth uses the balance alone. All money is `Decimal` and each figure is rounded half up to paise once, at the end.
+**Estimate shown, not counted.** Every interest figure below is an estimate worked out when you ask for it. It is shown next to the balance, but it is never added to the balance or to net worth. Interest becomes real only when you record what the bank credited. Net worth uses the balance alone. All money is `Decimal` and each figure is rounded half up to paise once, at the end. The one exception is PPF yearly interest, which is rounded to the rupee (see the PPF section).
 
 ### PPF interest
 

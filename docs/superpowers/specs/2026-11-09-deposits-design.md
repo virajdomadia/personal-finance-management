@@ -179,7 +179,7 @@ The PPF goes in with the 1 April balance as its opening balance and this year's 
 ## Follow-ups moved to later specs
 
 From the mutual funds review. None of them touches deposits, so they go with the work that touches their code:
-- **Crypto spec:** the bank account page doesn't list fund or stock debits; a SIP moving bank can show unlinked old-bank months as due again; `update_sip` reads the SIP before locking accounts; the missing test for a hand-entered NAV on the same date.
+- **Crypto spec:** the bank account page doesn't list fund or stock debits; a SIP moving bank can show unlinked old-bank months as due again; the missing test for a hand-entered NAV on the same date.
 - **Owner's phone test** (unchanged): NAV autofocus on Record SIP, and the return after deleting a fund.
 
 ## Design calls made by Claude ("do what's best"), not yet confirmed by the owner

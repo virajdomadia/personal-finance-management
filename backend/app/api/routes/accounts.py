@@ -532,6 +532,16 @@ def _get_owned(db: DbSession, user: CurrentUser, id: int, lock: bool = False) ->
 def update_account(
     id: int, body: AccountUpdate, user: CurrentUser, db: DbSession
 ) -> AccountResponse:
+    changes = body.model_dump(exclude_unset=True)
+    new_bank = changes.get("pay_from_id")
+    if new_bank is not None and new_bank != db.scalar(
+        select(Account.pay_from_id).where(Account.id == id, Account.user_id == user.id)
+    ):
+        from app.api.routes.transactions import lock_accounts  # it imports this module
+
+        # A changed bank is locked together with this account, in id order, like any transaction
+        # save, so two requests can't each hold one and wait for the other.
+        lock_accounts(db, user.id, [id, new_bank])
     # Locked so that a transaction saved meanwhile can't throw off the opening balance below.
     account = _get_owned(db, user, id, lock=True)
     if account.archived_at is not None:
@@ -545,11 +555,10 @@ def update_account(
         "deposits_paid": rd_deposits_paid(account, book),
         "name": account.name,
     }
-    changes = body.model_dump(exclude_unset=True)
     values.update(changes)
     validate_rules(values, check_paid=bool({"deposits_paid", "tenure_months"} & changes.keys()))
-    # Only a changed bank is locked and checked: archiving a bank locks it first and then its PPFs,
-    # so locking an unchanged one here (after this account) could deadlock with that.
+    # Only a changed bank is locked (above) and checked: archiving a bank locks it first and then
+    # its PPFs, so locking an unchanged one after this account could deadlock with that.
     if "pay_from_id" in changes and changes["pay_from_id"] != account.pay_from_id:
         _check_links(db, user, values)
     at_opening = None
@@ -640,6 +649,16 @@ def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
 def restore_account(id: int, user: CurrentUser, db: DbSession) -> AccountResponse:
     account = _get_owned(db, user, id)
     if account.archived_at is not None:
+        if account.type in DEPOSIT_TYPES and account.pay_from_id is not None:
+            bank = db.get(Account, account.pay_from_id)
+            if bank is not None and bank.archived_at is not None:
+                if account.type == "rd":
+                    raise HTTPException(
+                        status.HTTP_409_CONFLICT,
+                        f"Restore or choose another bank for {account.name} first: "
+                        f"{bank.name} is archived.",
+                    )
+                account.pay_from_id = None
         if account.type == "rd" and balance_of(account, load_book(db, user.id).flows) == 0:
             paid_out = db.scalar(
                 select(Transaction.id)
