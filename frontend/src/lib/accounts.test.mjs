@@ -7,6 +7,7 @@ import {
   errorMessage,
   formFromAccount,
   formatDueDate,
+  formatFullDate,
   formatRupees,
   investmentsIn,
   maskLast4,
@@ -295,4 +296,30 @@ test("deposit accounts: labels, applicable fields and payload", () => {
   assert.equal(ppf.opened_on, "2020-04-01");
   assert.equal("deposit_amount" in ppf, false);
   assert.ok(renderedFields("rd", "edit").includes("tenure_months"));
+});
+
+test("formatFullDate reads the ISO string without a Date", () => {
+  assert.equal(formatFullDate("2036-04-01"), "1 Apr 2036");
+  assert.equal(formatFullDate("2026-11-25"), "25 Nov 2026");
+});
+
+test("changedPayload for an RD leaves out unchanged deposits_paid and tenure_months, and sends changed ones as numbers", () => {
+  const rd = {
+    ...account,
+    type: "rd",
+    name: "SBI RD",
+    credit_limit: null,
+    available_credit: null,
+    statement_day: null,
+    institution: "SBI",
+    tenure_months: 24,
+    deposits_paid: 3,
+    deposit: { kind: "rd", deposits_paid: 3 },
+  };
+  const same = changedPayload(formFromAccount(rd), rd);
+  assert.equal("deposits_paid" in same, false);
+  assert.equal("tenure_months" in same, false);
+  const changed = changedPayload({ ...formFromAccount(rd), deposits_paid: "4", tenure_months: "36" }, rd);
+  assert.equal(changed.deposits_paid, 4);
+  assert.equal(changed.tenure_months, 36);
 });

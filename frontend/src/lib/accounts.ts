@@ -134,6 +134,12 @@ export function formatDueDate(iso: string): string {
   return `${Number(day)} ${MONTHS[Number(month) - 1]}`;
 }
 
+// "2036-04-01" -> "1 Apr 2036", from the text so no timezone can shift the day.
+export function formatFullDate(iso: string): string {
+  const [year, month, day] = iso.split("-");
+  return `${Number(day)} ${MONTHS[Number(month) - 1]} ${year}`;
+}
+
 // The next date a day-of-month falls on, from today (both "YYYY-MM-DD"), clamped to short months.
 // Mirrors next_due_date in backend/app/api/routes/dashboard.py.
 export function nextDueDate(day: number, today: string): string {
