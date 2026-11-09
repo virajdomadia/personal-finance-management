@@ -198,6 +198,11 @@ export function FundTradeDialog(props: Props) {
     // A redemption can only be of a fund held somewhere, so drop one that isn't (or a new fund).
     const fundId = next === "sell" && !holdings.some((h) => String(h.fund_id) === form.fund_id) ? "" : form.fund_id;
     const change: Partial<Form> = { mode: next, fund_id: fundId, sip_id: next === "sip" ? form.sip_id : "" };
+    if (next !== "buy" && next !== "sip") {
+      // Worked-out units and stamp duty belong to a purchase. What was typed by hand stays.
+      if (!unitsByHand) change.units = "";
+      if (!chargesByHand || next === "opening") change.charges = "";
+    }
     const only = next === "sip" && form.sip_id === "" ? onlySip(sips, fundId) : null;
     if (only) {
       setChargesByHand(false);
@@ -429,7 +434,7 @@ export function FundTradeDialog(props: Props) {
             {field(
               "fund_id",
               "Fund",
-              <Select {...pickerProps("fund_id")} onChange={changeFund} placeholder="Choose a fund" options={fundOptions} />,
+              <Select {...pickerProps("fund_id")} disabled={editing || saving} onChange={changeFund} placeholder="Choose a fund" options={fundOptions} />,
               mode === "sell" && fundOptions.length === 0 ? (
                 <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">You don&apos;t hold any fund units to redeem.</p>
               ) : null,

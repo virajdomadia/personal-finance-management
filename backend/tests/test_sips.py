@@ -272,3 +272,21 @@ def test_delete_loses_a_race_with_an_instalment(
     response = client.delete(f"{URL}/{sip_id}", headers=headers)
     assert response.status_code == 409
     assert response.json()["detail"] == "This SIP has instalments. Stop it instead."
+
+
+def test_restarting_a_sip_checks_its_bank(headers: Headers) -> None:
+    fund_id, account_id = setup(headers)
+    sip_id = made(headers, fund_id, account_id)["id"]
+    stop = client.patch(f"{URL}/{sip_id}", json={"active": False}, headers=headers)
+    assert stop.status_code == 200
+    assert archive(headers, account_id).status_code == 200
+    response = client.patch(f"{URL}/{sip_id}", json={"active": True}, headers=headers)
+    assert response.status_code == 422, response.json()
+    assert locs(response) == [["body", "account_id"]]
+    assert response.json()["detail"][0]["msg"] == "SBI is archived. Restore it to use it."
+    other = bank(headers, name="HDFC")
+    response = client.patch(
+        f"{URL}/{sip_id}", json={"active": True, "account_id": other}, headers=headers
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["active"] is True

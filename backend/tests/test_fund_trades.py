@@ -582,3 +582,44 @@ def test_purchase_for_a_sip_deleted_meanwhile_is_422(
     response = buy(headers, fund_id=fund_id, account_id=account_id, sip_id=sip_id)
     assert error(response) == ([["body", "sip_id"]], "Choose a SIP for this fund.")
     assert trades(headers) == []
+
+
+def test_deleting_the_nav_owner_hands_the_date_to_another_trade(headers: Headers) -> None:
+    account, ppfcf = bank(headers), fund(headers)
+    first = made(headers, fund_id=ppfcf, account_id=account)
+    second = made(headers, fund_id=ppfcf, account_id=account, nav="84.0000", units="35.714")
+    [row] = navs(headers, ppfcf)
+    assert row["trade_id"] == first["id"]
+    assert delete(headers, first["id"]).status_code == 200
+    [row] = navs(headers, ppfcf)
+    assert (row["date"], row["nav"], row["trade_id"]) == (DAY, "84.0000", second["id"])
+
+
+def test_moving_the_nav_owner_hands_the_old_date_to_another_trade(headers: Headers) -> None:
+    account, ppfcf = bank(headers), fund(headers)
+    first = made(headers, fund_id=ppfcf, account_id=account)
+    second = made(headers, fund_id=ppfcf, account_id=account, nav="84.0000", units="35.714")
+    assert patch(headers, first["id"], date="2026-10-06").status_code == 200
+    rows = {r["date"]: r for r in navs(headers, ppfcf)}
+    assert rows[DAY]["trade_id"] == second["id"]
+    assert rows[DAY]["nav"] == "84.0000"
+    assert rows["2026-10-06"]["trade_id"] == first["id"]
+    assert len(rows) == 2
+
+
+def test_integrity_error_without_a_sip_is_not_a_sip_error(
+    headers: Headers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    account, ppfcf = bank(headers), fund(headers)
+    existing = made(headers, fund_id=ppfcf, account_id=account)
+
+    def boom(db: Session, trade: Any) -> None:
+        raise IntegrityError("stmt", {}, Exception("other"))
+
+    monkeypatch.setattr(fund_trades, "sync_trade_nav", boom)
+    with pytest.raises(IntegrityError):
+        buy(headers, fund_id=ppfcf, account_id=account)
+    with pytest.raises(IntegrityError):
+        patch(headers, existing["id"], note="x")

@@ -178,6 +178,38 @@ def sync_trade_nav(db: Session, trade: InvestmentTrade) -> None:
         db.delete(duplicate)
 
 
+def hand_over_nav(db: Session, user_id: int, fund_id: int, day: str) -> None:
+    """After a trade leaves a date, let the lowest-id other trade there record the date's NAV.
+
+    Only when no NAV is left for the fund and date.
+    """
+    db.flush()
+    has_nav = db.scalar(
+        select(InstrumentPrice.id)
+        .where(
+            InstrumentPrice.user_id == user_id,
+            InstrumentPrice.instrument_id == fund_id,
+            InstrumentPrice.date == day,
+        )
+        .limit(1)
+    )
+    if has_nav is not None:
+        return
+    heir = db.scalar(
+        select(InvestmentTrade)
+        .where(
+            InvestmentTrade.user_id == user_id,
+            InvestmentTrade.instrument_id == fund_id,
+            InvestmentTrade.date == day,
+            InvestmentTrade.opening.is_(False),
+        )
+        .order_by(InvestmentTrade.id)
+        .limit(1)
+    )
+    if heir is not None:
+        sync_trade_nav(db, heir)
+
+
 def _price(values: dict[str, Any]) -> Decimal:
     """The NAV stored: the one given, or for existing units the average, amount ÷ units."""
     if values["opening"]:
@@ -417,6 +449,9 @@ def create_fund_trade(body: FundTradeCreate, user: CurrentUser, db: DbSession) -
         sync_trade_nav(db, trade)
         db.commit()
     except IntegrityError:  # its SIP was deleted since it was checked
+        if values["sip_id"] is None:
+            db.rollback()
+            raise
         _sip_gone(db)
     return _saved_response(db, user.id, trade, account)
 
@@ -447,13 +482,20 @@ def update_fund_trade(
     }
     require_active(accounts, [trade.account_id, values["account_id"]])
     account, price = _save_checks(db, user.id, accounts, values, existing_id=trade.id)
+    was = (trade.instrument_id, trade.date, trade.opening)
     for field, value in _columns(values, price).items():
         setattr(trade, field, value)
     try:
         db.flush()
         sync_trade_nav(db, trade)
+        left = trade.opening or was[:2] != (trade.instrument_id, trade.date)
+        if not was[2] and left:
+            hand_over_nav(db, user.id, was[0], was[1])
         db.commit()
     except IntegrityError:  # its SIP was deleted since it was checked
+        if values["sip_id"] is None:
+            db.rollback()
+            raise
         _sip_gone(db)
     return _saved_response(db, user.id, trade, account)
 
@@ -464,7 +506,10 @@ def delete_fund_trade(id: int, user: CurrentUser, db: DbSession) -> dict[str, in
     check_delete(db, user.id, accounts, trade, FUND_SHORT)
     # Its auto-recorded NAV goes with it; NAVs entered by hand stay.
     db.execute(delete(InstrumentPrice).where(InstrumentPrice.trade_id == trade.id))
+    fund_id, day, opening = trade.instrument_id, trade.date, trade.opening
     db.delete(trade)
+    if not opening:
+        hand_over_nav(db, user.id, fund_id, day)
     db.commit()
     return {"id": id}
 

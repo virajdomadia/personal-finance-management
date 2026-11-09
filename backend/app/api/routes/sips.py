@@ -229,14 +229,18 @@ def create_sip(body: SipCreate, user: CurrentUser, db: DbSession) -> SipResponse
 def update_sip(id: int, body: SipUpdate, user: CurrentUser, db: DbSession) -> SipResponse:
     changes = body.model_dump(exclude_unset=True)
     moved_to = changes.get("account_id")
-    accounts = lock_accounts(db, user.id, [moved_to])
     sip = _owned_sip(db, user.id, id)
+    # The SIP's own bank is locked too, so it can't be archived while the SIP is being saved.
+    accounts = lock_accounts(db, user.id, [sip.account_id, moved_to])
     errors: list[Any] = []
     if "account_id" in changes:
         if moved_to is None:
             errors.append(field_error("account_id", _CHOOSE_BANK))
         else:
             _check_bank(accounts.get(moved_to), errors)
+    elif changes.get("active", sip.active):
+        # A SIP that will be active needs an active bank, wherever it came from.
+        _check_bank(accounts.get(sip.account_id), errors)
     if "amount" in changes:
         _check_amount(changes["amount"], errors)
     if "day" in changes and changes["day"] is None:
