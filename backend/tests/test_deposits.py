@@ -11,7 +11,7 @@ from app.api.dates import today_india
 from app.api.deposits import add_months
 from app.main import app
 from tests.test_accounts import Headers, auth, locs, make
-from tests.test_transactions import income, post, transfer
+from tests.test_transactions import income, post
 
 client = TestClient(app)
 
@@ -191,6 +191,25 @@ def test_pay_from_must_be_an_active_bank(headers: Headers) -> None:
     assert ppf(headers, pay_from_id=bank(headers, "Ok")).status_code == 201
 
 
+def test_an_rds_pay_from_can_only_be_changed_to_an_active_bank(headers: Headers) -> None:
+    pay = bank(headers)
+    card = make(headers, type="credit_card", name="Card", credit_limit="1000.00").json()["id"]
+    old = bank(headers, "Old")
+    client.post(f"/api/accounts/{old}/archive", headers=headers)
+    created = rd(headers, pay).json()
+    path = f"/api/accounts/{created['id']}"
+
+    on_card = client.patch(path, json={"pay_from_id": card}, headers=headers)
+    assert on_card.status_code == 422
+    assert on_card.json()["detail"][0]["msg"] == "Choose a bank account."
+    archived = client.patch(path, json={"pay_from_id": old}, headers=headers)
+    assert archived.status_code == 422
+    assert archived.json()["detail"][0]["msg"] == "Old is archived. Restore it to use it."
+    assert one(headers, created["id"])["pay_from_id"] == pay
+    other = bank(headers, "Other")
+    assert client.patch(path, json={"pay_from_id": other}, headers=headers).status_code == 200
+
+
 def test_a_transfer_in_counts_as_an_instalment_and_removes_its_month(headers: Headers) -> None:
     pay = bank(headers)
     created = rd(headers, pay).json()
@@ -219,10 +238,22 @@ def test_a_transfer_in_counts_as_an_instalment_and_removes_its_month(headers: He
     assert again["due"] == before["due"]
 
 
+def deposit_in(headers: Headers, pay: int, into: int, amount: str = "5000.00") -> Response:
+    """A transfer from the bank into a deposit, dated today."""
+    return post(
+        headers,
+        type="transfer",
+        account_id=pay,
+        to_account_id=into,
+        amount=amount,
+        date=today_india().isoformat(),
+    )
+
+
 def test_deposits_paid_cannot_go_below_the_months_recorded(headers: Headers) -> None:
     pay = bank(headers)
-    created = rd(headers, pay, opened_on="2025-12-01").json()
-    transfer(headers, pay, created["id"], "5000.00")  # the helper dates it 2026-01-15
+    created = rd(headers, pay).json()
+    assert deposit_in(headers, pay, created["id"]).status_code == 201
     path = f"/api/accounts/{created['id']}"
 
     ok = client.patch(path, json={"deposits_paid": 1}, headers=headers)
@@ -258,6 +289,35 @@ def test_a_ppf_added_today_asks_for_no_back_interest(
     assert created["deposit"]["interest_due"] is None
     income(headers, created["id"], "10.00", category="Interest", date=fixed.isoformat())
     assert one(headers, created["id"])["deposit"]["interest_due"] is None
+
+
+def test_a_transfer_into_a_ppf_counts_toward_this_years_deposits(headers: Headers) -> None:
+    pay = bank(headers)
+    created = ppf(headers).json()
+    assert one(headers, created["id"])["deposit"]["deposited_this_year"] == "0.00"
+
+    assert deposit_in(headers, pay, created["id"], "40000.00").status_code == 201
+    assert deposit_in(headers, pay, created["id"], "2500.50").status_code == 201
+
+    assert one(headers, created["id"])["deposit"]["deposited_this_year"] == "42500.50"
+
+
+def test_a_ppf_shows_the_interest_due_for_a_year_that_has_ended(
+    headers: Headers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    created = ppf(headers, balance="250000.00").json()  # added today
+    today = today_india()
+    ended = date(today.year if today <= date(today.year, 3, 31) else today.year + 1, 3, 31)
+    monkeypatch.setattr("app.api.routes.accounts.today_india", lambda: ended)
+
+    due = one(headers, created["id"])["deposit"]["interest_due"]
+
+    # The whole financial year at 7.10% on 2,50,000 that never moved.
+    assert due == {
+        "year": f"{ended.year - 1}-{ended.year % 100:02d}",
+        "amount": "17750.00",
+        "date": ended.isoformat(),
+    }
 
 
 def test_archiving_a_bank_paying_an_active_rd_is_refused(headers: Headers) -> None:
@@ -311,6 +371,7 @@ def test_listing_uses_a_bounded_number_of_queries(db_session: Session, headers: 
             event.remove(bind, "before_cursor_execute", record)
         counts.append(len(seen))
 
+    assert counts[0] > 0
     assert counts[0] == counts[1]
 
 
@@ -394,8 +455,8 @@ def test_an_rd_with_more_transfers_than_its_tenure_can_still_be_renamed(
     headers: Headers,
 ) -> None:
     pay = bank(headers)
-    created = rd(headers, pay, opened_on="2025-12-01", tenure_months=1, deposits_paid=1).json()
-    transfer(headers, pay, created["id"], "5000.00")  # dated 2026-01-15, a later month
+    created = rd(headers, pay, tenure_months=1, deposits_paid=1).json()
+    assert deposit_in(headers, pay, created["id"]).status_code == 201  # a later month
     path = f"/api/accounts/{created['id']}"
 
     renamed = client.patch(path, json={"name": "Renamed"}, headers=headers)

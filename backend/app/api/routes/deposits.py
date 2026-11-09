@@ -70,9 +70,9 @@ def close_rd(id: int, body: CloseRd, user: CurrentUser, db: DbSession) -> Accoun
     bank = None if body.account_id is None else accounts.get(body.account_id)
     if bank is None or bank.type != "bank" or bank.archived_at is not None:
         errors.append(field_error("account_id", "Choose the bank the money goes to."))
-    if errors:
+    # The checks above already report each of these, so `errors` is never empty when one is None.
+    if errors or body.amount is None or body.date is None or bank is None:
         raise RequestValidationError(errors)
-    assert body.amount is not None and body.date is not None and bank is not None
 
     book = load_book(db, user.id)
     difference = body.amount - balance_of(rd, book.flows)

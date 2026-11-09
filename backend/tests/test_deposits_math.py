@@ -52,8 +52,7 @@ def test_rd_maturity_value():
 
 def test_rd_interest_so_far():
     # Four instalments held 3, 2, 1, 0 months at 7%.
-    items = [Dated(date(2026, 8, 1), D(5000)), Dated(date(2026, 9, 1), D(5000)),
-             Dated(date(2026, 10, 1), D(5000)), Dated(date(2026, 11, 1), D(5000))]  # fmt: skip
+    items = [Dated(date(2026, month, 1), D(5000)) for month in (8, 9, 10, 11)]
     today, far = date(2026, 11, 1), date(2030, 1, 1)
     assert rd_interest_so_far(items, D(7), today, far, D(0)) == D("174.66")
     assert rd_interest_so_far(items, D(7), today, far, D("100.00")) == D("74.66")
@@ -109,3 +108,37 @@ def test_rd_due_months():
     assert f(opened, 15, 24, 1, [date(2026, 10, 15)], date(2026, 11, 14)) == []
     assert f(opened, 15, 24, 1, [], date(2026, 11, 20)) == [date(2026, 10, 15), date(2026, 11, 15)]
     assert f(opened, 15, 2, 1, [], date(2027, 6, 1)) == [date(2026, 10, 15)]
+
+
+def test_a_ppf_withdrawal_lowers_the_months_lowest_balance():
+    april = date(2026, 4, 30)
+    withdrawal = [Dated(date(2026, 4, 10), D(-30000))]
+    # 70,000 is the lowest balance after the 10th: 70000 * 7.1 / 1200.
+    assert ppf_year_interest(D(100000), withdrawal, RATE, 2026, april) == D("414.17")
+    # A withdrawal and a later deposit in the same month: the lowest point still counts.
+    both = withdrawal + [Dated(date(2026, 4, 20), D(30000))]
+    assert ppf_year_interest(D(100000), both, RATE, 2026, april) == D("414.17")
+
+
+def test_a_ppf_deposit_counts_only_if_made_by_the_5th():
+    april = date(2026, 4, 30)
+    on_the_5th = [Dated(date(2026, 4, 5), D(50000))]
+    on_the_6th = [Dated(date(2026, 4, 6), D(50000))]
+    assert ppf_year_interest(D(100000), on_the_5th, RATE, 2026, april) == D("887.50")
+    assert ppf_year_interest(D(100000), on_the_6th, RATE, 2026, april) == D("591.67")
+
+
+def test_rd_due_day_31_follows_the_end_of_february():
+    f = rd_due_months
+    assert f(date(2026, 12, 31), 31, 4, 0, [], date(2027, 4, 30)) == [
+        date(2026, 12, 31),
+        date(2027, 1, 31),
+        date(2027, 2, 28),
+        date(2027, 3, 31),
+    ]
+    # In a leap year, February's instalment falls on the 29th.
+    assert f(date(2027, 12, 31), 31, 3, 0, [], date(2028, 3, 1)) == [
+        date(2027, 12, 31),
+        date(2028, 1, 31),
+        date(2028, 2, 29),
+    ]

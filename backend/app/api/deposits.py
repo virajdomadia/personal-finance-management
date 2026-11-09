@@ -43,7 +43,9 @@ def fy_label(year: int) -> str:
 
 def add_months(day: date, months: int, anchor_day: int | None = None) -> date:
     index = day.year * 12 + day.month - 1 + months
-    return clamped_date(index // 12, index % 12 + 1, anchor_day or day.day)
+    return clamped_date(
+        index // 12, index % 12 + 1, anchor_day if anchor_day is not None else day.day
+    )
 
 
 def whole_months(start: date, end: date) -> int:
@@ -80,12 +82,14 @@ def ppf_year_interest(
 ) -> Decimal:
     """PPF interest for FY `year` over the months whose last day is on or before `today`."""
     total = Decimal(0)
-    for i in range(12):
-        index = year * 12 + 3 + i  # April of `year` is month index 3
-        y, m = index // 12, index % 12 + 1
-        last = clamped_date(y, m, 31)
-        if last <= today:
-            total += _month_lowest(opening, moves, y, m) * rate / 1200
+    with localcontext() as ctx:
+        ctx.prec = 34
+        for i in range(12):
+            index = year * 12 + 3 + i  # April of `year` is month index 3
+            y, m = index // 12, index % 12 + 1
+            last = clamped_date(y, m, 31)
+            if last <= today:
+                total += _month_lowest(opening, moves, y, m) * rate / 1200
     return _paise(total)
 
 
@@ -258,9 +262,10 @@ def _ppf_figures(account: Account, book: Book, today: date) -> PpfFigures | None
 def _rd_figures(account: Account, book: Book, today: date) -> RdFigures | None:
     opened, amount, tenure = account.opened_on, account.deposit_amount, account.tenure_months
     rate, at_opening, due_day = account.interest_rate, account.deposits_at_opening, account.due_day
-    if None in (opened, amount, tenure, rate, at_opening, due_day):
+    if opened is None or amount is None or tenure is None or rate is None:
         return None
-    assert opened and amount and tenure and rate is not None and at_opening is not None and due_day
+    if at_opening is None or due_day is None:
+        return None
     moves = book.deposit_moves.get(account.id, [])
     transfers = _transfers_in(moves)
     paid = at_opening + rd_months_paid([t.date for t in transfers])
