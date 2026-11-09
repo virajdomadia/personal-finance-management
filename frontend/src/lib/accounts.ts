@@ -230,3 +230,24 @@ export function errorMessage(error: unknown): string {
   }
   return FALLBACK;
 }
+
+// Money as whole paise, so the sum below never goes through a float.
+function toPaise(value: string): bigint {
+  const negative = value.startsWith("-");
+  const [whole, fraction = ""] = (negative ? value.slice(1) : value).split(".");
+  const paise = BigInt(whole || "0") * BigInt(100) + BigInt(`${fraction}00`.slice(0, 2));
+  return negative ? -paise : paise;
+}
+
+// Mirrors HAVE_TYPES in backend/app/api/routes/accounts.py.
+const HAVE_TYPES = new Set<AccountType>(["bank", "cash", "broker", "wallet"]);
+
+// "You have" is the active accounts' balances plus investments. This is the investments part,
+// or null when there is none. Only meaningful for the active list, which holds every active account.
+export function investmentsIn(list: AccountList): string | null {
+  let accounts = BigInt(0);
+  for (const a of list.accounts) if (HAVE_TYPES.has(a.type) && !a.archived) accounts += toPaise(a.balance);
+  const rest = toPaise(list.total_have) - accounts;
+  if (rest <= BigInt(0)) return null;
+  return `${rest / BigInt(100)}.${String(rest % BigInt(100)).padStart(2, "0")}`;
+}
