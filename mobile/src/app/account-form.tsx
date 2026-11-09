@@ -46,6 +46,8 @@ const INSTITUTION_LABELS: Record<AccountType, string> = {
   cash: "",
   broker: "Broker name",
   wallet: "Provider",
+  ppf: "Bank or post office",
+  rd: "Bank name",
   loan: "Lender",
 };
 
@@ -67,6 +69,10 @@ function blankForm(type: AccountType): AccountForm {
     emi_amount: "",
     emis_left: "",
     pay_from_id: "",
+    opened_on: "",
+    deposit_amount: "",
+    tenure_months: "",
+    deposits_paid: "",
     moved_from_card: "",
   };
 }

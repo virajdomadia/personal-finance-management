@@ -3,9 +3,11 @@ import { test } from "node:test";
 
 import {
   TYPE_LABELS,
+  TYPE_ORDER,
   changedPayload,
   countError,
   dayError,
+  depositErrors,
   errorMessage,
   formFromAccount,
   formatDueDate,
@@ -32,6 +34,10 @@ const blank = {
   emi_amount: "",
   emis_left: "",
   pay_from_id: "",
+  opened_on: "",
+  deposit_amount: "",
+  tenure_months: "",
+  deposits_paid: "",
   moved_from_card: "",
 };
 const loan = (o = {}) => ({ ...blank, type: "loan", ...o });
@@ -141,6 +147,8 @@ test("type labels match the approved table", () => {
     cash: "Cash in hand",
     broker: "Broker balance",
     wallet: "Wallet or prepaid card",
+    ppf: "PPF",
+    rd: "Recurring deposit",
     loan: "Loan",
   });
 });
@@ -169,6 +177,10 @@ const account = {
   emis_left: null,
   pay_from_id: null,
   next_emi: null,
+  opened_on: null,
+  deposit_amount: null,
+  tenure_months: null,
+  deposit: null,
   type: "credit_card",
   name: "Card",
   balance: "2500.00",
@@ -276,4 +288,103 @@ test("investmentsIn is what You have holds beyond the account balances", () => {
   assert.equal(investmentsIn(list("0.07", [])), "0.07");
   assert.equal(investmentsIn(list("90071992547409.93", [account("bank", "0.01")])), "90071992547409.92");
   assert.equal(investmentsIn(list("10.00", [account("bank", "10"), account("cash", "5.00", true)])), null);
+  // PPF and RD balances are part of You have, not investments.
+  assert.equal(investmentsIn(list("1800.00", [account("bank", "100.00"), account("ppf", "1000.00"), account("rd", "700.00")])), null);
+});
+
+const rdForm = (o = {}) => ({
+  ...blank,
+  type: "rd",
+  institution: "SBI",
+  interest_rate: "6.70",
+  opened_on: "2026-08-15",
+  pay_from_id: "7",
+  deposit_amount: "₹5,000",
+  due_day: "15",
+  tenure_months: "12",
+  deposits_paid: "3",
+  ...o,
+});
+
+test("deposit accounts: order and payload", () => {
+  assert.deepEqual(TYPE_ORDER, ["bank", "credit_card", "cash", "broker", "wallet", "ppf", "rd", "loan"]);
+  assert.deepEqual(toPayload(rdForm(), "create"), {
+    type: "rd",
+    name: "Main",
+    balance: "10",
+    institution: "SBI",
+    interest_rate: "6.70",
+    opened_on: "2026-08-15",
+    pay_from_id: 7,
+    deposit_amount: "5000",
+    due_day: 15,
+    tenure_months: 12,
+    deposits_paid: 3,
+  });
+  const ppf = toPayload({ ...blank, type: "ppf", opened_on: "2020-04-01" }, "edit");
+  assert.equal(ppf.opened_on, "2020-04-01");
+  assert.equal("deposit_amount" in ppf, false);
+  assert.ok(renderedFields("rd", "edit").includes("tenure_months"));
+});
+
+const rdAccount = {
+  ...account,
+  type: "rd",
+  name: "SBI RD",
+  institution: "SBI",
+  statement_day: null,
+  credit_limit: null,
+  last4: null,
+  interest_rate: "6.70",
+  due_day: 15,
+  pay_from_id: 7,
+  opened_on: "2026-08-15",
+  deposit_amount: "5000.00",
+  tenure_months: 12,
+  deposit: { kind: "rd", deposits_paid: 3 },
+};
+
+test("formFromAccount reads the deposit fields, and an untouched edit sends nothing", () => {
+  const form = formFromAccount(rdAccount);
+  assert.equal(form.opened_on, "2026-08-15");
+  assert.equal(form.deposit_amount, "5000.00");
+  assert.equal(form.tenure_months, "12");
+  assert.equal(form.deposits_paid, "3");
+  assert.deepEqual(changedPayload(form, rdAccount), {});
+});
+
+test("changedPayload sends deposits_paid and tenure_months only when changed", () => {
+  const form = formFromAccount(rdAccount);
+  assert.deepEqual(changedPayload({ ...form, deposits_paid: "4" }, rdAccount), { deposits_paid: 4 });
+  assert.deepEqual(changedPayload({ ...form, tenure_months: "24" }, rdAccount), { tenure_months: 24 });
+  assert.deepEqual(changedPayload({ ...form, name: "Renamed" }, rdAccount), { name: "Renamed" });
+});
+
+test("depositErrors words the required fields as the server does", () => {
+  assert.deepEqual(depositErrors(rdForm()), {});
+  assert.deepEqual(depositErrors(bank()), {});
+  assert.deepEqual(depositErrors({ ...blank, type: "ppf", interest_rate: "7.1", opened_on: "2020-04-01" }), {});
+  assert.deepEqual(depositErrors({ ...blank, type: "ppf" }), {
+    interest_rate: "Enter the yearly interest rate.",
+    opened_on: "Choose the date it was opened.",
+  });
+  assert.deepEqual(
+    depositErrors({ ...blank, type: "rd", interest_rate: " ", opened_on: "", pay_from_id: "", deposit_amount: " ", due_day: "", tenure_months: "", deposits_paid: "" }),
+    {
+      interest_rate: "Enter the yearly interest rate.",
+      opened_on: "Choose the date it was opened.",
+      pay_from_id: "Choose the bank the instalments come from.",
+      deposit_amount: "Enter the monthly instalment.",
+      due_day: "Choose the instalment day.",
+      tenure_months: "Enter the tenure in months, from 1 to 120.",
+      deposits_paid: "Enter the instalments paid so far, from 0 to the tenure.",
+    },
+  );
+  assert.equal(depositErrors(rdForm({ tenure_months: "0" })).tenure_months, "Enter the tenure in months, from 1 to 120.");
+  assert.equal(depositErrors(rdForm({ tenure_months: "121" })).tenure_months, "Enter the tenure in months, from 1 to 120.");
+  assert.equal(depositErrors(rdForm({ deposits_paid: "13" })).deposits_paid, "Enter the instalments paid so far, from 0 to the tenure.");
+  assert.equal(depositErrors(rdForm({ deposits_paid: "x" })).deposits_paid, "Enter the instalments paid so far, from 0 to the tenure.");
+  assert.equal(depositErrors(rdForm({ deposits_paid: "0" })).deposits_paid, undefined);
+  assert.equal(depositErrors(rdForm({ deposit_amount: "0" })).deposit_amount, "Instalment must be greater than 0.");
+  assert.equal(depositErrors(rdForm({ due_day: "40" })).due_day, "Enter a day from 1 to 31.");
 });

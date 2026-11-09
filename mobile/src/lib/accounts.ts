@@ -1,7 +1,28 @@
-export type AccountType = "bank" | "credit_card" | "cash" | "broker" | "wallet" | "loan";
+export type AccountType = "bank" | "credit_card" | "cash" | "broker" | "wallet" | "ppf" | "rd" | "loan";
 
 // The suggested split of a loan's next EMI. Interest is null when it can't be worked out.
 export type NextEmi = { amount: string; interest: string | null; principal: string | null };
+
+export type PpfFigures = {
+  kind: "ppf";
+  maturity_date: string;
+  deposited_this_year: string;
+  year_limit: string;
+  interest_this_year: string;
+  interest_due: { year: string; amount: string; date: string } | null;
+};
+
+export type RdFigures = {
+  kind: "rd";
+  maturity_date: string;
+  deposits_paid: number;
+  deposits_left: number;
+  deposited: string;
+  interest_so_far: string;
+  value_today: string;
+  maturity_value: string;
+  due: string[];
+};
 
 export type Account = {
   id: number;
@@ -20,6 +41,10 @@ export type Account = {
   emis_left: number | null;
   pay_from_id: number | null;
   next_emi: NextEmi | null;
+  opened_on: string | null;
+  deposit_amount: string | null;
+  tenure_months: number | null;
+  deposit: PpfFigures | RdFigures | null;
   archived: boolean;
 };
 
@@ -53,6 +78,10 @@ export type AccountForm = {
   emi_amount: string;
   emis_left: string;
   pay_from_id: string;
+  opened_on: string;
+  deposit_amount: string;
+  tenure_months: string;
+  deposits_paid: string;
   moved_from_card: "" | "yes"; // create only
 };
 
@@ -62,10 +91,12 @@ export const TYPE_LABELS: Record<AccountType, string> = {
   cash: "Cash in hand",
   broker: "Broker balance",
   wallet: "Wallet or prepaid card",
+  ppf: "PPF",
+  rd: "Recurring deposit",
   loan: "Loan",
 };
 
-export const TYPE_ORDER: AccountType[] = ["bank", "credit_card", "cash", "broker", "wallet", "loan"];
+export const TYPE_ORDER: AccountType[] = ["bank", "credit_card", "cash", "broker", "wallet", "ppf", "rd", "loan"];
 
 // Accounts whose balance is what's owed.
 export const OWED_TYPES = new Set<AccountType>(["credit_card", "loan"]);
@@ -77,11 +108,13 @@ const APPLICABLE: Record<AccountType, (keyof AccountForm)[]> = {
   cash: [],
   broker: ["institution"],
   wallet: ["institution"],
+  ppf: ["institution", "interest_rate", "opened_on", "pay_from_id"],
+  rd: ["institution", "interest_rate", "opened_on", "pay_from_id", "deposit_amount", "due_day", "tenure_months", "deposits_paid"],
   loan: ["institution", "due_day", "interest_rate", "emi_amount", "emis_left", "pay_from_id"],
 };
 
-const MONEY_FIELDS = new Set<keyof AccountForm>(["balance", "credit_limit", "interest_rate", "emi_amount"]);
-const NUMBER_FIELDS = new Set<keyof AccountForm>(["statement_day", "due_day", "emis_left", "pay_from_id"]);
+const MONEY_FIELDS = new Set<keyof AccountForm>(["balance", "credit_limit", "interest_rate", "emi_amount", "deposit_amount"]);
+const NUMBER_FIELDS = new Set<keyof AccountForm>(["statement_day", "due_day", "emis_left", "pay_from_id", "tenure_months", "deposits_paid"]);
 
 // Groups the digits on the string itself so money never goes through a float.
 export function formatRupees(value: string): string {
@@ -143,6 +176,10 @@ export function formFromAccount(account: Account): AccountForm {
     emi_amount: account.emi_amount ?? "",
     emis_left: account.emis_left === null ? "" : String(account.emis_left),
     pay_from_id: account.pay_from_id === null ? "" : String(account.pay_from_id),
+    opened_on: account.opened_on ?? "",
+    deposit_amount: account.deposit_amount ?? "",
+    tenure_months: account.tenure_months === null ? "" : String(account.tenure_months),
+    deposits_paid: account.deposit?.kind === "rd" ? String(account.deposit.deposits_paid) : "",
     moved_from_card: "",
   };
 }
@@ -202,6 +239,36 @@ export function countError(value: string): string | null {
   return /^\d+$/.test(trimmed) && count >= 1 && count <= 600 ? null : "Enter a number of EMIs from 1 to 600.";
 }
 
+const TENURE_MESSAGE = "Enter the tenure in months, from 1 to 120.";
+const PAID_MESSAGE = "Enter the instalments paid so far, from 0 to the tenure.";
+
+// The server's checks for a PPF or RD, so a blank or out-of-range field is caught before the trip.
+// Messages are the server's own. Empty for every other type.
+export function depositErrors(form: AccountForm): Record<string, string> {
+  const errors: Record<string, string> = {};
+  if (form.type !== "ppf" && form.type !== "rd") return errors;
+  if (form.interest_rate.trim() === "") errors.interest_rate = "Enter the yearly interest rate.";
+  if (form.opened_on.trim() === "") errors.opened_on = "Choose the date it was opened.";
+  if (form.type === "ppf") return errors;
+
+  if (form.pay_from_id.trim() === "") errors.pay_from_id = "Choose the bank the instalments come from.";
+  const amount = cleanMoney(form.deposit_amount);
+  if (amount === "") errors.deposit_amount = "Enter the monthly instalment.";
+  else if (/^[+]?0*(\.0*)?$/.test(amount)) errors.deposit_amount = "Instalment must be greater than 0.";
+  const day = form.due_day.trim();
+  if (day === "") errors.due_day = "Choose the instalment day.";
+  else {
+    const message = dayError(day);
+    if (message) errors.due_day = message;
+  }
+  const tenure = form.tenure_months.trim();
+  const tenureOk = /^\d+$/.test(tenure) && Number(tenure) >= 1 && Number(tenure) <= 120;
+  if (!tenureOk) errors.tenure_months = TENURE_MESSAGE;
+  const paid = form.deposits_paid.trim();
+  if (!/^\d+$/.test(paid) || (tenureOk && Number(paid) > Number(tenure))) errors.deposits_paid = PAID_MESSAGE;
+  return errors;
+}
+
 export type SplitErrors = { fields: Record<string, string>; general: string[] };
 
 // Every message in a 422 lands somewhere: next to its field when that field is rendered (first
@@ -250,7 +317,7 @@ function toPaise(value: string): bigint {
 }
 
 // Mirrors HAVE_TYPES in backend/app/api/routes/accounts.py.
-const HAVE_TYPES = new Set<AccountType>(["bank", "cash", "broker", "wallet"]);
+const HAVE_TYPES = new Set<AccountType>(["bank", "cash", "broker", "wallet", "ppf", "rd"]);
 
 // "You have" is the active accounts' balances plus investments. This is the investments part,
 // or null when there is none. Only meaningful for the active list, which holds every active account.
