@@ -46,14 +46,11 @@ def _decimal(places: int, upper: Decimal, message: str):  # noqa: ANN202
     return check
 
 
-Units = Annotated[
-    Decimal | None,
-    BeforeValidator(
-        _decimal(3, Decimal(10) ** 15, "Enter units above 0, with up to 3 decimals, like 35.552.")
-    ),
-]
-_BAD_NAV = "Enter a NAV above 0, with up to 4 decimals, like 84.3793."
-Nav = Annotated[Decimal | None, BeforeValidator(_decimal(4, Decimal(10) ** 10, _BAD_NAV))]
+UNITS_RULE = "Enter units above 0, with up to 3 decimals, like 35.552."
+Units = Annotated[Decimal | None, BeforeValidator(_decimal(3, Decimal(10) ** 15, UNITS_RULE))]
+NAV_RULE = "Enter a NAV above 0, with up to 4 decimals, like 84.3793."
+MAX_NAV = Decimal(10) ** 10
+Nav = Annotated[Decimal | None, BeforeValidator(_decimal(4, MAX_NAV, NAV_RULE))]
 # Blank means "none given": a new fund gets a derived symbol, an edit keeps the current one.
 FundSymbol = Annotated[
     str | None,
@@ -264,7 +261,7 @@ def create_nav(id: int, body: NavCreate, user: CurrentUser, db: DbSession) -> Na
     elif body.date > today_india():
         errors.append(field_error("date", "The date can't be in the future."))
     if body.nav is None:
-        errors.append(field_error("nav", _BAD_NAV))
+        errors.append(field_error("nav", NAV_RULE))
     if errors:
         raise RequestValidationError(errors)
     assert body.date is not None and body.nav is not None
