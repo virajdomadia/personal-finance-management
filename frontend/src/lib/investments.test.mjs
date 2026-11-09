@@ -5,6 +5,8 @@ import {
   blankTradeForm,
   formatPercent,
   formatSigned,
+  holdingKinds,
+  settle,
   tone,
   tradeFormFrom,
   tradePayload,
@@ -124,4 +126,23 @@ test("tradePayload edit leaves out side and opening", () => {
   assert.equal("opening" in payload, false);
   assert.equal(payload.quantity, 3);
   assert.equal(payload.stock_id, 4);
+});
+
+test("settle turns a failed request into an error part, but rethrows what is fatal", async () => {
+  assert.deepEqual(await settle(Promise.resolve(5)), { status: "ready", data: 5 });
+  assert.deepEqual(await settle(Promise.reject(new Error("x"))), { status: "error" });
+  await assert.rejects(settle(Promise.reject(new Error("401")), (e) => e.message === "401"));
+});
+
+test("holdingKinds counts stocks, funds and deposits that have something", () => {
+  const empty = {
+    by_stock: [],
+    closed: [],
+    funds: { by_fund: [], closed: [] },
+    deposits: { accounts: [] },
+  };
+  assert.equal(holdingKinds(empty), 0);
+  assert.equal(holdingKinds({ ...empty, by_stock: [1] }), 1);
+  assert.equal(holdingKinds({ ...empty, closed: [1], deposits: { accounts: [1] } }), 2);
+  assert.equal(holdingKinds({ ...empty, by_stock: [1], funds: { by_fund: [1], closed: [] }, deposits: { accounts: [1] } }), 3);
 });

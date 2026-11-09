@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { logout } from "@/app/login/actions";
-import { type Account, type AccountList, formatRupees } from "@/lib/accounts";
+import { type Account, type AccountList, formatFullDate, formatRupees } from "@/lib/accounts";
 import { apiFetch } from "@/lib/api";
 import {
   type Fund,
@@ -17,7 +17,17 @@ import {
   formatUnits,
   sipTradeForm,
 } from "@/lib/funds";
-import type { Portfolio, Stock, StockTotal, Totals, Trade } from "@/lib/investments";
+import {
+  type DepositRow,
+  type Part,
+  type Portfolio,
+  type Stock,
+  type StockTotal,
+  type Totals,
+  type Trade,
+  holdingKinds,
+  settle,
+} from "@/lib/investments";
 import { todayIndia } from "@/lib/transactions";
 
 import {
@@ -39,15 +49,16 @@ import { DueSips } from "./fund-view";
 import { SipDialog } from "./sip-dialog";
 import { TradeDialog, type TradeKind } from "./trade-dialog";
 
+// The portfolio is what the page can't do without. Everything else loads and fails on its own, so a
+// failing fund request leaves Stocks and Deposits showing.
 type Data = {
   portfolio: Portfolio;
-  stocks: Stock[];
-  funds: Fund[];
-  sips: Sip[];
-  active: Account[];
-  archived: Account[];
-  trades: Trade[] | null; // the broker's trades, when viewing one
+  stocks: Part<{ stocks: Stock[]; trades: Trade[] | null }>; // trades: the broker's, when viewing one
+  funds: Part<{ funds: Fund[]; sips: Sip[] }>;
+  accounts: Part<{ active: Account[]; archived: Account[] }>;
 };
+type StocksExtra = { stocks: Stock[]; trades: Trade[] | null; active: Account[]; archived: Account[] };
+type FundsExtra = { funds: Fund[]; sips: Sip[] };
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: Data };
 type Dialog =
   | { kind: "none" }
@@ -57,24 +68,30 @@ type Dialog =
   | { kind: "sip" };
 
 async function fetchData(brokerId: number | null): Promise<Data> {
-  const [portfolio, stocks, funds, sips, active, archived, trades] = await Promise.all([
+  const [portfolio, stocks, funds, accounts] = await Promise.all([
     apiFetch<Portfolio>("/investments/portfolio"),
-    apiFetch<{ stocks: Stock[] }>("/investments/stocks"),
-    apiFetch<{ funds: Fund[] }>("/investments/funds"),
-    apiFetch<{ sips: Sip[] }>("/investments/sips"),
-    apiFetch<AccountList>("/accounts"),
-    apiFetch<AccountList>("/accounts?archived=true"),
-    brokerId === null ? null : apiFetch<{ trades: Trade[] }>(`/investments/trades?account_id=${brokerId}`),
+    settle(
+      Promise.all([
+        apiFetch<{ stocks: Stock[] }>("/investments/stocks"),
+        brokerId === null ? null : apiFetch<{ trades: Trade[] }>(`/investments/trades?account_id=${brokerId}`),
+      ]).then(([list, trades]) => ({ stocks: list.stocks, trades: trades?.trades ?? null })),
+      isUnauthorized,
+    ),
+    settle(
+      Promise.all([apiFetch<{ funds: Fund[] }>("/investments/funds"), apiFetch<{ sips: Sip[] }>("/investments/sips")]).then(
+        ([f, s]) => ({ funds: f.funds, sips: s.sips }),
+      ),
+      isUnauthorized,
+    ),
+    settle(
+      Promise.all([apiFetch<AccountList>("/accounts"), apiFetch<AccountList>("/accounts?archived=true")]).then(([a, b]) => ({
+        active: a.accounts,
+        archived: b.accounts,
+      })),
+      isUnauthorized,
+    ),
   ]);
-  return {
-    portfolio,
-    stocks: stocks.stocks,
-    funds: funds.funds,
-    sips: sips.sips,
-    active: active.accounts,
-    archived: archived.accounts,
-    trades: trades?.trades ?? null,
-  };
+  return { portfolio, stocks, funds, accounts };
 }
 
 export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
@@ -102,8 +119,11 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
   const closeDialog = () => setDialog({ kind: "none" });
   const openTrade = (tradeKind: TradeKind) => setDialog({ kind: "trade", trade: null, tradeKind });
   const data = load.status === "ready" ? load.data : null;
-  const brokers = data?.active.filter((a) => a.type === "broker") ?? [];
-  const banks = data?.active.filter((a) => a.type === "bank") ?? [];
+  const accounts = data?.accounts.status === "ready" ? data.accounts.data : null;
+  const stocksExtra: StocksExtra | null = data && accounts && data.stocks.status === "ready" ? { ...data.stocks.data, ...accounts } : null;
+  const fundsExtra: FundsExtra | null = data && accounts && data.funds.status === "ready" ? data.funds.data : null;
+  const brokers = accounts?.active.filter((a) => a.type === "broker") ?? [];
+  const banks = accounts?.active.filter((a) => a.type === "bank") ?? [];
   const openFundTrade = (mode: FundTradeMode) =>
     setDialog({ kind: "fundTrade", initial: blankFundTradeForm(mode, todayIndia()), focusNav: false });
   const recordSip = (sip: Sip) =>
@@ -147,26 +167,35 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
 
       {data && (
         <div className="flex flex-col gap-10">
-          <DueSips sips={data.portfolio.funds.due_sips} onRecord={recordSip} />
+          {fundsExtra && <DueSips sips={data.portfolio.funds.due_sips} onRecord={recordSip} />}
           <Content
-            data={data}
+            portfolio={data.portfolio}
+            extra={stocksExtra}
+            onRetry={reload}
             brokerId={brokerId}
             onAdd={openTrade}
             onEdit={(trade) => setDialog({ kind: "trade", trade, tradeKind: trade.opening ? "opening" : trade.side })}
             onDelete={(trade) => setDialog({ kind: "delete", trade })}
           />
-          <Funds data={data} onAdd={openFundTrade} onAddSip={() => setDialog({ kind: "sip" })} />
+          <Funds
+            portfolio={data.portfolio}
+            extra={fundsExtra}
+            onRetry={reload}
+            onAdd={openFundTrade}
+            onAddSip={() => setDialog({ kind: "sip" })}
+          />
+          <DepositsSection deposits={data.portfolio.deposits} />
         </div>
       )}
 
-      {dialog.kind === "fundTrade" && data && (
+      {dialog.kind === "fundTrade" && data && fundsExtra && (
         <FundTradeDialog
           trade={null}
           initial={dialog.initial}
-          funds={data.funds}
+          funds={fundsExtra.funds}
           banks={banks}
           holdings={data.portfolio.funds.holdings}
-          sips={data.sips}
+          sips={fundsExtra.sips}
           focusNav={dialog.focusNav}
           onClose={closeDialog}
           onSaved={() => done(null)}
@@ -175,10 +204,10 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
         />
       )}
 
-      {dialog.kind === "sip" && data && (
+      {dialog.kind === "sip" && fundsExtra && (
         <SipDialog
           sip={null}
-          funds={data.funds}
+          funds={fundsExtra.funds}
           banks={banks}
           onClose={closeDialog}
           onSaved={() => done(null)}
@@ -187,12 +216,12 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
         />
       )}
 
-      {dialog.kind === "trade" && data && (
+      {dialog.kind === "trade" && stocksExtra && data && (
         <TradeDialog
           key={dialog.trade?.id ?? `new-${dialog.tradeKind}`}
           trade={dialog.trade}
           kind={dialog.tradeKind}
-          stocks={data.stocks}
+          stocks={stocksExtra.stocks}
           brokers={brokers}
           holdings={data.portfolio.holdings}
           defaultAccountId={brokerId}
@@ -227,20 +256,34 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
   );
 }
 
+function SectionError({ onRetry, what }: { onRetry: () => void; what: string }) {
+  return (
+    <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
+      <p>We couldn&apos;t load your {what}.</p>
+      <button type="button" className={`${QUIET} mt-2 -ml-3`} onClick={onRetry}>
+        Try again
+      </button>
+    </div>
+  );
+}
+
 function Content({
-  data,
+  portfolio,
+  extra,
+  onRetry,
   brokerId,
   onAdd,
   onEdit,
   onDelete,
 }: {
-  data: Data;
+  portfolio: Portfolio;
+  extra: StocksExtra | null;
+  onRetry: () => void;
   brokerId: number | null;
   onAdd: (kind: TradeKind) => void;
   onEdit: (trade: Trade) => void;
   onDelete: (trade: Trade) => void;
 }) {
-  const { portfolio } = data;
   const empty = portfolio.by_stock.length === 0 && portfolio.closed.length === 0;
   const hasHoldings = portfolio.holdings.length > 0;
 
@@ -250,24 +293,28 @@ function Content({
         <h2 id="stocks-title" className="text-base font-semibold">
           Stocks
         </h2>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className={QUIET} onClick={() => onAdd("opening")}>
-            Add existing shares
-          </button>
-          {hasHoldings && (
-            <button type="button" className={SECONDARY} onClick={() => onAdd("sell")}>
-              Sell
+        {extra && (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={QUIET} onClick={() => onAdd("opening")}>
+              Add existing shares
             </button>
-          )}
-          <button type="button" className={PRIMARY} onClick={() => onAdd("buy")}>
-            Buy
-          </button>
-        </div>
+            {hasHoldings && (
+              <button type="button" className={SECONDARY} onClick={() => onAdd("sell")}>
+                Sell
+              </button>
+            )}
+            <button type="button" className={PRIMARY} onClick={() => onAdd("buy")}>
+              Buy
+            </button>
+          </div>
+        )}
       </div>
 
-      {brokerId !== null && <BrokerTrades data={data} brokerId={brokerId} onEdit={onEdit} onDelete={onDelete} />}
+      {extra && brokerId !== null && <BrokerTrades extra={extra} brokerId={brokerId} onEdit={onEdit} onDelete={onDelete} />}
 
-      {empty ? (
+      {!extra ? (
+        <SectionError onRetry={onRetry} what="stocks" />
+      ) : empty ? (
         <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700">
           <p className="font-medium">Add your shares</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-zinc-600 dark:text-zinc-400">
@@ -405,19 +452,19 @@ function Holdings({ rows }: { rows: StockTotal[] }) {
 }
 
 function BrokerTrades({
-  data,
+  extra,
   brokerId,
   onEdit,
   onDelete,
 }: {
-  data: Data;
+  extra: StocksExtra;
   brokerId: number;
   onEdit: (trade: Trade) => void;
   onDelete: (trade: Trade) => void;
 }) {
-  const broker = [...data.active, ...data.archived].find((a) => a.id === brokerId && a.type === "broker");
-  const locked = archivedIds(data.archived);
-  const trades = data.trades ?? [];
+  const broker = [...extra.active, ...extra.archived].find((a) => a.id === brokerId && a.type === "broker");
+  const locked = archivedIds(extra.archived);
+  const trades = extra.trades ?? [];
   return (
     <section aria-labelledby="broker-trades-title">
       <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2 px-1">
@@ -453,12 +500,10 @@ function BrokerTrades({
   );
 }
 
-// Stocks and funds together, when there are both to add up.
+// Stocks, funds and deposits together, when there are two or more to add up.
 function Overall({ portfolio }: { portfolio: Portfolio }) {
-  const { overall, funds } = portfolio;
-  const stocks = portfolio.by_stock.length + portfolio.closed.length > 0;
-  const hasFunds = funds.by_fund.length + funds.closed.length > 0;
-  if (!stocks || !hasFunds) return null;
+  const { overall } = portfolio;
+  if (holdingKinds(portfolio) < 2) return null;
   return (
     <p className="mt-1 text-sm text-zinc-600 tabular-nums dark:text-zinc-400">
       All investments <span className="font-semibold text-zinc-900 dark:text-zinc-100">{formatRupees(overall.value)}</span>
@@ -472,13 +517,25 @@ function Overall({ portfolio }: { portfolio: Portfolio }) {
   );
 }
 
-function Funds({ data, onAdd, onAddSip }: { data: Data; onAdd: (mode: FundTradeMode) => void; onAddSip: () => void }) {
-  const funds = data.portfolio.funds;
+function Funds({
+  portfolio,
+  extra,
+  onRetry,
+  onAdd,
+  onAddSip,
+}: {
+  portfolio: Portfolio;
+  extra: FundsExtra | null;
+  onRetry: () => void;
+  onAdd: (mode: FundTradeMode) => void;
+  onAddSip: () => void;
+}) {
+  const funds = portfolio.funds;
   const empty = funds.by_fund.length === 0 && funds.closed.length === 0;
   const hasHoldings = funds.holdings.length > 0;
   // A fund with no units and no past (one just added with its SIP) still gets a row to reach it by.
   const listed = new Set([...funds.by_fund.map((f) => f.fund_id), ...funds.closed.map((c) => c.fund_id)]);
-  const unheld = data.funds.filter((f) => !listed.has(f.id));
+  const unheld = (extra?.funds ?? []).filter((f) => !listed.has(f.id));
 
   return (
     <section aria-labelledby="funds-title" className="flex flex-col gap-8">
@@ -486,25 +543,29 @@ function Funds({ data, onAdd, onAddSip }: { data: Data; onAdd: (mode: FundTradeM
         <h2 id="funds-title" className="text-base font-semibold">
           Mutual funds
         </h2>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className={QUIET} onClick={onAddSip}>
-            Add SIP
-          </button>
-          <button type="button" className={QUIET} onClick={() => onAdd("opening")}>
-            Add existing units
-          </button>
-          {hasHoldings && (
-            <button type="button" className={SECONDARY} onClick={() => onAdd("sell")}>
-              Redeem
+        {extra && (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={QUIET} onClick={onAddSip}>
+              Add SIP
             </button>
-          )}
-          <button type="button" className={PRIMARY} onClick={() => onAdd("buy")}>
-            Buy
-          </button>
-        </div>
+            <button type="button" className={QUIET} onClick={() => onAdd("opening")}>
+              Add existing units
+            </button>
+            {hasHoldings && (
+              <button type="button" className={SECONDARY} onClick={() => onAdd("sell")}>
+                Redeem
+              </button>
+            )}
+            <button type="button" className={PRIMARY} onClick={() => onAdd("buy")}>
+              Buy
+            </button>
+          </div>
+        )}
       </div>
 
-      {empty && unheld.length === 0 ? (
+      {!extra ? (
+        <SectionError onRetry={onRetry} what="mutual funds" />
+      ) : empty && unheld.length === 0 ? (
         <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700">
           <p className="font-medium">Add your mutual funds</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-zinc-600 dark:text-zinc-400">
@@ -630,5 +691,52 @@ function FundRows({ rows }: { rows: FundTotal[] }) {
         </table>
       </div>
     </div>
+  );
+}
+
+function DepositsSection({ deposits }: { deposits: Portfolio["deposits"] }) {
+  if (deposits.accounts.length === 0) return null;
+  return (
+    <section aria-labelledby="deposits-title" className="flex flex-col gap-4">
+      <div>
+        <h2 id="deposits-title" className="text-base font-semibold">
+          Deposits
+        </h2>
+        <p className="mt-1 text-sm text-zinc-600 tabular-nums dark:text-zinc-400">
+          <span className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">{formatRupees(deposits.value)}</span>
+          {" · ≈ "}
+          {formatRupees(deposits.interest_estimate)} interest (estimate)
+        </p>
+      </div>
+      <ul className={LIST}>
+        {deposits.accounts.map((row) => (
+          <DepositItem key={row.account_id} row={row} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function DepositItem({ row }: { row: DepositRow }) {
+  return (
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3">
+      <div className="min-w-32 flex-1">
+        <Link
+          href="/accounts"
+          className="text-sm font-medium hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none [overflow-wrap:anywhere]"
+        >
+          {row.name}
+        </Link>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          {row.type === "ppf" ? "PPF" : "RD"} · Matures {formatFullDate(row.maturity_date)}
+        </p>
+      </div>
+      <p className="text-right text-sm tabular-nums">
+        {formatRupees(row.balance)}
+        <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+          ≈ {formatRupees(row.interest_estimate)} interest (estimate)
+        </span>
+      </p>
+    </li>
   );
 }
