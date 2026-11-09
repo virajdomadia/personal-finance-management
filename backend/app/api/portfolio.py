@@ -35,6 +35,18 @@ def round_paise(value: Decimal) -> Decimal:
     return value.quantize(PAISE, rounding=ROUND_HALF_UP)
 
 
+def fmt_units(value: Decimal) -> str:
+    return str(value.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP))
+
+
+def fmt_nav(value: Decimal) -> str:
+    return str(value.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP))
+
+
+def stamp_duty(amount: Decimal) -> Decimal:
+    return round_paise(amount * Decimal("0.00005"))
+
+
 class TradeRow(NamedTuple):
     id: int
     instrument_id: int

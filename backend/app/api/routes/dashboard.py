@@ -1,4 +1,3 @@
-import calendar
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -7,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.api.balances import balance_of, load_flows
-from app.api.dates import today_india
+from app.api.dates import clamped_date, today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.loans import linked_owed
 from app.api.portfolio import (
@@ -25,17 +24,13 @@ router = APIRouter(
     prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(get_current_user)]
 )
 
-def _clamped(year: int, month: int, day: int) -> date:
-    return date(year, month, min(day, calendar.monthrange(year, month)[1]))
-
-
 def next_due_date(due_day: int, today: date) -> date:
     """This month's due date (clamped to the month's length), or next month's if already past."""
-    this_month = _clamped(today.year, today.month, due_day)
+    this_month = clamped_date(today.year, today.month, due_day)
     if this_month >= today:
         return this_month
     year, month = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
-    return _clamped(year, month, due_day)
+    return clamped_date(year, month, due_day)
 
 
 class NextCardDue(BaseModel):
