@@ -406,6 +406,33 @@ def _get_owned(db: Session, user_id: int, id: int) -> Transaction:
     return tx
 
 
+def _lock_transaction(
+    db: Session, user_id: int, id: int, also: Iterable[int | None] = ()
+) -> tuple[Transaction, dict[int, Account]]:
+    """The transaction and its accounts, locked, then the transaction re-read under its own lock.
+
+    The first read only says which accounts to lock. By the time they are locked, another request
+    may have deleted the transaction (404) or moved it to other accounts, which would leave the
+    wrong ones locked (409, so the client retries).
+    """
+    first = _get_owned(db, user_id, id)
+    seen = (first.account_id, first.to_account_id)
+    accounts = lock_accounts(db, user_id, [*seen, *also])
+    tx = db.scalar(
+        select(Transaction)
+        .where(Transaction.id == id, Transaction.user_id == user_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    )
+    if tx is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Transaction not found.")
+    if (tx.account_id, tx.to_account_id) != seen:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This transaction changed while saving. Try again."
+        )
+    return tx, accounts
+
+
 def _require_active(tx: Transaction, accounts: dict[int, Account]) -> None:
     for account_id in (tx.account_id, tx.to_account_id):
         account = None if account_id is None else accounts[account_id]
@@ -492,8 +519,11 @@ def get_transaction(id: int, user: CurrentUser, db: DbSession) -> TransactionRes
 def update_transaction(
     id: int, body: TransactionUpdate, user: CurrentUser, db: DbSession
 ) -> TransactionResponse:
-    tx = _get_owned(db, user.id, id)
     changes = body.model_dump(exclude_unset=True)
+    # The old accounts are locked too, because moving a transaction changes their balances as well.
+    tx, accounts = _lock_transaction(
+        db, user.id, id, [changes.get("account_id"), changes.get("to_account_id")]
+    )
     values = {
         "type": tx.type,
         "account_id": tx.account_id,
@@ -506,12 +536,6 @@ def update_transaction(
         "note": tx.note,
         **changes,
     }
-    # The old accounts are locked too, because moving a transaction changes their balances as well.
-    accounts = lock_accounts(
-        db,
-        user.id,
-        [tx.account_id, tx.to_account_id, values["account_id"], values["to_account_id"]],
-    )
     _require_active(tx, accounts)
     _save_checks(db, user.id, accounts, values, existing_id=tx.id)
     for field, value in values.items():
@@ -522,8 +546,7 @@ def update_transaction(
 
 @router.delete("/{id}")
 def delete_transaction(id: int, user: CurrentUser, db: DbSession) -> dict[str, int]:
-    tx = _get_owned(db, user.id, id)
-    accounts = lock_accounts(db, user.id, [tx.account_id, tx.to_account_id])
+    tx, accounts = _lock_transaction(db, user.id, id)
     _require_active(tx, accounts)
     before = load_movements(db, user.id)
     problem = balance_problem(accounts, before, [m for m in before if m.id != tx.id])
