@@ -18,6 +18,7 @@ import {
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Select } from "@/components/ui/select";
+import { todayIndia } from "@/lib/transactions";
 
 const TYPE_OPTIONS = TYPE_ORDER.map((type) => ({ value: type, label: TYPE_LABELS[type] }));
 
@@ -134,8 +135,8 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict 
     if (savingRef.current) return;
 
     const local: Record<string, string> = {};
-    if (form.type === "credit_card" || form.type === "loan") {
-      for (const key of form.type === "loan" ? (["due_day"] as const) : (["statement_day", "due_day"] as const)) {
+    if (form.type === "credit_card" || form.type === "loan" || form.type === "rd") {
+      for (const key of form.type === "credit_card" ? (["statement_day", "due_day"] as const) : (["due_day"] as const)) {
         const message = dayError(form[key]);
         if (message) local[key] = message;
       }
@@ -202,6 +203,8 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict 
     ...(type === "credit_card" || type === "loan" || editing ? (["balance"] as const) : []),
     ...(type === "credit_card" ? (["statement_day", "due_day"] as const) : []),
     ...(type === "loan" ? (["due_day", "interest_rate", "emis_left", "pay_from_id"] as const) : []),
+    ...(type === "ppf" ? (["interest_rate", "opened_on", "pay_from_id"] as const) : []),
+    ...(type === "rd" ? (["interest_rate", "opened_on", "pay_from_id", "due_day", "deposits_paid"] as const) : []),
     ...(type === "bank" || type === "credit_card" ? (["last4"] as const) : []),
   ]);
   const field = (key: keyof AccountForm, label: string, input: React.ReactNode, hint?: string) => (
@@ -365,6 +368,47 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict 
                     </p>
                   ) : null}
                 </div>
+              )}
+            </>
+          )}
+
+          {(type === "ppf" || type === "rd") && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                {field(
+                  "interest_rate",
+                  "Interest rate (% a year)",
+                  <input {...props("interest_rate")} type="text" inputMode="decimal" autoComplete="off" />,
+                  "As your bank or post office states it.",
+                )}
+                {field("opened_on", "Opened on", <input {...props("opened_on")} type="date" max={todayIndia()} />, undefined)}
+              </div>
+              {type === "rd" && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    {field("deposit_amount", "Instalment (₹)", <input {...props("deposit_amount")} type="text" inputMode="decimal" autoComplete="off" />)}
+                    {field(
+                      "tenure_months",
+                      "Tenure (months)",
+                      <input {...props("tenure_months")} type="text" inputMode="numeric" autoComplete="off" />,
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {field("due_day", "Instalment day", <input {...props("due_day")} type="text" inputMode="numeric" autoComplete="off" />, "1 to 31")}
+                    {field(
+                      "deposits_paid",
+                      "Instalments paid so far",
+                      <input {...props("deposits_paid")} type="text" inputMode="numeric" autoComplete="off" />,
+                      "Goes up as you record instalments.",
+                    )}
+                  </div>
+                </>
+              )}
+              {field(
+                "pay_from_id",
+                "Deposits paid from",
+                <Select {...selectProps("pay_from_id")} options={payFromOptions} onChange={(value) => set("pay_from_id", value)} />,
+                "The account new deposits usually come from.",
               )}
             </>
           )}
