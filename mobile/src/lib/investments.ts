@@ -1,4 +1,5 @@
 import { cleanMoney, formatRupees } from "./accounts.ts";
+import { formatDate } from "./transactions.ts";
 
 export type TradeSide = "buy" | "sell";
 
@@ -160,4 +161,57 @@ export function formatPercent(value: string): string {
   const text = value.trim();
   if (isZero(text)) return `${text.replace(/^[-+]/, "")}%`;
   return text.startsWith("-") ? `${MINUS}${text.slice(1)}%` : `+${text.replace(/^\+/, "")}%`;
+}
+
+const QUANTITY_RULE = "Enter a whole number of shares, from 1 to 10,00,00,000.";
+const MAX_QUANTITY = 100_000_000;
+const MONEY = /^\d+(?:\.\d{1,2})?$/;
+
+// The server's rules for the fields every trade needs, with its messages. Checked before saving,
+// because tradePayload sends NaN for a bad quantity and a new stock must not be created for a
+// trade that is bound to be refused. `today` is "YYYY-MM-DD" in India.
+export function tradeErrors(form: TradeForm, today: string): Record<string, string> {
+  const errors: Record<string, string> = {};
+  if (form.account_id === "") errors.account_id = "Choose a broker account.";
+  const date = form.date.trim();
+  if (date === "") errors.date = "Choose a date.";
+  else if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) errors.date = "Enter a date like 2026-11-08.";
+  else if (date > today) errors.date = "The date can't be in the future.";
+  const quantity = form.quantity.trim();
+  if (!/^\d+$/.test(quantity) || Number(quantity) < 1 || Number(quantity) > MAX_QUANTITY) errors.quantity = QUANTITY_RULE;
+  const price = cleanMoney(form.price);
+  if (!MONEY.test(price)) errors.price = "Enter a price, like 1234.50.";
+  else if (Number(price) <= 0) errors.price = "Price must be greater than 0.";
+  const charges = cleanMoney(form.charges);
+  if (charges !== "" && !MONEY.test(charges)) errors.charges = "Enter an amount, like 1234.50.";
+  return errors;
+}
+
+// What an edit sends: only what changed, so a stale form can't overwrite a change made elsewhere.
+export function changedTrade(form: TradeForm, original: Trade): Record<string, unknown> {
+  const before = tradePayload(tradeFormFrom(original), "edit");
+  const after = tradePayload(form, "edit");
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(after)) {
+    if (!Object.is(after[key], before[key])) result[key] = after[key];
+  }
+  return result;
+}
+
+export function tradeTitle(trade: Pick<Trade, "opening" | "side" | "quantity" | "symbol">): string {
+  if (trade.opening) return `Existing ${trade.quantity} ${trade.symbol}`;
+  return `${trade.side === "buy" ? "Bought" : "Sold"} ${trade.quantity} ${trade.symbol}`;
+}
+
+export function sideLabel(trade: { side: TradeSide; opening: boolean }): string {
+  return trade.opening ? "Add existing shares" : trade.side === "buy" ? "Buy" : "Sell";
+}
+
+export function tradeDeleteText(trade: Trade): { title: string; body: string } {
+  return {
+    title: `Delete ${tradeTitle(trade)} on ${formatDate(trade.date)}?`,
+    body: trade.opening
+      ? "It's removed for good, and the holding shrinks. This can't be undone."
+      : `It's removed for good, and ${trade.account_name}'s cash moves back. This can't be undone.`,
+  };
 }

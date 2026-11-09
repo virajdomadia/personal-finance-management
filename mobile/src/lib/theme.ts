@@ -31,3 +31,9 @@ export const darkTheme: MD3Theme = {
     surface: "#0E1A1D",
   },
 };
+
+// Profit and loss text colours, picked for contrast on each theme's background.
+export const TONE_COLORS = {
+  light: { gain: "#1B6B34", loss: "#B3261E" },
+  dark: { gain: "#7FD99A", loss: "#FFB4AB" },
+} as const;

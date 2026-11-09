@@ -3,11 +3,15 @@ import { test } from "node:test";
 
 import {
   blankTradeForm,
+  changedTrade,
   formatPercent,
   formatSigned,
   tone,
+  tradeDeleteText,
+  tradeErrors,
   tradeFormFrom,
   tradePayload,
+  tradeTitle,
   tradeTotal,
 } from "./investments.ts";
 
@@ -124,4 +128,56 @@ test("tradePayload edit leaves out side and opening", () => {
   assert.equal("opening" in payload, false);
   assert.equal(payload.quantity, 3);
   assert.equal(payload.stock_id, 4);
+});
+
+test("tradeErrors passes a valid form", () => {
+  assert.deepEqual(tradeErrors(form, "2026-11-09"), {});
+  assert.deepEqual(tradeErrors({ ...form, charges: "", price: "₹1,234.50" }, "2026-11-09"), {});
+});
+
+test("tradeErrors checks broker, date, quantity, price and charges", () => {
+  const errors = tradeErrors(
+    { ...form, account_id: "", date: "2026-11-10", quantity: "1.5", price: "0", charges: "abc" },
+    "2026-11-09",
+  );
+  assert.deepEqual(Object.keys(errors).sort(), ["account_id", "charges", "date", "price", "quantity"]);
+  assert.equal(errors.date, "The date can't be in the future.");
+  assert.equal(errors.price, "Price must be greater than 0.");
+  assert.equal(tradeErrors({ ...form, date: "" }, "2026-11-09").date, "Choose a date.");
+  assert.ok(tradeErrors({ ...form, quantity: "0" }, "2026-11-09").quantity);
+  assert.ok(tradeErrors({ ...form, quantity: "100000001" }, "2026-11-09").quantity);
+  assert.equal(tradeErrors({ ...form, quantity: "100000000" }, "2026-11-09").quantity, undefined);
+  assert.equal(tradeErrors({ ...form, price: "12.345" }, "2026-11-09").price, "Enter a price, like 1234.50.");
+});
+
+const trade = {
+  id: 9,
+  stock_id: 4,
+  symbol: "INFY",
+  account_id: 2,
+  account_name: "Zerodha",
+  side: "sell",
+  date: "2026-11-08",
+  quantity: 3,
+  price: "1234.56",
+  charges: "20.10",
+  opening: false,
+  note: null,
+  amount: "3683.58",
+  realised: "10.00",
+};
+
+test("changedTrade sends only what changed", () => {
+  const same = tradeFormFrom(trade);
+  assert.deepEqual(changedTrade(same, trade), {});
+  assert.deepEqual(changedTrade({ ...same, quantity: "4", note: " x " }, trade), { quantity: 4, note: "x" });
+});
+
+test("tradeTitle and tradeDeleteText", () => {
+  assert.equal(tradeTitle(trade), "Sold 3 INFY");
+  assert.equal(tradeTitle({ ...trade, side: "buy" }), "Bought 3 INFY");
+  assert.equal(tradeTitle({ ...trade, side: "buy", opening: true }), "Existing 3 INFY");
+  assert.equal(tradeDeleteText(trade).title, "Delete Sold 3 INFY on 8 Nov 2026?");
+  assert.match(tradeDeleteText(trade).body, /Zerodha's cash moves back/);
+  assert.match(tradeDeleteText({ ...trade, opening: true }).body, /holding shrinks/);
 });
