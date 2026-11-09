@@ -41,7 +41,7 @@ net worth = total assets − total liabilities
 
 Net worth is always computed from asset and liability accounts only. Income, expense and equity accounts explain how net worth changed, and they are never added into it. The full definition, including market value for holdings and possessions, is in the [ledger design](ledger-design.md#net-worth).
 
-**Current.** `total_have` is the sum of positive asset balances plus any overpaid card balance. `total_owe` is the sum of card balances plus any overdrawn bank balance. Archived accounts are left out.
+**Current.** `total_have` is the sum of positive asset balances plus any overpaid card balance, plus investments at current value: each holding at its latest recorded price, or at cost before a price is recorded. Holdings are not accounts; they are added on top of the account balances. `total_owe` is the sum of card balances plus any overdrawn bank balance. Archived accounts are left out.
 
 **Invariants, all tested:**
 
@@ -96,11 +96,11 @@ Example: buy 10 units at ₹100, then 5 units at ₹120, then record a price of 
 | Market value | 15 × ₹130 | ₹1,950 |
 | Unrealised gain | ₹1,950 − ₹1,600 | +₹350 |
 
-Acquisition fees (brokerage and charges on a purchase) are proposed to go into the cost basis. This is a reporting choice based on our understanding of Indian capital gains rules. It must be confirmed against current tax rules by a qualified professional, and the app makes no tax-compliance claim from it.
+Acquisition fees (brokerage and charges on a purchase) are included in the cost basis, and charges on a sale reduce its proceeds. This is a reporting choice based on our understanding of Indian capital gains rules. It must be confirmed against current tax rules by a qualified professional, and the app makes no tax-compliance claim from it.
 
-The ledger carries holdings at cost, and market value comes only from recorded prices. In net worth, a recorded price always wins over cost. A holding that cost ₹1,00,000 and was last valued at ₹1,20,000 counts as ₹1,20,000. Cost stands in only before the first price is recorded, and is labelled "at cost".
+Market value comes only from recorded prices. (Planned, with the ledger: the ledger carries holdings at cost. The ledger is not built yet.) In net worth, a recorded price always wins over cost. A holding that cost ₹1,00,000 and was last valued at ₹1,20,000 counts as ₹1,20,000. Cost stands in only before the first price is recorded, and is labelled "at cost".
 
-A partial sale takes cost from specific lots, oldest first unless the owner chooses otherwise. Realised gain is the sale proceeds minus that lots' cost. Realised gains, dividend income and XIRR come later. New contributions raise portfolio value without being returns, so growth and performance are reported separately.
+A partial sale takes cost from the oldest lots first (FIFO), always; choosing specific lots is a non-goal for now. Realised gain is the sale proceeds minus those lots' cost, and it is built for stocks. Dividend income and XIRR come later. New contributions raise portfolio value without being returns, so growth and performance are reported separately.
 
 ## Dates
 
