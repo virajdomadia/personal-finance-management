@@ -130,7 +130,7 @@ export function transactionFormFromTemplate(t: Template, occurrence: string, tod
 }
 
 // Whole rupees drop the ".00".
-const whole = (money: string) => formatRupees(money.replace(/\.00$/, ""));
+export const whole = (money: string) => formatRupees(money.replace(/\.00$/, ""));
 
 // "Rent: ₹15,000 due since 1 Mar. Record it." or "...: ₹11,936 coming up on 6 Apr."
 export function dueText(item: DueItem): string {

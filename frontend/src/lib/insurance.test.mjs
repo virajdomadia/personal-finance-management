@@ -11,8 +11,8 @@ const policy = (o = {}, f = {}) => ({
   policy_number: "P123",
   insured: "Viraj",
   sum_insured: "1000000.00",
-  period_start: "2026-04-06",
-  period_end: "2027-04-05",
+  period_start: "2026-04-07",
+  period_end: "2027-04-06",
   premium: "11936.00",
   details: null,
   active: true,
@@ -40,8 +40,8 @@ test("renewFormFrom proposes the next year, paid today", () => {
     date: "2026-11-10",
     amount: "11936.00",
     account_id: "5",
-    period_start: "2027-04-06",
-    period_end: "2028-04-05",
+    period_start: "2027-04-07",
+    period_end: "2028-04-06",
     sum_insured: "1000000.00",
   });
 });
@@ -74,16 +74,20 @@ test("fundingText says when the funding matures and whether it covers the premiu
 test("cardBillText warns only when the bill falls before the funding", () => {
   assert.equal(
     cardBillText(policy()),
-    "This premium's card bill is due 5 May 2027, before your RD matures on 19 May. Plan to pay it from the bank.",
+    "This premium's card bill is due 5 May 2027, before your Bank of India RD matures on 19 May. Plan to pay it from the bank.",
+  );
+  assert.equal(
+    cardBillText(policy({}, { name: "Post Office recurring deposit" })),
+    "This premium's card bill is due 5 May 2027, before your Post Office recurring deposit matures on 19 May. Plan to pay it from the bank.",
   );
   assert.equal(cardBillText(policy({ card_bill: { due: "2027-05-05", before_funding: false } })), null);
   assert.equal(cardBillText(policy({ card_bill: null })), null);
 });
 
-test("renewalText counts days from the date given to the day after the period ends", () => {
-  assert.equal(renewalText(policy(), "2026-11-10"), "Renews 6 Apr 2027 (147 days)");
-  assert.equal(renewalText(policy(), "2027-04-05"), "Renews 6 Apr 2027 (1 day)");
-  assert.equal(renewalText(policy(), "2027-04-06"), "Renews 6 Apr 2027 (today)");
-  assert.equal(renewalText(policy(), "2027-04-08"), "Renews 6 Apr 2027 (2 days ago)");
-  assert.equal(renewalText(policy({ days_to_renewal: null }), "2026-11-10"), null);
+test("renewalText shows the server's date and day count", () => {
+  assert.equal(renewalText(policy()), "Renews 6 Apr 2027 (147 days)");
+  assert.equal(renewalText(policy({ days_to_renewal: 1 })), "Renews 6 Apr 2027 (1 day)");
+  assert.equal(renewalText(policy({ days_to_renewal: 0 })), "Renews 6 Apr 2027 (today)");
+  assert.equal(renewalText(policy({ days_to_renewal: -2 })), "Renews 6 Apr 2027 (2 days ago)");
+  assert.equal(renewalText(policy({ days_to_renewal: null })), null);
 });
