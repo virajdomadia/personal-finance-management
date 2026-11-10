@@ -8,7 +8,8 @@ from httpx import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.goals import load_goal_book
+from app.api.balances import load_flows
+from app.api.goals import free_balance, load_goal_book
 from app.api.routes import accounts, dashboard, goals, policies, recurring, transactions
 from app.main import app
 from app.models.account import Account
@@ -267,7 +268,7 @@ def test_goal_book_sums_active_goals_and_holdings_only(
         )
     db_session.add(GoalHolding(user_id=uid, goal_id=live, account_id=bank.id, active=False))
     db_session.commit()
-    assert client.patch(f"{URL}/{old}", json={"archived": True}, headers=headers).status_code == 200
+    assert client.post(f"{URL}/{old}/archive", headers=headers).status_code == 200
 
     book = load_goal_book(db_session, uid, TODAY)
     assert book.set_aside_by_account == {bank.id: Decimal("70.00")}
@@ -281,7 +282,7 @@ def test_list_order_and_archived_filter(headers: Headers) -> None:
     create(headers, name="Apple")
     emergency(headers)
     gone = create(headers, name="Old").json()["id"]
-    client.patch(f"{URL}/{gone}", json={"archived": True}, headers=headers)
+    client.post(f"{URL}/{gone}/archive", headers=headers)
     names = [g["name"] for g in client.get(URL, headers=headers).json()["goals"]]
     assert names == ["Emergency fund", "Apple", "Zebra"]
     archived = client.get(f"{URL}?archived=true", headers=headers).json()["goals"]
@@ -290,10 +291,18 @@ def test_list_order_and_archived_filter(headers: Headers) -> None:
 
 def test_restore_checks_for_a_second_emergency_fund(headers: Headers) -> None:
     first = emergency(headers).json()["id"]
-    client.patch(f"{URL}/{first}", json={"archived": True}, headers=headers)
+    client.post(f"{URL}/{first}/archive", headers=headers)
     assert emergency(headers).status_code == 201
-    restored = client.patch(f"{URL}/{first}", json={"archived": False}, headers=headers)
+    restored = client.post(f"{URL}/{first}/restore", headers=headers)
     assert restored.status_code == 409
+    assert restored.json()["detail"] == "You already have an emergency fund."
+    assert client.get(f"{URL}/{first}", headers=headers).json()["archived"] is True
+
+
+def test_patch_no_longer_archives(headers: Headers) -> None:
+    goal_id = create(headers).json()["id"]
+    response = client.patch(f"{URL}/{goal_id}", json={"archived": True}, headers=headers)
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize(
@@ -433,3 +442,308 @@ def test_other_users_goal_is_404(headers: Headers, other: Headers) -> None:
 def test_requires_session(headers: Headers) -> None:
     assert client.get(URL).status_code == 401
     assert client.post(URL, json={}).status_code == 401
+
+
+# Baskets: set aside, release, holdings, archive and restore.
+
+
+def earmark(
+    headers: Headers, goal_id: int, account_id: int | None, action: str, amount: str, **extra: Any
+) -> Response:
+    body = {"account_id": account_id, "action": action, "amount": amount, **extra}
+    return client.post(f"{URL}/{goal_id}/earmarks", json=body, headers=headers)
+
+
+def add_holding(headers: Headers, goal_id: int, **target: int) -> Response:
+    return client.post(f"{URL}/{goal_id}/holdings", json=target, headers=headers)
+
+
+def fund(db: Session, user_id: int, name: str = "Mutual fund X", held: bool = True) -> int:
+    """A mutual fund bought from a broker account, and sold again unless `held`."""
+    broker = account(db, user_id, f"Broker for {name}", "broker")
+    row = Instrument(user_id=user_id, kind="mutual_fund", symbol=name.upper(), name=name)
+    db.add(row)
+    db.flush()
+    sides = [("buy", "1000.00"), *([] if held else [("sell", "1000.00")])]
+    for side, amount in sides:
+        db.add(
+            InvestmentTrade(
+                user_id=user_id,
+                instrument_id=row.id,
+                account_id=broker.id,
+                side=side,
+                date=date(2026, 10, 1),
+                quantity=Decimal("100"),
+                price=Decimal("10"),
+                charges=Decimal("0.00"),
+                amount=Decimal(amount),
+            )
+        )
+    db.commit()
+    return row.id
+
+
+def test_rupees_uses_indian_grouping() -> None:
+    assert accounts.rupees(Decimal("40000.00")) == "₹40,000"
+    assert accounts.rupees(Decimal("1234567.50")) == "₹12,34,567.50"
+    assert accounts.rupees(Decimal("999")) == "₹999"
+    assert accounts.rupees(Decimal("0.00")) == "₹0"
+    assert accounts.rupees(Decimal("100000000.05")) == "₹10,00,00,000.05"
+
+
+def test_set_aside_then_release_no_more_than_is_set_aside(
+    headers: Headers, db_session: Session
+) -> None:
+    goal_id = create(headers).json()["id"]
+    hdfc = account(db_session, me(db_session), "HDFC").id
+    db_session.commit()
+
+    added = earmark(headers, goal_id, hdfc, "set_aside", "50000.00", date="2026-11-01")
+    assert added.status_code == 201, added.json()
+    assert added.json()["earmarked"] == "50000.00"
+    released = earmark(headers, goal_id, hdfc, "release", "10000.00", note="Bills")
+    assert released.status_code == 201, released.json()
+    assert released.json()["earmarks"] == [
+        {"account_id": hdfc, "account_name": "HDFC", "amount": "40000.00"}
+    ]
+
+    too_much = earmark(headers, goal_id, hdfc, "release", "50000.00")
+    assert too_much.status_code == 422
+    assert messages(too_much) == {"amount": "Only ₹40,000 of HDFC is set aside for this goal."}
+
+    history = client.get(f"{URL}/{goal_id}", headers=headers).json()["history"]
+    assert [(h["amount"], h["date"], h["note"]) for h in history] == [
+        ("-10000.00", "2026-11-11", "Bills"),
+        ("50000.00", "2026-11-01", None),
+    ]
+
+
+def test_deleting_an_entry_cannot_leave_the_earmark_below_zero(
+    headers: Headers, db_session: Session
+) -> None:
+    goal_id = create(headers).json()["id"]
+    hdfc = account(db_session, me(db_session), "HDFC").id
+    db_session.commit()
+    earmark(headers, goal_id, hdfc, "set_aside", "50000.00", date="2026-11-01")
+    earmark(headers, goal_id, hdfc, "release", "10000.00")
+    release_id, set_aside_id = [
+        h["id"] for h in client.get(f"{URL}/{goal_id}", headers=headers).json()["history"]
+    ]
+
+    refused = client.delete(f"{URL}/{goal_id}/earmarks/{set_aside_id}", headers=headers)
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == "Delete the later release first."
+
+    url = f"{URL}/{goal_id}/earmarks"
+    assert client.delete(f"{url}/{release_id}", headers=headers).json() == {"id": release_id}
+    assert client.delete(f"{url}/{set_aside_id}", headers=headers).status_code == 200
+    assert client.get(f"{URL}/{goal_id}", headers=headers).json()["history"] == []
+    assert client.delete(f"{url}/{set_aside_id}", headers=headers).status_code == 404
+
+
+def test_set_aside_only_from_active_bank_cash_or_wallet(
+    headers: Headers, db_session: Session
+) -> None:
+    goal_id = create(headers).json()["id"]
+    uid = me(db_session)
+    rd = owners_rd(headers)
+    old = account(db_session, uid, "Old bank")
+    old.archived_at = datetime(2026, 11, 1, tzinfo=UTC)
+    wallet = account(db_session, uid, "Paytm", "wallet").id
+    old_id = old.id
+    db_session.commit()
+
+    message = {"account_id": "Set money aside from a bank, cash or wallet account."}
+    for account_id in (rd, old_id, 999999):
+        response = earmark(headers, goal_id, account_id, "set_aside", "100.00")
+        assert response.status_code == 422
+        assert messages(response) == message
+    assert earmark(headers, goal_id, wallet, "set_aside", "100.00").status_code == 201
+
+
+@pytest.mark.parametrize(
+    ("fields", "field", "message"),
+    [
+        ({"amount": "0.00"}, "amount", "Enter an amount greater than 0."),
+        ({"amount": "-5.00"}, "amount", "Enter an amount greater than 0."),
+        ({"amount": None}, "amount", "Enter an amount greater than 0."),
+        ({"action": "spend"}, "action", "Choose set aside or release."),
+        ({"action": None}, "action", "Choose set aside or release."),
+        ({"date": "2026-11-12"}, "date", "Choose today or an earlier date."),
+        (
+            {"account_id": None},
+            "account_id",
+            "Set money aside from a bank, cash or wallet account.",
+        ),
+    ],
+)
+def test_earmark_validation(
+    headers: Headers, db_session: Session, fields: dict, field: str, message: str
+) -> None:
+    goal_id = create(headers).json()["id"]
+    bank = account(db_session, me(db_session)).id
+    db_session.commit()
+    body = {"account_id": bank, "action": "set_aside", "amount": "100.00", **fields}
+    response = client.post(f"{URL}/{goal_id}/earmarks", json=body, headers=headers)
+    assert response.status_code == 422
+    assert messages(response)[field] == message
+
+
+def test_archived_goal_takes_no_earmarks(headers: Headers, db_session: Session) -> None:
+    goal_id = create(headers).json()["id"]
+    bank = account(db_session, me(db_session)).id
+    db_session.commit()
+    entry = earmark(headers, goal_id, bank, "set_aside", "100.00")
+    assert entry.status_code == 201
+    entry_id = client.get(f"{URL}/{goal_id}", headers=headers).json()["history"][0]["id"]
+    client.post(f"{URL}/{goal_id}/archive", headers=headers)
+    for response in (
+        earmark(headers, goal_id, bank, "release", "100.00"),
+        client.delete(f"{URL}/{goal_id}/earmarks/{entry_id}", headers=headers),
+    ):
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Restore this goal first."
+
+
+def test_set_aside_may_exceed_the_free_balance_and_warns(
+    headers: Headers, db_session: Session
+) -> None:
+    hdfc = account(db_session, me(db_session), "HDFC").id  # holds 50,000
+    db_session.commit()
+    bike = create(headers).json()["id"]
+    trip = create(headers, name="Trip").json()["id"]
+    assert earmark(headers, bike, hdfc, "set_aside", "45000.00").json()["warnings"] == []
+    over = earmark(headers, trip, hdfc, "set_aside", "15000.50")
+    assert over.status_code == 201
+    warning = "₹10,000.50 more is set aside than HDFC holds."
+    assert over.json()["warnings"] == [warning]
+    assert client.get(f"{URL}/{bike}", headers=headers).json()["warnings"] == [warning]
+
+    # Archiving Trip stops its earmark counting, so the account is no longer over.
+    client.post(f"{URL}/{trip}/archive", headers=headers)
+    assert client.get(f"{URL}/{bike}", headers=headers).json()["warnings"] == []
+
+
+def test_free_balance_helper(headers: Headers, db_session: Session) -> None:
+    uid = me(db_session)
+    hdfc = account(db_session, uid, "HDFC")
+    db_session.commit()
+    goal_id = create(headers).json()["id"]
+    earmark(headers, goal_id, hdfc.id, "set_aside", "20000.00")
+    book = load_goal_book(db_session, uid, TODAY)
+    flows = load_flows(db_session, uid)
+    assert free_balance(hdfc, flows, book.set_aside_by_account) == Decimal("30000.00")
+    assert free_balance(hdfc, flows, {}) == Decimal("50000.00")
+
+
+def test_a_holding_belongs_to_one_active_goal(headers: Headers, db_session: Session) -> None:
+    fund_id = fund(db_session, me(db_session))
+    ef = emergency(headers, name="EF").json()["id"]
+    bike = create(headers).json()["id"]
+
+    added = add_holding(headers, ef, instrument_id=fund_id)
+    assert added.status_code == 201, added.json()
+    assert [h["name"] for h in added.json()["holdings"]] == ["Mutual fund X"]
+    for goal_id in (bike, ef):
+        again = add_holding(headers, goal_id, instrument_id=fund_id)
+        assert again.status_code == 409
+        assert again.json()["detail"] == "Mutual fund X is already in EF."
+
+
+def test_archive_frees_holdings_and_restore_is_refused_once_taken(
+    headers: Headers, db_session: Session
+) -> None:
+    fund_id = fund(db_session, me(db_session))
+    ef = emergency(headers, name="EF").json()["id"]
+    bike = create(headers).json()["id"]
+    add_holding(headers, ef, instrument_id=fund_id)
+
+    archived = client.post(f"{URL}/{ef}/archive", headers=headers)
+    assert archived.status_code == 200
+    assert archived.json()["archived"] is True
+    assert add_holding(headers, bike, instrument_id=fund_id).status_code == 201
+
+    restored = client.post(f"{URL}/{ef}/restore", headers=headers)
+    assert restored.status_code == 409
+    assert restored.json()["detail"] == "Mutual fund X is in Bike now."
+    assert client.get(f"{URL}/{ef}", headers=headers).json()["archived"] is True
+    holding = db_session.scalars(select(GoalHolding).where(GoalHolding.goal_id == ef)).one()
+    db_session.refresh(holding)
+    assert holding.active is False
+
+    # Taking it out of Bike lets EF come back with it.
+    bike_holding = client.get(f"{URL}/{bike}", headers=headers).json()["holdings"][0]["id"]
+    removed = client.delete(f"{URL}/{bike}/holdings/{bike_holding}", headers=headers)
+    assert removed.json() == {"id": bike_holding}
+    back = client.post(f"{URL}/{ef}/restore", headers=headers)
+    assert back.status_code == 200
+    assert back.json()["archived"] is False
+    book = load_goal_book(db_session, me(db_session), TODAY)
+    assert book.holding_goal == {("instrument", fund_id): (ef, "EF")}
+
+
+def test_archive_and_restore_switch_earmarks_in_and_out(
+    headers: Headers, db_session: Session
+) -> None:
+    uid = me(db_session)
+    goal_id = create(headers).json()["id"]
+    bank = account(db_session, uid).id
+    db_session.commit()
+    earmark(headers, goal_id, bank, "set_aside", "700.00")
+    client.post(f"{URL}/{goal_id}/archive", headers=headers)
+    assert load_goal_book(db_session, uid, TODAY).set_aside_by_account == {}
+    client.post(f"{URL}/{goal_id}/restore", headers=headers)
+    assert load_goal_book(db_session, uid, TODAY).set_aside_by_account == {bank: Decimal("700.00")}
+
+
+def test_holding_must_be_held_units_or_a_ppf_or_rd(headers: Headers, db_session: Session) -> None:
+    uid = me(db_session)
+    goal_id = create(headers).json()["id"]
+    gone = fund(db_session, uid, "Gone Fund", held=False)
+    bank = account(db_session, uid).id
+    db_session.commit()
+    rd = owners_rd(headers)
+
+    not_held = add_holding(headers, goal_id, instrument_id=gone)
+    assert not_held.status_code == 422
+    assert messages(not_held) == {"instrument_id": "You don't hold any Gone Fund."}
+    for account_id in (bank, 999999):
+        wrong = add_holding(headers, goal_id, account_id=account_id)
+        assert wrong.status_code == 422
+        assert messages(wrong) == {"account_id": "Choose a PPF or RD account."}
+    missing = add_holding(headers, goal_id, instrument_id=999999)
+    assert messages(missing) == {"instrument_id": "Choose a fund, stock, coin, PPF or RD."}
+    for body in ({}, {"instrument_id": gone, "account_id": rd}):
+        neither = client.post(f"{URL}/{goal_id}/holdings", json=body, headers=headers)
+        assert neither.status_code == 422
+        assert messages(neither) == {"instrument_id": "Choose a fund, stock, coin, PPF or RD."}
+
+    added = add_holding(headers, goal_id, account_id=rd)
+    assert added.status_code == 201, added.json()
+    assert added.json()["holdings"][0]["account_id"] == rd
+
+
+def test_archived_goal_takes_no_holdings(headers: Headers, db_session: Session) -> None:
+    fund_id = fund(db_session, me(db_session))
+    goal_id = create(headers).json()["id"]
+    client.post(f"{URL}/{goal_id}/archive", headers=headers)
+    response = add_holding(headers, goal_id, instrument_id=fund_id)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Restore this goal first."
+
+
+def test_other_users_basket_routes_are_404(
+    headers: Headers, other: Headers, db_session: Session
+) -> None:
+    theirs = create(other).json()["id"]
+    bank = account(db_session, me(db_session)).id
+    db_session.commit()
+    for call in (
+        lambda: earmark(headers, theirs, bank, "set_aside", "1.00"),
+        lambda: client.delete(f"{URL}/{theirs}/earmarks/1", headers=headers),
+        lambda: client.post(f"{URL}/{theirs}/holdings", json={}, headers=headers),
+        lambda: client.delete(f"{URL}/{theirs}/holdings/1", headers=headers),
+        lambda: client.post(f"{URL}/{theirs}/archive", headers=headers),
+        lambda: client.post(f"{URL}/{theirs}/restore", headers=headers),
+    ):
+        assert call().status_code == 404

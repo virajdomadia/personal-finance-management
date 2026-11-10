@@ -385,6 +385,18 @@ def fmt(value: Decimal) -> str:
     return f"{value + 0:.2f}"  # + 0 turns a negative zero into zero
 
 
+def rupees(value: Decimal) -> str:
+    """Money in a message, grouped the Indian way: ₹12,34,567.50, and ₹40,000 (no ".00")."""
+    text = fmt(abs(value))
+    whole, paise = text.split(".")
+    head, groups = whole[:-3], [whole[-3:]]
+    while head:
+        groups.insert(0, head[-2:])
+        head = head[:-2]
+    sign = "-" if value < 0 and text != "0.00" else ""
+    return f"{sign}₹{','.join(groups)}" + ("" if paise == "00" else f".{paise}")
+
+
 def _money_text(value: Decimal | None) -> str | None:
     return None if value is None else fmt(value)
 

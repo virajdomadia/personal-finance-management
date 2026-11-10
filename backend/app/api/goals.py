@@ -1,6 +1,7 @@
 """Goal maths: pure functions, no database."""
 
 from collections import defaultdict
+from collections.abc import Mapping
 from datetime import date
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from typing import Literal, NamedTuple
@@ -19,7 +20,7 @@ from app.api.portfolio import (
     round_paise,
     summarise,
 )
-from app.api.routes.accounts import fmt
+from app.api.routes.accounts import fmt, rupees
 from app.models.account import Account
 from app.models.goal import Goal, GoalEarmark, GoalHolding
 from app.models.insurance import InsurancePolicy
@@ -176,6 +177,16 @@ class GoalBook(NamedTuple):
     responses: dict[int, GoalResponse]
 
 
+def free_balance(
+    account: Account, flows: dict[int, Decimal], set_aside_by_account: Mapping[int, Decimal]
+) -> Decimal:
+    """What's left of an account's balance once active goals' earmarks are taken out.
+
+    Pass `GoalBook.set_aside_by_account`. It goes negative when more is set aside than held.
+    """
+    return balance_of(account, flows) - set_aside_by_account.get(account.id, Decimal(0))
+
+
 def _spend_by_month(db: Session, user_id: int) -> tuple[dict[Month, Decimal], date | None]:
     """Expenses plus whole EMIs by calendar month, and the user's earliest transaction date."""
     spend: dict[Month, Decimal] = defaultdict(Decimal)
@@ -325,4 +336,17 @@ def load_goal_book(db: Session, user_id: int, today: date) -> GoalBook:
             holdings=lines,
             warnings=[],
         )
-    return GoalBook(dict(set_aside), holding_goal, responses)
+
+    # Every active goal's earmarks are in `set_aside` now, so each account's free balance is known.
+    set_aside_by_account = dict(set_aside)
+    for g in goals:
+        if g.archived_at is not None:
+            continue
+        for line in responses[g.id].earmarks:
+            account = accounts[line.account_id]
+            free = free_balance(account, flows, set_aside_by_account)
+            if free < 0:
+                responses[g.id].warnings.append(
+                    f"{rupees(-free)} more is set aside than {account.name} holds."
+                )
+    return GoalBook(set_aside_by_account, holding_goal, responses)
