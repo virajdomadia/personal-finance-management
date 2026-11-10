@@ -12,6 +12,8 @@ import {
   formFromTransaction,
   formatDate,
   formatMonth,
+  activityAmount,
+  activityLabel,
   fromOptions,
   groupByDate,
   incomeCategories,
@@ -303,4 +305,18 @@ test("a new form never starts on a deposit", () => {
   assert.equal(startForm([ppf, bank], "2026-01-01", 4).account_id, "");
   assert.equal(startForm([ppf, bank], "2026-01-01", 1).account_id, "1");
   assert.equal(startForm([ppf], "2026-01-01", null).account_id, "");
+});
+
+test("activityAmount shows a signed amount like transaction rows", () => {
+  assert.equal(activityAmount("-1000.00"), "-₹1,000.00");
+  assert.equal(activityAmount("2500.50"), "+₹2,500.50");
+  assert.equal(activityAmount("+300.19"), "+₹300.19");
+});
+
+test("activityLabel names the trade, using coin formatting for crypto", () => {
+  const a = { trade_id: 1, kind: "crypto", instrument_id: 1, symbol: "BTC", name: "Bitcoin", side: "buy", date: "2026-11-01", quantity: "0.00485000", amount: "1", signed_amount: "-1", sip_id: null };
+  assert.equal(activityLabel(a), "Bought 0.00485 BTC");
+  assert.equal(activityLabel({ ...a, side: "sell" }), "Sold 0.00485 BTC");
+  assert.equal(activityLabel({ ...a, kind: "stock", quantity: "10" }), "Bought 10 BTC");
+  assert.equal(activityLabel({ ...a, sip_id: 3, name: "Nifty Fund" }), "SIP: Nifty Fund");
 });
