@@ -279,7 +279,7 @@ export default function CoinFormScreen() {
           <Dialog.Title>{coin ? `Delete ${coin.name}?` : "Delete this coin?"}</Dialog.Title>
           <Dialog.Content>
             <Text variant="bodyMedium">
-              Only a coin with no transactions or prices can be deleted. This can&apos;t be undone.
+              Only a coin with no transactions can be deleted. Its prices are deleted with it. This can&apos;t be undone.
             </Text>
           </Dialog.Content>
           <Dialog.Actions>

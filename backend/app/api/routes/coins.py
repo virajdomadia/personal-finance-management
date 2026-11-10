@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, get_current_user
@@ -130,9 +130,7 @@ def _duplicate(symbol: str) -> RequestValidationError:
 
 
 def _in_use() -> HTTPException:
-    return HTTPException(
-        status.HTTP_409_CONFLICT, "This coin has trades or prices. Delete them first."
-    )
+    return HTTPException(status.HTTP_409_CONFLICT, "This coin has trades. Delete them first.")
 
 
 @router.get("/coins")
@@ -197,14 +195,16 @@ def update_coin(id: int, body: CoinUpdate, user: CurrentUser, db: DbSession) -> 
 
 @router.delete("/coins/{id}")
 def delete_coin(id: int, user: CurrentUser, db: DbSession) -> Deleted:
+    """A coin with no trades can be deleted; its prices go with it."""
     coin = get_owned_coin(db, user.id, id)
-    for table in (InstrumentPrice, InvestmentTrade):
-        if db.scalar(select(table.id).where(table.instrument_id == coin.id).limit(1)) is not None:
-            raise _in_use()
+    trade = select(InvestmentTrade.id).where(InvestmentTrade.instrument_id == coin.id).limit(1)
+    if db.scalar(trade) is not None:
+        raise _in_use()
+    db.execute(delete(InstrumentPrice).where(InstrumentPrice.instrument_id == coin.id))
     db.delete(coin)
     try:
         db.commit()
-    except IntegrityError:  # a trade or price was saved for it meanwhile
+    except IntegrityError:  # a trade, or a price, was saved for it meanwhile
         db.rollback()
         raise _in_use() from None
     return Deleted(id=id)

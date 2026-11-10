@@ -5,11 +5,13 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.portfolio import fmt_coin, fmt_price
 from app.api.routes import coins
 from app.main import app
+from app.models.investment import InstrumentPrice
 from tests.test_accounts import Headers, auth, locs
 from tests.test_funds import add_fund, add_nav
 from tests.test_stocks import add_price, add_stock
@@ -19,7 +21,7 @@ client = TestClient(app)
 URL = "/api/investments"
 PRICE = "Enter a price above 0, with up to 4 decimals, like 7504827.5."
 TICKER = "Enter the coin's ticker, like BTC."
-IN_USE = "This coin has trades or prices. Delete them first."
+IN_USE = "This coin has trades. Delete them first."
 
 
 @pytest.fixture
@@ -192,17 +194,17 @@ def test_prices_listed_newest_first_with_four_decimals(headers: Headers) -> None
     assert coin_list(headers)[0]["price_date"] == "2026-11-05"
 
 
-def test_delete_coin_refused_with_price_allowed_without(headers: Headers) -> None:
+def test_delete_coin_deletes_its_prices(headers: Headers, db_session: Session) -> None:
     coin = add_coin(headers).json()["id"]
-    price = add_coin_price(headers, coin, "2026-11-01", "5").json()["id"]
-    refused = client.delete(f"{URL}/coins/{coin}", headers=headers)
-    assert refused.status_code == 409
-    assert refused.json()["detail"] == IN_USE
-    deleted = client.delete(f"{URL}/coin-prices/{price}", headers=headers)
-    assert deleted.json() == {"id": price}
-    assert client.delete(f"{URL}/coin-prices/{price}", headers=headers).status_code == 404
+    other = add_coin(headers, "ETH", "Ether").json()["id"]
+    add_coin_price(headers, coin, "2026-11-01", "5")
+    add_coin_price(headers, coin, "2026-11-02", "6")
+    kept = add_coin_price(headers, other, "2026-11-01", "7").json()["id"]
     assert client.delete(f"{URL}/coins/{coin}", headers=headers).json() == {"id": coin}
-    assert coin_list(headers) == []
+    assert [c["id"] for c in coin_list(headers)] == [other]
+    remaining = db_session.scalars(select(InstrumentPrice.id)).all()
+    assert remaining == [kept]
+    assert client.delete(f"{URL}/coins/{coin}", headers=headers).status_code == 404
 
 
 def test_fmt_coin_and_price() -> None:
@@ -211,7 +213,7 @@ def test_fmt_coin_and_price() -> None:
     assert fmt_price(Decimal("7504827.5")) == "7504827.5000"
 
 
-def test_delete_coin_with_a_trade_but_no_prices_is_409(headers: Headers) -> None:
+def test_delete_coin_with_a_trade_is_409(headers: Headers) -> None:
     from tests.test_crypto_trades import buy, exchange
 
     coin_id = add_coin(headers).json()["id"]
@@ -220,3 +222,7 @@ def test_delete_coin_with_a_trade_but_no_prices_is_409(headers: Headers) -> None
     response = client.delete(f"{URL}/coins/{coin_id}", headers=headers)
     assert response.status_code == 409
     assert response.json()["detail"] == IN_USE
+    # with a price too, the 409 leaves both in place
+    add_coin_price(headers, coin_id, "2026-11-01", "5")
+    assert client.delete(f"{URL}/coins/{coin_id}", headers=headers).status_code == 409
+    assert len(client.get(f"{URL}/coins/{coin_id}/prices", headers=headers).json()["prices"]) == 1

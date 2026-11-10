@@ -312,7 +312,7 @@ export function CoinView({ coinId }: { coinId: number }) {
       {dialog.kind === "deleteCoin" && data && (
         <ConfirmDelete
           title={`Delete ${data.coin.name}?`}
-          body="Only a coin with no trades or prices can be deleted. This can't be undone."
+          body="Only a coin with no trades can be deleted. Its prices are deleted with it. This can't be undone."
           path={`/investments/coins/${data.coin.id}`}
           onClose={closeDialog}
           onDone={(message) => {
