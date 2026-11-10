@@ -2,13 +2,14 @@ import calendar
 from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Literal, NoReturn, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.balances import Movement, balance_of, load_movements, net_flows
@@ -27,6 +28,8 @@ from app.api.routes.accounts import (
 from app.api.routes.dashboard import today_india
 from app.db.session import DbSession
 from app.models.account import Account
+from app.models.insurance import InsurancePolicy
+from app.models.recurring import RecurringTemplate
 from app.models.transaction import Transaction
 
 router = APIRouter(
@@ -35,6 +38,7 @@ router = APIRouter(
 
 TransactionType = Literal["income", "expense", "transfer", "emi"]
 EMI_CATEGORY = "Loan interest"
+_CHOOSE_TEMPLATE = "Choose a reminder of this type."
 
 DEFAULT_CATEGORIES = {
     "income": ["Salary", "Business", "Interest", "Dividends", "Refund", "Gift", "Other"],
@@ -73,6 +77,14 @@ def _type(value: Any) -> Any:
     return value
 
 
+def _template_id(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise PydanticCustomError("template", _CHOOSE_TEMPLATE)
+    return value
+
+
 Kind = Annotated[TransactionType | None, BeforeValidator(_type)]
 Day = Annotated[date | None, BeforeValidator(iso_date)]
 AccountRef = Annotated[int | None, BeforeValidator(_account_id)]
@@ -80,12 +92,13 @@ Category = Annotated[
     str | None, BeforeValidator(lambda v: clean_text(v, "Enter a category.", limit=40))
 ]
 Note = Annotated[str | None, BeforeValidator(lambda v: clean_text(v, "Enter a note.", limit=200))]
+TemplateRef = Annotated[int | None, BeforeValidator(_template_id)]
 
 
 class TransactionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # Required fields are optional here so that _validate reports them like any other rule.
+    # Required fields are optional here so that they are reported like any other rule.
     type: Kind = None
     account_id: AccountRef = None
     to_account_id: AccountRef = None
@@ -94,6 +107,7 @@ class TransactionCreate(BaseModel):
     category: Category = None
     interest: Money = None
     note: Note = None
+    recurring_template_id: TemplateRef = None
 
 
 class TransactionUpdate(BaseModel):
@@ -108,6 +122,7 @@ class TransactionUpdate(BaseModel):
     category: Category = None
     interest: Money = None
     note: Note = None
+    recurring_template_id: TemplateRef = None
 
 
 class TransactionResponse(BaseModel):
@@ -122,6 +137,7 @@ class TransactionResponse(BaseModel):
     category: str | None
     interest: str | None
     note: str | None
+    recurring_template_id: int | None
     # False once a linked account is archived; restore the account to change the transaction.
     editable: bool
 
@@ -155,6 +171,7 @@ def _to_response(tx: Transaction, accounts: dict[int, Account]) -> TransactionRe
         category=tx.category,
         interest=None if tx.interest is None else fmt(tx.interest),
         note=tx.note,
+        recurring_template_id=tx.recurring_template_id,
         editable=account.archived_at is None and (target is None or target.archived_at is None),
     )
 
@@ -190,7 +207,7 @@ def _account_problem(
     return None
 
 
-def _validate(values: dict[str, Any], accounts: dict[int, Account]) -> None:
+def validate_transaction_values(values: dict[str, Any], accounts: dict[int, Account]) -> None:
     errors: list[dict[str, Any]] = []
     type_ = values["type"]
     if type_ is None:
@@ -351,14 +368,43 @@ def _known_spelling(db: Session, user_id: int, type_: str, category: str) -> str
     return category
 
 
+def _check_template(db: Session, user_id: int, values: dict[str, Any]) -> None:
+    """A linked reminder must be the owner's, of the transaction's type, and not a policy's."""
+    template_id = values["recurring_template_id"]
+    if template_id is None:
+        return
+    template = None
+    if 1 <= template_id <= MAX_ID:
+        # Locked, so deleting the reminder waits for this save.
+        template = db.scalar(
+            select(RecurringTemplate)
+            .where(RecurringTemplate.id == template_id, RecurringTemplate.user_id == user_id)
+            .with_for_update()
+        )
+    if template is None or template.type != values["type"]:
+        raise RequestValidationError([field_error("recurring_template_id", _CHOOSE_TEMPLATE)])
+    if db.scalar(select(InsurancePolicy.id).where(InsurancePolicy.template_id == template_id)):
+        raise RequestValidationError(
+            [field_error("recurring_template_id", "Renew the policy instead.")]
+        )
+
+
+def _template_gone(db: Session) -> NoReturn:
+    db.rollback()
+    raise RequestValidationError([field_error("recurring_template_id", _CHOOSE_TEMPLATE)]) from None
+
+
 def _save_checks(
     db: Session,
     user_id: int,
     accounts: dict[int, Account],
     values: dict[str, Any],
     existing_id: int | None,
+    link_changed: bool = True,
 ) -> None:
-    _validate(values, accounts)
+    validate_transaction_values(values, accounts)
+    if link_changed:  # an unchanged link is left alone, so a policy's payment stays editable
+        _check_template(db, user_id, values)
     before = load_movements(db, user_id)
     after = [m for m in before if m.id != existing_id]
     after.append(
@@ -492,7 +538,13 @@ def create_transaction(
     _save_checks(db, user.id, accounts, values, existing_id=None)
     tx = Transaction(user_id=user.id, **values)
     db.add(tx)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:  # its reminder was deleted since it was checked
+        if values["recurring_template_id"] is None:
+            db.rollback()
+            raise
+        _template_gone(db)
     return _to_response(tx, accounts)
 
 
@@ -520,13 +572,27 @@ def update_transaction(
         "category": None if tx.type == "emi" else tx.category,
         "interest": tx.interest,
         "note": tx.note,
+        "recurring_template_id": tx.recurring_template_id,
         **changes,
     }
     _require_active(tx, accounts)
-    _save_checks(db, user.id, accounts, values, existing_id=tx.id)
+    _save_checks(
+        db,
+        user.id,
+        accounts,
+        values,
+        existing_id=tx.id,
+        link_changed=values["recurring_template_id"] != tx.recurring_template_id,
+    )
     for field, value in values.items():
         setattr(tx, field, value)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:  # its reminder was deleted since it was checked
+        if values["recurring_template_id"] is None:
+            db.rollback()
+            raise
+        _template_gone(db)
     return _to_response(tx, accounts)
 
 
