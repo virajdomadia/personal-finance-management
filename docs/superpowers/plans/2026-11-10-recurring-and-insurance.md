@@ -198,7 +198,7 @@ def financial_year(day: date) -> int   # reuse app.api.deposits.financial_year
 **Interfaces (produces):**
 - Types that mirror Tasks 3–5 exactly.
 - `templateFormBlank(frequency)`, `templateFormFrom(t)`, `templatePayload(form, "create"|"edit")`.
-- `transactionFormFromTemplate(t, occurrence, today)`: the date is max(occurrence, today) only when the occurrence is in the future, otherwise the occurrence; the type, amount, accounts, category and note come from the template; `recurring_template_id` is set.
+- `transactionFormFromTemplate(t, occurrence, today)`: the date is the occurrence when it's due, or today when it's only coming up, so a late payment still settles its own month; the type, amount, accounts, category and note come from the template; `recurring_template_id` is set.
 - `dueText(item)`: "Rent: ₹15,000 due since 1 Mar. Record it." / "Care Health Insurance premium: ₹11,936 coming up on 6 Apr." Whole rupees drop the `.00`.
 - `scheduleText(t)`: "Every month on the 1st" / "Every year on 6 Apr".
 - `renewFormFrom(policy, today)`: the date is today, the amount is the premium, the account is the paying account, the period is the next year (`period_start` = old end + 1 day, `period_end` = old end + 1 year, clamped), and the sum insured is unchanged.

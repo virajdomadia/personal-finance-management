@@ -71,7 +71,7 @@ Each occurrence has a date: monthly on `day` of every month, yearly on `day` of 
 - **Coming up:** the next unrecorded occurrence within `remind_days` after today.
 - A stopped template is never due or coming up.
 
-**Record** opens the transaction form pre-filled from the template (type, amount, accounts, category, note, and the occurrence date, or today if that's later). The owner can change anything. Nothing is ever posted without the owner saving it. **Skip** marks one occurrence as not happening (e.g. a month without rent) by storing it in a small `recurring_skips` table (template, occurrence date), so it stops showing.
+**Record** opens the transaction form pre-filled from the template (type, amount, accounts, category, note, and the date: the occurrence date when it's due, so a late payment still settles its own month, or today when it's only coming up). The owner can change anything. Nothing is ever posted without the owner saving it. **Skip** marks one occurrence as not happening (e.g. a month without rent) by storing it in a small `recurring_skips` table (template, occurrence date), so it stops showing.
 
 Templates appear on the dashboard and on the transactions screen as "Due" and "Coming up" lines, with Record and Skip, on both clients. SIPs and RD instalments keep their own reminders; they are not turned into templates.
 
