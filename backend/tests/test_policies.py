@@ -652,7 +652,7 @@ def test_a_policys_reminder_is_edited_through_the_policy(headers: Headers) -> No
     )
     assert response.status_code == 200, response.json()
     assert response.json()["name"] == "Health cover"
-    assert client.patch(reminder, json={"active": False}, headers=headers).status_code == 200
+    assert client.patch(reminder, json={"active": False}, headers=headers).status_code == 422
 
 
 def test_funded_by_a_closed_rd_has_no_maturity(headers: Headers) -> None:
@@ -818,6 +818,28 @@ def test_a_lapsed_policys_reminder_cannot_be_restarted(headers: Headers) -> None
     kept = client.patch(reminder, json={"active": False, "note": "Lapsed"}, headers=headers)
     assert kept.status_code == 200, kept.json()
     assert kept.json()["active"] is False
+
+
+def test_a_policys_reminder_cannot_be_stopped_or_skipped(headers: Headers) -> None:
+    body = made(headers, card(headers))
+    reminder = f"/api/recurring/{body['template']['id']}"
+    stop = client.patch(reminder, json={"active": False}, headers=headers)
+    assert stop.status_code == 422
+    assert locs(stop) == [["body", "active"]]
+    assert stop.json()["detail"][0]["msg"] == "Lapse the policy to stop its reminder."
+    # Already active stays active.
+    same = client.patch(reminder, json={"active": True}, headers=headers)
+    assert same.status_code == 200, same.json()
+    assert same.json()["active"] is True
+    skip = client.post(
+        f"{reminder}/skip", json={"occurrence": body["template"]["coming_up"]}, headers=headers
+    )
+    assert skip.status_code == 422
+    assert locs(skip) == [["body", "occurrence"]]
+    assert skip.json()["detail"][0]["msg"] == "Renew or lapse the policy instead."
+    # Lapsing is how it stops.
+    client.post(f"{URL}/{body['id']}/lapse", headers=headers)
+    assert client.get("/api/recurring", headers=headers).json()["templates"][0]["active"] is False
 
 
 def test_active_policies_come_first_then_by_renewal(headers: Headers) -> None:

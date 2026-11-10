@@ -382,6 +382,8 @@ def update_template(
         ]
         if changes.get("active") is True and not policy_active:
             refused.append(field_error("active", "This policy has lapsed."))
+        if changes.get("active") is False and template.active:
+            refused.append(field_error("active", "Lapse the policy to stop its reminder."))
         if refused:
             raise RequestValidationError(refused)
     values = {
@@ -450,6 +452,10 @@ def delete_template(id: int, user: CurrentUser, db: DbSession) -> Deleted:
 def skip_occurrence(id: int, body: SkipBody, user: CurrentUser, db: DbSession) -> TemplateResponse:
     _owned(db, user.id, id)
     template = _owned(db, user.id, id, lock=True)
+    if db.scalar(select(InsurancePolicy.id).where(InsurancePolicy.template_id == template.id)):
+        raise RequestValidationError(
+            [field_error("occurrence", "Renew or lapse the policy instead.")]
+        )
     today = today_india()
     paid = list(
         db.scalars(
