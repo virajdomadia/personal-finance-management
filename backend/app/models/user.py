@@ -13,6 +13,4 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True)
     google_sub: Mapped[str | None] = mapped_column(String(255), unique=True)
     session_version: Mapped[int] = mapped_column(default=1, server_default="1")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -25,6 +25,10 @@ class Transaction(Base):
     # EMIs only: the part of `amount` that is interest and charges. The rest repays the loan.
     interest: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     note: Mapped[str | None] = mapped_column(String(200))
+    # Set when this was recorded from a recurring template's occurrence.
+    recurring_template_id: Mapped[int | None] = mapped_column(
+        ForeignKey("recurring_templates.id"), index=True
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
