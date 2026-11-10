@@ -71,7 +71,7 @@ A crypto trade uses the same row as stock and fund trades. Its rules:
 
 `amount` is entered rather than computed, as for funds: an 8-decimal quantity times a price is rarely exactly what the exchange debited.
 
-**Consistency check** (buy and sell, not opening): quantity × price must be within ₹1.00 of `amount − charges` for a buy, and of `amount + charges` for a sell. The error goes on `quantity`: "Quantity × price doesn't match the amount. Check the quantity and price."
+**Consistency check** (buy and sell, not opening): quantity × price must be within the larger of ₹1.00 and quantity × ₹0.00005 (the most a 4-decimal price can be off by) of `amount − charges` for a buy, and of `amount + charges` for a sell. The error goes on `quantity`: "Quantity × price doesn't match the amount. Check the quantity and price."
 
 **Cash and cost** follow stocks and funds exactly: a buy takes `amount` from the broker cash and that's the lot's cost. A sell adds `amount` to it, and realised P&L = `amount` − FIFO cost. Fractional FIFO works as it does for fund units: exact `Decimal` quantities and the paise-remainder rule. TDS is counted as a charge, so realised P&L is after TDS. The app makes no tax claim, as with stocks.
 
@@ -89,7 +89,7 @@ Crypto counts in investments exactly as stocks and funds do: current value in "Y
 
 The builder shapes these in the style of the fund routes, covering:
 
-- Coins: list, create, rename, delete (delete only when the coin has no trades), with `kind = crypto`.
+- Coins: list, create, rename, delete (delete only when the coin has no trades; its prices go with it), with `kind = crypto`.
 - Crypto trades: create, edit, delete, with the rules above. Quantity crosses the API as a string with 8 decimals (`"0.00014067"`), and price with 4.
 - Prices: record, list, delete.
 - Portfolio: **existing fields stay unchanged** (`holdings`, `by_stock`, `closed`, `totals`, `funds`, and so on), so the installed Android app keeps working. Crypto goes in a new `crypto` object (holdings, closed, totals), and `overall` includes it.
@@ -101,12 +101,12 @@ Each platform gets its own UI on the shared backend, never a copy of the other.
 
 - **Web:** the Investments page gains a **Crypto** section beside Stocks, Mutual funds and Deposits, with a summary (invested, value, unrealised, realised) and coin rows. A coin page shows quantity, average price, holdings per account, trades and price history. Actions: Buy, Sell, Add existing coins, Update price.
 - **Android:** the Investments tab's segments gain **Crypto**. It has a coin list, a coin screen, and phone forms with the same actions. With four segments, the builder may make them fit (shorter labels or a scrollable row).
-- Quantities show up to 8 decimals with trailing zeros trimmed (0.00485, not 0.00485000). Prices show 2 decimals when they have no more.
+- Quantities show up to 8 decimals with trailing zeros trimmed (0.00485, not 0.00485000). Recorded prices show up to 4 decimals, trimmed, and never fewer than 2. Averages, which are derived, show 2 decimals from ₹1 up (₹70,66,965.24).
 
 ## Follow-ups folded in
 
 1. **The bank account page lists investment debits and credits.** Today it shows transactions only, so stock, fund and crypto trades that move an account's cash don't appear, even though the balance is right. The account page (web and Android) lists, in date order, every non-opening investment trade on that account alongside its transactions, read-only, labelled "Bought 0.00004 BTC" / "SIP: Parag Parikh Flexi Cap", and so on, with the signed amount. Editing stays on the investment's own page. (PPF and RD contributions are already transfers, so they already show.)
-   - *Claude's call:* the trades come from a **new endpoint** (e.g. `GET /accounts/{id}/investment-activity`, optionally by month). `GET /transactions` and its rows stay unchanged, so the installed app isn't shown trades as editable transactions. The trades **don't count** in the income and expense totals: like a transfer, a buy moves money into investments rather than spending it. Each client merges them into the account's list by date.
+   - *Claude's call:* the trades come from a **new endpoint** (e.g. `GET /accounts/{id}/investment-activity`, optionally by month). `GET /transactions` and its rows stay unchanged, so the installed app isn't shown trades as editable transactions. The trades **don't count** in the income and expense totals: like a transfer, a buy moves money into investments rather than spending it. Each client shows them as their own "Investment activity" section for the month, under the account's transactions. That keeps the transaction list's pagination and totals untouched. (Built this way at the plan stage; the owner may still ask for one merged list.)
 2. **Missing test:** a hand-entered NAV on the same date as a fund trade means the trade doesn't create or take over a NAV (no NAV handover).
 3. **Archive lock order:** `archive_account(bank)` locks the bank and then its PPFs. Change it to lock all the rows involved in ascending id order, so it can't deadlock with a PPF edit.
 
@@ -136,5 +136,5 @@ Live prices or an exchange API; CoinDCX CSV import; crypto SIPs; futures, option
 4. **TDS counts as a sell charge.** Realised P&L is after TDS.
 5. **Trades don't record a price** (stock behaviour). Prices come from "Update price".
 6. **History is imported as one opening lot per coin**, dated 14 Apr 2026, at CoinDCX's invested figure; the past ₹500 transfers aren't recreated.
-7. **The ₹1.00 consistency check** applies to crypto buys and sells.
+7. **The consistency check** applies to crypto buys and sells, with a tolerance of the larger of ₹1.00 and quantity × ₹0.00005, so low-priced coins can still be recorded.
 8. Three follow-ups are folded in (account page lists investment trades, the NAV test, the archive lock order). The SIP bank-move one isn't.
