@@ -18,6 +18,7 @@ from app.api.portfolio import (
     unrealised_percent,
 )
 from app.api.routes.accounts import fmt, list_sort_key, totals
+from app.api.routes.recurring import DueItem, due_items
 from app.db.session import DbSession
 from app.models.account import Account
 
@@ -59,6 +60,7 @@ class DashboardResponse(BaseModel):
     next_card_due: NextCardDue | None
     credit_used: CreditUsed | None
     investments: Investments | None
+    recurring: list[DueItem]
 
 
 @router.get("")
@@ -114,4 +116,5 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
         else NextCardDue(account_id=due[1].id, name=due[1].name, due_date=due[0].isoformat()),
         credit_used=credit_used,
         investments=investments,
+        recurring=due_items(db, user.id, today),
     )

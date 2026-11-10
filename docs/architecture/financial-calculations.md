@@ -168,6 +168,32 @@ Active PPF and RD accounts also show on the Investments page and count in the in
 
 Close RD records, in one step: the interest (what you received minus the balance) as an income with category "Interest", then a transfer of what you received to the bank, then archives the RD, which ends at exactly ₹0. If you received less than the balance, as with a penalty for closing early, the shortfall is an expense with category "Fees and charges" instead. Example: balance ₹20,000 and ₹19,800 received gives a ₹200 fee and a ₹19,800 transfer.
 
+## Recurring reminders and health insurance
+
+**Built on branch `recurring-insurance`.** See the [design](../superpowers/specs/2026-11-10-recurring-and-insurance-design.md). A recurring template never posts anything. It works out which occurrences are due and which are coming up, and the owner records or skips each one.
+
+### Occurrence rules
+
+- An occurrence falls on the template's day each month (or on its day and month each year), clamped to the month's length, from its start date until its end date.
+- **One payment settles one occurrence.** A transaction linked to the template settles the occurrence it matches, and each payment settles only one. A monthly payment matches the occurrence in the same calendar month, or an occurrence up to `remind_days` after it (the days it showed as coming up). A yearly payment matches an occurrence from `max(45, remind_days)` days before to 45 days after, so a premium paid a little early or late still counts for its year.
+- Payments are matched oldest first. Of the occurrences a payment matches and that are still open, it settles the one in its own calendar month when there is one, otherwise the nearest (the earlier on a tie). A skipped occurrence never takes a payment. Example: rent on the 1st, remind 3 days, October already paid on 5 October; a payment on 30 October (recorded from "Coming up 1 Nov") settles 1 November. A lone payment on 15 October with October unpaid settles October, even with a long reminder.
+- An occurrence is **due** when its date is on or before today, nothing settles it and it isn't skipped. It is **coming up** when it falls within the template's `remind_days` after today (3 days by default for monthly, 30 for yearly). A skipped occurrence shows nowhere.
+- A stopped template is never due or coming up.
+- A policy's template follows the policy: only its name, note, `remind_days` and whether it is active can change on the reminder; everything else changes on the policy. A policy's reminder is stopped only by lapsing the policy (it cannot be stopped or skipped on the reminder), and a lapsed policy's reminder cannot be restarted.
+- A late payment is dated the occurrence it settles, not the day it is entered, so the month it belongs to stays right.
+
+### Card bill date
+
+For a premium or other expense charged to a credit card: the bill is the first statement date on or after the charge, and the payment is due on the first due day strictly after that statement date. With a statement day of 20 and a due day of 8, a charge on 6 April is billed on 20 April and due on 8 May.
+
+### Policy periods and the premium by financial year
+
+Each paid renewal is a policy period linked to its payment transaction. A period that has a payment reads its premium and paid date from that transaction, so editing the transaction changes the period. Renewing is atomic: the period, the payment and the template's next date move together. Deleting the latest renewal's payment rolls the policy back one period. The premium by financial year (April to March) adds up the premiums of the periods by the financial year of the date paid, so a premium paid on 6 April 2026 belongs to FY 2026-27.
+
+### Funding estimate
+
+A policy can name an RD that is set aside to pay it. The estimate is the RD's maturity value (see RD interest above), shown with the maturity date. Once the maturity date is before today the server marks it `matured`, and the line says "matured" instead of "matures". It **covers** the premium when the estimate is at least the premium, and otherwise shows the shortfall. When the card bill falls due before the RD matures, the policy is flagged. The estimate is never added to a balance or to net worth, and insurance has no value in net worth.
+
 ## Dates
 
 "Today" is India's date (UTC+05:30). Future-dated transactions are refused.

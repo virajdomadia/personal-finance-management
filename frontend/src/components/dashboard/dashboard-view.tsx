@@ -7,6 +7,7 @@ import { logout } from "@/app/login/actions";
 import { type Dashboard, formatDueDate, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Signed } from "@/components/investments/shared";
+import { DueSection } from "@/components/recurring/due-list";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: Dashboard };
 
@@ -59,12 +60,12 @@ export function DashboardView() {
         </div>
       )}
 
-      {load.status === "ready" && <Content data={load.data} />}
+      {load.status === "ready" && <Content data={load.data} onChanged={fetchDashboard} />}
     </div>
   );
 }
 
-function Content({ data }: { data: Dashboard }) {
+function Content({ data, onChanged }: { data: Dashboard; onChanged: () => void }) {
   const due = data.next_card_due;
   const used = data.credit_used;
   const investments = data.investments;
@@ -117,6 +118,8 @@ function Content({ data }: { data: Dashboard }) {
           </p>
         </Link>
       )}
+
+      <DueSection items={data.recurring} onChanged={onChanged} />
 
       {(due || used) && (
         <section aria-labelledby="attention-title">

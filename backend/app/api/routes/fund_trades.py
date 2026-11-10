@@ -16,10 +16,10 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import TradeRow, fmt_nav, fmt_units, load_trade_rows, replay
 from app.api.routes.accounts import MAX_ID, MAX_MONEY, Flag, Money, field_error, fmt
-from app.api.routes.dashboard import today_india
 from app.api.routes.funds import (
     MAX_NAV,
     MUTUAL_FUND,
@@ -512,4 +512,3 @@ def delete_fund_trade(id: int, user: CurrentUser, db: DbSession) -> dict[str, in
         hand_over_nav(db, user.id, fund_id, day)
     db.commit()
     return {"id": id}
-

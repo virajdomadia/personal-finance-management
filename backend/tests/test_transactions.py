@@ -61,9 +61,7 @@ def income(headers: Headers, account_id: int, amount: str = "100.00", **fields: 
 
 
 def transfer(headers: Headers, from_id: int, to_id: int, amount: str = "100.00") -> Response:
-    return post(
-        headers, type="transfer", account_id=from_id, to_account_id=to_id, amount=amount
-    )
+    return post(headers, type="transfer", account_id=from_id, to_account_id=to_id, amount=amount)
 
 
 # Balances
@@ -279,6 +277,7 @@ def test_response_shape(headers: Headers) -> None:
         "category": "Groceries",
         "interest": None,
         "note": "Weekly shop",
+        "recurring_template_id": None,
         "editable": True,
     }
 

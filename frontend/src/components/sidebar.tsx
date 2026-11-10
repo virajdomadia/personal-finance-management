@@ -11,6 +11,8 @@ const LINKS = [
   { href: "/accounts", label: "Accounts" },
   { href: "/transactions", label: "Transactions" },
   { href: "/investments", label: "Investments" },
+  { href: "/recurring", label: "Recurring" },
+  { href: "/insurance", label: "Insurance" },
 ] as const;
 
 // The pathname of a page under a dynamic segment (a stock's page) is only known at request time,

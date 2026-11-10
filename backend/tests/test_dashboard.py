@@ -9,6 +9,7 @@ from app.api.routes import dashboard
 from app.api.routes.dashboard import next_due_date
 from app.main import app
 from tests.test_accounts import Headers, auth, make
+from tests.test_recurring import made
 
 client = TestClient(app)
 URL = "/api/dashboard"
@@ -20,6 +21,7 @@ EMPTY = {
     "next_card_due": None,
     "credit_used": None,
     "investments": None,
+    "recurring": [],
 }
 
 
@@ -188,3 +190,29 @@ def test_other_users_accounts_never_counted(
 
 def test_requires_a_session() -> None:
     assert client.get(URL).status_code == 401
+
+
+def test_recurring_shows_due_and_coming_up_and_leaves_other_keys(
+    headers: Headers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.routes import recurring
+
+    monkeypatch.setattr(recurring, "today_india", lambda: date(2026, 11, 8))
+    account_id = make(headers, balance="50000.00").json()["id"]
+    before = get(headers)
+    assert before["recurring"] == []
+
+    rent = made(headers, account_id, day=1, start_date="2026-11-01", remind_days=3)
+    premium = made(
+        headers, account_id, name="Premium", day=10, start_date="2026-11-10", remind_days=3
+    )
+
+    after = get(headers)
+    assert {k: v for k, v in after.items() if k != "recurring"} == {
+        k: v for k, v in before.items() if k != "recurring"
+    }
+    got = [(i["template"]["id"], i["occurrence"], i["state"]) for i in after["recurring"]]
+    assert got == [
+        (rent["id"], "2026-11-01", "due"),
+        (premium["id"], "2026-11-10", "coming_up"),
+    ]

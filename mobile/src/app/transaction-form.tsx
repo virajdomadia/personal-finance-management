@@ -18,12 +18,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { type Account, type AccountList, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { instalmentForm, interestForm, ppfDepositForm } from "@/lib/deposits";
+import { type Template, transactionFormFromTemplate } from "@/lib/recurring";
 import { DateField } from "@/components/date-field";
 import { useSession } from "@/lib/session";
 import {
   type CategoryList,
   TRANSACTION_TYPES,
   type Transaction,
+  type FieldKey,
   type TransactionForm,
   type TransactionType,
   changedPayload,
@@ -52,18 +54,26 @@ const FROM_LABELS: Record<TransactionType, string> = {
   emi: "Paid from",
 };
 
-type Loaded = { accounts: Account[]; categories: CategoryList; transaction: Transaction | null };
+type Loaded = {
+  accounts: Account[];
+  categories: CategoryList;
+  transaction: Transaction | null;
+  template: Template | null;
+};
 
 export default function TransactionFormScreen() {
   // `loan` opens a new EMI for that loan, pre-filled with its suggested split. `rd` opens the RD's
   // next instalment, `ppf` a deposit to that PPF, `interest` the PPF's interest as income.
-  const { id, account, loan, rd, ppf, interest } = useLocalSearchParams<{
+  // `templateId` with `occurrence` opens a reminder's payment, pre-filled from the reminder.
+  const { id, account, loan, rd, ppf, interest, templateId, occurrence } = useLocalSearchParams<{
     id?: string;
     account?: string;
     loan?: string;
     rd?: string;
     ppf?: string;
     interest?: string;
+    templateId?: string;
+    occurrence?: string;
   }>();
   const { token, logOut } = useSession();
   const { colors } = useTheme();
@@ -83,9 +93,19 @@ export default function TransactionFormScreen() {
         return { income: [], expense: [] };
       }),
       editing ? apiFetch<Transaction>(`/transactions/${id}`, auth) : Promise.resolve(null),
+      !editing && templateId !== undefined
+        ? apiFetch<{ templates: Template[] }>("/recurring", auth).then(
+            (list) => list.templates.find((t) => String(t.id) === templateId) ?? null,
+          )
+        : Promise.resolve(null),
     ])
-      .then(([accounts, categories, transaction]) => {
-        if (current) setLoaded({ accounts: accounts.accounts, categories, transaction });
+      .then(([accounts, categories, transaction, template]) => {
+        if (!current) return;
+        if (!editing && templateId !== undefined && template === null) {
+          setLoadError("That reminder isn't there any more.");
+          return;
+        }
+        setLoaded({ accounts: accounts.accounts, categories, transaction, template });
       })
       .catch((err: unknown) => {
         if (!current) return;
@@ -100,7 +120,7 @@ export default function TransactionFormScreen() {
     return () => {
       current = false;
     };
-  }, [editing, id, token, logOut, attempt]);
+  }, [editing, id, templateId, token, logOut, attempt]);
 
   if (loaded === null) {
     return (
@@ -139,7 +159,9 @@ export default function TransactionFormScreen() {
   const forPpf = loaded.accounts.find((a) => a.type === "ppf" && String(a.id) === ppf);
   const forInterest = loaded.accounts.find((a) => a.type === "ppf" && String(a.id) === interest);
   const today = todayIndia();
-  const initialForm = forLoan
+  const initialForm = loaded.template
+    ? transactionFormFromTemplate(loaded.template, occurrence ?? today, today)
+    : forLoan
     ? emiForm(forLoan, today)
     : forRd
       ? instalmentForm(forRd, today, loaded.accounts)
@@ -158,12 +180,12 @@ export default function TransactionFormScreen() {
 }
 
 type FieldInputProps = {
-  name: keyof TransactionForm;
+  name: FieldKey;
   label: string;
   value: string;
   invalid: boolean;
   disabled: boolean;
-  onChange: (name: keyof TransactionForm, value: string) => void;
+  onChange: (name: FieldKey, value: string) => void;
   onFocusField: (name: string) => void;
   onBlurField: (name: string) => void;
   register: (name: string, node: TextInputInstance | null) => void;
@@ -294,7 +316,7 @@ function FormBody({
 
   // Every change is followed by the deposit rules, so an account the rules no longer allow is cleared at once.
   const set = useCallback(
-    (key: keyof TransactionForm, value: string) => setForm((f) => applyDepositRules({ ...f, [key]: value }, accounts)),
+    (key: FieldKey, value: string) => setForm((f) => applyDepositRules({ ...f, [key]: value }, accounts)),
     [accounts],
   );
 
@@ -410,7 +432,7 @@ function FormBody({
     }
   }
 
-  const field = (key: keyof TransactionForm, content: React.ReactNode) => (
+  const field = (key: FieldKey, content: React.ReactNode) => (
     <View
       key={key}
       onLayout={(event) => {
@@ -426,7 +448,7 @@ function FormBody({
     </View>
   );
 
-  const input = (key: keyof TransactionForm, label: string, extra: Partial<React.ComponentProps<typeof TextInput>> = {}) => (
+  const input = (key: FieldKey, label: string, extra: Partial<React.ComponentProps<typeof TextInput>> = {}) => (
     <FieldInput
       name={key}
       label={label}

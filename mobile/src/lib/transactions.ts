@@ -15,6 +15,7 @@ export type Transaction = {
   category: string | null;
   interest: string | null; // EMIs only
   note: string | null;
+  recurring_template_id: number | null;
   editable: boolean;
 };
 
@@ -36,7 +37,11 @@ export type TransactionForm = {
   category: string;
   interest: string;
   note: string;
+  recurring_template_id?: number | null; // set when it records a reminder occurrence
 };
+
+// The form's fields typed as text; the template link is carried, not typed.
+export type FieldKey = Exclude<keyof TransactionForm, "recurring_template_id">;
 
 export const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
   { value: "expense", label: "Expense" },
@@ -81,6 +86,7 @@ export function formFromTransaction(tx: Transaction): TransactionForm {
     category: tx.type === "emi" ? "" : (tx.category ?? ""),
     interest: tx.interest ?? "",
     note: tx.note ?? "",
+    ...(tx.recurring_template_id == null ? {} : { recurring_template_id: tx.recurring_template_id }),
   };
 }
 
@@ -97,6 +103,7 @@ export function toPayload(form: TransactionForm, mode: "create" | "edit"): Recor
   else payload.category = textOrNull(form.category);
   if (form.type === "emi") payload.interest = textOrNull(cleanMoney(form.interest));
   payload.note = textOrNull(form.note);
+  if (form.recurring_template_id != null) payload.recurring_template_id = form.recurring_template_id;
   return payload;
 }
 
@@ -112,7 +119,7 @@ export function changedPayload(form: TransactionForm, original: Transaction): Re
 }
 
 // The fields the form shows for a type, in order, which is where field errors can be displayed.
-export function renderedFields(type: TransactionType): (keyof TransactionForm)[] {
+export function renderedFields(type: TransactionType): FieldKey[] {
   if (type === "emi") return ["amount", "date", "account_id", "to_account_id", "interest", "note"];
   return ["amount", "date", "account_id", type === "transfer" ? "to_account_id" : "category", "note"];
 }

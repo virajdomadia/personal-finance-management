@@ -9,10 +9,10 @@ from pydantic_core import PydanticCustomError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import fmt_nav, latest_prices
 from app.api.routes.accounts import MAX_ID, clean_text, field_error
-from app.api.routes.dashboard import today_india
 from app.api.routes.stocks import Deleted, check_symbol
 from app.api.routes.transactions import Day
 from app.db.session import DbSession

@@ -39,6 +39,10 @@ ALL_TABLES = {
     "investment_trades",
     "instrument_prices",
     "sips",
+    "recurring_templates",
+    "recurring_skips",
+    "insurance_policies",
+    "policy_periods",
 }
 
 
@@ -226,6 +230,13 @@ def test_downgrade_refuses_fund_data(migrations_db: str) -> None:
 
 DEPOSITS_REVISION = "3b8f2c61a7d4"
 NEW_REVISION = "5d7e3a90c1f2"
+HEAD_REVISION = "8e4c1b7a2d95"
+RECURRING_TABLES = {
+    "recurring_templates",
+    "recurring_skips",
+    "insurance_policies",
+    "policy_periods",
+}
 
 
 def seed_investments(url: str, *quantities: str, kind: str = "stock") -> None:
@@ -322,4 +333,60 @@ def test_downgrade_refuses_crypto_data(migrations_db: str, kind: str, quantity: 
     assert tables(migrations_db) == ALL_TABLES
     assert rows(migrations_db, "SELECT kind FROM instruments") == [(kind,)]
     assert rows(migrations_db, "SELECT quantity FROM investment_trades") == [(Decimal(quantity),)]
-    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(NEW_REVISION,)]
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(HEAD_REVISION,)]
+
+
+def test_recurring_migration_round_trip(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, NEW_REVISION)
+    seed_investments(migrations_db)
+    engine = create_engine(migrations_db)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO transactions (id, user_id, type, amount, date, account_id,"
+                    " created_at, updated_at) VALUES (1, 1, 'expense', 10, '2026-10-01', 1, :s, :s)"
+                ),
+                {"s": STAMP},
+            )
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    assert RECURRING_TABLES <= tables(migrations_db)
+    assert rows(migrations_db, "SELECT recurring_template_id FROM transactions") == [(None,)]
+
+    command.downgrade(config, NEW_REVISION)
+    assert tables(migrations_db) == ALL_TABLES - RECURRING_TABLES
+    columns = {c["name"] for c in inspect(create_engine(migrations_db)).get_columns("transactions")}
+    assert "recurring_template_id" not in columns
+    assert rows(migrations_db, "SELECT id FROM transactions") == [(1,)]
+
+
+def test_downgrade_refuses_recurring_data(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, "head")
+    seed_investments(migrations_db)
+    engine = create_engine(migrations_db)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO recurring_templates (id, user_id, name, type, amount, account_id,"
+                    " frequency, day, start_date, remind_days, created_at, updated_at)"
+                    " VALUES (1, 1, 'Rent', 'expense', 100, 1, 'monthly', 1, '2026-10-01', 3,"
+                    " :s, :s)"
+                ),
+                {"s": STAMP},
+            )
+    finally:
+        engine.dispose()
+
+    with pytest.raises(
+        RuntimeError, match="Recurring or insurance data exists; remove it before downgrading."
+    ):
+        command.downgrade(config, NEW_REVISION)
+    assert tables(migrations_db) == ALL_TABLES
+    assert rows(migrations_db, "SELECT name, active FROM recurring_templates") == [("Rent", True)]
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(HEAD_REVISION,)]

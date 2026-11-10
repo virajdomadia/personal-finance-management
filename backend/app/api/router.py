@@ -10,7 +10,9 @@ from app.api.routes import (
     fund_trades,
     funds,
     health,
+    policies,
     portfolio,
+    recurring,
     sips,
     stocks,
     trades,
@@ -27,6 +29,8 @@ api_router.include_router(transactions.router)
 api_router.include_router(funds.router)
 api_router.include_router(fund_trades.router)
 api_router.include_router(sips.router)
+api_router.include_router(recurring.router)
+api_router.include_router(policies.router)
 api_router.include_router(stocks.router)
 api_router.include_router(coins.router)
 api_router.include_router(crypto_trades.router)

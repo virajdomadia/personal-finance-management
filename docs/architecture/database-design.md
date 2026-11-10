@@ -20,6 +20,12 @@ PostgreSQL. Neon in production, a local cluster on port 5434 (`backend/.pgdata`)
 | `users` | `id`, `email`, `session_version` |
 | `accounts` | `type` (`bank`, `credit_card`, `cash`, `broker`, `wallet`), `name`, `opening_balance NUMERIC(14,2)`, `institution`, `bank_kind`, `last4`, `credit_limit`, `statement_day`, `due_day`, `archived_at` |
 | `transactions` | `type` (`income`, `expense`, `transfer`), `amount NUMERIC(14,2)` > 0, `date`, `account_id`, `to_account_id`, `category` text, `note` |
+| `recurring_templates` | `name`, `type`, `amount NUMERIC(14,2)`, `account_id`, `to_account_id`, `category`, `note`, `frequency` (`monthly`, `yearly`), `day`, `month`, `start_date`, `end_date`, `remind_days`, `active` |
+| `recurring_skips` | `template_id`, `occurrence` date, unique on the pair |
+| `insurance_policies` | `kind`, `insurer`, `plan`, `policy_number`, `insured`, `sum_insured`, `period_start`, `period_end`, `premium`, `template_id` (unique), `funded_by_id` (an RD account), `details`, `active` |
+| `policy_periods` | `policy_id`, `period_start`, `period_end`, `premium`, `sum_insured`, `paid_on`, `transaction_id` (unique, the payment) |
+
+`transactions` also has `recurring_template_id` (nullable), which links a payment to the template it settles. The four tables above were added on branch `recurring-insurance`.
 
 Indexes: `user_id`, `account_id` and `to_account_id` on transactions, and `user_id` on accounts.
 
