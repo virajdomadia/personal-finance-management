@@ -19,12 +19,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.dates import today_india
 from app.api.deposits import add_months, financial_year, fy_label, rd_maturity, rd_maturity_value
 from app.api.deps import CurrentUser, get_current_user
 from app.api.policy_periods import payments
 from app.api.recurring import card_bill_due
 from app.api.routes.accounts import MAX_ID, Money, clean_text, field_error, fmt
-from app.api.routes.dashboard import today_india
 from app.api.routes.recurring import (
     DEFAULT_REMIND,
     TemplateResponse,

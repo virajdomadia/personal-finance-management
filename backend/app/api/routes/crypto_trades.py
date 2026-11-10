@@ -14,6 +14,7 @@ from pydantic_core import PydanticCustomError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import TradeRow, fmt_coin, fmt_price, load_trade_rows, replay
 from app.api.routes.accounts import MAX_ID, MAX_MONEY, Flag, Money, field_error, fmt
@@ -26,7 +27,6 @@ from app.api.routes.coins import (
     CoinQty,
     get_owned_coin,
 )
-from app.api.routes.dashboard import today_india
 from app.api.routes.transactions import Day, Note, lock_accounts
 from app.api.trade_checks import (
     NEW_ID,

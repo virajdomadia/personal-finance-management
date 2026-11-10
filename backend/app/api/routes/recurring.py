@@ -17,11 +17,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
+from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.recurring import TemplateRow
 from app.api.recurring import status as occurrence_status
 from app.api.routes.accounts import MAX_ID, Flag, Money, clean_text, field_error, fmt
-from app.api.routes.dashboard import today_india
 from app.api.routes.stocks import Deleted
 from app.api.routes.transactions import (
     AccountRef,

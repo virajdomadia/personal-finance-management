@@ -10,10 +10,10 @@ from pydantic_core import PydanticCustomError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import latest_prices
 from app.api.routes.accounts import MAX_ID, Money, clean_text, field_error, fmt
-from app.api.routes.dashboard import today_india
 from app.api.routes.transactions import Day
 from app.db.session import DbSession
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade

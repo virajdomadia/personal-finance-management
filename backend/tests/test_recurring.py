@@ -1,4 +1,7 @@
+import subprocess
+import sys
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -512,3 +515,15 @@ def test_any_shown_coming_up_date_can_be_skipped(
         f"{URL}/{template_id}/skip", json={"occurrence": "2026-12-01"}, headers=headers
     )
     assert again.status_code == 200
+
+
+@pytest.mark.parametrize("module", ["recurring", "policies", "transactions", "stocks"])
+def test_route_module_imports_on_its_own(module: str) -> None:
+    """Each route module imports first in a fresh interpreter (no circular import)."""
+    result = subprocess.run(
+        [sys.executable, "-c", f"import app.api.routes.{module}"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

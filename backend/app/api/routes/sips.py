@@ -16,9 +16,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.routes.accounts import MAX_ID, Flag, Money, field_error, fmt
-from app.api.routes.dashboard import today_india
 from app.api.routes.funds import get_owned_fund
 from app.api.routes.stocks import Deleted
 from app.api.routes.transactions import Day, lock_accounts

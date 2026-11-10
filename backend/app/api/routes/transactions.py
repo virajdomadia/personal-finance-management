@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.balances import Movement, balance_of, load_movements, net_flows
-from app.api.dates import iso_date
+from app.api.dates import iso_date, today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.policy_periods import LINKED as PERIOD_LINKED
 from app.api.policy_periods import period_of, undo_renewal
@@ -27,7 +27,6 @@ from app.api.routes.accounts import (
     field_error,
     fmt,
 )
-from app.api.routes.dashboard import today_india
 from app.db.session import DbSession
 from app.models.account import Account
 from app.models.insurance import InsurancePolicy
