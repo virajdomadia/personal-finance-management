@@ -18,13 +18,14 @@ import {
 import { Signed, signedLabel } from "@/components/signed";
 import { errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { type CoinTotal, type CryptoTradeMode, formatCoinPrice, formatCoinQty } from "@/lib/crypto";
 import { type FundTotal, type FundTradeMode, type Sip, dueText, formatNav, formatUnits } from "@/lib/funds";
 import type { DepositRow, DepositsPortfolio, Portfolio, StockTotal, Totals } from "@/lib/investments";
 import { useSession } from "@/lib/session";
 import { formatDate } from "@/lib/transactions";
 
 type Kind = "buy" | "sell" | "opening";
-type Segment = "stocks" | "funds" | "deposits";
+type Segment = "stocks" | "funds" | "deposits" | "crypto";
 type Go = (target: Parameters<typeof router.push>[0]) => void;
 
 export default function InvestmentsScreen() {
@@ -37,6 +38,7 @@ export default function InvestmentsScreen() {
   const [focused, setFocused] = useState(true);
   const [soldOpen, setSoldOpen] = useState(false);
   const [redeemedOpen, setRedeemedOpen] = useState(false);
+  const [coinsSoldOpen, setCoinsSoldOpen] = useState(false);
   const [segment, setSegment] = useState<Segment>("stocks");
   const latest = useRef(0);
   const navigating = useRef(false);
@@ -91,6 +93,9 @@ export default function InvestmentsScreen() {
     go({ pathname: "/trade-form", params: kind === "opening" ? { opening: "1" } : { side: kind } });
   const openStock = (row: { stock_id: number; symbol: string }) =>
     go({ pathname: "/stock", params: { id: String(row.stock_id), symbol: row.symbol } });
+  const openCoin = (row: { coin_id: number; symbol: string }) =>
+    go({ pathname: "/coin", params: { id: String(row.coin_id), symbol: row.symbol } });
+  const addCoinTrade = (mode: CryptoTradeMode) => go({ pathname: "/crypto-trade-form", params: { mode } });
   const openFund = (row: { fund_id: number; symbol: string }) =>
     go({ pathname: "/fund", params: { id: String(row.fund_id), symbol: row.symbol } });
   // Deposits are accounts, so their actions (deposit, interest, close) live on the Accounts tab.
@@ -228,6 +233,64 @@ export default function InvestmentsScreen() {
         }
       />
     );
+  } else if (segment === "crypto") {
+    const crypto = portfolio.crypto;
+    const empty = crypto.by_coin.length === 0 && crypto.closed.length === 0;
+    body = (
+      <FlatList
+        data={crypto.by_coin}
+        keyExtractor={(row) => String(row.coin_id)}
+        refreshControl={refreshControl}
+        contentContainerStyle={styles.content}
+        ItemSeparatorComponent={Divider}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            {errorLine}
+            {empty ? null : <SummaryCard totals={crypto.totals} />}
+            {crypto.by_coin.length > 0 ? <SectionTitle label="Coins" /> : null}
+          </View>
+        }
+        ListFooterComponent={
+          crypto.closed.length > 0 ? (
+            <View style={styles.footer}>
+              <Divider />
+              <List.Accordion
+                title={`Sold (${crypto.closed.length})`}
+                expanded={coinsSoldOpen}
+                onPress={() => setCoinsSoldOpen((open) => !open)}
+                titleStyle={{ color: colors.primary }}
+              >
+                {crypto.closed.map((c) => (
+                  <ClosedRow
+                    key={`${c.coin_id}-${c.account_id}`}
+                    title={c.name}
+                    detail={`${c.symbol} · ${c.account_name}`}
+                    realised={c.realised}
+                    hint="Opens the coin"
+                    onPress={() => openCoin(c)}
+                  />
+                ))}
+              </List.Accordion>
+            </View>
+          ) : undefined
+        }
+        renderItem={({ item }) => <CoinRow row={item} onPress={() => openCoin(item)} />}
+        ListEmptyComponent={
+          empty ? (
+            <View style={styles.empty}>
+              <Text variant="titleMedium">Add your crypto</Text>
+              <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant, textAlign: "center" }}>
+                Enter coins you already hold, or record a buy. Prices are typed in by hand, so until you add one coins are
+                valued at cost.
+              </Text>
+              <Button mode="outlined" onPress={() => addCoinTrade("opening")}>
+                Add existing coins
+              </Button>
+            </View>
+          ) : undefined
+        }
+      />
+    );
   } else {
     const funds = portfolio.funds;
     const empty = funds.by_fund.length === 0 && funds.closed.length === 0;
@@ -293,6 +356,7 @@ export default function InvestmentsScreen() {
   }
 
   const hasHoldings = (portfolio?.holdings.length ?? 0) > 0;
+  const hasCoinHoldings = (portfolio?.crypto.holdings.length ?? 0) > 0;
   const hasFundHoldings = (portfolio?.funds.holdings.length ?? 0) > 0;
   // With one SIP due, Record SIP goes straight to it; otherwise the form asks which.
   const onlyDue = dueSips.length === 1 ? dueSips[0] : null;
@@ -312,8 +376,9 @@ export default function InvestmentsScreen() {
         style={styles.segments}
         buttons={[
           { value: "stocks", label: "Stocks" },
-          { value: "funds", label: "Mutual funds" },
+          { value: "funds", label: "Funds" },
           { value: "deposits", label: "Deposits" },
+          { value: "crypto", label: "Crypto" },
         ]}
       />
 
@@ -331,6 +396,20 @@ export default function InvestmentsScreen() {
             { icon: "archive-arrow-down-outline", label: "Add existing shares", onPress: () => addTrade("opening") },
             ...(hasHoldings ? [{ icon: "minus", label: "Sell", onPress: () => addTrade("sell") }] : []),
             { icon: "plus", label: "Buy", onPress: () => addTrade("buy") },
+          ]}
+        />
+      ) : segment === "crypto" ? (
+        <FAB.Group
+          open={fabOpen}
+          visible={focused && portfolio !== null}
+          icon={fabOpen ? "close" : "plus"}
+          label={fabOpen ? undefined : "Add"}
+          accessibilityLabel={fabOpen ? "Close crypto options" : "Add a crypto transaction"}
+          onStateChange={({ open }) => setFabOpen(open)}
+          actions={[
+            { icon: "archive-arrow-down-outline", label: "Add existing coins", onPress: () => addCoinTrade("opening") },
+            ...(hasCoinHoldings ? [{ icon: "minus", label: "Sell", onPress: () => addCoinTrade("sell") }] : []),
+            { icon: "plus", label: "Buy", onPress: () => addCoinTrade("buy") },
           ]}
         />
       ) : (
@@ -584,6 +663,44 @@ function FundRow({ row, onPress }: { row: FundTotal; onPress: () => void }) {
           </Text>
           <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
             avg NAV {formatNav(row.average_nav)}
+          </Text>
+        </View>
+        <View style={styles.amounts}>
+          <Text variant="titleMedium" style={styles.right}>
+            {formatRupees(row.value)}
+          </Text>
+          {priced ? (
+            <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
+              {priced}
+            </Text>
+          ) : null}
+          <Signed value={row.unrealised} variant="bodySmall" style={styles.right} />
+          <Signed value={row.unrealised_percent} percent variant="bodySmall" style={styles.right} />
+        </View>
+      </View>
+    </TouchableRipple>
+  );
+}
+
+// Coin names lead, with the quantity and ticker underneath. Prices go through formatCoinPrice.
+function CoinRow({ row, onPress }: { row: CoinTotal; onPress: () => void }) {
+  const { colors } = useTheme();
+  const priced = row.at_cost ? "at cost" : row.price !== null ? `@ ${formatCoinPrice(row.price)}` : null;
+  return (
+    <TouchableRipple
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${row.name}, ${formatCoinQty(row.quantity)} ${row.symbol}, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}`}
+      accessibilityHint="Opens its transactions and prices"
+    >
+      <View style={styles.row}>
+        <View style={styles.main}>
+          <Text variant="titleMedium">{row.name}</Text>
+          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+            {formatCoinQty(row.quantity)} {row.symbol}
+          </Text>
+          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+            avg {formatCoinPrice(row.average_price)}
           </Text>
         </View>
         <View style={styles.amounts}>
