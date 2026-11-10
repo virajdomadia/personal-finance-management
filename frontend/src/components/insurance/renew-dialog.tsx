@@ -7,7 +7,7 @@ import { type Account, type AccountList, errorMessage, formatFullDate, splitErro
 import { ApiError, apiFetch } from "@/lib/api";
 import { DIALOG, INPUT, PRIMARY, QUIET } from "@/components/investments/shared";
 import { Select } from "@/components/ui/select";
-import { type Policy, type RenewForm, renewFormFrom, renewPayload } from "@/lib/insurance";
+import { type Policy, type RenewForm, cardBillText, renewFormFrom, renewPayload } from "@/lib/insurance";
 import { todayIndia } from "@/lib/transactions";
 
 const FIELDS = ["date", "amount", "account_id", "period_start", "period_end", "sum_insured"] as const;
@@ -28,6 +28,8 @@ export function RenewDialog({ policy, onClose, onRenewed }: Props) {
   const [today] = useState(() => todayIndia());
   const [form, setForm] = useState<RenewForm>(() => renewFormFrom(policy, today));
   const [accounts, setAccounts] = useState<Account[]>([]);
+  // A card bill due before the funding RD matures: worth knowing while paying the premium.
+  const cardBill = cardBillText(policy);
   const [accountsFailed, setAccountsFailed] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -134,6 +136,12 @@ export function RenewDialog({ policy, onClose, onRenewed }: Props) {
             This records the premium as an expense and moves the policy to its new year, together. The current year ends{" "}
             {formatFullDate(policy.period_end)}.
           </p>
+          {cardBill && (
+            <p role="note" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+              <span className="font-medium">Heads up. </span>
+              {cardBill}
+            </p>
+          )}
 
           <fieldset className="flex flex-col gap-4">
             <legend className="mb-2 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">Payment</legend>

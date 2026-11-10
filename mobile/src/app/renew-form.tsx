@@ -8,7 +8,7 @@ import { DateField } from "@/components/date-field";
 import { Banner, Choice, Heading, LoadingScreen, useBlockBack, useFieldScroll } from "@/components/form-parts";
 import { type Account, type AccountList, errorMessage, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { type Policy, type RenewForm, renewErrors, renewFormFrom, renewPayload } from "@/lib/insurance";
+import { type Policy, type RenewForm, cardBillText, renewErrors, renewFormFrom, renewPayload } from "@/lib/insurance";
 import { useSession } from "@/lib/session";
 import { isDeposit, previousDay, todayIndia } from "@/lib/transactions";
 
@@ -69,6 +69,8 @@ function FormBody({ accounts, policy }: Loaded) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [form, setForm] = useState<RenewForm>(() => renewFormFrom(policy, todayIndia()));
+  // A card bill due before the funding RD matures: worth knowing while paying the premium.
+  const cardBill = cardBillText(policy);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
   const [conflict, setConflict] = useState<string | null>(null);
@@ -191,6 +193,7 @@ function FormBody({ accounts, policy }: Loaded) {
           <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
             Records this year&apos;s premium as a payment and moves the policy on to its next year.
           </Text>
+          {cardBill ? <Banner tone="info" messages={[`Heads up. ${cardBill}`]} /> : null}
 
           {field(
             "date",
