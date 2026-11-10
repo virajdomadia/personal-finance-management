@@ -3,8 +3,10 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl, ScrollView, SectionList, StyleSheet, View } from "react-native";
 import { Button, Chip, Divider, FAB, IconButton, Surface, Text, TouchableRipple, useTheme } from "react-native-paper";
 
+import { DueList } from "@/components/due-list";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import type { DueItem } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
 import {
   TRANSACTION_TYPES,
@@ -121,6 +123,8 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
   const [accounts, setAccounts] = useState<Accounts | null>(null);
   // The month's buys and sells in the viewed account. Null while loading; undefined when it could not load.
   const [activity, setActivity] = useState<Activity[] | null | undefined>(null);
+  // Due and coming-up reminders, shown above the list when it isn't one account's.
+  const [due, setDue] = useState<DueItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -134,7 +138,7 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
     setLoadingMore(false);
     try {
       const auth = { token: token ?? undefined };
-      const [result, active, archived, activityResult] = await Promise.all([
+      const [result, active, archived, activityResult, dueResult] = await Promise.all([
         apiFetch<TransactionList>(query(filtersRef.current, 0), auth),
         apiFetch<AccountList>("/accounts", auth),
         apiFetch<AccountList>("/accounts?archived=true", auth),
@@ -148,8 +152,16 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
               if (err instanceof ApiError && err.status === 401) throw err;
               return undefined;
             }),
+        fixedAccountId !== null
+          ? Promise.resolve(null)
+          : apiFetch<{ items: DueItem[] }>("/recurring/due", auth).catch((err: unknown) => {
+              // A 401 signs out below; anything else keeps the reminders already shown.
+              if (err instanceof ApiError && err.status === 401) throw err;
+              return null;
+            }),
       ]);
       if (mine !== latest.current) return;
+      if (dueResult !== null) setDue(dueResult.items);
       setActivity(activityResult === null ? null : activityResult === undefined ? undefined : activityResult.items);
       setList(result);
       setAccounts({ active: active.accounts, archived: archived.accounts });
@@ -335,6 +347,12 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
           ListHeaderComponent={
             <View>
               {filterBar}
+              {fixedAccountId === null ? (
+                // Rendered even when empty, so a failed skip's message still shows.
+                <View style={due.length > 0 ? styles.due : styles.dueEmpty}>
+                  <DueList items={due} onChanged={() => void load()} />
+                </View>
+              ) : null}
               <View style={styles.header}>
                 {error ? (
                   <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.error, marginBottom: 12 }}>
@@ -444,6 +462,8 @@ const styles = StyleSheet.create({
   monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
   chipRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16 },
   header: { paddingHorizontal: 16, paddingTop: 8 },
+  due: { paddingHorizontal: 16, paddingTop: 8 },
+  dueEmpty: { paddingHorizontal: 16 },
   totals: { borderRadius: 12, padding: 16, gap: 12 },
   total: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
   totalAmount: { flexShrink: 1, textAlign: "right" },
