@@ -19,10 +19,11 @@ type ListProps = {
   onRecord: (item: DueItem) => void;
   onSkipped: () => void;
   onError: (message: string) => void;
+  onClearError: () => void;
 };
 
 // Due and coming-up reminders, each with Record (Renew for an insurance premium) and Skip.
-export function DueList({ items, onRecord, onSkipped, onError }: ListProps) {
+export function DueList({ items, onRecord, onSkipped, onError, onClearError }: ListProps) {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [skipping, setSkipping] = useState<string | null>(null);
   const busy = useRef(false);
@@ -39,12 +40,14 @@ export function DueList({ items, onRecord, onSkipped, onError }: ListProps) {
         body: JSON.stringify({ occurrence: item.occurrence }),
       });
       setConfirming(null);
+      onClearError();
       onSkipped();
     } catch (err) {
       if (isUnauthorized(err)) void logout();
       else {
         setConfirming(null);
         onError(errorMessage(err));
+        onSkipped(); // the row may be stale (already skipped or recorded elsewhere)
       }
     } finally {
       busy.current = false;
@@ -122,7 +125,7 @@ function RecordFlow({
 }: {
   item: DueItem;
   onClose: () => void;
-  onDone: (message: string | null) => void;
+  onDone: (message: string | null, recordedDate?: string) => void;
 }) {
   const policyId = item.template.policy_id;
   const [accounts, setAccounts] = useState<Account[] | null>(null);
@@ -172,7 +175,7 @@ function RecordFlow({
         defaultAccountId={item.template.account_id}
         initialForm={transactionFormFromTemplate(item.template, item.occurrence, todayIndia())}
         onClose={onClose}
-        onSaved={() => onDone(null)}
+        onSaved={(saved) => onDone(null, saved.date)}
         onConflict={(message) => onDone(message)}
       />
     );
@@ -185,8 +188,9 @@ type SectionProps = {
   items?: DueItem[];
   // Change to reload the section's own items, e.g. after the page's transactions changed.
   refreshKey?: number;
-  // Called after something was recorded or skipped, so the page can reload what it shows.
-  onChanged?: () => void;
+  // Called after something was recorded or skipped, so the page can reload what it shows. A recorded
+  // transaction passes its date.
+  onChanged?: (recordedDate?: string) => void;
 };
 
 // The due and coming-up lists with their Record and Skip, ready to drop into a page.
@@ -216,15 +220,15 @@ export function DueSection({ items: given, refreshKey = 0, onChanged }: SectionP
     if (own) load();
   }, [own, load, refreshKey]);
 
-  const changed = () => {
+  const changed = (recordedDate?: string) => {
     if (own) load();
-    onChanged?.();
+    onChanged?.(recordedDate);
   };
   const closeRecord = useCallback(() => setRecord(null), []);
-  const recorded = (message: string | null) => {
+  const recorded = (message: string | null, recordedDate?: string) => {
     setRecord(null);
     setNotice(message);
-    changed();
+    changed(recordedDate);
   };
 
   const items = given ?? fetched;
@@ -241,7 +245,7 @@ export function DueSection({ items: given, refreshKey = 0, onChanged }: SectionP
       )}
       {items.length > 0 && (
         <div className="mb-6">
-          <DueList items={items} onRecord={setRecord} onSkipped={changed} onError={setNotice} />
+          <DueList items={items} onRecord={setRecord} onSkipped={() => changed()} onError={setNotice} onClearError={() => setNotice(null)} />
         </div>
       )}
       {record && <RecordFlow key={itemKey(record)} item={record} onClose={closeRecord} onDone={recorded} />}

@@ -1,4 +1,4 @@
-import { formatDueDate, formatFullDate } from "./accounts.ts";
+import { cleanMoney, formatDueDate, formatFullDate, formatRupees } from "./accounts.ts";
 import { type Template, whole } from "./recurring.ts";
 
 // Mirrors PolicyResponse in backend/app/api/routes/policies.py.
@@ -86,12 +86,21 @@ const textOrNull = (raw: string) => raw.trim() || null;
 export function renewPayload(form: RenewForm): Record<string, unknown> {
   return {
     date: textOrNull(form.date),
-    amount: textOrNull(form.amount),
+    amount: textOrNull(cleanMoney(form.amount)),
     account_id: form.account_id === "" ? null : Number(form.account_id),
     period_start: textOrNull(form.period_start),
     period_end: textOrNull(form.period_end),
-    sum_insured: textOrNull(form.sum_insured),
+    sum_insured: textOrNull(cleanMoney(form.sum_insured)),
   };
+}
+
+// Money text rounded half up to whole rupees, from the digits so no float is involved.
+export function roundRupees(money: string): string {
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(money.trim());
+  if (!match) return money;
+  const [, sign, whole, fraction = ""] = match;
+  const up = fraction.length > 0 && fraction[0] >= "5";
+  return formatRupees(`${sign}${up ? (BigInt(whole) + BigInt(1)).toString() : BigInt(whole).toString()}`);
 }
 
 // "Funded by Bank of India RD: matures 19 May 2027, about ₹18,643. Covers the ₹11,936 premium."
@@ -100,12 +109,12 @@ export function fundingText(policy: Policy): string | null {
   if (fund === null) return null;
   let matures = "";
   if (fund.maturity_date !== null) {
-    const about = fund.maturity_estimate === null ? "" : `, about ${whole(fund.maturity_estimate)}`;
+    const about = fund.maturity_estimate === null ? "" : `, about ${roundRupees(fund.maturity_estimate)}`;
     matures = `: matures ${formatFullDate(fund.maturity_date)}${about}`;
   }
   let verdict = "";
   if (fund.covers === true) verdict = ` Covers the ${whole(policy.premium)} premium.`;
-  else if (fund.covers === false && fund.shortfall !== null) verdict = ` ${whole(fund.shortfall)} short.`;
+  else if (fund.covers === false && fund.shortfall !== null) verdict = ` ${roundRupees(fund.shortfall)} short.`;
   return `Funded by ${fund.name}${matures}.${verdict}`;
 }
 

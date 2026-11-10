@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { cardBillText, fundingText, renewFormFrom, renewPayload, renewalText } from "./insurance.ts";
+import { cardBillText, fundingText, roundRupees, renewFormFrom, renewPayload, renewalText } from "./insurance.ts";
 
 const policy = (o = {}, f = {}) => ({
   id: 1,
@@ -90,4 +90,25 @@ test("renewalText shows the server's date and day count", () => {
   assert.equal(renewalText(policy({ days_to_renewal: 0 })), "Renews 6 Apr 2027 (today)");
   assert.equal(renewalText(policy({ days_to_renewal: -2 })), "Renews 6 Apr 2027 (2 days ago)");
   assert.equal(renewalText(policy({ days_to_renewal: null })), null);
+});
+
+test("renewPayload cleans grouped money", () => {
+  const payload = renewPayload({ ...renewFormFrom(policy(), "2026-11-10"), amount: "12,500", sum_insured: "5,00,000" });
+  assert.equal(payload.amount, "12500");
+  assert.equal(payload.sum_insured, "500000");
+});
+
+test("funding figures round half up to whole rupees", () => {
+  assert.equal(roundRupees("18642.97"), "₹18,643");
+  assert.equal(roundRupees("18642.49"), "₹18,642");
+  assert.equal(roundRupees("18642.50"), "₹18,643");
+  assert.equal(roundRupees("999.50"), "₹1,000");
+  assert.equal(
+    fundingText(policy({}, { maturity_estimate: "18642.97" })),
+    "Funded by Bank of India RD: matures 19 May 2027, about ₹18,643. Covers the ₹11,936 premium.",
+  );
+  assert.equal(
+    fundingText(policy({}, { covers: false, shortfall: "1199.60", maturity_estimate: "10736.40" })),
+    "Funded by Bank of India RD: matures 19 May 2027, about ₹10,736. ₹1,200 short.",
+  );
 });

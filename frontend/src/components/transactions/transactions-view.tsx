@@ -217,7 +217,14 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
         </p>
       ) : null}
 
-      <DueSection refreshKey={dueKey} onChanged={reload} />
+      <DueSection
+        refreshKey={dueKey}
+        onChanged={(date) => {
+          // A late payment lands in an earlier month: show that month so the owner sees it.
+          if (date && date.slice(0, 7) !== filtersRef.current.month) applyFilters({ month: date.slice(0, 7) });
+          else reload();
+        }}
+      />
 
       {load.status === "loading" && (
         <p role="status" className="text-sm text-zinc-500 dark:text-zinc-400">
