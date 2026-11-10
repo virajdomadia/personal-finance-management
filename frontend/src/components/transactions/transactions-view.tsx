@@ -18,6 +18,7 @@ import {
   formatMonth,
   groupByDate,
   shiftMonth,
+  showsActivity,
   signedAmount,
   todayIndia,
 } from "@/lib/transactions";
@@ -275,7 +276,7 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
             </div>
           )}
 
-          {filters.accountId !== null && activity.length > 0 && <InvestmentActivity items={activity} />}
+          {showsActivity(filters) && activity.length > 0 && <InvestmentActivity items={activity} />}
         </>
       )}
 

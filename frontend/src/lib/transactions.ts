@@ -270,6 +270,12 @@ export type Activity = {
   sip_id: number | null;
 };
 
+// Investment activity shows under one account's transactions, and not when a type filter is set:
+// a buy or sell is not of any transaction type.
+export function showsActivity(filters: { accountId: number | null; type: TransactionType | null }): boolean {
+  return filters.accountId !== null && filters.type === null;
+}
+
 export function activityLabel(a: Activity): string {
   if (a.sip_id !== null) return `SIP: ${a.name}`;
   const quantity = a.kind === "crypto" ? formatCoinQty(a.quantity) : a.quantity;

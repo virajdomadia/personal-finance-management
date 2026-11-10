@@ -17,6 +17,7 @@ import {
   formatMonth,
   groupByDate,
   renderedFields,
+  showsActivity,
   shiftMonth,
   signedAmount,
   toPayload,
@@ -293,4 +294,11 @@ test("activityLabel words each kind of investment activity", () => {
     activityLabel({ ...base, kind: "mutual_fund", symbol: "PPFCRG", name: "Parag Parikh Flexi Cap", side: "buy", quantity: "35.552" }),
     "Bought 35.552 PPFCRG",
   );
+});
+
+test("showsActivity only for one account with no type filter", () => {
+  assert.equal(showsActivity({ accountId: 3, type: null }), true);
+  assert.equal(showsActivity({ accountId: null, type: null }), false);
+  assert.equal(showsActivity({ accountId: 3, type: "expense" }), false);
+  assert.equal(showsActivity({ accountId: 3, type: "transfer" }), false);
 });
