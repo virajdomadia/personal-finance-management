@@ -390,12 +390,8 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
             )
           }
           ListFooterComponent={
+            // The account's investment activity sits above Load more, so the button stays last.
             <View>
-              {list.has_more ? (
-                <Button onPress={() => void loadMore()} loading={loadingMore} disabled={loadingMore} style={styles.more}>
-                  {loadingMore ? "Loading..." : "Load more"}
-                </Button>
-              ) : null}
               {fixedAccountId !== null && filters.type === null && activity === undefined ? (
                 <Text variant="bodyMedium" style={[styles.centerText, styles.activityNote, { color: colors.onSurfaceVariant }]}>
                   Investment activity could not be loaded. Pull down to try again.
@@ -415,6 +411,11 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
                     ))}
                   </View>
                 ) : null
+              ) : null}
+              {list.has_more ? (
+                <Button onPress={() => void loadMore()} loading={loadingMore} disabled={loadingMore} style={styles.more}>
+                  {loadingMore ? "Loading..." : "Load more"}
+                </Button>
               ) : null}
             </View>
           }
