@@ -464,3 +464,51 @@ def test_deleting_a_transaction_reopens_its_occurrence(headers: Headers) -> None
     assert listed(headers)[0]["due"] == ["2026-11-01"]
     assert client.delete(f"{TX}/{tx['id']}", headers=headers).status_code == 200
     assert listed(headers)[0]["due"] == ["2026-10-01", "2026-11-01"]
+
+
+def test_stopping_cannot_take_another_users_account(headers: Headers, other: Headers) -> None:
+    account_id = bank(headers)
+    template_id = made(headers, account_id)["id"]
+    theirs = bank(other, name="Secret")
+    for body in ({"active": False, "account_id": theirs}, {"active": False, "account_id": 9999999}):
+        response = client.patch(f"{URL}/{template_id}", json=body, headers=headers)
+        assert response.status_code == 422
+        assert locs(response) == [["body", "account_id"]]
+        assert "Secret" not in response.text
+    [row] = listed(headers)
+    assert row["account_id"] == account_id and row["active"] is True
+
+
+@pytest.mark.parametrize("field", ["amount", "start_date", "name"])
+def test_stopping_still_needs_the_required_fields(headers: Headers, field: str) -> None:
+    account_id = bank(headers)
+    template_id = made(headers, account_id)["id"]
+    response = client.patch(
+        f"{URL}/{template_id}", json={"active": False, field: None}, headers=headers
+    )
+    assert response.status_code == 422
+    assert locs(response) == [["body", field]]
+
+
+def test_any_shown_coming_up_date_can_be_skipped(
+    headers: Headers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for module in (recurring, transactions):
+        monkeypatch.setattr(module, "today_india", lambda: date(2026, 11, 25))
+    account_id = bank(headers)
+    template_id = made(headers, account_id, start_date="2026-11-01", remind_days=60)["id"]
+    [row] = listed(headers)
+    assert row["due"] == ["2026-11-01"] and row["coming_up"] == "2026-12-01"
+    first = client.post(
+        f"{URL}/{template_id}/skip", json={"occurrence": "2026-12-01"}, headers=headers
+    )
+    assert first.status_code == 200, first.json()
+    assert first.json()["coming_up"] == "2027-01-01"
+    second = client.post(
+        f"{URL}/{template_id}/skip", json={"occurrence": "2027-01-01"}, headers=headers
+    )
+    assert second.status_code == 200, second.json()
+    again = client.post(
+        f"{URL}/{template_id}/skip", json={"occurrence": "2026-12-01"}, headers=headers
+    )
+    assert again.status_code == 200

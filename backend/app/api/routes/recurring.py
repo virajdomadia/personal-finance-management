@@ -47,6 +47,7 @@ _BAD_FREQUENCY = "Choose monthly or yearly."
 _BAD_DAY = "Choose a day from 1 to 31."
 _BAD_MONTH = "Choose a month."
 _BAD_REMIND = "Enter a number of days from 0 to 60."
+_ARCHIVED = " is archived. Restore it to use it."
 _NOT_DUE = "That isn't a due date for this reminder."
 _DEFAULT_REMIND = {"monthly": 3, "yearly": 30}
 
@@ -175,8 +176,14 @@ def _responses(
     target = aliased(Account)
     query = (
         select(RecurringTemplate, Account, target)
-        .join(Account, Account.id == RecurringTemplate.account_id)
-        .outerjoin(target, target.id == RecurringTemplate.to_account_id)
+        .join(
+            Account,
+            (Account.id == RecurringTemplate.account_id) & (Account.user_id == user_id),
+        )
+        .outerjoin(
+            target,
+            (target.id == RecurringTemplate.to_account_id) & (target.user_id == user_id),
+        )
         .where(RecurringTemplate.user_id == user_id)
     )
     if ids is not None:
@@ -282,26 +289,27 @@ def _check(
     start, end = values["start_date"], values["end_date"]
     if start is not None and end is not None and end < start:
         errors.append(field_error("end_date", "The end date can't be before the start."))
-    if money:
-        # A transaction can't be dated ahead, but a reminder may start ahead, so the check is
-        # shown a date that never is.
-        probe = {
-            "type": values["type"] if type_ok else None,
-            "amount": values["amount"],
-            "account_id": values["account_id"],
-            "to_account_id": values["to_account_id"],
-            "category": values["category"],
-            "interest": None,
-            "date": None if start is None else min(start, today),
-        }
-        try:
-            validate_transaction_values(probe, accounts)
-        except RequestValidationError as error:
-            for e in error.errors():
-                field = e["loc"][1]
-                if field == "type" and not type_ok:
-                    continue  # already reported, in this form's words
-                errors.append(field_error("start_date" if field == "date" else field, e["msg"]))
+    # A transaction can't be dated ahead, but a reminder may start ahead, so the check is
+    # shown a date that never is.
+    probe = {
+        "type": values["type"] if type_ok else None,
+        "amount": values["amount"],
+        "account_id": values["account_id"],
+        "to_account_id": values["to_account_id"],
+        "category": values["category"],
+        "interest": None,
+        "date": None if start is None else min(start, today),
+    }
+    try:
+        validate_transaction_values(probe, accounts)
+    except RequestValidationError as error:
+        for e in error.errors():
+            field = e["loc"][1]
+            if field == "type" and not type_ok:
+                continue  # already reported, in this form's words
+            if not money and e["msg"].endswith(_ARCHIVED):
+                continue  # stopping works whatever has happened to its accounts
+            errors.append(field_error("start_date" if field == "date" else field, e["msg"]))
     if errors:
         raise RequestValidationError(errors)
 
@@ -388,7 +396,9 @@ def delete_template(id: int, user: CurrentUser, db: DbSession) -> Deleted:
         status.HTTP_409_CONFLICT, "This reminder has recorded transactions. Stop it instead."
     )
     linked = db.scalar(
-        select(Transaction.id).where(Transaction.recurring_template_id == template.id).limit(1)
+        select(Transaction.id)
+        .where(Transaction.user_id == user.id, Transaction.recurring_template_id == template.id)
+        .limit(1)
     )
     if linked is not None:
         raise stopped
@@ -398,7 +408,9 @@ def delete_template(id: int, user: CurrentUser, db: DbSession) -> Deleted:
         )
     try:
         for skip in db.scalars(
-            select(RecurringSkip).where(RecurringSkip.template_id == template.id)
+            select(RecurringSkip).where(
+                RecurringSkip.user_id == user.id, RecurringSkip.template_id == template.id
+            )
         ):
             db.delete(skip)
         db.delete(template)
@@ -414,17 +426,26 @@ def skip_occurrence(id: int, body: SkipBody, user: CurrentUser, db: DbSession) -
     _owned(db, user.id, id)
     template = _owned(db, user.id, id, lock=True)
     today = today_india()
-    paid = list(db.scalars(select(Transaction.date).where(Transaction.recurring_template_id == id)))
-    found = occurrence_status(_row(template), paid, set(), today)
-    open_ = [*found.due, *([found.coming_up] if found.coming_up else [])]
-    if body.occurrence is None or body.occurrence not in open_:
-        raise RequestValidationError([field_error("occurrence", _NOT_DUE)])
-    already = db.scalar(
-        select(RecurringSkip.id).where(
-            RecurringSkip.template_id == id, RecurringSkip.occurrence == body.occurrence
+    paid = list(
+        db.scalars(
+            select(Transaction.date).where(
+                Transaction.user_id == user.id, Transaction.recurring_template_id == id
+            )
         )
     )
-    if already is None:  # skipping twice is the same as once
+    skipped = set(
+        db.scalars(
+            select(RecurringSkip.occurrence).where(
+                RecurringSkip.user_id == user.id, RecurringSkip.template_id == id
+            )
+        )
+    )
+    found = occurrence_status(_row(template), paid, skipped, today)
+    # What is shown can be skipped; an already skipped date stays accepted (idempotent).
+    open_ = {*found.due, *([found.coming_up] if found.coming_up else []), *skipped}
+    if body.occurrence is None or body.occurrence not in open_:
+        raise RequestValidationError([field_error("occurrence", _NOT_DUE)])
+    if body.occurrence not in skipped:  # skipping twice is the same as once
         db.add(RecurringSkip(user_id=user.id, template_id=id, occurrence=body.occurrence))
         db.commit()
     return _responses(db, user.id, today, [id])[0]
@@ -438,7 +459,9 @@ def unskip_occurrence(
     _owned(db, user.id, id, lock=True)
     skip = db.scalar(
         select(RecurringSkip).where(
-            RecurringSkip.template_id == id, RecurringSkip.occurrence == occurrence
+            RecurringSkip.user_id == user.id,
+            RecurringSkip.template_id == id,
+            RecurringSkip.occurrence == occurrence,
         )
     )
     if skip is not None:
