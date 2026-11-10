@@ -192,7 +192,7 @@ Each paid renewal is a policy period linked to its payment transaction. A period
 
 ### Funding estimate
 
-A policy can name an RD that is set aside to pay it. The estimate is the RD's maturity value (see RD interest above), shown with the maturity date. It **covers** the premium when the estimate is at least the premium, and otherwise shows the shortfall. When the card bill falls due before the RD matures, the policy is flagged. The estimate is never added to a balance or to net worth, and insurance has no value in net worth.
+A policy can name an RD that is set aside to pay it. The estimate is the RD's maturity value (see RD interest above), shown with the maturity date. Once the maturity date is before today the server marks it `matured`, and the line says "matured" instead of "matures". It **covers** the premium when the estimate is at least the premium, and otherwise shows the shortfall. When the card bill falls due before the RD matures, the policy is flagged. The estimate is never added to a balance or to net worth, and insurance has no value in net worth.
 
 ## Dates
 

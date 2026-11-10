@@ -159,6 +159,7 @@ class FundedBy(BaseModel):
     maturity_estimate: str | None
     covers: bool | None
     shortfall: str | None
+    matured: bool  # the RD matured before today
 
 
 class CardBill(BaseModel):
@@ -207,7 +208,9 @@ class PolicyList(BaseModel):
     policies: list[PolicyResponse]
 
 
-def _funded_by(account: Account | None, premium: Decimal) -> tuple[FundedBy | None, date | None]:
+def _funded_by(
+    account: Account | None, premium: Decimal, today: date
+) -> tuple[FundedBy | None, date | None]:
     """The funding line, and the RD's maturity date when it is an RD still open."""
     if account is None:
         return None, None
@@ -228,6 +231,7 @@ def _funded_by(account: Account | None, premium: Decimal) -> tuple[FundedBy | No
             maturity_estimate=None,
             covers=None,
             shortfall=None,
+            matured=False,
         ), None
     matures = rd_maturity(opened, tenure)
     estimate = rd_maturity_value(amount, rate, tenure)
@@ -239,6 +243,7 @@ def _funded_by(account: Account | None, premium: Decimal) -> tuple[FundedBy | No
         maturity_estimate=fmt(estimate),
         covers=covers,
         shortfall=None if covers else fmt(premium - estimate),
+        matured=matures < today,
     ), matures
 
 
@@ -280,7 +285,7 @@ def _responses(
         template = templates[p.template_id]
         paying = accounts[template.account_id]
         funded, matures = _funded_by(
-            None if p.funded_by_id is None else accounts.get(p.funded_by_id), p.premium
+            None if p.funded_by_id is None else accounts.get(p.funded_by_id), p.premium, today
         )
         by_fy: dict[int, Decimal] = defaultdict(Decimal)
         for period in periods[p.id]:

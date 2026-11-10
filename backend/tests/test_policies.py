@@ -193,9 +193,21 @@ def test_create_the_owners_policy(headers: Headers) -> None:
         "maturity_estimate": f"{estimate:.2f}",
         "covers": True,
         "shortfall": None,
+        "matured": False,
     }
     assert body["card_bill"] == {"due": "2027-05-05", "before_funding": True}
     assert listed(headers) == [body]
+
+
+def test_funded_by_says_when_the_rd_has_matured(headers: Headers, clock: type[Clock]) -> None:
+    body = made(headers, card(headers), funded_by_id=owners_rd(headers))
+    assert body["funded_by"]["matured"] is False
+    clock.today = date(2027, 5, 19)  # the maturity day itself: not yet past
+    assert listed(headers)[0]["funded_by"]["matured"] is False
+    clock.today = date(2027, 5, 20)
+    after = listed(headers)[0]["funded_by"]
+    assert after["matured"] is True
+    assert after["maturity_date"] == "2027-05-19"
 
 
 def test_card_bill_due_after_the_rd_matures(headers: Headers) -> None:
@@ -233,6 +245,7 @@ def test_funded_by_a_bank_has_no_maturity(headers: Headers) -> None:
         "maturity_estimate": None,
         "covers": None,
         "shortfall": None,
+        "matured": False,
     }
     assert body["card_bill"]["before_funding"] is False
 
@@ -670,6 +683,7 @@ def test_funded_by_a_closed_rd_has_no_maturity(headers: Headers) -> None:
         "maturity_estimate": None,
         "covers": None,
         "shortfall": None,
+        "matured": False,
     }
     assert after["card_bill"]["before_funding"] is False
 

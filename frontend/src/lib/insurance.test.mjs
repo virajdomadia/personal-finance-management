@@ -26,6 +26,7 @@ const policy = (o = {}, f = {}) => ({
     maturity_estimate: "18643.00",
     covers: true,
     shortfall: null,
+    matured: false,
     ...f,
   },
   card_bill: { due: "2027-05-05", before_funding: true },
@@ -110,5 +111,12 @@ test("funding figures round half up to whole rupees", () => {
   assert.equal(
     fundingText(policy({}, { covers: false, shortfall: "1199.60", maturity_estimate: "10736.40" })),
     "Funded by Bank of India RD: matures 19 May 2027, about ₹10,736. ₹1,200 short.",
+  );
+});
+
+test("fundingText says matured once the server says the RD has matured", () => {
+  assert.equal(
+    fundingText(policy({}, { matured: true })),
+    "Funded by Bank of India RD: matured 19 May 2027, about ₹18,643. Covers the ₹11,936 premium.",
   );
 });

@@ -9,6 +9,7 @@ export type FundedBy = {
   maturity_estimate: string | null;
   covers: boolean | null;
   shortfall: string | null;
+  matured: boolean; // the server's word that the RD matured before today
 };
 export type CardBill = { due: string; before_funding: boolean };
 export type PolicyPeriod = {
@@ -104,13 +105,14 @@ export function roundRupees(money: string): string {
 }
 
 // "Funded by Bank of India RD: matures 19 May 2027, about ₹18,643. Covers the ₹11,936 premium."
+// Once the server says the RD has matured, "matured 19 May 2027".
 export function fundingText(policy: Policy): string | null {
   const fund = policy.funded_by;
   if (fund === null) return null;
   let matures = "";
   if (fund.maturity_date !== null) {
     const about = fund.maturity_estimate === null ? "" : `, about ${roundRupees(fund.maturity_estimate)}`;
-    matures = `: matures ${formatFullDate(fund.maturity_date)}${about}`;
+    matures = `: ${fund.matured ? "matured" : "matures"} ${formatFullDate(fund.maturity_date)}${about}`;
   }
   let verdict = "";
   if (fund.covers === true) verdict = ` Covers the ${whole(policy.premium)} premium.`;
