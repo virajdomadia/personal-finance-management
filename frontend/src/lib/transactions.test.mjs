@@ -22,7 +22,16 @@ import {
   signedAmount,
   toPayload,
   todayIndia,
+  expenseFormFromRelease,
 } from "./transactions.ts";
+
+test("expenseFormFromRelease is an expense of the same amount from the same account, dated today", () => {
+  const entry = { id: 9, account_id: 7, account_name: "HDFC", amount: "-5000.00", date: "2026-10-01", note: "Trip" };
+  assert.deepEqual(expenseFormFromRelease(entry, "2026-11-11"), {
+    type: "expense", amount: "5000.00", date: "2026-11-11", account_id: "7", to_account_id: "",
+    category: "", interest: "", note: "",
+  });
+});
 
 const expense = {
   id: 1,

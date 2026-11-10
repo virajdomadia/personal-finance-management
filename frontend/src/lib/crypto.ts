@@ -1,4 +1,4 @@
-import { cleanMoney, formatRupees } from "./accounts.ts";
+import { type GoalTag, cleanMoney, formatRupees } from "./accounts.ts";
 
 // These mirror the response models in backend/app/api/routes/{coins,crypto_trades,portfolio}.py.
 export type Coin = {
@@ -43,7 +43,7 @@ type CoinFigures = {
   unrealised_percent: string;
 };
 
-export type CoinHolding = CoinFigures & { account_id: number; account_name: string };
+export type CoinHolding = CoinFigures & { account_id: number; account_name: string; in_goal: GoalTag | null };
 export type CoinTotal = CoinFigures;
 
 export type CoinClosed = {

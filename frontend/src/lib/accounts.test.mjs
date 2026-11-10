@@ -9,6 +9,7 @@ import {
   formatDueDate,
   formatFullDate,
   formatRupees,
+  headlineBalance,
   investmentsIn,
   maskLast4,
   nextDueDate,
@@ -322,4 +323,9 @@ test("changedPayload for an RD leaves out unchanged deposits_paid and tenure_mon
   const changed = changedPayload({ ...formFromAccount(rd), deposits_paid: "4", tenure_months: "36" }, rd);
   assert.equal(changed.deposits_paid, 4);
   assert.equal(changed.tenure_months, 36);
+});
+
+test("headlineBalance is the free balance, or the balance for an older response", () => {
+  assert.equal(headlineBalance({ balance: "80000.00", free_balance: "30000.00" }), "30000.00");
+  assert.equal(headlineBalance({ balance: "80000.00" }), "80000.00");
 });
