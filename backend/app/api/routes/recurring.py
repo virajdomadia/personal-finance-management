@@ -370,13 +370,18 @@ def update_template(
         raise HTTPException(
             status.HTTP_409_CONFLICT, "This reminder changed while saving. Try again."
         )
-    if db.scalar(select(InsurancePolicy.id).where(InsurancePolicy.template_id == template.id)):
+    policy_active = db.scalar(
+        select(InsurancePolicy.active).where(InsurancePolicy.template_id == template.id)
+    )
+    if policy_active is not None:
         # A policy's reminder follows the policy; only its own settings change here.
         refused = [
             field_error(field, "Change this on the policy.")
             for field in _POLICY_FIELDS
             if field in changes and changes[field] != getattr(template, field)
         ]
+        if changes.get("active") is True and not policy_active:
+            refused.append(field_error("active", "This policy has lapsed."))
         if refused:
             raise RequestValidationError(refused)
     values = {

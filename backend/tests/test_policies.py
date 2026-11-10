@@ -792,6 +792,20 @@ def test_lapse_stops_the_reminder(headers: Headers, clock: type[Clock]) -> None:
     assert refused.json()["detail"] == "This policy has lapsed."
 
 
+def test_a_lapsed_policys_reminder_cannot_be_restarted(headers: Headers) -> None:
+    body = made(headers, card(headers))
+    reminder = f"/api/recurring/{body['template']['id']}"
+    client.post(f"{URL}/{body['id']}/lapse", headers=headers)
+    refused = client.patch(reminder, json={"active": True}, headers=headers)
+    assert refused.status_code == 422
+    assert locs(refused) == [["body", "active"]]
+    assert refused.json()["detail"][0]["msg"] == "This policy has lapsed."
+    # Staying stopped, and its own settings, still save.
+    kept = client.patch(reminder, json={"active": False, "note": "Lapsed"}, headers=headers)
+    assert kept.status_code == 200, kept.json()
+    assert kept.json()["active"] is False
+
+
 def test_active_policies_come_first_then_by_renewal(headers: Headers) -> None:
     paying = card(headers)
     late = made(headers, paying, period_start="2026-06-01", period_end="2027-05-31")["id"]
