@@ -18,7 +18,7 @@ import {
 import { Signed, signedLabel } from "@/components/signed";
 import { errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { type CoinTotal, type CryptoTradeMode, formatCoinPrice, formatCoinQty } from "@/lib/crypto";
+import { type CoinTotal, type CryptoTradeMode, formatCoinAverage, formatCoinPrice, formatCoinQty } from "@/lib/crypto";
 import { type FundTotal, type FundTradeMode, type Sip, dueText, formatNav, formatUnits } from "@/lib/funds";
 import type { DepositRow, DepositsPortfolio, Portfolio, StockTotal, Totals } from "@/lib/investments";
 import { useSession } from "@/lib/session";
@@ -682,7 +682,8 @@ function FundRow({ row, onPress }: { row: FundTotal; onPress: () => void }) {
   );
 }
 
-// Coin names lead, with the quantity and ticker underneath. Prices go through formatCoinPrice.
+// Coin names lead, with the quantity and ticker underneath. Prices go through formatCoinPrice,
+// averages through formatCoinAverage.
 function CoinRow({ row, onPress }: { row: CoinTotal; onPress: () => void }) {
   const { colors } = useTheme();
   const priced = row.at_cost ? "at cost" : row.price !== null ? `@ ${formatCoinPrice(row.price)}` : null;
@@ -700,7 +701,7 @@ function CoinRow({ row, onPress }: { row: CoinTotal; onPress: () => void }) {
             {formatCoinQty(row.quantity)} {row.symbol}
           </Text>
           <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            avg {formatCoinPrice(row.average_price)}
+            avg {formatCoinAverage(row.average_price)}
           </Text>
         </View>
         <View style={styles.amounts}>

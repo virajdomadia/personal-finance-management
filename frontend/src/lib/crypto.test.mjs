@@ -5,6 +5,7 @@ import {
   blankCryptoTradeForm,
   cryptoTradeFormFrom,
   cryptoTradePayload,
+  formatCoinAverage,
   formatCoinPrice,
   formatCoinQty,
   qtyMismatch,
@@ -29,16 +30,27 @@ test("formatCoinQty trims trailing zeros and groups the Indian way", () => {
   assert.equal(formatCoinQty("123456.00000000"), "1,23,456");
 });
 
-test("formatCoinPrice shows paise from Rs 1 up and up to 4 decimals below", () => {
-  assert.equal(formatCoinPrice("7066965.2378"), "₹70,66,965.24");
-  assert.equal(formatCoinPrice("204971.1340"), "₹2,04,971.13");
+test("formatCoinAverage shows paise from Rs 1 up and up to 4 decimals below", () => {
+  assert.equal(formatCoinAverage("7066965.2378"), "₹70,66,965.24");
+  assert.equal(formatCoinAverage("204971.1340"), "₹2,04,971.13");
+  assert.equal(formatCoinAverage("7504827.5000"), "₹75,04,827.50");
+  assert.equal(formatCoinAverage("0.0012"), "₹0.0012");
+  assert.equal(formatCoinAverage("0.5000"), "₹0.50");
+  assert.equal(formatCoinAverage("0.9999"), "₹0.9999");
+  assert.equal(formatCoinAverage("1.0050"), "₹1.01");
+  assert.equal(formatCoinAverage("0.0000"), "₹0.00");
+  assert.equal(formatCoinAverage("99.9950"), "₹100.00");
+});
+
+test("formatCoinPrice shows a recorded price as entered: up to 4 decimals, never fewer than 2", () => {
   assert.equal(formatCoinPrice("7504827.5000"), "₹75,04,827.50");
+  assert.equal(formatCoinPrice("212.3456"), "₹212.3456");
   assert.equal(formatCoinPrice("0.0012"), "₹0.0012");
-  assert.equal(formatCoinPrice("0.5000"), "₹0.50");
-  assert.equal(formatCoinPrice("0.9999"), "₹0.9999");
-  assert.equal(formatCoinPrice("1.0050"), "₹1.01");
   assert.equal(formatCoinPrice("0.0000"), "₹0.00");
-  assert.equal(formatCoinPrice("99.9950"), "₹100.00");
+  assert.equal(formatCoinPrice("7066965.2378"), "₹70,66,965.2378");
+  assert.equal(formatCoinPrice("99.9950"), "₹99.995");
+  assert.equal(formatCoinPrice("1234.5"), "₹1,234.50");
+  assert.equal(formatCoinPrice("100"), "₹100.00");
 });
 
 test("qtyMismatch applies the server's Rs 1.00 rule", () => {

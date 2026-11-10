@@ -174,9 +174,18 @@ export function formatCoinQty(quantity: string): string {
   return groupDecimal(trimmed === "" ? whole : `${whole}.${trimmed}`);
 }
 
-// From ₹1 up a price shows rupees and paise, rounded half up from the 4-decimal figure. Below ₹1 it
-// shows up to 4 decimals, trimmed but never fewer than 2.
+// A recorded or typed price (current price, price history, a trade's "@ price") shows as entered:
+// up to 4 decimals, trailing zeros trimmed but never fewer than 2.
 export function formatCoinPrice(price: string): string {
+  const [whole, fraction = ""] = price.split(".");
+  const trimmed = fraction.slice(0, 4).replace(/0+$/, "").padEnd(2, "0");
+  return `₹${groupDecimal(`${whole}.${trimmed}`)}`;
+}
+
+// A derived average (average price, an existing-coins trade's "avg"). From ₹1 up it shows rupees and
+// paise, rounded half up from the 4-decimal figure. Below ₹1 it shows up to 4 decimals, trimmed but
+// never fewer than 2.
+export function formatCoinAverage(price: string): string {
   const [whole, fraction = ""] = price.split(".");
   const padded = fraction.padEnd(4, "0").slice(0, 4);
   if (BigInt(whole) === BigInt(0)) {

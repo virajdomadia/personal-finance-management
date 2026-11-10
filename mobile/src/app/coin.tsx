@@ -13,6 +13,7 @@ import {
   type CryptoPortfolio,
   type CryptoTrade,
   cryptoTradeTitle,
+  formatCoinAverage,
   formatCoinPrice,
   formatCoinQty,
 } from "@/lib/crypto";
@@ -239,7 +240,7 @@ export default function CoinScreen() {
                 </Text>
                 {total ? (
                   <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
-                    avg {formatCoinPrice(total.average_price)}
+                    avg {formatCoinAverage(total.average_price)}
                   </Text>
                 ) : null}
               </View>
@@ -293,7 +294,7 @@ export default function CoinScreen() {
                   <View style={styles.main}>
                     <Text variant="titleMedium">{h.account_name}</Text>
                     <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                      {formatCoinQty(h.quantity)} {h.symbol} · avg {formatCoinPrice(h.average_price)}
+                      {formatCoinQty(h.quantity)} {h.symbol} · avg {formatCoinAverage(h.average_price)}
                     </Text>
                     <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
                       {formatRupees(h.invested)} invested
@@ -425,7 +426,7 @@ function TradeRow({ trade, archived, onPress }: { trade: CryptoTrade; archived: 
   const details = [
     formatDate(trade.date),
     trade.account_name,
-    trade.opening ? `avg ${formatCoinPrice(trade.price)}` : `@ ${formatCoinPrice(trade.price)}`,
+    trade.opening ? `avg ${formatCoinAverage(trade.price)}` : `@ ${formatCoinPrice(trade.price)}`,
     trade.charges !== "0.00" ? `${formatRupees(trade.charges)} charges` : null,
     trade.note,
   ].filter(Boolean);

@@ -15,6 +15,7 @@ import {
   type CryptoTradeForm,
   type CryptoTradeMode,
   blankCryptoTradeForm,
+  formatCoinAverage,
   formatCoinPrice,
   formatCoinQty,
 } from "@/lib/crypto";
@@ -100,7 +101,7 @@ function CryptoTradeRow({
   const details = [
     formatDate(trade.date),
     trade.account_name,
-    trade.opening ? `avg ${formatCoinPrice(trade.price)}` : `@ ${formatCoinPrice(trade.price)}`,
+    trade.opening ? `avg ${formatCoinAverage(trade.price)}` : `@ ${formatCoinPrice(trade.price)}`,
     trade.charges !== "0.00" ? `${formatRupees(trade.charges)} charges` : null,
     trade.note,
   ].filter(Boolean);
@@ -332,7 +333,7 @@ function CoinSummary({ data }: { data: Data }) {
       <Figure label="Current price" sub={coin.price_date ? `as of ${formatDate(coin.price_date)}` : "No price recorded yet"}>
         {coin.price !== null ? formatCoinPrice(coin.price) : "—"}
       </Figure>
-      <Figure label="Quantity held" sub={total ? `avg ${formatCoinPrice(total.average_price)}` : undefined}>
+      <Figure label="Quantity held" sub={total ? `avg ${formatCoinAverage(total.average_price)}` : undefined}>
         {total ? formatCoinQty(total.quantity) : "0"}
       </Figure>
       <Figure label="Current value" sub={total ? `${formatRupees(total.invested)} invested${total.at_cost ? " · at cost" : ""}` : undefined}>
@@ -368,7 +369,7 @@ function AccountHoldings({ holdings, onSell }: { holdings: CoinHolding[]; onSell
             <div className="min-w-32 flex-1">
               <p className="text-sm font-medium [overflow-wrap:anywhere]">{h.account_name}</p>
               <p className="text-xs text-zinc-500 tabular-nums dark:text-zinc-400">
-                {formatCoinQty(h.quantity)} {h.symbol} · avg {formatCoinPrice(h.average_price)} · {formatRupees(h.invested)} invested
+                {formatCoinQty(h.quantity)} {h.symbol} · avg {formatCoinAverage(h.average_price)} · {formatRupees(h.invested)} invested
               </p>
             </div>
             <div className="text-right text-sm tabular-nums">

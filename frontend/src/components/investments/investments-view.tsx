@@ -12,6 +12,7 @@ import {
   type CryptoTradeForm,
   type CryptoTradeMode,
   blankCryptoTradeForm,
+  formatCoinAverage,
   formatCoinPrice,
   formatCoinQty,
 } from "@/lib/crypto";
@@ -946,7 +947,7 @@ function CoinRows({ rows }: { rows: CoinTotal[] }) {
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">{row.symbol}</p>
                 </th>
                 <td className="px-4 py-3 text-right tabular-nums">{formatCoinQty(row.quantity)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatCoinPrice(row.average_price)}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{formatCoinAverage(row.average_price)}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{formatRupees(row.invested)}</td>
                 <td className="px-4 py-3 text-right tabular-nums">
                   {formatRupees(row.value)}
