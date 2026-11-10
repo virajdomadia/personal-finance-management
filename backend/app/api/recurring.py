@@ -41,9 +41,16 @@ def occurrences(t: TemplateRow, upto: date) -> list[date]:
 
 
 def _in_window(t: TemplateRow, occurrence: date, paid: date) -> bool:
+    """A payment counts toward an occurrence in its usual window or in its reminder lead-up.
+
+    Usual window: the same calendar month (monthly) or 45 days either side (yearly). Lead-up:
+    `remind_days` before the occurrence, so a payment recorded from "Coming up" settles it.
+    """
+    before = (occurrence - paid).days
     if t.frequency == "yearly":
-        return abs((paid - occurrence).days) <= YEARLY_WINDOW_DAYS
-    return (paid.year, paid.month) == (occurrence.year, occurrence.month)
+        return -YEARLY_WINDOW_DAYS <= before <= max(YEARLY_WINDOW_DAYS, t.remind_days)
+    same_month = (paid.year, paid.month) == (occurrence.year, occurrence.month)
+    return same_month or 0 < before <= t.remind_days
 
 
 def is_recorded(t: TemplateRow, occurrence: date, paid: Iterable[date]) -> bool:
@@ -58,7 +65,14 @@ def status(t: TemplateRow, paid: list[date], skips: set[date], today: date) -> S
     for p in sorted(paid):
         candidates = [o for o in occs if o not in settled and _in_window(t, o, p)]
         if candidates:
-            settled.add(min(candidates, key=lambda o: (abs((p - o).days), o)))
+            # One payment settles one occurrence: its own month's when still open, else the
+            # nearest (the earlier one on a tie).
+            settled.add(
+                min(
+                    candidates,
+                    key=lambda o: ((o.year, o.month) != (p.year, p.month), abs((p - o).days), o),
+                )
+            )
     open_ = [o for o in occs if o not in settled and o not in skips]
     due = [o for o in open_ if o <= today]
     coming = next((o for o in open_ if o > today), None)

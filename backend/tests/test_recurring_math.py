@@ -64,12 +64,34 @@ def test_monthly_rent_due_and_skip():
 
 
 def test_one_payment_settles_one_occurrence():
-    t = tpl("yearly", 6, 4, start=date(2027, 4, 6))
-    # two yearly occurrences never share a payment; monthly: two payments in one month
     m = tpl()
-    assert status(m, [date(2027, 1, 5)], set(), date(2027, 1, 20)).due == []
-    assert status(m, [date(2027, 2, 5)], set(), date(2027, 2, 20)).due == [date(2027, 1, 1)]
-    assert t.id == 1
+    today = date(2027, 2, 20)
+    # Two payments in January: the first settles January, the second settles nothing.
+    assert status(m, [date(2027, 1, 5), date(2027, 1, 20)], set(), today).due == [date(2027, 2, 1)]
+    # A payment inside both January's month and February's early window settles only January.
+    assert status(m, [date(2027, 1, 30)], set(), today).due == [date(2027, 2, 1)]
+    # Two yearly occurrences never share a payment.
+    y = tpl("yearly", 6, 4, start=date(2027, 4, 6))
+    assert status(y, [date(2028, 3, 1)], set(), date(2028, 4, 10)).due == [date(2027, 4, 6)]
+
+
+def test_payment_from_coming_up_settles_next_month():
+    t = tpl(start=date(2026, 10, 1), remind=3)
+    paid = [date(2026, 10, 5), date(2026, 10, 30)]
+    assert status(t, paid, set(), date(2026, 10, 31)).coming_up is None
+    assert status(t, paid, set(), date(2026, 11, 2)).due == []
+
+
+def test_payment_prefers_its_own_open_month():
+    t = tpl(start=date(2026, 10, 1), remind=20)
+    # 15 Oct is inside November's early window too, but October is still open.
+    assert status(t, [date(2026, 10, 15)], set(), date(2026, 11, 2)).due == [date(2026, 11, 1)]
+
+
+def test_yearly_early_side_follows_remind_days():
+    t = tpl("yearly", 6, 4, start=date(2027, 4, 6), remind=60)
+    assert status(t, [date(2027, 2, 5)], set(), date(2027, 4, 7)) == Status([], None)
+    assert status(t, [date(2027, 2, 4)], set(), date(2027, 4, 7)).due == [date(2027, 4, 6)]
 
 
 def test_stopped_template_never_due():

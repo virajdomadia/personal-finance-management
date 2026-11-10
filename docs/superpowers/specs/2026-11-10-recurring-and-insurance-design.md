@@ -65,7 +65,7 @@ A template is checked with **the same rules as a transaction** (one shared valid
 
 ### Occurrences and what shows
 
-Each occurrence has a date: monthly on `day` of every month, yearly on `day` of `month` every year (clamped), from `start_date` to `end_date`. An occurrence is **recorded** when a transaction with this `recurring_template_id` is dated in the same calendar month (monthly) or within 45 days either side of the occurrence date (yearly, because renewals are often paid a little early or late).
+Each occurrence has a date: monthly on `day` of every month, yearly on `day` of `month` every year (clamped), from `start_date` to `end_date`. An occurrence is **recorded** when a transaction with this `recurring_template_id` is dated in the same calendar month (monthly) or within 45 days either side of the occurrence date (yearly, because renewals are often paid a little early or late), or in the `remind_days` before the occurrence (for yearly the early side is `max(45, remind_days)` days), so a payment recorded from "Coming up" settles that occurrence. One payment settles one occurrence: payments are matched oldest first, each to its own calendar month's occurrence when that one is still open, otherwise to the nearest open occurrence it matches (the earlier on a tie).
 
 - **Due:** an unrecorded occurrence dated on or before today (India's date). Missed ones stay due, oldest first, as SIPs and RD instalments do.
 - **Coming up:** the next unrecorded occurrence within `remind_days` after today.

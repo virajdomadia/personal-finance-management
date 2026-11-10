@@ -175,8 +175,11 @@ Close RD records, in one step: the interest (what you received minus the balance
 ### Occurrence rules
 
 - An occurrence falls on the template's day each month (or on its day and month each year), clamped to the month's length, from its start date until its end date.
-- **One payment settles one occurrence.** A transaction linked to the template settles the occurrence it matches, and each payment settles only one. A monthly payment matches the occurrence in the same calendar month. A yearly payment matches an occurrence within 45 days either side, so a premium paid a little early or late still counts for its year.
+- **One payment settles one occurrence.** A transaction linked to the template settles the occurrence it matches, and each payment settles only one. A monthly payment matches the occurrence in the same calendar month, or an occurrence up to `remind_days` after it (the days it showed as coming up). A yearly payment matches an occurrence from `max(45, remind_days)` days before to 45 days after, so a premium paid a little early or late still counts for its year.
+- Payments are matched oldest first. Of the occurrences a payment matches and that are still open, it settles the one in its own calendar month when there is one, otherwise the nearest (the earlier on a tie). Example: rent on the 1st, remind 3 days, October already paid on 5 October; a payment on 30 October (recorded from "Coming up 1 Nov") settles 1 November. A lone payment on 15 October with October unpaid settles October, even with a long reminder.
 - An occurrence is **due** when its date is on or before today, nothing settles it and it isn't skipped. It is **coming up** when it falls within the template's `remind_days` after today (3 days by default for monthly, 30 for yearly). A skipped occurrence shows nowhere.
+- A stopped template is never due or coming up.
+- A policy's template follows the policy: only its name, note, `remind_days` and whether it is active can change on the reminder; everything else changes on the policy. A lapsed policy's reminder cannot be restarted.
 - A late payment is dated the occurrence it settles, not the day it is entered, so the month it belongs to stays right.
 
 ### Card bill date
