@@ -41,7 +41,7 @@ Make daily tracking take seconds.
 - Transaction detail view with its edit history
 - Monthly summary: income, spending, net cash flow, spending by category
 - Monthly budgets per category, with how much is used and overspending flagged
-- Recurring templates (salary, rent, subscriptions, EMIs) that remind and pre-fill, never auto-post
+- Recurring templates (salary, rent, subscriptions, EMIs) that remind and pre-fill, never auto-post. Built on branch `recurring-insurance` ([design](../superpowers/specs/2026-11-10-recurring-and-insurance-design.md)), along with health insurance policies that renew through a template and are funded by an RD
 
 **Exit:** complete daily money management.
 
