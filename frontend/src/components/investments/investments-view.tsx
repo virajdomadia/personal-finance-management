@@ -7,6 +7,15 @@ import { logout } from "@/app/login/actions";
 import { type Account, type AccountList, formatFullDate, formatRupees } from "@/lib/accounts";
 import { apiFetch } from "@/lib/api";
 import {
+  type Coin,
+  type CoinTotal,
+  type CryptoTradeForm,
+  type CryptoTradeMode,
+  blankCryptoTradeForm,
+  formatCoinPrice,
+  formatCoinQty,
+} from "@/lib/crypto";
+import {
   type Fund,
   type FundTotal,
   type FundTradeForm,
@@ -44,6 +53,7 @@ import {
   isUnauthorized,
   tradeDeleteText,
 } from "./shared";
+import { CryptoTradeDialog } from "./crypto-trade-dialog";
 import { FundTradeDialog } from "./fund-trade-dialog";
 import { DueSips } from "./fund-view";
 import { SipDialog } from "./sip-dialog";
@@ -55,20 +65,23 @@ type Data = {
   portfolio: Portfolio;
   stocks: Part<{ stocks: Stock[]; trades: Trade[] | null }>; // trades: the broker's, when viewing one
   funds: Part<{ funds: Fund[]; sips: Sip[] }>;
+  coins: Part<{ coins: Coin[] }>;
   accounts: Part<{ active: Account[]; archived: Account[] }>;
 };
 type StocksExtra = { stocks: Stock[]; trades: Trade[] | null; active: Account[]; archived: Account[] };
 type FundsExtra = { funds: Fund[]; sips: Sip[] };
+type CoinsExtra = { coins: Coin[] };
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: Data };
 type Dialog =
   | { kind: "none" }
   | { kind: "trade"; trade: Trade | null; tradeKind: TradeKind }
   | { kind: "delete"; trade: Trade }
   | { kind: "fundTrade"; initial: FundTradeForm; focusNav: boolean }
+  | { kind: "cryptoTrade"; initial: CryptoTradeForm }
   | { kind: "sip" };
 
 async function fetchData(brokerId: number | null): Promise<Data> {
-  const [portfolio, stocks, funds, accounts] = await Promise.all([
+  const [portfolio, stocks, funds, coins, accounts] = await Promise.all([
     apiFetch<Portfolio>("/investments/portfolio"),
     settle(
       Promise.all([
@@ -84,6 +97,10 @@ async function fetchData(brokerId: number | null): Promise<Data> {
       isUnauthorized,
     ),
     settle(
+      apiFetch<{ coins: Coin[] }>("/investments/coins").then((c) => ({ coins: c.coins })),
+      isUnauthorized,
+    ),
+    settle(
       Promise.all([apiFetch<AccountList>("/accounts"), apiFetch<AccountList>("/accounts?archived=true")]).then(([a, b]) => ({
         active: a.accounts,
         archived: b.accounts,
@@ -91,7 +108,7 @@ async function fetchData(brokerId: number | null): Promise<Data> {
       isUnauthorized,
     ),
   ]);
-  return { portfolio, stocks, funds, accounts };
+  return { portfolio, stocks, funds, coins, accounts };
 }
 
 export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
@@ -135,11 +152,15 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
   const stocksExtra: StocksExtra | null = data && accounts && data.stocks.status === "ready" ? { ...data.stocks.data, ...accounts } : null;
   const fundsData: FundsExtra | null = data?.funds.status === "ready" ? data.funds.data : null;
   const fundsExtra: FundsExtra | null = accounts ? fundsData : null;
+  const coinsData: CoinsExtra | null = data?.coins.status === "ready" ? data.coins.data : null;
+  const coinsExtra: CoinsExtra | null = accounts ? coinsData : null;
   const accountsFailed = data?.accounts.status === "error";
   const brokers = accounts?.active.filter((a) => a.type === "broker") ?? [];
   const banks = accounts?.active.filter((a) => a.type === "bank") ?? [];
   const openFundTrade = (mode: FundTradeMode) =>
     setDialog({ kind: "fundTrade", initial: blankFundTradeForm(mode, todayIndia()), focusNav: false });
+  const openCryptoTrade = (mode: CryptoTradeMode) =>
+    setDialog({ kind: "cryptoTrade", initial: blankCryptoTradeForm(mode, todayIndia()) });
   const recordSip = (sip: Sip) =>
     setDialog({ kind: "fundTrade", initial: sipTradeForm(sip, sip.due_date ?? todayIndia()), focusNav: true });
   const done = (message: string | null) => {
@@ -204,6 +225,15 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
             onAdd={openFundTrade}
             onAddSip={() => setDialog({ kind: "sip" })}
           />
+          <Crypto
+            portfolio={data.portfolio}
+            coins={coinsData}
+            canAdd={accounts !== null}
+            accountsFailed={accountsFailed}
+            retrying={retrying}
+            onRetry={retry}
+            onAdd={openCryptoTrade}
+          />
           <DepositsSection deposits={data.portfolio.deposits} />
         </div>
       )}
@@ -221,6 +251,20 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
           onSaved={() => done(null)}
           onConflict={done}
           onFundCreated={reload}
+        />
+      )}
+
+      {dialog.kind === "cryptoTrade" && data && coinsExtra && (
+        <CryptoTradeDialog
+          trade={null}
+          initial={dialog.initial}
+          coins={coinsExtra.coins}
+          brokers={brokers}
+          holdings={data.portfolio.crypto.holdings}
+          onClose={closeDialog}
+          onSaved={() => done(null)}
+          onConflict={done}
+          onCoinCreated={reload}
         />
       )}
 
@@ -542,7 +586,7 @@ function BrokerTrades({
   );
 }
 
-// Stocks, funds and deposits together, when there are two or more to add up.
+// Stocks, funds, deposits and crypto together, when there are two or more to add up.
 function Overall({ portfolio }: { portfolio: Portfolio }) {
   const { overall } = portfolio;
   if (holdingKinds(portfolio) < 2) return null;
@@ -729,6 +773,187 @@ function FundRows({ rows }: { rows: FundTotal[] }) {
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">at cost</p>
                   ) : row.nav !== null ? (
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">@ {formatNav(row.nav)}</p>
+                  ) : null}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <Signed value={row.unrealised} />
+                  <p className="text-xs">
+                    <Signed value={row.unrealised_percent} percentOnly />
+                  </p>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function Crypto({
+  portfolio,
+  coins: coinsData,
+  canAdd,
+  accountsFailed,
+  retrying,
+  onRetry,
+  onAdd,
+}: {
+  portfolio: Portfolio;
+  coins: CoinsExtra | null;
+  canAdd: boolean;
+  accountsFailed: boolean;
+  retrying: boolean;
+  onRetry: () => void;
+  onAdd: (mode: CryptoTradeMode) => void;
+}) {
+  const crypto = portfolio.crypto;
+  const empty = crypto.by_coin.length === 0 && crypto.closed.length === 0;
+  const hasHoldings = crypto.holdings.length > 0;
+  // A coin with no quantity and no past (one just added) still gets a row to reach it by.
+  const listed = new Set([...crypto.by_coin.map((c) => c.coin_id), ...crypto.closed.map((c) => c.coin_id)]);
+  const unheld = (coinsData?.coins ?? []).filter((c) => !listed.has(c.id));
+
+  return (
+    <section aria-labelledby="crypto-title" className="flex flex-col gap-8">
+      <div className="-mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <h2 id="crypto-title" className="text-base font-semibold">
+          Crypto
+        </h2>
+        {coinsData && canAdd && (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={QUIET} onClick={() => onAdd("opening")}>
+              Add existing coins
+            </button>
+            {hasHoldings && (
+              <button type="button" className={SECONDARY} onClick={() => onAdd("sell")}>
+                Sell
+              </button>
+            )}
+            <button type="button" className={PRIMARY} onClick={() => onAdd("buy")}>
+              Buy
+            </button>
+          </div>
+        )}
+      </div>
+
+      {accountsFailed && coinsData && <NeedsAccounts retrying={retrying} onRetry={onRetry} />}
+
+      {!coinsData ? (
+        <SectionError onRetry={onRetry} what="crypto" retrying={retrying} />
+      ) : empty && unheld.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700">
+          <p className="font-medium">Add your crypto</p>
+          <p className="mx-auto mt-1 max-w-md text-sm text-zinc-600 dark:text-zinc-400">
+            Enter coins you already own, or record a buy. Buys and sells move your exchange account&apos;s balance.
+          </p>
+          {canAdd && (
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button type="button" className={SECONDARY} onClick={() => onAdd("opening")}>
+                Add existing coins
+              </button>
+              <button type="button" className={PRIMARY} onClick={() => onAdd("buy")}>
+                Buy
+              </button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {!empty && <Summary totals={crypto.totals} />}
+          <CoinRows rows={crypto.by_coin} />
+          {unheld.length > 0 && (
+            <div>
+              <h3 className={SECTION_TITLE}>No coins yet</h3>
+              <ul className={LIST}>
+                {unheld.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3">
+                    <Link
+                      href={`/investments/crypto/${c.id}`}
+                      className="text-sm font-medium hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none [overflow-wrap:anywhere]"
+                    >
+                      {c.name}
+                    </Link>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">{c.symbol}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {crypto.closed.length > 0 && (
+            <details className="group">
+              <summary className="cursor-pointer rounded px-1 py-1 text-xs font-medium tracking-wide text-zinc-500 uppercase hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400 dark:hover:text-zinc-100">
+                Sold ({crypto.closed.length})
+              </summary>
+              <ul className={`${LIST} mt-1`}>
+                {crypto.closed.map((c) => (
+                  <li key={`${c.coin_id}-${c.account_id}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3">
+                    <div className="min-w-32 flex-1">
+                      <Link
+                        href={`/investments/crypto/${c.coin_id}`}
+                        className="text-sm font-medium hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none [overflow-wrap:anywhere]"
+                      >
+                        {c.name}
+                      </Link>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">
+                        {c.symbol} · {c.account_name}
+                      </p>
+                    </div>
+                    <p className="text-right text-sm">
+                      <span className="mr-1.5 text-xs text-zinc-500 dark:text-zinc-400">Realised</span>
+                      <Signed value={c.realised} />
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function CoinRows({ rows }: { rows: CoinTotal[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <h3 id="coin-holdings-title" className={SECTION_TITLE}>
+        Holdings
+      </h3>
+      <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+        <table aria-labelledby="coin-holdings-title" className="w-full min-w-[40rem] text-sm">
+          <thead className="border-b border-zinc-200 dark:border-zinc-800">
+            <tr>
+              <th scope="col" className={`${TH} text-left`}>Coin</th>
+              <th scope="col" className={`${TH} text-right`}>Quantity</th>
+              <th scope="col" className={`${TH} text-right`}>Avg price</th>
+              <th scope="col" className={`${TH} text-right`}>Invested</th>
+              <th scope="col" className={`${TH} text-right`}>Current value</th>
+              <th scope="col" className={`${TH} text-right`}>Unrealised P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+            {rows.map((row) => (
+              <tr key={row.coin_id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900">
+                <th scope="row" className="px-4 py-3 text-left font-normal">
+                  <Link
+                    href={`/investments/crypto/${row.coin_id}`}
+                    className="font-medium hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none [overflow-wrap:anywhere]"
+                  >
+                    {row.name}
+                  </Link>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">{row.symbol}</p>
+                </th>
+                <td className="px-4 py-3 text-right tabular-nums">{formatCoinQty(row.quantity)}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{formatCoinPrice(row.average_price)}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{formatRupees(row.invested)}</td>
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {formatRupees(row.value)}
+                  {row.at_cost ? (
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">at cost</p>
+                  ) : row.price !== null ? (
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">@ {formatCoinPrice(row.price)}</p>
                   ) : null}
                 </td>
                 <td className="px-4 py-3 text-right">

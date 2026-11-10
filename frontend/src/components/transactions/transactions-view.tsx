@@ -7,11 +7,14 @@ import { logout } from "@/app/login/actions";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Select } from "@/components/ui/select";
+import { Signed } from "@/components/investments/shared";
 import {
+  type Activity,
   TRANSACTION_TYPES,
   type Transaction,
   type TransactionList,
   type TransactionType,
+  activityLabel,
   formatDate,
   formatMonth,
   groupByDate,
@@ -52,25 +55,49 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
   const [filters, setFilters] = useState<Filters>({ month: thisMonth, accountId: initialAccountId, type: null });
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [accounts, setAccounts] = useState<Accounts | null>(null);
+  const [activity, setActivity] = useState<Activity[]>([]);
   const [dialog, setDialog] = useState<Dialog>({ kind: "none" });
   const [notice, setNotice] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const latest = useRef(0);
+  const latestActivity = useRef(0);
   // The filters on screen right now; a late reload must not read stale ones from its closure.
   const filtersRef = useRef(filters);
 
-  const fetchFirstPage = useCallback((current: Filters) => {
-    const request = ++latest.current;
-    setLoadingMore(false);
-    apiFetch<TransactionList>(query(current, 0))
+  // An account's buys and sells of stocks, funds and coins for the month. They are not transactions,
+  // so they sit in their own list and never touch the totals. A failure just leaves the list out.
+  const fetchActivity = useCallback((current: Filters) => {
+    const request = ++latestActivity.current;
+    if (current.accountId === null) {
+      setActivity([]);
+      return;
+    }
+    apiFetch<{ items: Activity[] }>(`/accounts/${current.accountId}/investment-activity?month=${current.month}`)
       .then((data) => {
-        if (request === latest.current) setLoad({ status: "ready", data });
+        if (request === latestActivity.current) setActivity(data.items);
       })
       .catch((err: unknown) => {
         if (isUnauthorized(err)) void logout();
-        else if (request === latest.current) setLoad({ status: "error" });
+        else if (request === latestActivity.current) setActivity([]);
       });
   }, []);
+
+  const fetchFirstPage = useCallback(
+    (current: Filters) => {
+      fetchActivity(current);
+      const request = ++latest.current;
+      setLoadingMore(false);
+      apiFetch<TransactionList>(query(current, 0))
+        .then((data) => {
+          if (request === latest.current) setLoad({ status: "ready", data });
+        })
+        .catch((err: unknown) => {
+          if (isUnauthorized(err)) void logout();
+          else if (request === latest.current) setLoad({ status: "error" });
+        });
+    },
+    [fetchActivity],
+  );
 
   const fetchAccounts = useCallback(() => {
     Promise.all([apiFetch<AccountList>("/accounts"), apiFetch<AccountList>("/accounts?archived=true")])
@@ -249,6 +276,8 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
               )}
             </div>
           )}
+
+          {filters.accountId !== null && activity.length > 0 && <InvestmentActivity items={activity} />}
         </>
       )}
 
@@ -284,6 +313,44 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
         />
       )}
     </div>
+  );
+}
+
+function activityHref(item: Activity): string {
+  if (item.kind === "stock") return `/investments/${item.instrument_id}`;
+  if (item.kind === "mutual_fund") return `/investments/funds/${item.instrument_id}`;
+  return `/investments/crypto/${item.instrument_id}`;
+}
+
+// Buys and sells of stocks, funds and coins through the viewed account. Not transactions: they have
+// their own list, and the totals above ignore them.
+function InvestmentActivity({ items }: { items: Activity[] }) {
+  return (
+    <section aria-labelledby="investment-activity-title" className="mt-8">
+      <h2 id="investment-activity-title" className="mb-1 px-1 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
+        Investment activity
+      </h2>
+      <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+        {items.map((item) => (
+          <li key={`${item.kind}-${item.trade_id}`} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+            <div className="min-w-32 flex-1">
+              <Link
+                href={activityHref(item)}
+                className="rounded text-sm font-medium [overflow-wrap:anywhere] hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none"
+              >
+                {activityLabel(item)}
+              </Link>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">
+                {formatDate(item.date)} · {item.name}
+              </p>
+            </div>
+            <p className="min-w-0 max-w-full text-right text-sm font-medium tabular-nums [overflow-wrap:anywhere]">
+              <Signed value={item.signed_amount} />
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
