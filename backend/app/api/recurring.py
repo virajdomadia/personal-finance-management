@@ -63,10 +63,12 @@ def status(t: TemplateRow, paid: list[date], skips: set[date], today: date) -> S
     occs = occurrences(t, today + timedelta(days=t.remind_days))
     settled: set[date] = set()
     for p in sorted(paid):
-        candidates = [o for o in occs if o not in settled and _in_window(t, o, p)]
+        candidates = [
+            o for o in occs if o not in settled and o not in skips and _in_window(t, o, p)
+        ]
         if candidates:
             # One payment settles one occurrence: its own month's when still open, else the
-            # nearest (the earlier one on a tie).
+            # nearest (the earlier one on a tie). A skipped occurrence never takes a payment.
             settled.add(
                 min(
                     candidates,

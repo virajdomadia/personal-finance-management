@@ -82,6 +82,12 @@ def test_payment_from_coming_up_settles_next_month():
     assert status(t, paid, set(), date(2026, 11, 2)).due == []
 
 
+def test_a_skipped_occurrence_never_takes_a_payment():
+    t = tpl(start=date(2026, 10, 1), remind=3)
+    # October is skipped, so the 30 Oct payment settles November instead.
+    assert status(t, [date(2026, 10, 30)], {date(2026, 10, 1)}, date(2026, 11, 2)).due == []
+
+
 def test_payment_prefers_its_own_open_month():
     t = tpl(start=date(2026, 10, 1), remind=20)
     # 15 Oct is inside November's early window too, but October is still open.
