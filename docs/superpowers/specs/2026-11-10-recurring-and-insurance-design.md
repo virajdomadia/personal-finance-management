@@ -73,7 +73,7 @@ Each occurrence has a date: monthly on `day` of every month, yearly on `day` of 
 
 **Record** opens the transaction form pre-filled from the template (type, amount, accounts, category, note, and the date: the occurrence date when it's due, so a late payment still settles its own month, or today when it's only coming up). The owner can change anything. Nothing is ever posted without the owner saving it. **Skip** marks one occurrence as not happening (e.g. a month without rent) by storing it in a small `recurring_skips` table (template, occurrence date), so it stops showing.
 
-Templates appear on the dashboard and on the transactions screen as "Due" and "Coming up" lines, with Record and Skip, on both clients. SIPs and RD instalments keep their own reminders; they are not turned into templates.
+Templates appear on the dashboard and on the transactions screen as "Due" and "Coming up" lines, with Record and Skip (a policy's premium offers Renew, no Skip), on both clients. SIPs and RD instalments keep their own reminders; they are not turned into templates.
 
 ## Insurance policies
 
@@ -153,7 +153,7 @@ Claims, cashless cards and hospital lists; family floater members as structured 
 2. **A policy is its own record**, not an account or instrument, linked to a yearly template.
 3. **The premium uses the existing "Insurance" category.**
 4. **Yearly reminders start 30 days early**; monthly ones 3 days early. Both adjustable.
-5. **A yearly occurrence counts as recorded** by a linked payment within 45 days of the date.
+5. **Matching a payment to an occurrence:** a yearly occurrence counts as recorded by a linked payment within 45 days of its date (a monthly one by a payment in its calendar month), or in its `remind_days` lead-up. One payment settles one occurrence, and a skipped occurrence never takes a payment, so a payment goes to the next open occurrence it matches.
 6. **Renewal moves the policy to the next period** and keeps the old periods as history.
 7. **The funding check and card-bill warning** only inform, never move money.
 8. **The owner enters the policy in the app.** The 6 Apr 2026 premium is stored as the first period's payment without a transaction, and it counts in the FY 2026-27 figure.
@@ -161,3 +161,4 @@ Claims, cashless cards and hospital lists; family floater members as structured 
 12. **Templates are validated with the transaction rules**, so every template can actually be recorded.
 9. **SIPs and RD instalments keep their own reminders.**
 10. **Skip** exists for one-off missed occurrences.
+13. **A policy's reminder is stopped only by lapsing the policy.** Stop, Restart and Skip are not offered on it and the server refuses them (422).
