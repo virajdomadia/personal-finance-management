@@ -384,34 +384,294 @@ def test_a_policys_template_cannot_be_recorded_as_a_plain_transaction(
     assert messages(response) == {"recurring_template_id": "Renew the policy instead."}
 
 
-def test_a_renewal_payment_cannot_be_deleted_alone(headers: Headers, clock: type[Clock]) -> None:
+def pay(headers: Headers, account_id: int, day: str = "2026-04-06", **fields: Any) -> int:
+    response = client.post(
+        TX,
+        json={
+            "type": "expense",
+            "account_id": account_id,
+            "amount": "11936.00",
+            "date": day,
+            "category": "Insurance",
+            **fields,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.json()
+    return response.json()["id"]
+
+
+def due(headers: Headers) -> list[tuple[str, str]]:
+    items = client.get("/api/recurring/due", headers=headers).json()["items"]
+    return [(i["occurrence"], i["state"]) for i in items]
+
+
+def test_deleting_the_latest_renewal_payment_undoes_it(
+    headers: Headers, clock: type[Clock]
+) -> None:
     paying = card(headers)
     body = made(headers, paying)
     clock.today = date(2027, 4, 5)
-    tx_id = renew(headers, body["id"], paying).json()["periods"][-1]["transaction_id"]
+    before = listed(headers)[0]
+    assert due(headers) == [("2027-04-06", "coming_up")]
+    renewed = renew(headers, body["id"], paying, sum_insured="1500000.00").json()
+    tx_id = renewed["periods"][-1]["transaction_id"]
+
+    response = client.delete(f"{TX}/{tx_id}", headers=headers)
+    assert response.status_code == 200, response.json()
+    after = listed(headers)[0]
+    assert (after["period_start"], after["period_end"]) == ("2026-04-07", "2027-04-06")
+    assert (after["premium"], after["sum_insured"]) == ("11936.00", "1000000.00")
+    assert len(after["periods"]) == 1
+    assert after["premium_by_fy"] == [{"fy": "2026-27", "amount": "11936.00"}]
+    assert after["template"]["start_date"] == "2027-04-06"
+    assert (after["template"]["day"], after["template"]["month"]) == (6, 4)
+    assert after["template"]["amount"] == "11936.00"
+    assert after["template"]["account_id"] == paying
+    assert after == before
+    assert due(headers) == [("2027-04-06", "coming_up")]
+    assert balance(headers, paying) == "0.00"
+
+
+def test_undo_keeps_the_account_the_renewal_moved_to(headers: Headers, clock: type[Clock]) -> None:
+    body = made(headers, card(headers))
+    other_card = card(headers, name="Regalia")
+    clock.today = date(2027, 4, 5)
+    tx_id = renew(headers, body["id"], other_card).json()["periods"][-1]["transaction_id"]
+    assert client.delete(f"{TX}/{tx_id}", headers=headers).status_code == 200
+    assert listed(headers)[0]["template"]["account_id"] == other_card
+
+
+def test_an_earlier_renewal_payment_stays(headers: Headers, clock: type[Clock]) -> None:
+    paying = card(headers)
+    body = made(headers, paying)
+    clock.today = date(2027, 4, 5)
+    first = renew(headers, body["id"], paying).json()["periods"][-1]["transaction_id"]
+    clock.today = date(2028, 4, 5)
+    renewed = renew(
+        headers,
+        body["id"],
+        paying,
+        date="2028-04-05",
+        period_start="2028-04-07",
+        period_end="2029-04-06",
+    )
+    assert renewed.status_code == 200, renewed.json()
+    response = client.delete(f"{TX}/{first}", headers=headers)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "This payment renewed an insurance policy, so it stays."
+    assert len(listed(headers)[0]["periods"]) == 3
+
+
+def test_the_first_periods_payment_stays(headers: Headers) -> None:
+    paying = card(headers)
+    tx_id = pay(headers, paying)
+    made(headers, paying, transaction_id=tx_id)
     response = client.delete(f"{TX}/{tx_id}", headers=headers)
     assert response.status_code == 409
     assert response.json()["detail"] == "This payment renewed an insurance policy, so it stays."
 
 
+def test_undo_obeys_the_delete_checks(headers: Headers, clock: type[Clock]) -> None:
+    paying = card(headers)
+    body = made(headers, paying)
+    clock.today = date(2027, 4, 5)
+    tx_id = renew(headers, body["id"], paying).json()["periods"][-1]["transaction_id"]
+    assert archive(headers, paying).status_code == 200
+    response = client.delete(f"{TX}/{tx_id}", headers=headers)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Restore Signet before changing this transaction."
+    assert len(listed(headers)[0]["periods"]) == 2
+
+
+def test_editing_the_renewal_payment_moves_the_period(headers: Headers, clock: type[Clock]) -> None:
+    paying = card(headers)
+    body = made(headers, paying)
+    clock.today = date(2027, 4, 5)
+    tx_id = renew(headers, body["id"], paying).json()["periods"][-1]["transaction_id"]
+    response = client.patch(
+        f"{TX}/{tx_id}", json={"amount": "13000.00", "date": "2027-03-30"}, headers=headers
+    )
+    assert response.status_code == 200, response.json()
+    after = listed(headers)[0]
+    assert (after["periods"][-1]["premium"], after["periods"][-1]["paid_on"]) == (
+        "13000.00",
+        "2027-03-30",
+    )
+    assert after["premium_by_fy"] == [{"fy": "2026-27", "amount": "24936.00"}]
+
+
+def test_a_periods_payment_stays_linked(headers: Headers, clock: type[Clock]) -> None:
+    paying = card(headers)
+    body = made(headers, paying)
+    clock.today = date(2027, 4, 5)
+    tx_id = renew(headers, body["id"], paying).json()["periods"][-1]["transaction_id"]
+    response = client.patch(f"{TX}/{tx_id}", json={"recurring_template_id": None}, headers=headers)
+    assert response.status_code == 422
+    assert messages(response) == {
+        "recurring_template_id": "This payment belongs to a policy period."
+    }
+    kept = client.patch(
+        f"{TX}/{tx_id}",
+        json={"note": "Renewal", "recurring_template_id": body["template"]["id"]},
+        headers=headers,
+    )
+    assert kept.status_code == 200, kept.json()
+
+
 def test_create_links_an_existing_payment(headers: Headers) -> None:
     paying = card(headers)
-    tx = client.post(
-        TX,
+    tx_id = pay(headers, paying)
+    body = made(headers, paying, transaction_id=tx_id)
+    assert body["periods"][0]["transaction_id"] == tx_id
+    assert body["template"]["recorded"] == 1
+    assert body["template"]["due"] == []
+    tx = client.get(f"{TX}/{tx_id}", headers=headers).json()
+    assert tx["recurring_template_id"] == body["template"]["id"]
+    again = new(headers, paying, transaction_id=tx_id)
+    assert again.status_code == 422
+    assert messages(again) == {"transaction_id": "That payment already belongs to a policy."}
+
+
+def test_a_payment_of_another_reminder_is_refused(headers: Headers) -> None:
+    paying = card(headers)
+    reminder = client.post(
+        "/api/recurring",
         json={
+            "name": "Gym",
             "type": "expense",
+            "amount": "1500.00",
             "account_id": paying,
-            "amount": "11936.00",
-            "date": "2026-04-06",
-            "category": "Insurance",
+            "category": "Health",
+            "frequency": "monthly",
+            "day": 6,
+            "start_date": "2026-04-01",
         },
         headers=headers,
     ).json()
-    body = made(headers, paying, transaction_id=tx["id"])
-    assert body["periods"][0]["transaction_id"] == tx["id"]
-    again = new(headers, paying, transaction_id=tx["id"])
-    assert again.status_code == 422
-    assert messages(again) == {"transaction_id": "That payment already belongs to a policy."}
+    tx_id = pay(headers, paying, recurring_template_id=reminder["id"])
+    response = new(headers, paying, transaction_id=tx_id)
+    assert response.status_code == 422
+    assert messages(response) == {"transaction_id": "That payment belongs to another reminder."}
+    assert listed(headers) == []
+
+
+def test_another_users_payment_is_refused(headers: Headers, other: Headers) -> None:
+    theirs = pay(other, card(other))
+    response = new(headers, card(headers), transaction_id=theirs)
+    assert response.status_code == 422
+    assert messages(response) == {"transaction_id": "Choose a payment."}
+
+
+def test_editing_an_unrecorded_period(headers: Headers, clock: type[Clock]) -> None:
+    paying = card(headers)
+    body = made(headers, paying)
+    response = client.patch(
+        f"{URL}/{body['id']}",
+        json={"premium": "12000.00", "sum_insured": "1200000.00", "paid_on": "2026-04-05"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.json()
+    [period] = response.json()["periods"]
+    assert (period["premium"], period["sum_insured"], period["paid_on"]) == (
+        "12000.00",
+        "1200000.00",
+        "2026-04-05",
+    )
+    assert response.json()["premium_by_fy"] == [{"fy": "2026-27", "amount": "12000.00"}]
+    future = client.patch(f"{URL}/{body['id']}", json={"paid_on": "2026-11-11"}, headers=headers)
+    assert messages(future) == {"paid_on": "The date can't be in the future."}
+
+    clock.today = date(2027, 4, 5)
+    renew(headers, body["id"], paying)
+    recorded = client.patch(f"{URL}/{body['id']}", json={"paid_on": "2027-04-04"}, headers=headers)
+    assert messages(recorded) == {"paid_on": "This premium is a recorded payment. Change it there."}
+    edited = client.patch(f"{URL}/{body['id']}", json={"premium": "1.00"}, headers=headers)
+    assert edited.json()["periods"][-1]["premium"] == "12500.00"  # the payment's own amount
+
+
+def test_period_edits_cannot_overlap_the_previous_period(
+    headers: Headers, clock: type[Clock]
+) -> None:
+    paying = card(headers)
+    body = made(headers, paying)
+    clock.today = date(2027, 4, 5)
+    renew(headers, body["id"], paying)
+    response = client.patch(
+        f"{URL}/{body['id']}",
+        json={"period_start": "2027-04-06", "period_end": "2028-04-05"},
+        headers=headers,
+    )
+    assert response.status_code == 422
+    assert messages(response) == {
+        "period_start": "The new period must start after the current one ends."
+    }
+    moved = client.patch(
+        f"{URL}/{body['id']}",
+        json={"period_start": "2027-04-08", "period_end": "2028-04-07"},
+        headers=headers,
+    )
+    assert moved.status_code == 200, moved.json()
+    latest = moved.json()["periods"][-1]
+    assert (latest["period_start"], latest["period_end"]) == ("2027-04-08", "2028-04-07")
+
+
+def test_a_policys_reminder_is_edited_through_the_policy(headers: Headers) -> None:
+    body = made(headers, card(headers))
+    reminder = f"/api/recurring/{body['template']['id']}"
+    for field, value in (
+        ("amount", "1.00"),
+        ("account_id", card(headers, name="Regalia")),
+        ("category", "Health"),
+        ("frequency", "monthly"),
+        ("day", 7),
+        ("month", 5),
+        ("start_date", "2027-01-01"),
+        ("end_date", "2030-01-01"),
+    ):
+        response = client.patch(reminder, json={field: value}, headers=headers)
+        assert response.status_code == 422, field
+        assert messages(response) == {field: "Change this on the policy."}
+    response = client.patch(
+        reminder,
+        json={"name": "Health cover", "note": "Card", "remind_days": 20, "amount": "11936.00"},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.json()
+    assert response.json()["name"] == "Health cover"
+    assert client.patch(reminder, json={"active": False}, headers=headers).status_code == 200
+
+
+def test_funded_by_a_closed_rd_has_no_maturity(headers: Headers) -> None:
+    fund = owners_rd(headers)
+    body = made(headers, card(headers), funded_by_id=fund)
+    assert body["funded_by"]["maturity_date"] == "2027-05-19"
+    rows = client.get("/api/accounts", headers=headers).json()["accounts"]
+    savings = next(a["id"] for a in rows if a["name"] == "Bank of India")
+    withdrawn = client.post(
+        TX,
+        json={
+            "type": "transfer",
+            "account_id": fund,
+            "to_account_id": savings,
+            "amount": "9000.00",
+            "date": "2026-11-10",
+        },
+        headers=headers,
+    )
+    assert withdrawn.status_code == 201, withdrawn.json()
+    closed = archive(headers, fund)
+    assert closed.status_code == 200, closed.json()
+    after = listed(headers)[0]
+    assert after["funded_by"] == {
+        "account_id": fund,
+        "name": "Bank of India RD",
+        "maturity_date": None,
+        "maturity_estimate": None,
+        "covers": None,
+        "shortfall": None,
+    }
+    assert after["card_bill"]["before_funding"] is False
 
 
 @pytest.mark.parametrize(
@@ -523,6 +783,8 @@ def test_lapse_stops_the_reminder(headers: Headers, clock: type[Clock]) -> None:
     assert response.status_code == 200
     assert response.json()["active"] is False
     assert response.json()["template"]["active"] is False
+    assert response.json()["card_bill"] is None
+    assert response.json()["days_to_renewal"] is None
     clock.today = date(2027, 4, 1)
     assert client.get("/api/recurring/due", headers=headers).json()["items"] == []
     refused = renew(headers, body["id"], body["paying_account_id"], date="2027-04-01")

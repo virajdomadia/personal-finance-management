@@ -50,6 +50,17 @@ _BAD_REMIND = "Enter a number of days from 0 to 60."
 _ARCHIVED = " is archived. Restore it to use it."
 _NOT_DUE = "That isn't a due date for this reminder."
 DEFAULT_REMIND = {"monthly": 3, "yearly": 30}
+_POLICY_FIELDS = (
+    "amount",
+    "account_id",
+    "to_account_id",
+    "category",
+    "frequency",
+    "day",
+    "month",
+    "start_date",
+    "end_date",
+)
 
 
 def _int_in(low: int, high: int, kind: str, message: str) -> Any:
@@ -359,6 +370,15 @@ def update_template(
         raise HTTPException(
             status.HTTP_409_CONFLICT, "This reminder changed while saving. Try again."
         )
+    if db.scalar(select(InsurancePolicy.id).where(InsurancePolicy.template_id == template.id)):
+        # A policy's reminder follows the policy; only its own settings change here.
+        refused = [
+            field_error(field, "Change this on the policy.")
+            for field in _POLICY_FIELDS
+            if field in changes and changes[field] != getattr(template, field)
+        ]
+        if refused:
+            raise RequestValidationError(refused)
     values = {
         "name": template.name,
         "type": template.type,

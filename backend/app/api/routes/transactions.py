@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from app.api.balances import Movement, balance_of, load_movements, net_flows
 from app.api.dates import iso_date
 from app.api.deps import CurrentUser, get_current_user
+from app.api.policy_periods import LINKED as PERIOD_LINKED
+from app.api.policy_periods import period_of, undo_renewal
 from app.api.routes.accounts import (
     CAN_BE_NEGATIVE,
     DEPOSIT_TYPES,
@@ -28,7 +30,7 @@ from app.api.routes.accounts import (
 from app.api.routes.dashboard import today_india
 from app.db.session import DbSession
 from app.models.account import Account
-from app.models.insurance import InsurancePolicy, PolicyPeriod
+from app.models.insurance import InsurancePolicy
 from app.models.recurring import RecurringTemplate
 from app.models.transaction import Transaction
 
@@ -581,14 +583,10 @@ def update_transaction(
         **changes,
     }
     _require_active(tx, accounts)
-    save_checks(
-        db,
-        user.id,
-        accounts,
-        values,
-        existing_id=tx.id,
-        link_changed=values["recurring_template_id"] != tx.recurring_template_id,
-    )
+    link_changed = values["recurring_template_id"] != tx.recurring_template_id
+    if link_changed and period_of(db, tx.id) is not None:
+        raise RequestValidationError([field_error("recurring_template_id", PERIOD_LINKED)])
+    save_checks(db, user.id, accounts, values, existing_id=tx.id, link_changed=link_changed)
     for field, value in values.items():
         setattr(tx, field, value)
     try:
@@ -605,14 +603,12 @@ def update_transaction(
 def delete_transaction(id: int, user: CurrentUser, db: DbSession) -> dict[str, int]:
     tx, accounts = _lock_transaction(db, user.id, id)
     _require_active(tx, accounts)
-    if db.scalar(select(PolicyPeriod.id).where(PolicyPeriod.transaction_id == tx.id)):
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, "This payment renewed an insurance policy, so it stays."
-        )
     before = load_movements(db, user.id)
     problem = balance_problem(accounts, before, [m for m in before if m.id != tx.id])
     if problem:
         raise HTTPException(status.HTTP_409_CONFLICT, problem)
+    # A policy's latest renewal goes with its payment; an earlier one's payment stays.
+    undo_renewal(db, user.id, tx)
     db.delete(tx)
     db.commit()
     return {"id": id}

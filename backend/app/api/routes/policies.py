@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deposits import add_months, financial_year, fy_label, rd_maturity, rd_maturity_value
 from app.api.deps import CurrentUser, get_current_user
+from app.api.policy_periods import payments
 from app.api.recurring import card_bill_due
 from app.api.routes.accounts import MAX_ID, Money, clean_text, field_error, fmt
 from app.api.routes.dashboard import today_india
@@ -50,6 +51,8 @@ _BAD_PERIOD = "The period must end after it starts, within a year."
 _FUTURE = "The date can't be in the future."
 _CHOOSE_ACCOUNT = "Choose an account."
 _CHOOSE_PAYMENT = "Choose a payment."
+_TAKEN = "That payment already belongs to a policy."
+_OVERLAP = "The new period must start after the current one ends."
 # The template's name is "{insurer} premium" and must fit its 60 characters.
 _INSURER_LIMIT = 52
 
@@ -134,6 +137,8 @@ class PolicyUpdate(BaseModel):
     account_id: AccountRef = None
     funded_by_id: FundRef = None
     details: Details = None
+    # Only for a period paid before the app; a recorded payment's date is the transaction's.
+    paid_on: Day = None
 
 
 class RenewBody(BaseModel):
@@ -195,7 +200,7 @@ class PolicyResponse(BaseModel):
     card_bill: CardBill | None
     periods: list[Period]
     premium_by_fy: list[FyPremium]
-    days_to_renewal: int
+    days_to_renewal: int | None  # None once the policy has lapsed
 
 
 class PolicyList(BaseModel):
@@ -268,6 +273,7 @@ def _responses(
         .order_by(PolicyPeriod.period_start, PolicyPeriod.id)
     ):
         periods[period.policy_id].append(period)
+    paid = payments(db, user_id, [x for rows in periods.values() for x in rows])
 
     out = []
     for p in policies:
@@ -278,7 +284,8 @@ def _responses(
         )
         by_fy: dict[int, Decimal] = defaultdict(Decimal)
         for period in periods[p.id]:
-            by_fy[financial_year(period.paid_on)] += period.premium
+            premium, paid_on = paid[period.id]
+            by_fy[financial_year(paid_on)] += premium
         out.append(
             PolicyResponse(
                 id=p.id,
@@ -298,14 +305,15 @@ def _responses(
                 paying_account_name=paying.name,
                 funded_by=funded,
                 # The template's next occurrence is the renewal: it starts on `period_end`.
-                card_bill=_card_bill(paying, p.period_end, matures),
+                # A lapsed policy has no renewal coming.
+                card_bill=_card_bill(paying, p.period_end, matures) if p.active else None,
                 periods=[
                     Period(
                         period_start=x.period_start.isoformat(),
                         period_end=x.period_end.isoformat(),
-                        premium=fmt(x.premium),
+                        premium=fmt(paid[x.id][0]),
                         sum_insured=fmt(x.sum_insured),
-                        paid_on=x.paid_on.isoformat(),
+                        paid_on=paid[x.id][1].isoformat(),
                         transaction_id=x.transaction_id,
                     )
                     for x in periods[p.id]
@@ -314,7 +322,7 @@ def _responses(
                     FyPremium(fy=fy_label(fy), amount=fmt(amount))
                     for fy, amount in sorted(by_fy.items())
                 ],
-                days_to_renewal=(p.period_end - today).days,
+                days_to_renewal=(p.period_end - today).days if p.active else None,
             )
         )
     return out
@@ -437,21 +445,26 @@ def create_policy(body: PolicyCreate, user: CurrentUser, db: DbSession) -> Polic
         errors.append(field_error("paid_on", _FUTURE))
     _funding_errors(values, accounts, errors)
     payment_id = values["transaction_id"]
+    payment = None
     if payment_id is not None:
-        payment = None
         if 1 <= payment_id <= MAX_ID:
+            # Locked, so it can't be linked elsewhere or deleted while the policy is saved.
             payment = db.scalar(
-                select(Transaction).where(
+                select(Transaction)
+                .where(
                     Transaction.id == payment_id,
                     Transaction.user_id == user.id,
                     Transaction.type == "expense",
                 )
+                .with_for_update()
             )
         if payment is None:
             errors.append(field_error("transaction_id", _CHOOSE_PAYMENT))
         elif db.scalar(select(PolicyPeriod.id).where(PolicyPeriod.transaction_id == payment_id)):
+            errors.append(field_error("transaction_id", _TAKEN))
+        elif payment.recurring_template_id is not None:
             errors.append(
-                field_error("transaction_id", "That payment already belongs to a policy.")
+                field_error("transaction_id", "That payment belongs to another reminder.")
             )
     _template_errors(values, accounts, today, errors)
     if errors:
@@ -460,6 +473,8 @@ def create_policy(body: PolicyCreate, user: CurrentUser, db: DbSession) -> Polic
     template = RecurringTemplate(user_id=user.id, **_template_values(values))
     db.add(template)
     db.flush()
+    if payment is not None:  # it becomes the reminder's first recorded payment
+        payment.recurring_template_id = template.id
     policy = InsurancePolicy(
         user_id=user.id,
         template_id=template.id,
@@ -499,9 +514,7 @@ def create_policy(body: PolicyCreate, user: CurrentUser, db: DbSession) -> Polic
         db.commit()
     except IntegrityError:  # the payment was linked to another policy meanwhile
         db.rollback()
-        raise RequestValidationError(
-            [field_error("transaction_id", "That payment already belongs to a policy.")]
-        ) from None
+        raise RequestValidationError([field_error("transaction_id", _TAKEN)]) from None
     return _responses(db, user.id, today, [policy.id])[0]
 
 
@@ -548,6 +561,28 @@ def update_policy(id: int, body: PolicyUpdate, user: CurrentUser, db: DbSession)
     if "funded_by_id" in changes:
         _funding_errors(values, accounts, errors)
     today = today_india()
+    periods = list(
+        db.scalars(
+            select(PolicyPeriod)
+            .where(PolicyPeriod.policy_id == policy.id)
+            .order_by(PolicyPeriod.period_start, PolicyPeriod.id)
+        )
+    )
+    latest = periods[-1] if periods else None
+    previous = periods[-2] if len(periods) > 1 else None
+    start = values["period_start"]
+    if previous is not None and start is not None and start <= previous.period_end:
+        errors.append(field_error("period_start", _OVERLAP))
+    if "paid_on" in changes:
+        paid_on = changes["paid_on"]
+        if paid_on is None:
+            errors.append(field_error("paid_on", _REQUIRED["paid_on"]))
+        elif latest is None or latest.transaction_id is not None:
+            errors.append(
+                field_error("paid_on", "This premium is a recorded payment. Change it there.")
+            )
+        elif paid_on > today:
+            errors.append(field_error("paid_on", _FUTURE))
     # A lapsed policy's details stay editable whatever has happened to its card.
     _template_errors(values, accounts, today, errors, money=policy.active)
     if errors:
@@ -566,6 +601,14 @@ def update_policy(id: int, body: PolicyUpdate, user: CurrentUser, db: DbSession)
         "details",
     ):
         setattr(policy, field, values[field])
+    if latest is not None:
+        # The current period is the policy's; a recorded payment keeps its own amount and date.
+        latest.period_start = values["period_start"]
+        latest.period_end = values["period_end"]
+        latest.sum_insured = values["sum_insured"]
+        if latest.transaction_id is None:
+            latest.premium = values["premium"]
+            latest.paid_on = values.get("paid_on") or latest.paid_on
     # Only what the policy decides; the reminder's own settings (remind days, note) stay.
     template_values = _template_values(values)
     for field in _KEPT_IN_STEP:
@@ -589,9 +632,7 @@ def renew_policy(id: int, body: RenewBody, user: CurrentUser, db: DbSession) -> 
     if start is None:
         errors.append(field_error("period_start", _REQUIRED["period_start"]))
     elif start <= policy.period_end:
-        errors.append(
-            field_error("period_start", "The new period must start after the current one ends.")
-        )
+        errors.append(field_error("period_start", _OVERLAP))
     if end is None:
         errors.append(field_error("period_end", _REQUIRED["period_end"]))
     _period_errors(start, end, errors)
