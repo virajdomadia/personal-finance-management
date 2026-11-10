@@ -7,7 +7,6 @@ import { logout } from "@/app/login/actions";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Select } from "@/components/ui/select";
-import { Signed } from "@/components/investments/shared";
 import {
   type Activity,
   TRANSACTION_TYPES,
@@ -68,10 +67,9 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
   // so they sit in their own list and never touch the totals. A failure just leaves the list out.
   const fetchActivity = useCallback((current: Filters) => {
     const request = ++latestActivity.current;
-    if (current.accountId === null) {
-      setActivity([]);
-      return;
-    }
+    // Drop the old list first, so last month's rows don't show under the new filters.
+    setActivity([]);
+    if (current.accountId === null) return;
     apiFetch<{ items: Activity[] }>(`/accounts/${current.accountId}/investment-activity?month=${current.month}`)
       .then((data) => {
         if (request === latestActivity.current) setActivity(data.items);
@@ -316,6 +314,12 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
   );
 }
 
+// The same sign style as the transaction rows: -₹1,000.00 or +₹1,000.00.
+function activityAmount(signed: string): string {
+  const text = signed.trim();
+  return text.startsWith("-") ? `-${formatRupees(text.slice(1))}` : `+${formatRupees(text.replace(/^\+/, ""))}`;
+}
+
 function activityHref(item: Activity): string {
   if (item.kind === "stock") return `/investments/${item.instrument_id}`;
   if (item.kind === "mutual_fund") return `/investments/funds/${item.instrument_id}`;
@@ -345,7 +349,7 @@ function InvestmentActivity({ items }: { items: Activity[] }) {
               </p>
             </div>
             <p className="min-w-0 max-w-full text-right text-sm font-medium tabular-nums [overflow-wrap:anywhere]">
-              <Signed value={item.signed_amount} />
+              {activityAmount(item.signed_amount)}
             </p>
           </li>
         ))}

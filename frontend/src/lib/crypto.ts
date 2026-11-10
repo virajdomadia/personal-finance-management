@@ -159,9 +159,16 @@ export function formatCoinQty(quantity: string): string {
   return groupDecimal(trimmed === "" ? whole : `${whole}.${trimmed}`);
 }
 
+// From ₹1 up a price shows rupees and paise, rounded half up from the 4-decimal figure. Below ₹1 it
+// shows up to 4 decimals, trimmed but never fewer than 2.
 export function formatCoinPrice(price: string): string {
   const [whole, fraction = ""] = price.split(".");
-  const padded = fraction.padEnd(4, "0");
-  const extra = padded.slice(2).replace(/0+$/, "");
-  return `₹${groupDecimal(`${whole}.${padded.slice(0, 2)}${extra}`)}`;
+  const padded = fraction.padEnd(4, "0").slice(0, 4);
+  if (BigInt(whole) === BigInt(0)) {
+    const trimmed = padded.replace(/0+$/, "").padEnd(2, "0");
+    return `₹${whole}.${trimmed}`;
+  }
+  const hundredths = BigInt(whole + padded.slice(0, 2)) + BigInt(Number(padded[2]) >= 5 ? 1 : 0);
+  const text = hundredths.toString();
+  return `₹${groupDecimal(`${text.slice(0, -2)}.${text.slice(-2)}`)}`;
 }

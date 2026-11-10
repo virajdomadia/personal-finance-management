@@ -28,11 +28,16 @@ test("formatCoinQty trims trailing zeros and groups the Indian way", () => {
   assert.equal(formatCoinQty("123456.00000000"), "1,23,456");
 });
 
-test("formatCoinPrice uses 2 decimals unless the 3rd or 4th is non-zero", () => {
+test("formatCoinPrice shows paise from Rs 1 up and up to 4 decimals below", () => {
+  assert.equal(formatCoinPrice("7066965.2378"), "₹70,66,965.24");
+  assert.equal(formatCoinPrice("204971.1340"), "₹2,04,971.13");
   assert.equal(formatCoinPrice("7504827.5000"), "₹75,04,827.50");
   assert.equal(formatCoinPrice("0.0012"), "₹0.0012");
-  assert.equal(formatCoinPrice("12.3400"), "₹12.34");
-  assert.equal(formatCoinPrice("12.3450"), "₹12.345");
+  assert.equal(formatCoinPrice("0.5000"), "₹0.50");
+  assert.equal(formatCoinPrice("0.9999"), "₹0.9999");
+  assert.equal(formatCoinPrice("1.0050"), "₹1.01");
+  assert.equal(formatCoinPrice("0.0000"), "₹0.00");
+  assert.equal(formatCoinPrice("99.9950"), "₹100.00");
 });
 
 test("qtyMismatch applies the server's Rs 1.00 rule", () => {
