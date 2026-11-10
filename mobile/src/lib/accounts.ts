@@ -1,3 +1,5 @@
+import type { DueItem } from "./recurring.ts";
+
 export type AccountType = "bank" | "credit_card" | "cash" | "broker" | "wallet" | "ppf" | "rd" | "loan";
 
 // The suggested split of a loan's next EMI. Interest is null when it can't be worked out.
@@ -62,6 +64,7 @@ export type Dashboard = {
   next_card_due: { account_id: number; name: string; due_date: string } | null;
   credit_used: { percent: number } | null;
   investments: { value: string; unrealised: string; unrealised_percent: string } | null;
+  recurring: DueItem[];
 };
 
 export type AccountForm = {

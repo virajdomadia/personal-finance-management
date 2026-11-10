@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { View } from "react-native";
 import { List } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,6 +11,20 @@ export default function ProfileScreen() {
 
   return (
     <View style={{ paddingTop: top }}>
+      <List.Item
+        title="Recurring"
+        description="Rent, salary and other regular payments"
+        left={(props) => <List.Icon {...props} icon="calendar-sync-outline" />}
+        onPress={() => router.push("/recurring")}
+        accessibilityRole="button"
+      />
+      <List.Item
+        title="Insurance"
+        description="Health policies and renewals"
+        left={(props) => <List.Icon {...props} icon="shield-check-outline" />}
+        onPress={() => router.push("/insurance")}
+        accessibilityRole="button"
+      />
       <List.Item
         title="Log out"
         left={(props) => <List.Icon {...props} icon="logout" />}

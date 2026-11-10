@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { type Account, type AccountList, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { instalmentForm, interestForm, ppfDepositForm } from "@/lib/deposits";
+import { type Template, transactionFormFromTemplate } from "@/lib/recurring";
 import { DateField } from "@/components/date-field";
 import { useSession } from "@/lib/session";
 import {
@@ -53,18 +54,26 @@ const FROM_LABELS: Record<TransactionType, string> = {
   emi: "Paid from",
 };
 
-type Loaded = { accounts: Account[]; categories: CategoryList; transaction: Transaction | null };
+type Loaded = {
+  accounts: Account[];
+  categories: CategoryList;
+  transaction: Transaction | null;
+  template: Template | null;
+};
 
 export default function TransactionFormScreen() {
   // `loan` opens a new EMI for that loan, pre-filled with its suggested split. `rd` opens the RD's
   // next instalment, `ppf` a deposit to that PPF, `interest` the PPF's interest as income.
-  const { id, account, loan, rd, ppf, interest } = useLocalSearchParams<{
+  // `templateId` with `occurrence` opens a reminder's payment, pre-filled from the reminder.
+  const { id, account, loan, rd, ppf, interest, templateId, occurrence } = useLocalSearchParams<{
     id?: string;
     account?: string;
     loan?: string;
     rd?: string;
     ppf?: string;
     interest?: string;
+    templateId?: string;
+    occurrence?: string;
   }>();
   const { token, logOut } = useSession();
   const { colors } = useTheme();
@@ -84,9 +93,19 @@ export default function TransactionFormScreen() {
         return { income: [], expense: [] };
       }),
       editing ? apiFetch<Transaction>(`/transactions/${id}`, auth) : Promise.resolve(null),
+      !editing && templateId !== undefined
+        ? apiFetch<{ templates: Template[] }>("/recurring", auth).then(
+            (list) => list.templates.find((t) => String(t.id) === templateId) ?? null,
+          )
+        : Promise.resolve(null),
     ])
-      .then(([accounts, categories, transaction]) => {
-        if (current) setLoaded({ accounts: accounts.accounts, categories, transaction });
+      .then(([accounts, categories, transaction, template]) => {
+        if (!current) return;
+        if (!editing && templateId !== undefined && template === null) {
+          setLoadError("That reminder isn't there any more.");
+          return;
+        }
+        setLoaded({ accounts: accounts.accounts, categories, transaction, template });
       })
       .catch((err: unknown) => {
         if (!current) return;
@@ -101,7 +120,7 @@ export default function TransactionFormScreen() {
     return () => {
       current = false;
     };
-  }, [editing, id, token, logOut, attempt]);
+  }, [editing, id, templateId, token, logOut, attempt]);
 
   if (loaded === null) {
     return (
@@ -140,7 +159,9 @@ export default function TransactionFormScreen() {
   const forPpf = loaded.accounts.find((a) => a.type === "ppf" && String(a.id) === ppf);
   const forInterest = loaded.accounts.find((a) => a.type === "ppf" && String(a.id) === interest);
   const today = todayIndia();
-  const initialForm = forLoan
+  const initialForm = loaded.template
+    ? transactionFormFromTemplate(loaded.template, occurrence ?? today, today)
+    : forLoan
     ? emiForm(forLoan, today)
     : forRd
       ? instalmentForm(forRd, today, loaded.accounts)

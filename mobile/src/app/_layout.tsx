@@ -44,6 +44,11 @@ function Screens() {
             <Stack.Screen name="crypto-trade-form" />
             <Stack.Screen name="coin-price-form" />
             <Stack.Screen name="coin-form" />
+            <Stack.Screen name="recurring" />
+            <Stack.Screen name="template-form" />
+            <Stack.Screen name="insurance" />
+            <Stack.Screen name="policy-form" />
+            <Stack.Screen name="renew-form" />
           </Stack.Protected>
           <Stack.Protected guard={!loggedIn}>
             <Stack.Screen name="login" />

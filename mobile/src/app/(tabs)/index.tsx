@@ -4,6 +4,7 @@ import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 
 import { Button, Card, Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { DueList } from "@/components/due-list";
 import { Signed } from "@/components/signed";
 import { type Dashboard, formatDueDate, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
@@ -113,6 +114,8 @@ export default function DashboardScreen() {
           ) : null}
         </Card.Content>
       </Card>
+
+      <DueList items={data.recurring ?? []} onChanged={() => void load()} />
 
       {data.has_accounts ? (
         <>
