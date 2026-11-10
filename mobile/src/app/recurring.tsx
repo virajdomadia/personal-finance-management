@@ -8,7 +8,7 @@ import { DueList } from "@/components/due-list";
 import { Banner } from "@/components/form-parts";
 import { errorMessage, formatDueDate } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { type DueItem, type Template, scheduleText, whole } from "@/lib/recurring";
+import { type DueItem, type Template, scheduleText, toggleLabel, whole } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
 import { formatDate } from "@/lib/transactions";
 
@@ -170,6 +170,7 @@ export default function RecurringScreen() {
               const accounts = t.type === "transfer" ? `${t.account_name} to ${t.to_account_name}` : t.account_name;
               const details = [TYPE_LABEL[t.type], scheduleText(t), accounts, t.category].filter(Boolean).join(" · ");
               const working = toggling === t.id;
+              const toggleText = toggleLabel(t);
               return (
                 <Card
                   key={t.id}
@@ -192,16 +193,20 @@ export default function RecurringScreen() {
                       {t.policy_id !== null ? `Insurance policy · ${nextText(t)}` : nextText(t)}
                     </Text>
                   </Card.Content>
-                  <Card.Actions>
-                    <Button disabled={working || removing} loading={working} onPress={() => void toggle(t)}>
-                      {t.active ? "Stop" : "Restart"}
-                    </Button>
-                    {t.policy_id === null ? (
-                      <Button disabled={working || removing} onPress={() => setDeleting(t)}>
-                        Delete
-                      </Button>
-                    ) : null}
-                  </Card.Actions>
+                  {toggleText !== null || t.policy_id === null ? (
+                    <Card.Actions>
+                      {toggleText !== null ? (
+                        <Button disabled={working || removing} loading={working} onPress={() => void toggle(t)}>
+                          {toggleText}
+                        </Button>
+                      ) : null}
+                      {t.policy_id === null ? (
+                        <Button disabled={working || removing} onPress={() => setDeleting(t)}>
+                          Delete
+                        </Button>
+                      ) : null}
+                    </Card.Actions>
+                  ) : null}
                 </Card>
               );
             })

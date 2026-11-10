@@ -8,7 +8,7 @@ import { ApiError, apiFetch } from "@/lib/api";
 import { RenewDialog } from "@/components/insurance/renew-dialog";
 import { LIST, Notice, PRIMARY, QUIET, ROW_ACTION, SECTION_TITLE, isUnauthorized } from "@/components/investments/shared";
 import { TransactionDialog } from "@/components/transactions/transaction-dialog";
-import { type DueItem, dueText, transactionFormFromTemplate } from "@/lib/recurring";
+import { type DueItem, canSkip, dueText, transactionFormFromTemplate } from "@/lib/recurring";
 import type { Policy } from "@/lib/insurance";
 import { todayIndia } from "@/lib/transactions";
 
@@ -22,7 +22,7 @@ type ListProps = {
   onClearError: () => void;
 };
 
-// Due and coming-up reminders, each with Record (Renew for an insurance premium) and Skip.
+// Due and coming-up reminders, each with Record and Skip, or just Renew for an insurance premium.
 export function DueList({ items, onRecord, onSkipped, onError, onClearError }: ListProps) {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [skipping, setSkipping] = useState<string | null>(null);
@@ -90,14 +90,16 @@ export function DueList({ items, onRecord, onSkipped, onError, onClearError }: L
                       >
                         {isPolicy ? "Renew" : "Record"}
                       </button>
-                      <button
-                        type="button"
-                        className={ROW_ACTION}
-                        aria-label={`Skip ${item.template.name}`}
-                        onClick={() => setConfirming(key)}
-                      >
-                        Skip
-                      </button>
+                      {canSkip(item) && (
+                        <button
+                          type="button"
+                          className={ROW_ACTION}
+                          aria-label={`Skip ${item.template.name}`}
+                          onClick={() => setConfirming(key)}
+                        >
+                          Skip
+                        </button>
+                      )}
                     </>
                   )}
                 </div>

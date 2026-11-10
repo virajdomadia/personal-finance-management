@@ -140,6 +140,16 @@ export function dueText(item: DueItem): string {
   return `${template.name}: ${whole(template.amount)} ${tail}`;
 }
 
+// The Stop/Restart action. A policy's reminder can be stopped here, but it restarts only with the policy
+// (the server refuses a lapsed one), so a stopped one offers nothing.
+export function toggleLabel(t: Template): "Stop" | "Restart" | null {
+  if (t.active) return "Stop";
+  return t.policy_id === null ? "Restart" : null;
+}
+
+// A policy's renewal is never skipped: it is renewed or the policy lapses.
+export const canSkip = (item: DueItem) => item.template.policy_id === null;
+
 function ordinal(n: number): string {
   const teen = n % 100 >= 11 && n % 100 <= 13;
   const suffixes: Record<number, string> = { 1: "st", 2: "nd", 3: "rd" };

@@ -5,7 +5,7 @@ import { Button, Card, Dialog, Portal, Text, useTheme } from "react-native-paper
 
 import { errorMessage } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { type DueItem, dueText } from "@/lib/recurring";
+import { type DueItem, canSkip, dueText } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
 
 import { Banner } from "./form-parts";
@@ -30,7 +30,7 @@ type Props = {
   onChanged: () => void;
 };
 
-// Due and coming-up reminders: tap to record, hold to skip.
+// Due and coming-up reminders: tap to record, hold to skip. An insurance premium is only renewed.
 export function DueList({ items, onChanged }: Props) {
   const { token, logOut } = useSession();
   const { colors } = useTheme();
@@ -84,18 +84,18 @@ export function DueList({ items, onChanged }: Props) {
           {title}
         </Text>
         {rows.map((item) => {
-          const policy = item.template.policy_id !== null;
+          const skippable = canSkip(item);
           return (
             <Card
               key={itemKey(item)}
               mode="outlined"
               onPress={() => openRecord(item)}
-              onLongPress={() => setAsking(item)}
+              onLongPress={skippable ? () => setAsking(item) : undefined}
               accessibilityRole="button"
-              accessibilityHint={`${policy ? "Renews" : "Records"} it. Hold to skip.`}
-              accessibilityActions={[{ name: "skip", label: "Skip this one" }]}
+              accessibilityHint={skippable ? "Records it. Hold to skip." : "Renews it."}
+              accessibilityActions={skippable ? [{ name: "skip", label: "Skip this one" }] : undefined}
               onAccessibilityAction={(event) => {
-                if (event.nativeEvent.actionName === "skip") setAsking(item);
+                if (skippable && event.nativeEvent.actionName === "skip") setAsking(item);
               }}
             >
               <Card.Content>
@@ -115,7 +115,7 @@ export function DueList({ items, onChanged }: Props) {
           {group("Due", due)}
           {group("Coming up", comingUp)}
           <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            Tap to record, hold to skip.
+            {items.some(canSkip) ? "Tap to record, hold to skip." : "Tap to renew."}
           </Text>
         </View>
       ) : null}

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  canSkip,
+  toggleLabel,
   dueText,
   scheduleText,
   templateFormBlank,
@@ -120,4 +122,17 @@ test("transactionFormFromTemplate fills a transfer's destination and no category
   const form = transactionFormFromTemplate(rent({ type: "transfer", to_account_id: 9, category: null }), "2026-03-01", "2026-03-02");
   assert.equal(form.to_account_id, "9");
   assert.equal(form.category, "");
+});
+
+test("toggleLabel stops any reminder and restarts only a plain one", () => {
+  assert.equal(toggleLabel(rent()), "Stop");
+  assert.equal(toggleLabel(rent({ active: false })), "Restart");
+  assert.equal(toggleLabel({ ...premium, policy_id: 2 }), "Stop");
+  // A stopped policy reminder restarts from the policy, never here.
+  assert.equal(toggleLabel({ ...premium, policy_id: 2, active: false }), null);
+});
+
+test("canSkip refuses a policy's reminder", () => {
+  assert.equal(canSkip({ template: rent(), occurrence: "2026-03-01", state: "due" }), true);
+  assert.equal(canSkip({ template: { ...premium, policy_id: 2 }, occurrence: "2027-04-06", state: "coming_up" }), false);
 });

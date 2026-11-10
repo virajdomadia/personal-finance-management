@@ -7,7 +7,7 @@ import { logout } from "@/app/login/actions";
 import { errorMessage, formatDueDate, formatFullDate } from "@/lib/accounts";
 import { apiFetch } from "@/lib/api";
 import { ConfirmDelete, LIST, Notice, PRIMARY, QUIET, ROW_ACTION, isUnauthorized } from "@/components/investments/shared";
-import { type Template, scheduleText, whole } from "@/lib/recurring";
+import { type Template, scheduleText, toggleLabel, whole } from "@/lib/recurring";
 
 import { DueSection } from "./due-list";
 import { TemplateDialog } from "./template-dialog";
@@ -182,6 +182,7 @@ function TemplateRow({
 }) {
   const accounts = t.type === "transfer" ? `${t.account_name} → ${t.to_account_name}` : t.account_name;
   const details = [TYPE_LABEL[t.type], scheduleText(t), accounts, t.category];
+  const toggleText = toggleLabel(t);
   return (
     <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
       <div className="min-w-40 flex-1">
@@ -204,9 +205,11 @@ function TemplateRow({
         <button type="button" className={ROW_ACTION} aria-label={`Edit ${t.name}`} onClick={onEdit}>
           Edit
         </button>
-        <button type="button" className={ROW_ACTION} aria-label={`${t.active ? "Stop" : "Restart"} ${t.name}`} disabled={toggling} onClick={onToggle}>
-          {t.active ? "Stop" : "Restart"}
-        </button>
+        {toggleText && (
+          <button type="button" className={ROW_ACTION} aria-label={`${toggleText} ${t.name}`} disabled={toggling} onClick={onToggle}>
+            {toggleText}
+          </button>
+        )}
         {t.policy_id === null && (
           <button type="button" className={ROW_ACTION} aria-label={`Delete ${t.name}`} onClick={onDelete}>
             Delete
