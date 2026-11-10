@@ -1,4 +1,5 @@
 import { cleanMoney, formatRupees } from "./accounts.ts";
+import type { CryptoPortfolio } from "./crypto.ts";
 import type { FundsPortfolio } from "./funds.ts";
 
 export type TradeSide = "buy" | "sell";
@@ -87,6 +88,7 @@ export type Portfolio = {
   closed: ClosedPosition[];
   totals: Totals;
   funds: FundsPortfolio;
+  crypto: CryptoPortfolio;
   deposits: Deposits;
   overall: Totals;
 };
@@ -105,12 +107,13 @@ export async function settle<T>(request: Promise<T>, fatal: (err: unknown) => bo
   }
 }
 
-// The kinds of holding the page has: the "All investments" line is only worth showing for two or more.
+// The kinds of holding the page has (stocks, funds, deposits, crypto): the "All investments" line is only worth showing for two or more.
 export function holdingKinds(portfolio: Portfolio): number {
   const stocks = portfolio.by_stock.length + portfolio.closed.length > 0;
   const funds = portfolio.funds.by_fund.length + portfolio.funds.closed.length > 0;
   const deposits = portfolio.deposits.accounts.length > 0;
-  return Number(stocks) + Number(funds) + Number(deposits);
+  const crypto = portfolio.crypto.by_coin.length + portfolio.crypto.closed.length > 0;
+  return Number(stocks) + Number(funds) + Number(deposits) + Number(crypto);
 }
 
 export type TradeForm = {

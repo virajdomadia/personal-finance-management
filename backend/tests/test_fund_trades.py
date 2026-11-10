@@ -623,3 +623,15 @@ def test_integrity_error_without_a_sip_is_not_a_sip_error(
         buy(headers, fund_id=ppfcf, account_id=account)
     with pytest.raises(IntegrityError):
         patch(headers, existing["id"], note="x")
+
+
+def test_hand_entered_nav_blocks_handover(headers: Headers) -> None:
+    account, ppfcf = bank(headers), fund(headers)
+    manual = add_nav(headers, ppfcf, DAY, "84.0000")
+    body = made(headers, fund_id=ppfcf, account_id=account)
+    response = patch(headers, body["id"], nav="84.3800")
+    assert response.status_code == 200, response.json()
+    [row] = [r for r in navs(headers, ppfcf) if r["date"] == DAY]
+    assert row == manual
+    assert row["trade_id"] is None
+    assert row["nav"] == "84.0000"

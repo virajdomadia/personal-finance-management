@@ -1,0 +1,300 @@
+{
+  "/api/accounts": {
+    "accounts": [
+      {
+        "archived": false,
+        "available_credit": null,
+        "balance": "47860.00",
+        "bank_kind": null,
+        "credit_limit": null,
+        "deposit": null,
+        "deposit_amount": null,
+        "due_day": null,
+        "emi_amount": null,
+        "emis_left": null,
+        "id": 1,
+        "institution": "SBI",
+        "interest_rate": null,
+        "last4": null,
+        "name": "SBI",
+        "next_emi": null,
+        "opened_on": null,
+        "pay_from_id": null,
+        "statement_day": null,
+        "tenure_months": null,
+        "type": "bank"
+      }
+    ],
+    "total_have": "85364.92",
+    "total_owe": "0.00"
+  },
+  "/api/dashboard": {
+    "credit_used": null,
+    "has_accounts": true,
+    "investments": {
+      "unrealised": "333.45",
+      "unrealised_percent": "0.90",
+      "value": "37504.92"
+    },
+    "net_worth": "85364.92",
+    "next_card_due": null,
+    "total_have": "85364.92",
+    "total_owe": "0.00"
+  },
+  "/api/investments/fund-trades": {
+    "trades": [
+      {
+        "account_id": 1,
+        "account_name": "SBI",
+        "amount": "860.00",
+        "charges": "0.00",
+        "date": "2026-11-07",
+        "fund_id": 1,
+        "id": 3,
+        "nav": "86.0000",
+        "note": null,
+        "opening": false,
+        "realised": "31.47",
+        "side": "sell",
+        "sip_id": null,
+        "symbol": "PPFCRG",
+        "units": "10.000"
+      },
+      {
+        "account_id": 1,
+        "account_name": "SBI",
+        "amount": "3000.00",
+        "charges": "0.15",
+        "date": "2026-11-05",
+        "fund_id": 1,
+        "id": 2,
+        "nav": "84.3793",
+        "note": null,
+        "opening": false,
+        "realised": null,
+        "side": "buy",
+        "sip_id": null,
+        "symbol": "PPFCRG",
+        "units": "35.552"
+      },
+      {
+        "account_id": 1,
+        "account_name": "SBI",
+        "amount": "14000.00",
+        "charges": "0.00",
+        "date": "2026-09-01",
+        "fund_id": 2,
+        "id": 4,
+        "nav": "636.8268",
+        "note": null,
+        "opening": true,
+        "realised": null,
+        "side": "buy",
+        "sip_id": null,
+        "symbol": "SECOND",
+        "units": "21.984"
+      },
+      {
+        "account_id": 1,
+        "account_name": "SBI",
+        "amount": "21000.00",
+        "charges": "0.00",
+        "date": "2026-05-05",
+        "fund_id": 1,
+        "id": 1,
+        "nav": "82.8527",
+        "note": null,
+        "opening": true,
+        "realised": null,
+        "side": "buy",
+        "sip_id": 1,
+        "symbol": "PPFCRG",
+        "units": "253.462"
+      }
+    ]
+  },
+  "/api/investments/funds": {
+    "funds": [
+      {
+        "id": 1,
+        "name": "Parag Parikh Flexi Cap",
+        "nav": "84.3793",
+        "nav_date": "2026-11-05",
+        "symbol": "PPFCRG"
+      },
+      {
+        "id": 2,
+        "name": "Second Fund",
+        "nav": "635.0943",
+        "nav_date": "2026-11-08",
+        "symbol": "SECOND"
+      }
+    ]
+  },
+  "/api/investments/funds/1/navs": {
+    "navs": [
+      {
+        "date": "2026-11-05",
+        "id": 1,
+        "nav": "84.3793",
+        "trade_id": 2
+      }
+    ]
+  },
+  "/api/investments/funds/2/navs": {
+    "navs": [
+      {
+        "date": "2026-11-08",
+        "id": 2,
+        "nav": "635.0943",
+        "trade_id": null
+      }
+    ]
+  },
+  "/api/investments/portfolio": {
+    "by_stock": [],
+    "closed": [],
+    "deposits": {
+      "accounts": [],
+      "interest_estimate": "0.00",
+      "value": "0.00"
+    },
+    "funds": {
+      "by_fund": [
+        {
+          "at_cost": false,
+          "average_nav": "83.0477",
+          "fund_id": 1,
+          "invested": "23171.47",
+          "name": "Parag Parikh Flexi Cap",
+          "nav": "84.3793",
+          "nav_date": "2026-11-05",
+          "symbol": "PPFCRG",
+          "units": "279.014",
+          "unrealised": "371.54",
+          "unrealised_percent": "1.60",
+          "value": "23543.01"
+        },
+        {
+          "at_cost": false,
+          "average_nav": "636.8268",
+          "fund_id": 2,
+          "invested": "14000.00",
+          "name": "Second Fund",
+          "nav": "635.0943",
+          "nav_date": "2026-11-08",
+          "symbol": "SECOND",
+          "units": "21.984",
+          "unrealised": "-38.09",
+          "unrealised_percent": "-0.27",
+          "value": "13961.91"
+        }
+      ],
+      "closed": [],
+      "due_sips": [
+        {
+          "account_id": 1,
+          "account_name": "SBI",
+          "active": true,
+          "amount": "3000.00",
+          "day": 5,
+          "due": [
+            "2026-06-05",
+            "2026-07-05",
+            "2026-08-05",
+            "2026-09-05",
+            "2026-10-05"
+          ],
+          "due_date": "2026-06-05",
+          "fund_id": 1,
+          "fund_name": "Parag Parikh Flexi Cap",
+          "id": 1,
+          "instalments": 1,
+          "start_date": "2026-05-05",
+          "symbol": "PPFCRG"
+        }
+      ],
+      "holdings": [
+        {
+          "account_id": 1,
+          "account_name": "SBI",
+          "at_cost": false,
+          "average_nav": "83.0477",
+          "fund_id": 1,
+          "invested": "23171.47",
+          "name": "Parag Parikh Flexi Cap",
+          "nav": "84.3793",
+          "nav_date": "2026-11-05",
+          "symbol": "PPFCRG",
+          "units": "279.014",
+          "unrealised": "371.54",
+          "unrealised_percent": "1.60",
+          "value": "23543.01"
+        },
+        {
+          "account_id": 1,
+          "account_name": "SBI",
+          "at_cost": false,
+          "average_nav": "636.8268",
+          "fund_id": 2,
+          "invested": "14000.00",
+          "name": "Second Fund",
+          "nav": "635.0943",
+          "nav_date": "2026-11-08",
+          "symbol": "SECOND",
+          "units": "21.984",
+          "unrealised": "-38.09",
+          "unrealised_percent": "-0.27",
+          "value": "13961.91"
+        }
+      ],
+      "totals": {
+        "invested": "37171.47",
+        "realised": "31.47",
+        "unrealised": "333.45",
+        "unrealised_percent": "0.90",
+        "value": "37504.92"
+      }
+    },
+    "holdings": [],
+    "overall": {
+      "invested": "37171.47",
+      "realised": "31.47",
+      "unrealised": "333.45",
+      "unrealised_percent": "0.90",
+      "value": "37504.92"
+    },
+    "totals": {
+      "invested": "0.00",
+      "realised": "0.00",
+      "unrealised": "0.00",
+      "unrealised_percent": "0.00",
+      "value": "0.00"
+    }
+  },
+  "/api/investments/sips": {
+    "sips": [
+      {
+        "account_id": 1,
+        "account_name": "SBI",
+        "active": true,
+        "amount": "3000.00",
+        "day": 5,
+        "due": [
+          "2026-06-05",
+          "2026-07-05",
+          "2026-08-05",
+          "2026-09-05",
+          "2026-10-05"
+        ],
+        "due_date": "2026-06-05",
+        "fund_id": 1,
+        "fund_name": "Parag Parikh Flexi Cap",
+        "id": 1,
+        "instalments": 1,
+        "start_date": "2026-05-05",
+        "symbol": "PPFCRG"
+      }
+    ]
+  }
+}

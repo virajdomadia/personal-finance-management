@@ -113,7 +113,17 @@ Funds use the same cost, value and FIFO rules, with these differences. See the [
 - **The ₹1.00 check.** On a purchase, units × NAV must be within ₹1.00 of `amount − charges`. This catches a misplaced decimal without rejecting the statement's own rounding.
 - **Automatic NAVs.** Recording a purchase or redemption that isn't an opening one also records its NAV for that day, unless a NAV already exists for that date. The NAV follows the trade when it is edited or deleted.
 - **SIP due months.** A SIP never posts by itself. From its start month to the current month, a month is due when its debit day (clamped to the month's length, so day 31 falls on 28 or 29 February) is on or before today and no purchase for that SIP is recorded that month. A start date after the debit day makes the following month the first due. Missed months stay due until recorded.
-- **The portfolio** reports stocks and funds separately, plus `overall`: the sum of the figures of both, with its percent worked out from the summed figures.
+- **The portfolio** reports stocks and funds separately (and crypto, see below), plus `overall`: the sum of the figures of all of them, with its percent worked out from the summed figures.
+
+### Crypto rules
+
+See the [crypto design](../superpowers/specs/2026-11-09-crypto-design.md). Coins use the same cost, value and FIFO rules as funds, with these differences.
+
+- **Quantity has up to 8 decimals.** `investment_trades.quantity` was widened from `NUMERIC(18,3)` to `NUMERIC(24,8)`, which keeps every existing value exactly. Stocks and funds still show 0 and 3 decimals, and coins show 8.
+- **`amount` is the entered figure.** It is the cost of a buy and the proceeds of a sell, as for funds. Exchange fees and TDS (1% on a sell) go in charges, so a buy's cost is what left the account and a sell's proceeds are what arrived after TDS.
+- **The quantity × price check, on both sides.** Quantity × price must be within the tolerance of `amount − charges` on a buy, and of `amount + charges` on a sell. The tolerance is ₹1.00 or quantity × ₹0.00005, whichever is more, because a price has at most 4 decimals and rounding it can move quantity × price by up to quantity × ₹0.00005. A difference exactly equal to the tolerance passes. Example: 1 crore coins at ₹0.0012 is ₹12,000.00; with an amount of ₹12,345.60 and no charges the difference is ₹345.60, within the ₹500.00 tolerance. At ₹0.0010 it is ₹2,345.60 off and is refused.
+- **No automatic price.** A coin's price is recorded by hand and never taken from a trade. With no price recorded a coin is held at cost and labelled "at cost". Existing coins (an opening entry) store the average price and never record a price.
+- **The portfolio** gains a `crypto` object shaped like `funds`, and `overall` now adds crypto to stocks, funds and deposits.
 
 **Stock `amount` backfill.** When the investment model was generalised, each existing stock trade got `amount = round_paise(quantity × price ± charges)`, the figure the stock code had always computed. Stock figures are therefore unchanged, and a test pins them against the owner's data.
 

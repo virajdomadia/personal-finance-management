@@ -134,15 +134,18 @@ test("settle turns a failed request into an error part, but rethrows what is fat
   await assert.rejects(settle(Promise.reject(new Error("401")), (e) => e.message === "401"));
 });
 
-test("holdingKinds counts stocks, funds and deposits that have something", () => {
+test("holdingKinds counts stocks, funds, deposits and crypto that have something", () => {
   const empty = {
     by_stock: [],
     closed: [],
     funds: { by_fund: [], closed: [] },
     deposits: { accounts: [] },
+    crypto: { by_coin: [], closed: [] },
   };
   assert.equal(holdingKinds(empty), 0);
   assert.equal(holdingKinds({ ...empty, by_stock: [1] }), 1);
   assert.equal(holdingKinds({ ...empty, closed: [1], deposits: { accounts: [1] } }), 2);
   assert.equal(holdingKinds({ ...empty, by_stock: [1], funds: { by_fund: [1], closed: [] }, deposits: { accounts: [1] } }), 3);
+  assert.equal(holdingKinds({ ...empty, crypto: { by_coin: [1], closed: [] } }), 1);
+  assert.equal(holdingKinds({ ...empty, by_stock: [1], crypto: { by_coin: [], closed: [1] } }), 2);
 });

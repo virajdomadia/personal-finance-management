@@ -1,4 +1,5 @@
 import { type Account, cleanMoney, formatRupees } from "./accounts.ts";
+import { formatCoinQty } from "./crypto.ts";
 
 export type TransactionType = "income" | "expense" | "transfer" | "emi";
 
@@ -275,4 +276,31 @@ export function applyDepositRules(form: TransactionForm, accounts: Account[]): T
     if (isDeposit(to) && from && !isActiveBank(from)) next = { ...next, account_id: "" };
   }
   return next;
+}
+
+// One buy or sell on an account's investment activity list, from GET /accounts/{id}/investment-activity.
+export type Activity = {
+  trade_id: number;
+  kind: "stock" | "mutual_fund" | "crypto";
+  instrument_id: number;
+  symbol: string;
+  name: string;
+  side: "buy" | "sell";
+  date: string;
+  quantity: string;
+  amount: string;
+  signed_amount: string;
+  sip_id: number | null;
+};
+
+export function activityLabel(a: Activity): string {
+  if (a.sip_id !== null) return `SIP: ${a.name}`;
+  const quantity = a.kind === "crypto" ? formatCoinQty(a.quantity) : a.quantity;
+  return `${a.side === "buy" ? "Bought" : "Sold"} ${quantity} ${a.symbol}`;
+}
+
+// The same sign style as the transaction rows: -₹1,000.00 or +₹1,000.00.
+export function activityAmount(signed: string): string {
+  const text = signed.trim();
+  return text.startsWith("-") ? `-${formatRupees(text.slice(1))}` : `+${formatRupees(text.replace(/^\+/, ""))}`;
 }

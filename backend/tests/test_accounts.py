@@ -1,13 +1,18 @@
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.security import create_token
 from app.main import app
+from app.models.account import Account
+from app.models.investment import Instrument, InvestmentTrade, Sip
 from app.models.user import User
 
 client = TestClient(app)
@@ -653,3 +658,112 @@ def test_over_long_amount_is_invalid_not_a_500(headers: Headers, field: str, val
 
     assert response.status_code == 422
     assert message(response, field) == "Enter an amount, like 1234.50."
+
+
+def _activity(headers: Headers, id_: int, month: str = "2026-11") -> Response:
+    return client.get(f"{URL}/{id_}/investment-activity", params={"month": month}, headers=headers)
+
+
+def test_investment_activity(
+    headers: Headers, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bank = make(headers, type="bank", name="SBI", bank_kind="savings", balance="50000.00").json()
+    broker = make(headers, type="broker", name="Zerodha", balance="10000.00").json()
+    user_id = db_session.scalar(select(User.id).where(User.email == "me@example.com"))
+    assert user_id is not None
+    fund = Instrument(user_id=user_id, kind="mutual_fund", symbol="PPFCF", name="Flexi Cap")
+    infy = Instrument(user_id=user_id, kind="stock", symbol="INFY", name="Infosys")
+    btc = Instrument(user_id=user_id, kind="crypto", symbol="BTC", name="Bitcoin")
+    db_session.add_all([fund, infy, btc])
+    db_session.flush()
+    plan = Sip(
+        user_id=user_id,
+        instrument_id=fund.id,
+        account_id=bank["id"],
+        amount=Decimal("3000.00"),
+        day=5,
+        start_date=date(2026, 1, 5),
+    )
+    db_session.add(plan)
+    db_session.flush()
+
+    def trade(instrument: Instrument, account: int, **fields: Any) -> InvestmentTrade:
+        row = InvestmentTrade(
+            user_id=user_id,
+            instrument_id=instrument.id,
+            account_id=account,
+            charges=Decimal("0.00"),
+            **fields,
+        )
+        db_session.add(row)
+        return row
+
+    by_sip = trade(
+        fund, bank["id"], side="buy", date=date(2026, 11, 5), quantity=Decimal("35.552"),
+        price=Decimal("84.3793"), amount=Decimal("3000.00"), sip_id=plan.id,
+    )  # fmt: skip
+    lump = trade(
+        fund, bank["id"], side="buy", date=date(2026, 11, 7), quantity=Decimal("11.85"),
+        price=Decimal("84.3800"), amount=Decimal("1000.00"),
+    )  # fmt: skip
+    trade(
+        fund, bank["id"], side="buy", date=date(2026, 11, 8), quantity=Decimal("10"),
+        price=Decimal("80"), amount=Decimal("800.00"), opening=True,
+    )  # fmt: skip
+    shares = trade(
+        infy, broker["id"], side="buy", date=date(2026, 11, 3), quantity=Decimal("2"),
+        price=Decimal("1500.10"), amount=Decimal("3000.20"),
+    )  # fmt: skip
+    coins = trade(
+        btc, broker["id"], side="sell", date=date(2026, 11, 6), quantity=Decimal("0.00014067"),
+        price=Decimal("7500000"), amount=Decimal("1050.50"),
+    )  # fmt: skip
+    db_session.commit()
+
+    response = _activity(headers, bank["id"])
+    assert response.status_code == 200, response.json()
+    items = response.json()["items"]
+    assert [i["trade_id"] for i in items] == [lump.id, by_sip.id]
+    assert items[1] == {
+        "trade_id": by_sip.id,
+        "kind": "mutual_fund",
+        "instrument_id": fund.id,
+        "symbol": "PPFCF",
+        "name": "Flexi Cap",
+        "side": "buy",
+        "date": "2026-11-05",
+        "quantity": "35.552",
+        "amount": "3000.00",
+        "signed_amount": "-3000.00",
+        "sip_id": plan.id,
+    }
+    assert items[0]["sip_id"] is None
+    assert items[0]["quantity"] == "11.850"
+
+    items = _activity(headers, broker["id"]).json()["items"]
+    assert [i["trade_id"] for i in items] == [coins.id, shares.id]
+    assert (items[0]["kind"], items[0]["quantity"], items[0]["signed_amount"]) == (
+        "crypto",
+        "0.00014067",
+        "1050.50",
+    )
+    assert (items[1]["kind"], items[1]["quantity"], items[1]["signed_amount"]) == (
+        "stock",
+        "2",
+        "-3000.20",
+    )
+
+    assert _activity(headers, bank["id"], "2026-10").json() == {"items": []}
+    assert _activity(headers, bank["id"], "2026-13").status_code == 422
+    missing_month = client.get(f"{URL}/{bank['id']}/investment-activity", headers=headers)
+    assert missing_month.status_code == 422
+
+    # An archived account still lists its activity.
+    db_session.get(Account, broker["id"]).archived_at = datetime.now(UTC)
+    db_session.commit()
+    assert len(_activity(headers, broker["id"]).json()["items"]) == 2
+
+    # Another user's account is not found.
+    other = auth(db_session, monkeypatch, "other@example.com")
+    assert _activity(other, bank["id"]).status_code == 404
+    assert _activity(headers, 2**40).status_code == 404

@@ -28,7 +28,7 @@ _MAX_NUMBER_TEXT = 40
 _NO_NAME = "Enter a name."
 
 
-def _decimal(places: int, upper: Decimal, message: str):  # noqa: ANN202
+def decimal_input(places: int, upper: Decimal, message: str):  # noqa: ANN202
     def check(value: Any) -> Decimal | None:
         # Text only: a JSON number would already be a binary float by the time it reaches us.
         if value is None:
@@ -47,10 +47,10 @@ def _decimal(places: int, upper: Decimal, message: str):  # noqa: ANN202
 
 
 UNITS_RULE = "Enter units above 0, with up to 3 decimals, like 35.552."
-Units = Annotated[Decimal | None, BeforeValidator(_decimal(3, Decimal(10) ** 15, UNITS_RULE))]
+Units = Annotated[Decimal | None, BeforeValidator(decimal_input(3, Decimal(10) ** 15, UNITS_RULE))]
 NAV_RULE = "Enter a NAV above 0, with up to 4 decimals, like 84.3793."
 MAX_NAV = Decimal(10) ** 10
-Nav = Annotated[Decimal | None, BeforeValidator(_decimal(4, MAX_NAV, NAV_RULE))]
+Nav = Annotated[Decimal | None, BeforeValidator(decimal_input(4, MAX_NAV, NAV_RULE))]
 # Blank means "none given": a new fund gets a derived symbol, an edit keeps the current one.
 FundSymbol = Annotated[
     str | None,

@@ -9,7 +9,9 @@ from app.api.deposits import deposit_rows, with_deposits
 from app.api.deps import CurrentUser, get_current_user
 from app.api.loans import load_book
 from app.api.portfolio import (
+    fmt_coin,
     fmt_nav,
+    fmt_price,
     fmt_units,
     holding_value,
     latest_prices,
@@ -19,6 +21,7 @@ from app.api.portfolio import (
     unrealised_percent,
 )
 from app.api.routes.accounts import fmt, list_sort_key
+from app.api.routes.coins import CRYPTO
 from app.api.routes.funds import MUTUAL_FUND
 from app.api.routes.sips import SipResponse, due_sip_list
 from app.db.session import DbSession
@@ -114,6 +117,46 @@ class FundPortfolio(BaseModel):
     due_sips: list[SipResponse]
 
 
+class CoinFigures(BaseModel):
+    coin_id: int
+    symbol: str
+    name: str
+    quantity: str
+    invested: str
+    average_price: str
+    price: str | None
+    price_date: str | None
+    value: str
+    at_cost: bool
+    unrealised: str
+    unrealised_percent: str
+
+
+class CoinHolding(CoinFigures):
+    account_id: int
+    account_name: str
+
+
+class CoinTotal(CoinFigures):
+    pass
+
+
+class CoinClosed(BaseModel):
+    coin_id: int
+    symbol: str
+    name: str
+    account_id: int
+    account_name: str
+    realised: str
+
+
+class CryptoPortfolio(BaseModel):
+    holdings: list[CoinHolding]
+    by_coin: list[CoinTotal]
+    closed: list[CoinClosed]
+    totals: Totals
+
+
 class DepositAccount(BaseModel):
     account_id: int
     name: str
@@ -135,6 +178,7 @@ class Portfolio(BaseModel):
     closed: list[Closed]
     totals: Totals
     funds: FundPortfolio
+    crypto: CryptoPortfolio
     overall: Totals
     deposits: Deposits
 
@@ -180,6 +224,28 @@ def _fund_figures(
         "nav_date": None if current is None else current[0].isoformat(),
         "value": fmt(value),
         "at_cost": nav is None,
+        "unrealised": fmt(unrealised),
+        "unrealised_percent": _percent(unrealised, invested),
+    }
+
+
+def _coin_figures(
+    coin: Instrument, quantity: Decimal, invested: Decimal, current: tuple | None
+) -> dict:
+    price = None if current is None else current[1]
+    value = holding_value(quantity, invested, price)
+    unrealised = value - invested
+    return {
+        "coin_id": coin.id,
+        "symbol": coin.symbol,
+        "name": coin.name,
+        "quantity": fmt_coin(quantity),
+        "invested": fmt(invested),
+        "average_price": fmt_price(invested / quantity),
+        "price": None if price is None else fmt_price(price),
+        "price_date": None if current is None else current[0].isoformat(),
+        "value": fmt(value),
+        "at_cost": price is None,
         "unrealised": fmt(unrealised),
         "unrealised_percent": _percent(unrealised, invested),
     }
@@ -246,6 +312,56 @@ def _fund_portfolio(
     )
 
 
+def _crypto_portfolio(
+    db: DbSession, user_id: int, result, prices: dict, names: dict[int, str]
+) -> CryptoPortfolio:
+    coins = {
+        c.id: c
+        for c in db.scalars(
+            select(Instrument).where(Instrument.user_id == user_id, Instrument.kind == CRYPTO)
+        )
+    }
+    holdings: list[CoinHolding] = []
+    closed: list[CoinClosed] = []
+    combined: dict[int, list] = {}  # coin_id -> [quantity, invested]
+    for (coin_id, account_id), pos in result.positions.items():
+        coin = coins.get(coin_id)
+        if coin is None:
+            continue
+        if pos.quantity > 0:
+            figures = _coin_figures(coin, pos.quantity, pos.invested, prices.get(coin_id))
+            holdings.append(
+                CoinHolding(**figures, account_id=account_id, account_name=names[account_id])
+            )
+            total = combined.setdefault(coin_id, [Decimal("0"), ZERO])
+            total[0] += pos.quantity
+            total[1] += pos.invested
+        elif pos.sold_any:
+            closed.append(
+                CoinClosed(
+                    coin_id=coin_id,
+                    symbol=coin.symbol,
+                    name=coin.name,
+                    account_id=account_id,
+                    account_name=names[account_id],
+                    realised=fmt(pos.realised),
+                )
+            )
+    holdings.sort(key=lambda h: (h.symbol, h.account_name))
+    closed.sort(key=lambda c: (c.symbol, c.account_name))
+    by_coin = [
+        CoinTotal(**_coin_figures(coins[coin_id], quantity, invested, prices.get(coin_id)))
+        for coin_id, (quantity, invested) in combined.items()
+    ]
+    by_coin.sort(key=lambda c: c.symbol)
+    return CryptoPortfolio(
+        holdings=holdings,
+        by_coin=by_coin,
+        closed=closed,
+        totals=_totals(summarise(result, prices, only=set(coins))),
+    )
+
+
 @router.get("/portfolio")
 def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
     result = replay(load_trade_rows(db, user.id))
@@ -304,6 +420,7 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
         closed=closed,
         totals=_totals(summarise(result, prices, only=set(stocks))),
         funds=_fund_portfolio(db, user.id, result, prices, names),
+        crypto=_crypto_portfolio(db, user.id, result, prices, names),
         overall=_totals(with_deposits(summarise(result, prices), deposits)),
         deposits=Deposits(
             value=fmt(sum((d.balance for d in deposits), ZERO)),

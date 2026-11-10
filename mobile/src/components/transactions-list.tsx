@@ -8,10 +8,13 @@ import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import {
   TRANSACTION_TYPES,
+  type Activity,
   type Transaction,
   type TransactionList,
   type TransactionType,
   formatDate,
+  activityAmount,
+  activityLabel,
   formatMonth,
   groupByDate,
   savedMonth,
@@ -79,6 +82,35 @@ function TransactionRow({
   );
 }
 
+// One buy or sell in an investment account. Read-only: tapping opens the stock, fund or coin.
+function ActivityRow({ activity, onPress }: { activity: Activity; onPress: () => void }) {
+  const { colors } = useTheme();
+  const label = activityLabel(activity);
+  const amount = activityAmount(activity.signed_amount);
+  return (
+    <TouchableRipple
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}, ${amount}, ${formatDate(activity.date)}`}
+      accessibilityHint="Opens it"
+    >
+      <View style={styles.row}>
+        <View style={styles.rowMain}>
+          <Text variant="titleMedium">{label}</Text>
+          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+            {formatDate(activity.date)}
+          </Text>
+        </View>
+        <View style={styles.rowAmount}>
+          <Text variant="titleMedium" style={styles.amountText}>
+            {amount}
+          </Text>
+        </View>
+      </View>
+    </TouchableRipple>
+  );
+}
+
 // `fixedAccountId` shows one account's transactions, in place of the account filter.
 export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: number | null }) {
   const { token, logOut } = useSession();
@@ -87,6 +119,8 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
   const [filters, setFilters] = useState<Filters>({ month: thisMonth, accountId: fixedAccountId, type: null });
   const [list, setList] = useState<TransactionList | null>(null);
   const [accounts, setAccounts] = useState<Accounts | null>(null);
+  // The month's buys and sells in the viewed account. Null while loading; undefined when it could not load.
+  const [activity, setActivity] = useState<Activity[] | null | undefined>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -100,12 +134,23 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
     setLoadingMore(false);
     try {
       const auth = { token: token ?? undefined };
-      const [result, active, archived] = await Promise.all([
+      const [result, active, archived, activityResult] = await Promise.all([
         apiFetch<TransactionList>(query(filtersRef.current, 0), auth),
         apiFetch<AccountList>("/accounts", auth),
         apiFetch<AccountList>("/accounts?archived=true", auth),
+        fixedAccountId === null
+          ? Promise.resolve(null)
+          : apiFetch<{ items: Activity[] }>(
+              `/accounts/${fixedAccountId}/investment-activity?month=${filtersRef.current.month}`,
+              auth,
+            ).catch((err: unknown) => {
+              // A 401 signs out below; anything else only leaves this section out.
+              if (err instanceof ApiError && err.status === 401) throw err;
+              return undefined;
+            }),
       ]);
       if (mine !== latest.current) return;
+      setActivity(activityResult === null ? null : activityResult === undefined ? undefined : activityResult.items);
       setList(result);
       setAccounts({ active: active.accounts, archived: archived.accounts });
       setError(null);
@@ -117,7 +162,7 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
       }
       setError(errorMessage(err));
     }
-  }, [token, logOut]);
+  }, [token, logOut, fixedAccountId]);
 
   const applyFilters = useCallback(
     (change: Partial<Filters>) => {
@@ -125,6 +170,8 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
       filtersRef.current = next;
       setFilters(next);
       setList(null);
+      // The old month's rows must not show while the new month loads.
+      setActivity(null);
       setError(null);
       void load();
     },
@@ -179,6 +226,15 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
     if (navigating.current) return;
     navigating.current = true;
     router.push({ pathname: "/transaction-form", params });
+  };
+
+  const openInstrument = (activityRow: Activity) => {
+    if (navigating.current) return;
+    navigating.current = true;
+    const params = { id: String(activityRow.instrument_id), symbol: activityRow.symbol };
+    if (activityRow.kind === "stock") router.push({ pathname: "/stock", params });
+    else if (activityRow.kind === "crypto") router.push({ pathname: "/coin", params });
+    else router.push({ pathname: "/fund", params });
   };
 
   const sections = useMemo(
@@ -334,11 +390,34 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
             )
           }
           ListFooterComponent={
-            list.has_more ? (
-              <Button onPress={() => void loadMore()} loading={loadingMore} disabled={loadingMore} style={styles.more}>
-                {loadingMore ? "Loading..." : "Load more"}
-              </Button>
-            ) : undefined
+            // The account's investment activity sits above Load more, so the button stays last.
+            <View>
+              {fixedAccountId !== null && filters.type === null && activity === undefined ? (
+                <Text variant="bodyMedium" style={[styles.centerText, styles.activityNote, { color: colors.onSurfaceVariant }]}>
+                  Investment activity could not be loaded. Pull down to try again.
+                </Text>
+              ) : null}
+              {fixedAccountId !== null && filters.type === null && activity ? (
+                activity.length > 0 ? (
+                  <View accessibilityRole="list">
+                    <Text variant="titleSmall" accessibilityRole="header" style={[styles.sectionHeader, { color: colors.primary }]}>
+                      Investment activity
+                    </Text>
+                    {activity.map((row, index) => (
+                      <View key={`${row.kind}-${row.trade_id}`}>
+                        {index > 0 ? <Divider /> : null}
+                        <ActivityRow activity={row} onPress={() => openInstrument(row)} />
+                      </View>
+                    ))}
+                  </View>
+                ) : null
+              ) : null}
+              {list.has_more ? (
+                <Button onPress={() => void loadMore()} loading={loadingMore} disabled={loadingMore} style={styles.more}>
+                  {loadingMore ? "Loading..." : "Load more"}
+                </Button>
+              ) : null}
+            </View>
           }
         />
       )}
@@ -375,5 +454,6 @@ const styles = StyleSheet.create({
   amountText: { textAlign: "right" },
   empty: { alignItems: "center", gap: 8, padding: 32 },
   more: { marginTop: 8 },
+  activityNote: { paddingHorizontal: 16, paddingTop: 16 },
   fab: { position: "absolute", right: 16, bottom: 16 },
 });

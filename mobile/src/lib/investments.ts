@@ -1,4 +1,5 @@
 import { cleanMoney, formatRupees } from "./accounts.ts";
+import type { CryptoPortfolio } from "./crypto.ts";
 import type { FundsPortfolio } from "./funds.ts";
 import { formatDate } from "./transactions.ts";
 
@@ -85,6 +86,7 @@ export type Portfolio = {
   closed: ClosedPosition[];
   totals: Totals;
   funds: FundsPortfolio;
+  crypto: CryptoPortfolio;
   deposits: DepositsPortfolio;
   overall: Totals;
 };

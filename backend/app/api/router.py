@@ -3,6 +3,8 @@ from fastapi import APIRouter
 from app.api.routes import (
     accounts,
     auth,
+    coins,
+    crypto_trades,
     dashboard,
     deposits,
     fund_trades,
@@ -26,6 +28,8 @@ api_router.include_router(funds.router)
 api_router.include_router(fund_trades.router)
 api_router.include_router(sips.router)
 api_router.include_router(stocks.router)
+api_router.include_router(coins.router)
+api_router.include_router(crypto_trades.router)
 api_router.include_router(trades.router)
 api_router.include_router(portfolio.router)
 api_router.include_router(health.router)
