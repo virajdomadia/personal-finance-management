@@ -122,6 +122,13 @@ def reminder_due(
 
 
 # Database-aware from here on.
+class GoalDue(BaseModel):
+    goal_id: int
+    name: str
+    amount: str  # what is left to set aside this month
+    due_since: str  # this month's reminder date
+
+
 class EmergencyFigures(BaseModel):
     months: int
     monthly: str | None  # the figure used: the override if set, else the computed one
@@ -403,3 +410,45 @@ def load_goal_book(db: Session, user_id: int, today: date) -> GoalBook:
                     f"{rupees(-free)} more is set aside than {account.name} holds."
                 )
     return GoalBook(set_aside_by_account, tags.holding_goal, responses)
+
+
+def goals_due(db: Session, user_id: int, today: date, book: GoalBook) -> list[GoalDue]:
+    """Active goals with a monthly amount still to set aside, in list order."""
+    if not book.responses:
+        return []
+    starts = dict(
+        db.execute(
+            select(Goal.id, Goal.reminder_start).where(
+                Goal.user_id == user_id, Goal.archived_at.is_(None)
+            )
+        ).all()
+    )
+    first = today.replace(day=1)
+    set_aside: dict[int, Decimal] = defaultdict(Decimal)
+    for goal_id, amount in db.execute(
+        select(GoalEarmark.goal_id, GoalEarmark.amount).where(
+            GoalEarmark.user_id == user_id,
+            GoalEarmark.amount > 0,
+            GoalEarmark.date >= first,
+            GoalEarmark.date <= clamped_date(today.year, today.month, 31),
+        )
+    ):
+        set_aside[goal_id] += amount
+    out = []
+    for goal_id, r in book.responses.items():
+        if r.archived or goal_id not in starts:
+            continue
+        left = reminder_due(
+            None if r.monthly_amount is None else Decimal(r.monthly_amount),
+            r.reminder_day,
+            starts[goal_id],
+            set_aside[goal_id],
+            r.reached,
+            today,
+        )
+        if left is not None and r.reminder_day is not None:
+            since = clamped_date(today.year, today.month, r.reminder_day)
+            out.append(
+                GoalDue(goal_id=goal_id, name=r.name, amount=fmt(left), due_since=since.isoformat())
+            )
+    return out

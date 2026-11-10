@@ -747,3 +747,100 @@ def test_other_users_basket_routes_are_404(
         lambda: client.post(f"{URL}/{theirs}/restore", headers=headers),
     ):
         assert call().status_code == 404
+
+
+def test_restore_refused_while_an_account_it_has_money_in_is_archived(
+    headers: Headers, db_session: Session
+) -> None:
+    goal_id = create(headers).json()["id"]
+    bank = account(db_session, me(db_session)).id
+    db_session.commit()
+    assert earmark(headers, goal_id, bank, "set_aside", "100.00").status_code == 201
+    client.post(f"{URL}/{goal_id}/archive", headers=headers)
+    assert client.post(f"/api/accounts/{bank}/archive", headers=headers).status_code == 200
+
+    response = client.post(f"{URL}/{goal_id}/restore", headers=headers)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "SBI is archived. Restore it first."
+    assert client.get(f"{URL}/{goal_id}", headers=headers).json()["archived"] is True
+
+    assert client.post(f"/api/accounts/{bank}/restore", headers=headers).status_code == 200
+    assert client.post(f"{URL}/{goal_id}/restore", headers=headers).status_code == 200
+
+
+def test_restore_ignores_an_archived_account_the_goal_released(
+    headers: Headers, db_session: Session
+) -> None:
+    goal_id = create(headers).json()["id"]
+    bank = account(db_session, me(db_session)).id
+    db_session.commit()
+    earmark(headers, goal_id, bank, "set_aside", "100.00")
+    earmark(headers, goal_id, bank, "release", "100.00")
+    client.post(f"{URL}/{goal_id}/archive", headers=headers)
+    assert client.post(f"/api/accounts/{bank}/archive", headers=headers).status_code == 200
+    assert client.post(f"{URL}/{goal_id}/restore", headers=headers).status_code == 200
+
+
+# Reminders and the dashboard.
+
+
+def due_goals(headers: Headers) -> list[dict[str, Any]]:
+    response = client.get("/api/recurring/due", headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"] == []  # goals never appear among the recurring items
+    return body["goals_due"]
+
+
+def test_monthly_set_aside_is_due_until_it_is_made(headers: Headers, db_session: Session) -> None:
+    goal_id = create(headers, monthly_amount="5000.00", reminder_day=5).json()["id"]
+    bank = account(db_session, me(db_session)).id
+    db_session.commit()
+    assert due_goals(headers) == [
+        {"goal_id": goal_id, "name": "Bike", "amount": "5000.00", "due_since": "2026-11-05"}
+    ]
+    earmark(headers, goal_id, bank, "set_aside", "2000.00")
+    assert due_goals(headers)[0]["amount"] == "3000.00"
+    earmark(headers, goal_id, bank, "set_aside", "3000.00")
+    assert due_goals(headers) == []
+    # A release does not make it due again.
+    earmark(headers, goal_id, bank, "release", "4000.00")
+    assert due_goals(headers) == []
+
+
+def test_no_reminder_before_its_day_or_for_archived_goals(headers: Headers) -> None:
+    create(headers, name="Later", monthly_amount="5000.00", reminder_day=20)
+    gone = create(headers, name="Gone", monthly_amount="5000.00", reminder_day=1).json()["id"]
+    assert due_goals(headers) == [
+        {"goal_id": gone, "name": "Gone", "amount": "5000.00", "due_since": "2026-11-01"}
+    ]
+    client.post(f"{URL}/{gone}/archive", headers=headers)
+    assert due_goals(headers) == []
+
+
+def test_dashboard_lists_active_goals_and_what_is_due(
+    headers: Headers, db_session: Session
+) -> None:
+    emergency_id = emergency(headers, ef_monthly_override="10000.00").json()["id"]
+    bike = create(headers, monthly_amount="5000.00", reminder_day=5).json()["id"]
+    gone = create(headers, name="Gone").json()["id"]
+    client.post(f"{URL}/{gone}/archive", headers=headers)
+    bank = account(db_session, me(db_session)).id
+    db_session.commit()
+    earmark(headers, bike, bank, "set_aside", "12000.00")
+    trip = create(headers, name="Trip", monthly_amount="1500.00", reminder_day=2).json()["id"]
+    body = client.get("/api/dashboard", headers=headers).json()
+    assert body["goals_due"] == [
+        {"goal_id": trip, "name": "Trip", "amount": "1500.00", "due_since": "2026-11-02"}
+    ]
+    assert [g["id"] for g in body["goals"]] == [emergency_id, bike, trip]
+    assert body["goals"][1] == {
+        "id": bike,
+        "name": "Bike",
+        "kind": "custom",
+        "saved": "12000.00",
+        "target": "120000.00",
+        "percent": 10,
+        "reached": False,
+    }
+    assert body["goals"][0]["target"] == "60000.00"

@@ -730,3 +730,11 @@ def test_a_loan_cannot_be_paid_from_a_ppf_or_rd(headers: Headers) -> None:
         )
         assert response.status_code == 422
         assert "Choose the account EMIs are paid from." in response.text
+
+
+def test_an_archived_ppf_shows_no_interest_due(headers: Headers) -> None:
+    created = ppf(headers, name="Empty", balance="0.00").json()
+    assert client.post(f"/api/accounts/{created['id']}/archive", headers=headers).status_code == 200
+    shown = client.get("/api/accounts?archived=true", headers=headers).json()["accounts"]
+    closed = next(a for a in shown if a["id"] == created["id"])
+    assert closed["deposit"]["interest_due"] is None

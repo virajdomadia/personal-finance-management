@@ -527,3 +527,31 @@ def test_route_module_imports_on_its_own(module: str) -> None:
         text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_template_of_an_archived_account_asks_for_nothing(headers: Headers) -> None:
+    account_id = bank(headers)
+    to_id = bank(headers, name="HDFC")
+    made(headers, account_id, name="Rent")
+    made(headers, account_id, name="Move", type="transfer", to_account_id=to_id, category=None)
+    assert len(due_items(headers)) > 0
+    assert archive(headers, to_id).status_code == 200
+    rows = {r["name"]: r for r in listed(headers)}
+    assert rows["Move"]["due"] == [] and rows["Move"]["coming_up"] is None
+    assert rows["Rent"]["due"] != []
+    assert {i["template"]["name"] for i in due_items(headers)} == {"Rent"}
+    assert archive(headers, account_id).status_code == 200
+    assert all(r["due"] == [] and r["coming_up"] is None for r in listed(headers))
+    assert len(listed(headers)) == 2
+    assert due_items(headers) == []
+
+
+def test_skipped_occurrences_are_listed_oldest_first(headers: Headers) -> None:
+    account_id = bank(headers)
+    template_id = made(headers, account_id)["id"]
+    assert listed(headers)[0]["skipped"] == []
+    for day in ("2026-11-01", "2026-10-01"):
+        client.post(f"{URL}/{template_id}/skip", json={"occurrence": day}, headers=headers)
+    assert listed(headers)[0]["skipped"] == ["2026-10-01", "2026-11-01"]
+    undone = client.delete(f"{URL}/{template_id}/skip/2026-10-01", headers=headers)
+    assert undone.json()["skipped"] == ["2026-11-01"]

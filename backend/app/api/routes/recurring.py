@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session, aliased
 
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
+from app.api.goals import GoalDue, goals_due, load_goal_book
 from app.api.recurring import TemplateRow
 from app.api.recurring import status as occurrence_status
 from app.api.routes.accounts import MAX_ID, Flag, Money, clean_text, field_error, fmt
@@ -158,6 +159,7 @@ class TemplateResponse(BaseModel):
     due: list[str]
     coming_up: str | None
     recorded: int
+    skipped: list[str]  # oldest first, for the un-skip button
 
 
 class TemplateList(BaseModel):
@@ -172,6 +174,7 @@ class DueItem(BaseModel):
 
 class DueList(BaseModel):
     items: list[DueItem]
+    goals_due: list[GoalDue]
 
 
 def _row(t: RecurringTemplate) -> TemplateRow:
@@ -226,6 +229,10 @@ def template_responses(
     out = []
     for t, account, to_account in rows:
         found = occurrence_status(_row(t), paid[t.id], skips[t.id], today)
+        # Nothing can be recorded against an archived account, so nothing is asked for.
+        closed = account.archived_at is not None or (
+            to_account is not None and to_account.archived_at is not None
+        )
         out.append(
             TemplateResponse(
                 id=t.id,
@@ -246,9 +253,12 @@ def template_responses(
                 remind_days=t.remind_days,
                 active=t.active,
                 policy_id=policies.get(t.id),
-                due=[d.isoformat() for d in found.due],
-                coming_up=None if found.coming_up is None else found.coming_up.isoformat(),
+                due=[] if closed else [d.isoformat() for d in found.due],
+                coming_up=None
+                if closed or found.coming_up is None
+                else found.coming_up.isoformat(),
                 recorded=len(paid[t.id]),
+                skipped=[d.isoformat() for d in sorted(skips[t.id])],
             )
         )
     return out
@@ -337,7 +347,11 @@ def list_templates(user: CurrentUser, db: DbSession) -> TemplateList:
 
 @router.get("/due")
 def list_due(user: CurrentUser, db: DbSession) -> DueList:
-    return DueList(items=due_items(db, user.id, today_india()))
+    today = today_india()
+    book = load_goal_book(db, user.id, today)
+    return DueList(
+        items=due_items(db, user.id, today), goals_due=goals_due(db, user.id, today, book)
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

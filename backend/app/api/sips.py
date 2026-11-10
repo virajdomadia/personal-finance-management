@@ -29,21 +29,30 @@ class BuyRow(NamedTuple):
     sip_id: int | None
 
 
-def due_dates(sip: SipRow, buys: Iterable[BuyRow], today: date) -> list[date]:
+def due_dates(
+    sip: SipRow, buys: Iterable[BuyRow], today: date, others: Iterable[SipRow] = ()
+) -> list[date]:
     """Debit dates from the start up to today with no instalment recorded, oldest first.
 
     A month is settled by a buy in that calendar month linked to the SIP, or by an unlinked,
-    non-opening buy of the same fund from the same account.
+    non-opening buy of the same fund from any account, so a SIP moved to another bank isn't
+    asked for its old months again. The exception is a buy from the account of another active
+    SIP of the same fund, whose own months it belongs to.
     """
     if not sip.active:
         return []
+    claimed = {
+        o.account_id
+        for o in others
+        if o.id != sip.id and o.active and o.instrument_id == sip.instrument_id
+    }
     settled: set[tuple[int, int]] = set()
     for b in buys:
         linked = b.sip_id == sip.id
         matches = (
             b.sip_id is None
             and b.instrument_id == sip.instrument_id
-            and b.account_id == sip.account_id
+            and (b.account_id == sip.account_id or b.account_id not in claimed)
             and not b.opening
         )
         if linked or matches:
@@ -60,11 +69,14 @@ def due_dates(sip: SipRow, buys: Iterable[BuyRow], today: date) -> list[date]:
 
 def load_due(db: Session, user_id: int, today: date) -> dict[int, list[date]]:
     """Each of the user's SIPs (by id) with its unrecorded debit dates."""
-    sips = db.execute(
-        select(
-            Sip.id, Sip.instrument_id, Sip.account_id, Sip.day, Sip.start_date, Sip.active
-        ).where(Sip.user_id == user_id)
-    )
+    sips = [
+        SipRow(*row)
+        for row in db.execute(
+            select(
+                Sip.id, Sip.instrument_id, Sip.account_id, Sip.day, Sip.start_date, Sip.active
+            ).where(Sip.user_id == user_id)
+        )
+    ]
     buys_by_fund: dict[int, list[BuyRow]] = defaultdict(list)
     buys = db.execute(
         select(
@@ -78,8 +90,7 @@ def load_due(db: Session, user_id: int, today: date) -> dict[int, list[date]]:
     for row in buys:
         buys_by_fund[row[0]].append(BuyRow(*row))
     result: dict[int, list[date]] = {}
-    for row in sips:
-        s = SipRow(*row)
+    for s in sips:
         # Linked buys always share the SIP's fund, so grouping by fund loses nothing.
-        result[s.id] = due_dates(s, buys_by_fund[s.instrument_id], today)
+        result[s.id] = due_dates(s, buys_by_fund[s.instrument_id], today, sips)
     return result

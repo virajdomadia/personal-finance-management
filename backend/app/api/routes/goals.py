@@ -560,8 +560,17 @@ def _restore_problem(db: DbSession, user_id: int, goal: Goal) -> str | None:
 def restore_goal(id: int, user: CurrentUser, db: DbSession) -> GoalResponse:
     """Counts its earmarks and holdings again, unless that would put something in two goals."""
     _owned(db, user.id, id)
+    # Accounts first, then the goal: the same order as add_earmark.
+    seen = db.scalars(select(GoalEarmark.account_id).where(GoalEarmark.goal_id == id).distinct())
+    accounts = lock_accounts(db, user.id, seen)
     goal = _owned(db, user.id, id, lock=True)
     if goal.archived_at is not None:
+        for account_id in sorted(a for a in accounts if _earmarked(db, id, a) != 0):
+            if accounts[account_id].archived_at is not None:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    f"{accounts[account_id].name} is archived. Restore it first.",
+                )
         problem = _restore_problem(db, user.id, goal)
         if problem is not None:
             raise HTTPException(status.HTTP_409_CONFLICT, problem)
