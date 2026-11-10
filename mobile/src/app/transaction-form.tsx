@@ -24,6 +24,7 @@ import {
   type CategoryList,
   TRANSACTION_TYPES,
   type Transaction,
+  type FieldKey,
   type TransactionForm,
   type TransactionType,
   changedPayload,
@@ -158,12 +159,12 @@ export default function TransactionFormScreen() {
 }
 
 type FieldInputProps = {
-  name: keyof TransactionForm;
+  name: FieldKey;
   label: string;
   value: string;
   invalid: boolean;
   disabled: boolean;
-  onChange: (name: keyof TransactionForm, value: string) => void;
+  onChange: (name: FieldKey, value: string) => void;
   onFocusField: (name: string) => void;
   onBlurField: (name: string) => void;
   register: (name: string, node: TextInputInstance | null) => void;
@@ -294,7 +295,7 @@ function FormBody({
 
   // Every change is followed by the deposit rules, so an account the rules no longer allow is cleared at once.
   const set = useCallback(
-    (key: keyof TransactionForm, value: string) => setForm((f) => applyDepositRules({ ...f, [key]: value }, accounts)),
+    (key: FieldKey, value: string) => setForm((f) => applyDepositRules({ ...f, [key]: value }, accounts)),
     [accounts],
   );
 
@@ -410,7 +411,7 @@ function FormBody({
     }
   }
 
-  const field = (key: keyof TransactionForm, content: React.ReactNode) => (
+  const field = (key: FieldKey, content: React.ReactNode) => (
     <View
       key={key}
       onLayout={(event) => {
@@ -426,7 +427,7 @@ function FormBody({
     </View>
   );
 
-  const input = (key: keyof TransactionForm, label: string, extra: Partial<React.ComponentProps<typeof TextInput>> = {}) => (
+  const input = (key: FieldKey, label: string, extra: Partial<React.ComponentProps<typeof TextInput>> = {}) => (
     <FieldInput
       name={key}
       label={label}
