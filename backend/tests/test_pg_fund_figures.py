@@ -1,7 +1,7 @@
 """Golden fund figures: today's mutual fund API output, pinned so later schema work can't change it.
 
 Seeds a database at the deposits revision with plain SQL, upgrades it to head, and compares every
-stock-related response with `fixtures/fund_figures.json`. The fixture is never edited by hand.
+fund-related response with `fixtures/fund_figures.json`. The fixture is never edited by hand.
 Regenerate it only on code known to be right: `WRITE_FUND_FIGURES=1 uv run pytest <this file>`.
 New keys in a response are allowed; anything the fixture holds must stay exactly as it is.
 """

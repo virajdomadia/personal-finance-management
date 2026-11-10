@@ -1,16 +1,17 @@
-"""FIFO portfolio maths for investment holdings (stocks and funds), pure apart from the
-database-aware functions at the bottom.
+"""FIFO portfolio maths for investment holdings (stocks, mutual funds and crypto coins), pure
+apart from the database-aware functions at the bottom.
 
 Rules:
 - Trades are grouped per (instrument_id, account_id), i.e. per broker or bank, and
   replayed in the order (date, buys before sells, id).
-- A buy adds a lot of `quantity` shares or units costing its `amount`. For a stock,
-  `amount` is quantity * price + charges (see `stock_amount`).
+- A buy adds a lot of `quantity` shares, units or coins costing its `amount`. For a stock,
+  `amount` is quantity * price + charges (see `stock_amount`). For a fund or a coin it is
+  what was paid, charges included.
 - A sell consumes lots oldest first. A whole lot gives its whole cost; a
   partial take gives round_paise(cost * taken / lot_quantity) and the lot keeps
   the remaining cost, so no paisa is lost to rounding.
 - Realised P&L of a sell = its `amount` - cost taken. For a stock, `amount` is
-  quantity * price - charges.
+  quantity * price - charges. For a fund or a coin it is what was received, after charges.
 - A sell for more than is held is a shortfall: the first one in order is
   reported, and the sell takes whatever is held.
 - Quantities are exact Decimals. Money is rounded to paise with ROUND_HALF_UP.
@@ -236,7 +237,7 @@ def investments_totals(db: Session, user_id: int, kind: str | None = None) -> Po
 
 
 def holds_units(db: Session, user_id: int, account_id: int, kind: str) -> bool:
-    """Whether the account holds any instrument of `kind` ("stock" or "mutual_fund")."""
+    """Whether the account holds any instrument of `kind` ("stock", "mutual_fund" or "crypto")."""
     kinds = load_kinds(db, user_id)
     result = replay(r for r in load_trade_rows(db, user_id) if r.account_id == account_id)
     return any(
