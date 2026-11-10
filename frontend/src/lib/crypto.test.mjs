@@ -8,6 +8,7 @@ import {
   formatCoinPrice,
   formatCoinQty,
   qtyMismatch,
+  validNumber,
 } from "./crypto.ts";
 
 const form = (over = {}) => ({
@@ -120,4 +121,20 @@ test("cryptoTradePayload sends text and honours create/edit", () => {
   assert.equal(opening.opening, true);
   assert.equal(opening.side, "buy");
   assert.equal(cryptoTradePayload(form({ mode: "sell" }), "create").side, "sell");
+});
+
+test("validNumber follows the server: trailing zeros aren't decimals, whole digits are capped", () => {
+  assert.equal(validNumber("0.00014067", 8, 16), true);
+  assert.equal(validNumber("0.000140670000", 8, 16), true); // trailing zeros don't count
+  assert.equal(validNumber("0.000140671", 8, 16), false); // 9 decimals
+  assert.equal(validNumber("1234567890123456", 8, 16), true); // 16 whole digits
+  assert.equal(validNumber("12345678901234567", 8, 16), false); // 17
+  assert.equal(validNumber("0001234567890123456", 8, 16), true); // leading zeros don't count
+  assert.equal(validNumber("0", 8, 16), false);
+  assert.equal(validNumber("0.00000000", 8, 16), false);
+  assert.equal(validNumber("", 8, 16), false);
+  assert.equal(validNumber("1e5", 8, 16), false);
+  assert.equal(validNumber("-1", 8, 16), false);
+  assert.equal(validNumber("7504827.50000", 4, 10), true);
+  assert.equal(validNumber("12345678901", 4, 10), false);
 });

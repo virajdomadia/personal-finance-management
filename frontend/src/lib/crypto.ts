@@ -89,6 +89,16 @@ function scaled(value: string, max: number): bigint | null {
   return BigInt(match[1] + (match[2] ?? "").padEnd(max, "0"));
 }
 
+// Like the server: a number above 0 with at most `decimals` decimals (trailing zeros don't count)
+// and at most `wholeDigits` digits before the point (leading zeros don't count).
+export function validNumber(text: string, decimals: number, wholeDigits: number): boolean {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(text);
+  if (!match) return false;
+  const fraction = (match[2] ?? "").replace(/0+$/, "");
+  const whole = match[1].replace(/^0+/, "");
+  return fraction.length <= decimals && whole.length <= wholeDigits && (whole !== "" || fraction !== "");
+}
+
 // Charges are blank for none.
 function chargesPaise(raw: string): bigint | null {
   const cleaned = cleanMoney(raw);

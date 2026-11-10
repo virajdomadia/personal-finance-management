@@ -16,6 +16,7 @@ import {
   cryptoTradePayload,
   formatCoinQty,
   qtyMismatch,
+  validNumber,
 } from "@/lib/crypto";
 import { todayIndia } from "@/lib/transactions";
 import { Select } from "@/components/ui/select";
@@ -33,8 +34,6 @@ export const NEW_COIN = "new";
 export const QTY_RULE = "Enter a quantity above 0, with up to 8 decimals, like 0.00014067.";
 export const PRICE_RULE = "Enter a price above 0, with up to 4 decimals, like 7504827.5.";
 const MONEY = /^\d+(?:\.\d{1,2})?$/;
-const QTY = /^\d+(?:\.\d{1,8})?$/;
-const PRICE = /^\d+(?:\.\d{1,4})?$/;
 const MISMATCH = "Quantity × price doesn't match the amount. Check the quantity and price.";
 const RENDERED = ["coin_id", "account_id", "date", "amount", "charges", "price", "quantity", "note"] as const;
 
@@ -68,15 +67,12 @@ function localErrors(form: Form): Record<string, string> {
     if (form.symbol.trim() === "") errors.symbol = "Enter the coin's ticker, like BTC.";
     if (form.name.trim() === "") errors.name = "Enter a name.";
   } else if (form.coin_id === "") errors.coin_id = "Choose a coin.";
-  if (form.account_id === "") errors.account_id = "Choose an exchange account.";
+  if (form.account_id === "") errors.account_id = "Choose a broker or exchange account.";
   if (form.date === "") errors.date = "Choose a date.";
   else if (form.date > todayIndia()) errors.date = "The date can't be in the future.";
-  const quantity = form.quantity.trim();
-  if (!QTY.test(quantity) || Number(quantity) <= 0 || quantity.split(".")[0].length > 8) errors.quantity = QTY_RULE;
-  if (form.mode !== "opening") {
-    const price = form.price.trim();
-    if (!PRICE.test(price) || Number(price) <= 0 || price.split(".")[0].length > 10) errors.price = PRICE_RULE;
-  }
+  // The server's limits: quantity up to 8 decimals and 16 whole digits, price up to 4 and 10.
+  if (!validNumber(form.quantity.trim(), 8, 16)) errors.quantity = QTY_RULE;
+  if (form.mode !== "opening" && !validNumber(form.price.trim(), 4, 10)) errors.price = PRICE_RULE;
   const amount = cleanMoney(form.amount);
   if (amount === "") errors.amount = "Enter the amount.";
   else if (!MONEY.test(amount)) errors.amount = "Enter an amount, like 3000 or 2999.85.";
