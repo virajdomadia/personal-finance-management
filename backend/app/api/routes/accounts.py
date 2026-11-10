@@ -2,13 +2,14 @@ import calendar
 import re
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal, get_args
+from typing import TYPE_CHECKING, Annotated, Any, Literal, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.api.balances import LIABILITY_TYPES, balance_of, opening_for
 from app.api.dates import iso_date, today_india
@@ -24,8 +25,13 @@ from app.api.loans import Book, NextEmi, emis_at_opening, emis_left, load_book, 
 from app.api.portfolio import fmt_coin, fmt_units, holds_units, investments_totals
 from app.db.session import DbSession
 from app.models.account import Account
+from app.models.insurance import InsurancePolicy
 from app.models.investment import Instrument, InvestmentTrade, Sip
+from app.models.recurring import RecurringTemplate
 from app.models.transaction import Transaction
+
+if TYPE_CHECKING:
+    from app.api.goals import GoalTags
 
 router = APIRouter(prefix="/accounts", tags=["accounts"], dependencies=[Depends(get_current_user)])
 
@@ -273,6 +279,13 @@ class AccountUpdate(BaseModel):
     deposits_paid: Paid = None
 
 
+class GoalTag(BaseModel):
+    """The active goal a holding is in."""
+
+    id: int
+    name: str
+
+
 class AccountResponse(BaseModel):
     id: int
     type: str
@@ -295,6 +308,9 @@ class AccountResponse(BaseModel):
     deposit_amount: str | None
     tenure_months: int | None
     deposit: PpfFigures | RdFigures | None
+    set_aside: str  # what active goals have set aside here; `balance` stays the real balance
+    free_balance: str  # balance - set_aside, negative when more is set aside than held
+    in_goal: GoalTag | None  # a PPF or RD in an active goal
 
 
 class AccountList(BaseModel):
@@ -401,7 +417,14 @@ def _money_text(value: Decimal | None) -> str | None:
     return None if value is None else fmt(value)
 
 
-def to_response(account: Account, book: Book) -> AccountResponse:
+def goal_tag(tags: "GoalTags", key: tuple[str, int]) -> GoalTag | None:
+    found = tags.holding_goal.get(key)
+    return None if found is None else GoalTag(id=found[0], name=found[1])
+
+
+def to_response(account: Account, book: Book, tags: "GoalTags") -> AccountResponse:
+    from app.api.goals import free_balance  # it imports this module
+
     limit = account.credit_limit
     balance = balance_of(account, book.flows)
     # The bank blocks what loans paid from a card still owe out of that card's limit.
@@ -428,7 +451,17 @@ def to_response(account: Account, book: Book) -> AccountResponse:
         deposit_amount=_money_text(account.deposit_amount),
         tenure_months=account.tenure_months,
         deposit=deposit_figures(account, book, today_india()),
+        set_aside=fmt(tags.set_aside_by_account.get(account.id, Decimal(0))),
+        free_balance=fmt(free_balance(account, book.flows, tags.set_aside_by_account)),
+        in_goal=goal_tag(tags, ("account", account.id)),
     )
+
+
+def account_response(db: Session, user_id: int, account: Account) -> AccountResponse:
+    """One account as the API shows it, with fresh balances and goal figures."""
+    from app.api.goals import load_goal_tags  # it imports this module
+
+    return to_response(account, load_book(db, user_id), load_goal_tags(db, user_id))
 
 
 def list_sort_key(account: Account) -> tuple[int, str, int]:
@@ -444,15 +477,20 @@ def totals(active: list[Account], flows: dict[int, Decimal]) -> tuple[Decimal, D
 
 @router.get("")
 def list_accounts(user: CurrentUser, db: DbSession, archived: bool = False) -> AccountList:
+    from app.api.goals import load_goal_tags  # it imports this module
+
     accounts = db.scalars(select(Account).where(Account.user_id == user.id)).all()
     active = [a for a in accounts if a.archived_at is None]
     shown = [a for a in accounts if (a.archived_at is not None) == archived]
     shown.sort(key=list_sort_key)
     book = load_book(db, user.id, accounts)
+    tags = load_goal_tags(db, user.id)
     have, owe = totals(active, book.flows)
     have += investments_totals(db, user.id).value
     return AccountList(
-        accounts=[to_response(a, book) for a in shown], total_have=fmt(have), total_owe=fmt(owe)
+        accounts=[to_response(a, book, tags) for a in shown],
+        total_have=fmt(have),
+        total_owe=fmt(owe),
     )
 
 
@@ -527,7 +565,7 @@ def create_account(body: AccountCreate, user: CurrentUser, db: DbSession) -> Acc
             )
         )
     db.commit()
-    return to_response(account, load_book(db, user.id))
+    return account_response(db, user.id, account)
 
 
 def _get_owned(db: DbSession, user: CurrentUser, id: int, lock: bool = False) -> Account:
@@ -595,29 +633,51 @@ def update_account(
     if values["deposits_paid"] is not None:
         account.deposits_at_opening = at_opening
     db.commit()
-    return to_response(account, load_book(db, user.id))
+    return account_response(db, user.id, account)
 
 
-@router.post("/{id}/archive")
-def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountResponse:
-    from app.api.routes.transactions import lock_accounts  # it imports this module
-
-    # The bank's PPFs are cleared below, so they're locked with it, all in id order like a PPF
-    # edit locks its PPF and new bank; locking the bank first could deadlock with that edit.
-    ppf_ids = (
+def _ppf_ids(db: Session, user_id: int, id: int) -> list[int]:
+    """The active PPFs paid from this account, in id order."""
+    if not 1 <= id <= MAX_ID:
+        return []
+    return list(
         db.scalars(
-            select(Account.id).where(
-                Account.user_id == user.id,
+            select(Account.id)
+            .where(
+                Account.user_id == user_id,
                 Account.type == "ppf",
                 Account.pay_from_id == id,
                 Account.archived_at.is_(None),
             )
-        ).all()
-        if 1 <= id <= MAX_ID
-        else []
+            .order_by(Account.id)
+        )
     )
-    # Locked so that a trade saved meanwhile can't put shares in a broker being archived.
-    account = lock_accounts(db, user.id, [id, *ppf_ids]).get(id)
+
+
+ARCHIVE_TRIES = 3
+
+
+@router.post("/{id}/archive")
+def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountResponse:
+    from app.api.goals import load_goal_tags  # it imports this module
+    from app.api.routes.transactions import lock_accounts  # it imports this module
+
+    # The bank's PPFs are cleared below, so they're locked with it, all in id order like a PPF
+    # edit locks its PPF and new bank; locking the bank first could deadlock with that edit.
+    # A PPF repointed here between the read and the lock would be missed, so the ids are read
+    # again under the lock, and on a change everything is let go and tried again.
+    for _ in range(ARCHIVE_TRIES):
+        ppf_ids = _ppf_ids(db, user.id, id)
+        # Locked so that a trade saved meanwhile can't put shares in a broker being archived,
+        # and a goal can't set money aside here meanwhile (it locks the account first too).
+        account = lock_accounts(db, user.id, [id, *ppf_ids]).get(id)
+        if _ppf_ids(db, user.id, id) == ppf_ids:
+            break
+        db.rollback()
+    else:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Something changed while archiving. Try again."
+        )
     if account is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Account not found.")
     if account.archived_at is None:
@@ -667,18 +727,39 @@ def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
                     status.HTTP_409_CONFLICT,
                     f"Close or move the RD {paid_by.name} before archiving {account.name}.",
                 )
-            for ppf in db.scalars(
-                select(Account).where(
-                    Account.user_id == user.id,
-                    Account.type == "ppf",
-                    Account.pay_from_id == account.id,
-                    Account.archived_at.is_(None),
-                )
-            ):
+        tags = load_goal_tags(db, user.id)
+        set_aside = tags.set_aside_by_account.get(account.id)
+        if set_aside:
+            goals = ", ".join(tags.set_aside_for[account.id])
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"{rupees(set_aside)} of {account.name} is set aside for {goals}. "
+                "Release it first.",
+            )
+        insurer = db.scalar(
+            select(InsurancePolicy.insurer)
+            .join(RecurringTemplate, RecurringTemplate.id == InsurancePolicy.template_id)
+            .where(
+                InsurancePolicy.user_id == user.id,
+                InsurancePolicy.active.is_(True),
+                RecurringTemplate.account_id == account.id,
+            )
+            .order_by(InsurancePolicy.id)
+            .limit(1)
+        )
+        if insurer is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"This account pays the {insurer} premium. "
+                "Change the policy's paying account or lapse the policy first.",
+            )
+        # Every check passed: the bank's PPFs (locked above) let go of it.
+        if account.type == "bank":
+            for ppf in db.scalars(select(Account).where(Account.id.in_(ppf_ids))):
                 ppf.pay_from_id = None
         account.archived_at = datetime.now(UTC)
         db.commit()
-    return to_response(account, load_book(db, user.id))
+    return account_response(db, user.id, account)
 
 
 class Activity(BaseModel):
@@ -781,4 +862,4 @@ def restore_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
                 )
         account.archived_at = None
         db.commit()
-    return to_response(account, load_book(db, user.id))
+    return account_response(db, user.id, account)

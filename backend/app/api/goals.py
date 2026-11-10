@@ -177,6 +177,14 @@ class GoalBook(NamedTuple):
     responses: dict[int, GoalResponse]
 
 
+class GoalTags(NamedTuple):
+    """What accounts and holdings need from goals, without working out each goal's figures."""
+
+    set_aside_by_account: dict[int, Decimal]  # non-archived goals only
+    set_aside_for: dict[int, list[str]]  # account -> the active goals with money set aside there
+    holding_goal: dict[tuple[str, int], tuple[int, str]]  # active holdings only
+
+
 def free_balance(
     account: Account, flows: dict[int, Decimal], set_aside_by_account: Mapping[int, Decimal]
 ) -> Decimal:
@@ -203,12 +211,71 @@ def _spend_by_month(db: Session, user_id: int) -> tuple[dict[Month, Decimal], da
     return spend, first
 
 
-def load_goal_book(db: Session, user_id: int, today: date) -> GoalBook:
-    """Every goal with its earmarks and holdings, loaded once."""
-    goals = sorted(
+def _goals(db: Session, user_id: int) -> list[Goal]:
+    """The user's goals in list order: the emergency fund first, then by name."""
+    return sorted(
         db.scalars(select(Goal).where(Goal.user_id == user_id)),
         key=lambda g: (g.kind != "emergency", g.name.casefold(), g.id),
     )
+
+
+def _earmark_sums(db: Session, user_id: int) -> dict[int, dict[int, Decimal]]:
+    """goal -> account -> the sum of its entries there, which may be zero once released."""
+    sums: dict[int, dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+    for e in db.scalars(select(GoalEarmark).where(GoalEarmark.user_id == user_id)):
+        sums[e.goal_id][e.account_id] += e.amount
+    return sums
+
+
+def _active_holdings(db: Session, user_id: int) -> dict[int, list[GoalHolding]]:
+    holdings: dict[int, list[GoalHolding]] = defaultdict(list)
+    for h in db.scalars(
+        select(GoalHolding)
+        .where(GoalHolding.user_id == user_id, GoalHolding.active.is_(True))
+        .order_by(GoalHolding.id)
+    ):
+        holdings[h.goal_id].append(h)
+    return holdings
+
+
+def _holding_key(h: GoalHolding) -> tuple[str, int]:
+    if h.instrument_id is not None:
+        return ("instrument", h.instrument_id)
+    assert h.account_id is not None
+    return ("account", h.account_id)
+
+
+def _tags(
+    goals: list[Goal],
+    sums: dict[int, dict[int, Decimal]],
+    holdings: dict[int, list[GoalHolding]],
+) -> GoalTags:
+    set_aside: dict[int, Decimal] = defaultdict(Decimal)
+    set_aside_for: dict[int, list[str]] = defaultdict(list)
+    holding_goal: dict[tuple[str, int], tuple[int, str]] = {}
+    for g in goals:
+        if g.archived_at is None:
+            for account_id, amount in sums[g.id].items():
+                if amount != 0:
+                    set_aside[account_id] += amount
+                    set_aside_for[account_id].append(g.name)
+        for h in holdings[g.id]:
+            holding_goal[_holding_key(h)] = (g.id, g.name)
+    return GoalTags(dict(set_aside), dict(set_aside_for), holding_goal)
+
+
+def load_goal_tags(db: Session, user_id: int) -> GoalTags:
+    """Each account's set-aside total and goals, and the goal each holding is in. Light enough
+    for every account and portfolio list: no prices, replay or expense window."""
+    goals = _goals(db, user_id)
+    if not goals:
+        return GoalTags({}, {}, {})
+    return _tags(goals, _earmark_sums(db, user_id), _active_holdings(db, user_id))
+
+
+def load_goal_book(db: Session, user_id: int, today: date) -> GoalBook:
+    """Every goal with its earmarks and holdings, loaded once."""
+    goals = _goals(db, user_id)
     if not goals:
         return GoalBook({}, {}, {})
     accounts = {a.id: a for a in db.scalars(select(Account).where(Account.user_id == user_id))}
@@ -233,28 +300,16 @@ def load_goal_book(db: Session, user_id: int, today: date) -> GoalBook:
     spend, first_tx = _spend_by_month(db, user_id)
     figure = monthly_expenses(spend, first_tx, today)
 
-    sums: dict[int, dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
-    for e in db.scalars(select(GoalEarmark).where(GoalEarmark.user_id == user_id)):
-        sums[e.goal_id][e.account_id] += e.amount
-    holdings: dict[int, list[GoalHolding]] = defaultdict(list)
-    for h in db.scalars(
-        select(GoalHolding)
-        .where(GoalHolding.user_id == user_id, GoalHolding.active.is_(True))
-        .order_by(GoalHolding.id)
-    ):
-        holdings[h.goal_id].append(h)
+    sums = _earmark_sums(db, user_id)
+    holdings = _active_holdings(db, user_id)
+    tags = _tags(goals, sums, holdings)
 
-    set_aside: dict[int, Decimal] = defaultdict(Decimal)
-    holding_goal: dict[tuple[str, int], tuple[int, str]] = {}
     responses: dict[int, GoalResponse] = {}
     zero = Decimal("0.00")
     for g in goals:
         earmarks = [(a, amount) for a, amount in sums[g.id].items() if amount != 0]
         earmarks.sort(key=lambda e: (accounts[e[0]].name.casefold(), e[0]))
         earmarked = sum((amount for _, amount in earmarks), zero)
-        if g.archived_at is None:
-            for account_id, amount in earmarks:
-                set_aside[account_id] += amount
 
         lines: list[HoldingLine] = []
         holdings_value = zero
@@ -272,7 +327,6 @@ def load_goal_book(db: Session, user_id: int, today: date) -> GoalBook:
                     status="held" if held else "sold",
                     note=None,
                 )
-                holding_goal[("instrument", h.instrument_id)] = (g.id, g.name)
             else:
                 assert h.account_id is not None
                 account = accounts[h.account_id]
@@ -289,7 +343,6 @@ def load_goal_book(db: Session, user_id: int, today: date) -> GoalBook:
                     status="closed" if closed else "held",
                     note=None if insurer is None else f"Also funds the {insurer} premium.",
                 )
-                holding_goal[("account", h.account_id)] = (g.id, g.name)
             holdings_value += value
             lines.append(line)
         lines.sort(key=lambda x: (x.name.casefold(), x.id))
@@ -337,8 +390,8 @@ def load_goal_book(db: Session, user_id: int, today: date) -> GoalBook:
             warnings=[],
         )
 
-    # Every active goal's earmarks are in `set_aside` now, so each account's free balance is known.
-    set_aside_by_account = dict(set_aside)
+    # Every active goal's earmarks are in the tags, so each account's free balance is known.
+    set_aside_by_account = tags.set_aside_by_account
     for g in goals:
         if g.archived_at is not None:
             continue
@@ -349,4 +402,4 @@ def load_goal_book(db: Session, user_id: int, today: date) -> GoalBook:
                 responses[g.id].warnings.append(
                     f"{rupees(-free)} more is set aside than {account.name} holds."
                 )
-    return GoalBook(set_aside_by_account, holding_goal, responses)
+    return GoalBook(set_aside_by_account, tags.holding_goal, responses)

@@ -27,7 +27,7 @@ from app.api.routes.accounts import (
     create_account,
     update_account,
 )
-from app.api.routes.goals import HoldingCreate, add_holding
+from app.api.routes.goals import EarmarkCreate, HoldingCreate, add_earmark, add_holding
 from app.api.routes.sips import SipUpdate, delete_sip, update_sip
 from app.api.routes.transactions import (
     TransactionCreate,
@@ -38,7 +38,7 @@ from app.api.routes.transactions import (
     update_transaction,
 )
 from app.models.account import Account
-from app.models.goal import Goal, GoalHolding
+from app.models.goal import Goal, GoalEarmark, GoalHolding
 from app.models.investment import Instrument, InvestmentTrade, Sip
 from app.models.transaction import Transaction
 from app.models.user import User
@@ -551,5 +551,36 @@ def test_one_instrument_joins_only_one_of_two_goals_added_at_once(engine: Engine
         assert sorted(results) == ["ok", "refused"]
         with Session(engine) as db:
             assert db.scalar(select(func.count()).select_from(GoalHolding)) == 1
+        with engine.begin() as conn:
+            conn.execute(text("TRUNCATE users, accounts, transactions RESTART IDENTITY CASCADE"))
+
+
+def test_setting_money_aside_and_archiving_the_bank_never_both_succeed(engine: Engine) -> None:
+    """Both lock the bank first, so the second sees the first: earmarked or archived, not both."""
+    for _ in range(10):
+        user, [bank] = setup(engine, ("bank", "1000.00"))
+        with Session(engine) as db:
+            goal = Goal(user_id=user.id, name="EF", kind="custom")
+            db.add(goal)
+            db.commit()
+            goal_id = goal.id
+        body = EarmarkCreate.model_validate(
+            {"account_id": bank, "action": "set_aside", "amount": "500.00"}
+        )
+
+        results = together(
+            engine,
+            [
+                lambda db, g=goal_id, b=body, u=user: add_earmark(g, b, u, db),
+                lambda db, a=bank, u=user: archive_account(a, u, db),
+            ],
+        )
+
+        assert sorted(results) == ["ok", "refused"]
+        with Session(engine) as db:
+            archived = db.get(Account, bank).archived_at is not None
+            earmarked = db.scalar(select(func.count()).select_from(GoalEarmark)) == 1
+            assert archived != earmarked
+            assert results == (["refused", "ok"] if archived else ["ok", "refused"])
         with engine.begin() as conn:
             conn.execute(text("TRUNCATE users, accounts, transactions RESTART IDENTITY CASCADE"))
