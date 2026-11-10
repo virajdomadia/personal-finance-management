@@ -47,8 +47,11 @@ router = APIRouter(
 _CHOOSE_COIN = "Choose a coin."
 _CHOOSE_ACCOUNT = "Choose a broker or exchange account."
 _CHOOSE_SIDE = "Choose buy or sell."
-# Quantity × price may differ this much from what was invested (buy) or received (sell).
+# Quantity × price may differ from what was invested (buy) or received (sell) by ₹1.00, or by
+# quantity × ₹0.00005 when that is more: a price has at most 4 decimals, so rounding it can move
+# quantity × price by up to that much.
 _MATCH_TOLERANCE = Decimal("1.00")
+_PRICE_ROUNDING = Decimal("0.00005")
 COIN_SHORT = ShortMessages(
     kind=CRYPTO,
     field="quantity",
@@ -250,7 +253,7 @@ def _check_amounts(values: dict[str, Any]) -> Decimal:
         net = values["amount"] - values["charges"]  # a buy's amount includes its charges
     else:
         net = values["amount"] + values["charges"]  # a sell's amount is after them
-    if abs(worth - net) > _MATCH_TOLERANCE:
+    if abs(worth - net) > max(_MATCH_TOLERANCE, quantity * _PRICE_ROUNDING):
         message = "Quantity × price doesn't match the amount. Check the quantity and price."
         raise RequestValidationError([field_error("quantity", message)])
     return price

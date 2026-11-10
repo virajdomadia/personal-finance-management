@@ -50,6 +50,16 @@ test("qtyMismatch applies the server's Rs 1.00 rule", () => {
   assert.equal(qtyMismatch(form({ amount: "300.19", charges: "10" })), true);
 });
 
+test("qtyMismatch allows quantity x Rs 0.00005 when that is more than Rs 1.00", () => {
+  // 1 crore coins: 10000000 x 0.00005 = Rs 500.00 of rounding
+  const low = form({ quantity: "10000000", price: "0.0012", amount: "12345.60", charges: "0" });
+  assert.equal(qtyMismatch(low), false); // 12000.00 is 345.60 off
+  assert.equal(qtyMismatch({ ...low, price: "0.0010" }), true); // 10000.00 is 2345.60 off
+  // exactly the tolerance passes, a paisa more fails
+  assert.equal(qtyMismatch({ ...low, amount: "12500.00" }), false);
+  assert.equal(qtyMismatch({ ...low, amount: "12500.01" }), true);
+});
+
 test("qtyMismatch on a sell adds charges to the amount", () => {
   const sell = form({ mode: "sell", amount: "290.19", charges: "10" });
   assert.equal(qtyMismatch(sell), false);

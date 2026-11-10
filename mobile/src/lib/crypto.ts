@@ -97,8 +97,9 @@ function chargesPaise(raw: string): bigint | null {
   return cleaned === "" ? BigInt(0) : scaled(cleaned, 2);
 }
 
-// The server refuses a non-opening trade whose quantity x price is more than Rs 1.00 from
-// amount - charges (buy) or amount + charges (sell).
+// The server refuses a non-opening trade whose quantity x price is further from amount - charges
+// (buy) or amount + charges (sell) than Rs 1.00 or quantity x Rs 0.00005, whichever is more: a
+// price has at most 4 decimals, so rounding it can move quantity x price by up to that much.
 export function qtyMismatch(form: CryptoTradeForm): boolean {
   if (form.mode === "opening") return false;
   const quantity = scaled(form.quantity.trim(), 8);
@@ -107,9 +108,13 @@ export function qtyMismatch(form: CryptoTradeForm): boolean {
   const fee = chargesPaise(form.charges);
   if (quantity === null || price === null || gross === null || fee === null) return false;
   const expected = form.mode === "buy" ? gross - fee : gross + fee;
-  // Quantity x price is in 10^-12 of a rupee; paise are 10^-2.
-  const diff = quantity * price - expected * BigInt(10) ** BigInt(10);
-  return (diff < BigInt(0) ? -diff : diff) > BigInt(10) ** BigInt(12);
+  // Quantity x price is in 10^-12 of a rupee; paise are 10^-2. Compared ten times over, so
+  // quantity (10^-8) x 0.00005 is a whole number: quantity x 5 in 10^-13.
+  const diff = (quantity * price - expected * BigInt(10) ** BigInt(10)) * BigInt(10);
+  const rupee = BigInt(10) ** BigInt(13);
+  const rounding = quantity * BigInt(5);
+  const tolerance = rounding > rupee ? rounding : rupee;
+  return (diff < BigInt(0) ? -diff : diff) > tolerance;
 }
 
 export function blankCryptoTradeForm(mode: CryptoTradeMode, date: string): CryptoTradeForm {

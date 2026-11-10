@@ -140,6 +140,26 @@ def test_quantity_price_check(headers: Headers) -> None:
     assert error(response) == ([["body", "quantity"]], MISMATCH)
 
 
+def test_quantity_price_tolerance(headers: Headers) -> None:
+    account, btc = exchange(headers, balance="50000.00"), coin(headers)
+    # Within ₹1.00 passes; just over fails.
+    assert buy(headers, coin_id=btc, account_id=account, amount="755.43").status_code == 201
+    response = buy(headers, coin_id=btc, account_id=account, amount="755.44")
+    assert error(response) == ([["body", "quantity"]], MISMATCH)
+    # 1 crore coins allow quantity × ₹0.00005 = ₹500.00: 12000.00 vs 12345.60 is 345.60 off.
+    low = {"coin_id": btc, "account_id": account, "quantity": "10000000", "charges": "0"}
+    response = buy(headers, **low, price="0.0012", amount="12345.60")
+    assert response.status_code == 201, response.json()
+    # 10000.00 vs 12345.60 is 2345.60 off.
+    response = buy(headers, **low, price="0.0010", amount="12345.60")
+    assert response.status_code == 422
+    assert error(response) == ([["body", "quantity"]], MISMATCH)
+    # Exactly ₹500.00 off passes; a paisa more fails.
+    assert buy(headers, **low, price="0.0012", amount="12500.00").status_code == 201
+    response = buy(headers, **low, price="0.0012", amount="12500.01")
+    assert error(response) == ([["body", "quantity"]], MISMATCH)
+
+
 def test_partial_sell_realises(headers: Headers) -> None:
     account, btc = exchange(headers), coin(headers)
     existing(headers, coin_id=btc, account_id=account)
