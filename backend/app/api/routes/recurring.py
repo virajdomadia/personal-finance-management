@@ -49,7 +49,7 @@ _BAD_MONTH = "Choose a month."
 _BAD_REMIND = "Enter a number of days from 0 to 60."
 _ARCHIVED = " is archived. Restore it to use it."
 _NOT_DUE = "That isn't a due date for this reminder."
-_DEFAULT_REMIND = {"monthly": 3, "yearly": 30}
+DEFAULT_REMIND = {"monthly": 3, "yearly": 30}
 
 
 def _int_in(low: int, high: int, kind: str, message: str) -> Any:
@@ -169,7 +169,7 @@ def _row(t: RecurringTemplate) -> TemplateRow:
     )
 
 
-def _responses(
+def template_responses(
     db: Session, user_id: int, today: date, ids: list[int] | None = None
 ) -> list[TemplateResponse]:
     """The user's templates (or just `ids`), by name then id."""
@@ -246,7 +246,7 @@ def _responses(
 def due_items(db: Session, user_id: int, today: date) -> list[DueItem]:
     """Every due or coming-up occurrence: due first, oldest first, then coming up, soonest first."""
     items = []
-    for template in _responses(db, user_id, today):
+    for template in template_responses(db, user_id, today):
         items.extend(DueItem(template=template, occurrence=d, state="due") for d in template.due)
         if template.coming_up is not None:
             items.append(
@@ -270,7 +270,7 @@ def _owned(db: Session, user_id: int, id: int, lock: bool = False) -> RecurringT
     return template
 
 
-def _check(
+def check_template_values(
     values: dict[str, Any], accounts: dict[int, Account], today: date, money: bool = True
 ) -> None:
     """Every rule, reported together. The money rules are a transaction's own."""
@@ -321,7 +321,7 @@ def _columns(values: dict[str, Any]) -> dict[str, Any]:
 
 @router.get("")
 def list_templates(user: CurrentUser, db: DbSession) -> TemplateList:
-    return TemplateList(templates=_responses(db, user.id, today_india()))
+    return TemplateList(templates=template_responses(db, user.id, today_india()))
 
 
 @router.get("/due")
@@ -333,14 +333,14 @@ def list_due(user: CurrentUser, db: DbSession) -> DueList:
 def create_template(body: TemplateCreate, user: CurrentUser, db: DbSession) -> TemplateResponse:
     values = body.model_dump()
     if values["remind_days"] is None:
-        values["remind_days"] = _DEFAULT_REMIND.get(values["frequency"] or "", 3)
+        values["remind_days"] = DEFAULT_REMIND.get(values["frequency"] or "", 3)
     today = today_india()
     accounts = lock_accounts(db, user.id, [values["account_id"], values["to_account_id"]])
-    _check(values, accounts, today)
+    check_template_values(values, accounts, today)
     template = RecurringTemplate(user_id=user.id, **_columns(values))
     db.add(template)
     db.commit()
-    return _responses(db, user.id, today, [template.id])[0]
+    return template_responses(db, user.id, today, [template.id])[0]
 
 
 @router.patch("/{id}")
@@ -377,14 +377,14 @@ def update_template(
         **changes,
     }
     if values["remind_days"] is None:
-        values["remind_days"] = _DEFAULT_REMIND.get(values["frequency"] or "", 3)
+        values["remind_days"] = DEFAULT_REMIND.get(values["frequency"] or "", 3)
     today = today_india()
     # A reminder that will be active must still be recordable; stopping one always works.
-    _check(values, accounts, today, money=bool(values["active"]))
+    check_template_values(values, accounts, today, money=bool(values["active"]))
     for field, value in _columns(values).items():
         setattr(template, field, value)
     db.commit()
-    return _responses(db, user.id, today, [template.id])[0]
+    return template_responses(db, user.id, today, [template.id])[0]
 
 
 @router.delete("/{id}")
@@ -448,7 +448,7 @@ def skip_occurrence(id: int, body: SkipBody, user: CurrentUser, db: DbSession) -
     if body.occurrence not in skipped:  # skipping twice is the same as once
         db.add(RecurringSkip(user_id=user.id, template_id=id, occurrence=body.occurrence))
         db.commit()
-    return _responses(db, user.id, today, [id])[0]
+    return template_responses(db, user.id, today, [id])[0]
 
 
 @router.delete("/{id}/skip/{occurrence}")
@@ -467,4 +467,4 @@ def unskip_occurrence(
     if skip is not None:
         db.delete(skip)
         db.commit()
-    return _responses(db, user.id, today_india(), [id])[0]
+    return template_responses(db, user.id, today_india(), [id])[0]

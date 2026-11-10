@@ -28,7 +28,7 @@ from app.api.routes.accounts import (
 from app.api.routes.dashboard import today_india
 from app.db.session import DbSession
 from app.models.account import Account
-from app.models.insurance import InsurancePolicy
+from app.models.insurance import InsurancePolicy, PolicyPeriod
 from app.models.recurring import RecurringTemplate
 from app.models.transaction import Transaction
 
@@ -394,7 +394,7 @@ def _template_gone(db: Session) -> NoReturn:
     raise RequestValidationError([field_error("recurring_template_id", _CHOOSE_TEMPLATE)]) from None
 
 
-def _save_checks(
+def save_checks(
     db: Session,
     user_id: int,
     accounts: dict[int, Account],
@@ -402,8 +402,13 @@ def _save_checks(
     existing_id: int | None,
     link_changed: bool = True,
 ) -> None:
+    """Every rule a transaction is saved under, the balance check included.
+
+    `link_changed=False` skips the reminder-link check: an unchanged link is left alone, so a
+    policy's payment stays editable, and a policy's renewal checks its own template.
+    """
     validate_transaction_values(values, accounts)
-    if link_changed:  # an unchanged link is left alone, so a policy's payment stays editable
+    if link_changed:
         _check_template(db, user_id, values)
     before = load_movements(db, user_id)
     after = [m for m in before if m.id != existing_id]
@@ -535,7 +540,7 @@ def create_transaction(
 ) -> TransactionResponse:
     values = body.model_dump()
     accounts = lock_accounts(db, user.id, [values["account_id"], values["to_account_id"]])
-    _save_checks(db, user.id, accounts, values, existing_id=None)
+    save_checks(db, user.id, accounts, values, existing_id=None)
     tx = Transaction(user_id=user.id, **values)
     db.add(tx)
     try:
@@ -576,7 +581,7 @@ def update_transaction(
         **changes,
     }
     _require_active(tx, accounts)
-    _save_checks(
+    save_checks(
         db,
         user.id,
         accounts,
@@ -600,6 +605,10 @@ def update_transaction(
 def delete_transaction(id: int, user: CurrentUser, db: DbSession) -> dict[str, int]:
     tx, accounts = _lock_transaction(db, user.id, id)
     _require_active(tx, accounts)
+    if db.scalar(select(PolicyPeriod.id).where(PolicyPeriod.transaction_id == tx.id)):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This payment renewed an insurance policy, so it stays."
+        )
     before = load_movements(db, user.id)
     problem = balance_problem(accounts, before, [m for m in before if m.id != tx.id])
     if problem:
