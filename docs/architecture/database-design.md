@@ -29,6 +29,25 @@ PostgreSQL. Neon in production, a local cluster on port 5434 (`backend/.pgdata`)
 
 Indexes: `user_id`, `account_id` and `to_account_id` on transactions, and `user_id` on accounts.
 
+### Goals tables
+
+Added on branch `goals`, in one migration that refuses to downgrade while any of the three has a row.
+
+| Table | Columns that matter |
+|---|---|
+| `goals` | `user_id`, `name` (60), `kind` (`custom`, `emergency`), `target_amount NUMERIC(14,2)` (null for the emergency fund), `target_date`, `ef_months`, `ef_monthly_override`, `monthly_amount`, `reminder_day`, `reminder_start` (the 1st of the month the reminder was turned on), `note` (200), `archived_at` |
+| `goal_earmarks` | `user_id`, `goal_id`, `account_id`, `amount NUMERIC(14,2)` signed (+ set aside, − release), `date`, `note`. Append-only: entries are added and deleted, never edited. |
+| `goal_holdings` | `user_id`, `goal_id`, `instrument_id` or `account_id` (a PPF or RD), `active` (false while the goal is archived) |
+
+Constraints and indexes:
+
+- `uq_goals_one_emergency`: unique on `user_id` where `kind = 'emergency' AND archived_at IS NULL`, so a user has at most one active emergency fund.
+- `uq_goal_holdings_active_instrument` and `uq_goal_holdings_active_account`: unique on `instrument_id` and on `account_id` where `active`, so an instrument or account is in at most one active goal.
+- `goal_holdings`: a check that exactly one of `instrument_id` and `account_id` is set.
+- `goal_earmarks`: a check that `amount <> 0`.
+- Indexes on `goals.user_id`, `goal_earmarks.goal_id` and `account_id`, and `goal_holdings.goal_id`.
+- Deleting a goal is allowed only with no earmark entries (its holdings go with it); otherwise archive it.
+
 ## Audit of the current code against these principles
 
 | Area | Finding | Severity | Action |
@@ -59,5 +78,5 @@ Named here so that later work fits. Each gets its own design doc before it's bui
 | Investments | **Built as the general model (2026-11-09), with stocks and mutual funds:** `instruments` (kind `stock`, `mutual_fund` or `crypto`), `investment_trades`, `instrument_prices` (a NAV for a fund, a price for a coin) and `sips`. The stock tables were migrated into it, and every stock row and figure is unchanged. Each trade stores its `amount`, the source of truth for money. `investment_lots` is not built: lots are derived. | Holdings and cost basis are derived from trades by FIFO, never stored. See the [stocks design](../superpowers/specs/2026-11-08-stocks-design.md) and the [mutual funds design](../superpowers/specs/2026-11-09-mutual-funds-design.md). Crypto is built on branch `crypto`: `investment_trades.quantity` widened to `NUMERIC(24,8)`, coins are instruments of kind `crypto` traded through broker accounts, and the [crypto design](../superpowers/specs/2026-11-09-crypto-design.md) has the details. |
 | Liabilities | **Built (2026-11-08):** loan columns on `accounts` (`interest_rate`, `emi_amount`, `emis_at_opening`, `pay_from_id`) and `transactions.interest` | Each loan is a liability account. An EMI is one `emi` transaction: principal against the loan, interest to spending. See the [loans design](../superpowers/specs/2026-11-08-loans-design.md). |
 | Deposits | **Built (2026-11-09):** `accounts` gains `opened_on` (date), `deposit_amount` (the RD instalment), `tenure_months` and `deposits_at_opening` (RD instalments paid before the app's own transfers). It reuses `interest_rate`, `due_day` and `pay_from_id`. Types `ppf` and `rd`. | A PPF or RD is an account. Deposits, interest and withdrawals are ordinary transfers and income. Maturity and interest estimates are computed, never stored. See the [deposits design](../superpowers/specs/2026-11-09-deposits-design.md). |
-| Goals | `goals`, `goal_contributions` | A goal points at existing accounts. It never holds money itself. |
+| Goals | **Built on branch `goals`:** `goals`, `goal_earmarks`, `goal_holdings` (see Goals tables above) | A goal points at existing accounts and holdings. It never holds money itself, creates no transaction and doesn't touch net worth. See the [goals design](../superpowers/specs/2026-11-11-goals-design.md). |
 | Intelligence | `net_worth_snapshots` (date, assets, liabilities, net worth, breakdown JSON, recorded_at) | Preserves what was known at the time. Past balances can always be recomputed from the ledger as well. |
