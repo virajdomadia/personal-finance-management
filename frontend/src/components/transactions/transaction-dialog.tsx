@@ -10,6 +10,7 @@ import {
   type CategoryList,
   TRANSACTION_TYPES,
   type Transaction,
+  type FieldKey,
   type TransactionForm,
   type TransactionType,
   applyDepositRules,
@@ -97,7 +98,7 @@ export function TransactionDialog({
     (invalid ?? submitRef.current)?.focus();
   }, [errors, formError, saving]);
 
-  const set = (key: keyof TransactionForm, value: string) =>
+  const set = (key: FieldKey, value: string) =>
     setForm((f) => applyDepositRules({ ...f, [key]: value }, accounts));
 
   // Keeps what the types share and resets what only some of them have.
@@ -162,7 +163,7 @@ export function TransactionDialog({
   }
 
   const type = form.type;
-  const field = (key: keyof TransactionForm, label: string, input: React.ReactNode) => (
+  const field = (key: FieldKey, label: string, input: React.ReactNode) => (
     <div>
       <label htmlFor={`t-${key}`} className="mb-1 block text-sm font-medium">
         {label}
@@ -175,7 +176,7 @@ export function TransactionDialog({
       ) : null}
     </div>
   );
-  const props = (key: keyof TransactionForm) => ({
+  const props = (key: FieldKey) => ({
     id: `t-${key}`,
     name: key,
     value: form[key],
@@ -185,7 +186,7 @@ export function TransactionDialog({
     "aria-describedby": errors[key] ? `te-${key}` : undefined,
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => set(key, e.target.value),
   });
-  const pickerProps = (key: keyof TransactionForm) => ({
+  const pickerProps = (key: FieldKey) => ({
     id: `t-${key}`,
     value: form[key],
     disabled: saving,
