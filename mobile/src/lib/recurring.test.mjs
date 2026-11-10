@@ -201,7 +201,7 @@ test("changedTemplate sends only what changed", () => {
   assert.deepEqual(changedTemplate({ ...templateFormFrom(original), end_date: "2027-01-01" }, original), { end_date: "2027-01-01" });
 });
 
-test("changedTemplate for a policy's reminder sends only name, note, remind days and active", () => {
+test("changedTemplate for a policy's reminder sends only name, note and remind days, never active", () => {
   const original = premium;
   const policyOwned = { ...original, policy_id: 1 };
   const form = {
@@ -218,15 +218,15 @@ test("changedTemplate for a policy's reminder sends only name, note, remind days
     name: "Premium",
     note: "Pay by card",
     remind_days: 45,
-    active: false,
   });
   assert.deepEqual(changedTemplate(templateFormFrom(policyOwned), policyOwned), {});
 });
 
-test("toggleLabel stops any reminder and restarts only a plain one", () => {
+test("toggleLabel offers Stop and Restart only on a plain reminder", () => {
   assert.equal(toggleLabel(rent()), "Stop");
   assert.equal(toggleLabel(rent({ active: false })), "Restart");
-  assert.equal(toggleLabel({ ...premium, policy_id: 2 }), "Stop");
+  // A policy's reminder is stopped by lapsing the policy, never here.
+  assert.equal(toggleLabel({ ...premium, policy_id: 2 }), null);
   // A stopped policy reminder restarts from the policy, never here.
   assert.equal(toggleLabel({ ...premium, policy_id: 2, active: false }), null);
 });

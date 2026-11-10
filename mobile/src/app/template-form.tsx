@@ -34,7 +34,7 @@ const FREQUENCIES: { value: Frequency; label: string }[] = [
 ];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 // What a policy's reminder lets you change; the rest follows the policy.
-const POLICY_FIELDS = new Set(["name", "note", "remind_days", "active"]);
+const POLICY_FIELDS = new Set(["name", "note", "remind_days"]);
 
 type Key = keyof TemplateForm;
 type Loaded = { accounts: Account[]; categories: CategoryList; template: Template | null };
@@ -418,7 +418,7 @@ function FormBody({ accounts, categories, template }: Loaded) {
             errors.remind_days,
           )}
 
-          {editing ? (
+          {editing && !fromPolicy ? (
             <View style={styles.switchRow}>
               <Text variant="bodyLarge" style={styles.switchLabel}>
                 Active

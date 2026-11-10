@@ -117,8 +117,8 @@ export function templatePayload(form: TemplateForm, mode: "create" | "edit"): Re
   return payload;
 }
 
-// A policy's reminder follows the policy; the server lets only these be changed on the reminder itself.
-const POLICY_TEMPLATE_FIELDS = new Set(["name", "note", "remind_days", "active"]);
+// A policy's reminder follows the policy; only these change on the reminder itself (never `active`: lapsing the policy stops it).
+const POLICY_TEMPLATE_FIELDS = new Set(["name", "note", "remind_days"]);
 
 // What an edit sends: only what differs from the loaded template. Empty means nothing to save.
 export function changedTemplate(form: TemplateForm, original: Template): Record<string, unknown> {
@@ -225,11 +225,11 @@ export function dueText(item: DueItem): string {
   return `${template.name}: ${whole(template.amount)} ${tail}`;
 }
 
-// The Stop/Restart action. A policy's reminder can be stopped here, but it restarts only with the policy
-// (the server refuses a lapsed one), so a stopped one offers nothing.
+// The Stop/Restart action. A policy's reminder follows the policy (lapsing it stops the reminder), so
+// it never offers either.
 export function toggleLabel(t: Template): "Stop" | "Restart" | null {
-  if (t.active) return "Stop";
-  return t.policy_id === null ? "Restart" : null;
+  if (t.policy_id !== null) return null;
+  return t.active ? "Stop" : "Restart";
 }
 
 // A policy's renewal is never skipped: it is renewed or the policy lapses.

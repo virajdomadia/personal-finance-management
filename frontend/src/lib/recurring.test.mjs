@@ -124,10 +124,11 @@ test("transactionFormFromTemplate fills a transfer's destination and no category
   assert.equal(form.category, "");
 });
 
-test("toggleLabel stops any reminder and restarts only a plain one", () => {
+test("toggleLabel offers Stop and Restart only on a plain reminder", () => {
   assert.equal(toggleLabel(rent()), "Stop");
   assert.equal(toggleLabel(rent({ active: false })), "Restart");
-  assert.equal(toggleLabel({ ...premium, policy_id: 2 }), "Stop");
+  // A policy's reminder is stopped by lapsing the policy, never here.
+  assert.equal(toggleLabel({ ...premium, policy_id: 2 }), null);
   // A stopped policy reminder restarts from the policy, never here.
   assert.equal(toggleLabel({ ...premium, policy_id: 2, active: false }), null);
 });

@@ -134,7 +134,7 @@ export function TemplateDialog({ template, frequency, onClose, onSaved, onConfli
       if (template) {
         const full = templatePayload(form, "edit");
         const payload = fromPolicy
-          ? { name: full.name, note: full.note, remind_days: full.remind_days, active: full.active }
+          ? { name: full.name, note: full.note, remind_days: full.remind_days }
           : full;
         await apiFetch(`/recurring/${template.id}`, { method: "PATCH", body: JSON.stringify(payload) });
       } else {
