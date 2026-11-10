@@ -7,6 +7,7 @@ import { logout } from "@/app/login/actions";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Select } from "@/components/ui/select";
+import { DueSection } from "@/components/recurring/due-list";
 import {
   type Activity,
   TRANSACTION_TYPES,
@@ -59,6 +60,7 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
   const [dialog, setDialog] = useState<Dialog>({ kind: "none" });
   const [notice, setNotice] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [dueKey, setDueKey] = useState(0); // bumped when transactions change, so the due list is re-read
   const latest = useRef(0);
   const latestActivity = useRef(0);
   // The filters on screen right now; a late reload must not read stale ones from its closure.
@@ -121,7 +123,10 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
     fetchFirstPage(next);
   };
 
-  const reload = () => fetchFirstPage(filtersRef.current);
+  const reload = () => {
+    fetchFirstPage(filtersRef.current);
+    setDueKey((k) => k + 1);
+  };
   const closeDialog = () => setDialog({ kind: "none" });
 
   async function loadMore() {
@@ -212,6 +217,8 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
         </p>
       ) : null}
 
+      <DueSection refreshKey={dueKey} onChanged={reload} />
+
       {load.status === "loading" && (
         <p role="status" className="text-sm text-zinc-500 dark:text-zinc-400">
           Loading transactions...
@@ -291,6 +298,7 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
             closeDialog();
             // Show the month the transaction landed in, or it would seem to have vanished.
             applyFilters({ month: saved.date.slice(0, 7) });
+            setDueKey((k) => k + 1);
           }}
           onConflict={(message) => {
             setNotice(message);
