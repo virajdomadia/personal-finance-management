@@ -291,7 +291,7 @@ export function Ring({
       </svg>
       <span
         aria-hidden="true"
-        className="absolute inset-0 flex items-center justify-center font-black tabular-nums"
+        className="absolute inset-0 flex items-center justify-center font-black text-ink tabular-nums"
         style={{ fontSize: Math.max(11, size * 0.18) }}
       >
         {percent === null ? "–" : `${value}%`}

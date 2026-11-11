@@ -22,6 +22,9 @@ const FIELDS = [
 ] as const;
 type Key = (typeof FIELDS)[number];
 
+const PILL =
+  "flex cursor-pointer items-center justify-center rounded-[14px] border-[2.5px] border-ink px-3 py-2 text-center text-sm font-black shadow-chunky-sm peer-focus-visible:ring-[3px] peer-focus-visible:ring-ink peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-bg peer-disabled:opacity-60";
+
 type Props = {
   goal: Goal | null; // null means adding
   // An active emergency fund already exists, so a new goal can only be custom.
@@ -105,13 +108,13 @@ export function GoalDialog({ goal, hasEmergency, onClose, onSaved, onConflict }:
 
   const field = (key: Key, label: string, input: React.ReactNode, hint?: string | null) => (
     <div>
-      <label htmlFor={`g-${key}`} className="mb-1 block text-sm font-medium">
+      <label htmlFor={`g-${key}`} className="mb-1 block text-xs font-black tracking-wide uppercase">
         {label}
       </label>
       {input}
-      {hint ? <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{hint}</p> : null}
+      {hint ? <p className="mt-1 text-xs font-bold text-zinc-600">{hint}</p> : null}
       {errors[key] ? (
-        <p id={`ge-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+        <p id={`ge-${key}`} className="mt-1 text-xs font-extrabold text-loss">
           {errors[key]}
         </p>
       ) : null}
@@ -148,15 +151,15 @@ export function GoalDialog({ goal, hasEmergency, onClose, onSaved, onConflict }:
       className={`${DIALOG} w-[min(32rem,calc(100vw-2rem))]`}
     >
       <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
-        <h2 id="goal-dialog-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+        <h2 id="goal-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black [overflow-wrap:anywhere]">
           {editing ? `Edit ${goal.name}` : "Add goal"}
         </h2>
         <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
           {!editing && (
             <fieldset>
-              <legend className="mb-1 block text-sm font-medium">Kind</legend>
-              <div className="flex flex-col gap-2 sm:flex-row sm:gap-6">
-                <label className="flex items-center gap-2 text-sm">
+              <legend className="mb-1 block text-xs font-black tracking-wide uppercase">Kind</legend>
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                <label className="relative block min-w-0">
                   <input
                     type="radio"
                     name="kind"
@@ -164,10 +167,14 @@ export function GoalDialog({ goal, hasEmergency, onClose, onSaved, onConflict }:
                     checked={form.kind === "custom"}
                     disabled={saving}
                     onChange={() => setKind("custom")}
+                    className="peer sr-only"
                   />
-                  Saving for something
+                  <span className={`${PILL} ${form.kind === "custom" ? "bg-yellow text-ink" : "bg-card text-ink hover:bg-due"}`}>
+                    <span aria-hidden="true">🎯&nbsp;</span>
+                    Saving for something
+                  </span>
                 </label>
-                <label className={`flex items-center gap-2 text-sm ${hasEmergency ? "text-zinc-500 dark:text-zinc-400" : ""}`}>
+                <label className="relative block min-w-0">
                   <input
                     type="radio"
                     name="kind"
@@ -175,14 +182,18 @@ export function GoalDialog({ goal, hasEmergency, onClose, onSaved, onConflict }:
                     checked={emergency}
                     disabled={saving || hasEmergency}
                     onChange={() => setKind("emergency")}
+                    className="peer sr-only"
                   />
-                  Emergency fund
+                  <span className={`${PILL} ${emergency ? "bg-yellow text-ink" : "bg-card text-ink hover:bg-due"}`}>
+                    <span aria-hidden="true">🛟&nbsp;</span>
+                    Emergency fund
+                  </span>
                 </label>
               </div>
               {hasEmergency && (
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">You already have an emergency fund.</p>
+                <p className="mt-1 text-xs font-bold text-zinc-600">You already have an emergency fund.</p>
               )}
-              {errors.kind ? <p className="mt-1 text-xs text-red-700 dark:text-red-400">{errors.kind}</p> : null}
+              {errors.kind ? <p className="mt-1 text-xs font-extrabold text-loss">{errors.kind}</p> : null}
             </fieldset>
           )}
 
@@ -194,7 +205,7 @@ export function GoalDialog({ goal, hasEmergency, onClose, onSaved, onConflict }:
 
           {emergency ? (
             <>
-              {editing && goal.ef && <p className="text-sm text-zinc-600 dark:text-zinc-400">Target now: {efText(goal)}</p>}
+              {editing && goal.ef && <p className="text-sm font-bold text-zinc-700">Target now: {efText(goal)}</p>}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {field(
                   "ef_months",
@@ -208,7 +219,7 @@ export function GoalDialog({ goal, hasEmergency, onClose, onSaved, onConflict }:
                   <input {...props("ef_monthly_override")} type="text" inputMode="decimal" autoComplete="off" />,
                 )}
               </div>
-              <p className="-mt-2 text-xs text-zinc-500 dark:text-zinc-400">{overrideHint}</p>
+              <p className="-mt-2 text-xs font-bold text-zinc-600">{overrideHint}</p>
             </>
           ) : (
             field("target_amount", "Target (₹)", <input {...props("target_amount")} type="text" inputMode="decimal" autoComplete="off" required />)
@@ -217,7 +228,7 @@ export function GoalDialog({ goal, hasEmergency, onClose, onSaved, onConflict }:
           {field("target_date", "Reach it by (optional)", <input {...props("target_date")} type="date" />)}
 
           <fieldset className="flex flex-col gap-4">
-            <legend className="mb-2 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">Monthly reminder</legend>
+            <legend className="mb-2 text-xs font-black tracking-wide uppercase">Monthly reminder</legend>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {field(
                 "monthly_amount",
@@ -243,7 +254,7 @@ export function GoalDialog({ goal, hasEmergency, onClose, onSaved, onConflict }:
           </fieldset>
 
           <div>
-            <label htmlFor="g-note" className="mb-1 block text-sm font-medium">
+            <label htmlFor="g-note" className="mb-1 block text-xs font-black tracking-wide uppercase">
               Note (optional)
             </label>
             <textarea
@@ -259,19 +270,19 @@ export function GoalDialog({ goal, hasEmergency, onClose, onSaved, onConflict }:
               onChange={(e) => set("note", e.target.value)}
             />
             {errors.note ? (
-              <p id="ge-note" className="mt-1 text-xs text-red-700 dark:text-red-400">
+              <p id="ge-note" className="mt-1 text-xs font-extrabold text-loss">
                 {errors.note}
               </p>
             ) : null}
           </div>
 
           {formError ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            <p role="alert" className="text-sm font-extrabold text-loss">
               {formError}
             </p>
           ) : null}
         </div>
-        <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+        <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
           <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
             Cancel
           </button>
