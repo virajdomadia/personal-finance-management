@@ -723,6 +723,31 @@ def test_breakdown_merges_into_existing_other(headers: Headers) -> None:
     assert len(breakdown(headers)) == 5
 
 
+def test_breakdown_large_other_still_shows_four_named(headers: Headers) -> None:
+    a = account(headers, balance="100000.00")
+    for category, amount in [
+        ("Other", "900.00"),
+        ("Groceries", "600.00"),
+        ("Bills", "500.00"),
+        ("Transport", "400.00"),
+        ("Dining", "300.00"),
+        ("Fun", "200.00"),
+        ("Gifts", "100.00"),
+    ]:
+        expense(headers, a, amount, category=category)
+    body = client.get(URL, headers=headers).json()
+
+    assert body["expense_by_category"] == [
+        spend("Groceries", "600.00"),
+        spend("Bills", "500.00"),
+        spend("Transport", "400.00"),
+        spend("Dining", "300.00"),
+        spend("Other", "1200.00"),
+    ]
+    total = sum((Decimal(s["amount"]) for s in body["expense_by_category"]), Decimal(0))
+    assert fmt(total) == body["total_expense"]
+
+
 def test_breakdown_sums_to_total_expense(headers: Headers) -> None:
     a = account(headers, balance="100000.00")
     for i, category in enumerate(["A", "B", "C", "D", "E", "F", "G"]):

@@ -500,7 +500,7 @@ TOP_CATEGORIES = 4
 
 
 def expense_breakdown(matches: list[Transaction]) -> list[CategorySpend]:
-    """Spending (see `_spent`) by category: the top four, then the rest merged into "Other"."""
+    """Spending (see `_spent`) by category: the top four named, then the rest as "Other"."""
     totals: dict[str, Decimal] = {}
     for tx in matches:
         spent = _spent(tx)
@@ -510,8 +510,8 @@ def expense_breakdown(matches: list[Transaction]) -> list[CategorySpend]:
         totals[name] = totals.get(name, Decimal(0)) + spent
     ranked = sorted(totals.items(), key=lambda item: (-item[1], item[0]))
     if len(ranked) > TOP_CATEGORIES + 1:
-        # Merge into an existing "Other" rather than adding a second one; it goes last.
-        head = [(name, v) for name, v in ranked[:TOP_CATEGORIES] if name != "Other"]
+        # Four named categories, then everything else (any existing "Other" too) as one.
+        head = [(name, v) for name, v in ranked if name != "Other"][:TOP_CATEGORIES]
         kept = {name for name, _ in head}
         merged = sum((v for name, v in ranked if name not in kept), Decimal(0))
         ranked = [*head, ("Other", merged)]
