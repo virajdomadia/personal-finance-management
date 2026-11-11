@@ -38,6 +38,19 @@ await sharp({ create: { width: 1024, height: 1024, channels: 4, background: "#FF
 await png(placed(markArt, 1024, 614), 1024, path.join(A, "splash-icon.png"));
 await png(Buffer.from(read("gullak-favicon.svg")), 48, path.join(A, "favicon.png"));
 
+// The "Gullak Dev" testing app: same mark on a blue tile with a DEV pill, so it can't be mistaken for the real app.
+const DEV_BLUE = "#1CB0F6";
+const devPill = (cx, cy, w, h, font) =>
+  `<rect x="${cx - w / 2}" y="${cy - h / 2}" width="${w}" height="${h}" rx="${h / 2}" fill="#1A1A1A" stroke="#FFFFFF" stroke-width="${h / 12}"/>` +
+  `<text x="${cx}" y="${cy + font * 0.35}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="${font}" fill="#FFFFFF">DEV</text>`;
+const withPill = (svgBuffer, pill) => Buffer.from(svgBuffer.toString().replace("</svg>", `${pill}</svg>`));
+const devIcon = read("gullak-icon.svg").replaceAll("#FFC800", DEV_BLUE);
+await png(withPill(Buffer.from(devIcon), devPill(512, 860, 420, 130, 96)), 1024, path.join(A, "icon-dev.png"));
+await png(withPill(placed(markArt, 1024, 640), devPill(512, 700, 300, 104, 76)), 1024, path.join(A, "android-icon-foreground-dev.png"));
+await sharp({ create: { width: 1024, height: 1024, channels: 4, background: DEV_BLUE } })
+  .png()
+  .toFile(path.join(A, "android-icon-background-dev.png"));
+
 const web = path.join(root, "frontend", "src", "app");
 await png(Buffer.from(read("gullak-icon.svg")), 180, path.join(web, "apple-icon.png"));
 copyFileSync(path.join(here, "gullak-favicon.svg"), path.join(web, "icon.svg"));
