@@ -26,7 +26,7 @@ export function ProgressBar({
   label: string;
   className?: string;
 }) {
-  const value = percent ?? 0;
+  const value = Math.round(percent ?? 0);
   const width = Math.max(0, Math.min(value, 100));
   return (
     <div
@@ -36,7 +36,7 @@ export function ProgressBar({
       aria-valuemax={100}
       aria-valuenow={width}
       aria-valuetext={reached ? `${value}%, reached` : `${value}%`}
-      className={`h-4 w-full overflow-hidden rounded-full border-2 border-ink bg-zinc-200 ${className}`}
+      className={`h-4 w-full overflow-hidden rounded-full border-[2.5px] border-ink bg-zinc-200 ${className}`}
     >
       <div
         className={`h-full ${width > 0 && width < 100 ? "border-r-2 border-ink" : ""} ${reached ? "bg-green-strong" : "bg-green"}`}

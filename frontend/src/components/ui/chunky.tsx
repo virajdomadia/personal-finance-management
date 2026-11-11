@@ -7,7 +7,7 @@ import { STACK_COLORS } from "@/lib/fun";
 
 // The focus ring: ink, with a cream gap so it shows on every fill.
 export const FOCUS =
-  "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
+  "focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
 
 export type Tone = "card" | "green" | "yellow" | "pink" | "blue" | "purple" | "orange" | "due";
 
@@ -53,7 +53,7 @@ export function Tile({
   const body = (
     <>
       {sticker ? <Sticker text={sticker} /> : null}
-      <span className="block min-w-0 text-xs font-extrabold break-words opacity-90">
+      <span className="block min-w-0 text-xs font-extrabold break-words">
         {emoji ? <span aria-hidden="true">{emoji} </span> : null}
         {label}
       </span>
@@ -104,7 +104,7 @@ export function Chip({
       type="button"
       aria-pressed={selected}
       {...rest}
-      className={`rounded-full border-2 border-ink px-3 py-1.5 text-xs font-extrabold ${selected ? "bg-ink text-white" : "bg-card text-ink hover:bg-yellow"} ${FOCUS} ${className}`}
+      className={`rounded-full border-[2.5px] border-ink px-3 py-1.5 text-xs font-extrabold shadow-chunky-sm disabled:opacity-60 chunky-press ${selected ? "bg-ink text-white" : "bg-card text-ink hover:bg-yellow"} ${FOCUS} ${className}`}
     >
       {children}
     </button>
@@ -126,10 +126,14 @@ export function Segmented<T extends string>({
   const selected = options.findIndex((o) => o.value === value);
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
-    if (step === 0) return;
+    const last = options.length - 1;
+    let next: number;
+    if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = last;
+    else if (e.key === "ArrowRight" || e.key === "ArrowDown") next = selected < 0 || selected === last ? 0 : selected + 1;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = selected <= 0 ? last : selected - 1;
+    else return;
     e.preventDefault();
-    const next = (Math.max(selected, 0) + step + options.length) % options.length;
     onChange(options[next].value);
     refs.current[next]?.focus();
   }
@@ -154,7 +158,7 @@ export function Segmented<T extends string>({
             aria-checked={on}
             tabIndex={on || (selected < 0 && i === 0) ? 0 : -1}
             onClick={() => onChange(o.value)}
-            className={`px-4 py-1.5 text-xs font-black ${i > 0 ? "border-l-2 border-ink" : ""} ${on ? "bg-yellow text-ink" : "bg-card text-ink hover:bg-due"} focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ink`}
+            className={`px-4 py-1.5 text-xs font-black ${i > 0 ? "border-l-2 border-ink" : ""} ${on ? "bg-yellow text-ink" : "bg-card text-ink hover:bg-due"} focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ink`}
           >
             {o.label}
           </button>
@@ -179,7 +183,7 @@ export function StackedBar({ items, label }: { items: { label: string; value: nu
       <div
         role="img"
         aria-label={`${label}: ${spoken}`}
-        className="mt-2 flex h-4 overflow-hidden rounded-full border-2 border-ink bg-card"
+        className="mt-2 flex h-4 overflow-hidden rounded-full border-[2.5px] border-ink bg-card"
       >
         {parts.map((p, i) => (
           <i
@@ -218,7 +222,7 @@ export function Ring({
   label: string;
   size?: number;
 }) {
-  const value = percent ?? 0;
+  const value = Math.round(percent ?? 0);
   const width = Math.max(0, Math.min(value, 100));
   const radius = 36;
   const circumference = 2 * Math.PI * radius;
@@ -254,7 +258,7 @@ export function Ring({
       <span
         aria-hidden="true"
         className="absolute inset-0 flex items-center justify-center font-black tabular-nums"
-        style={{ fontSize: size * 0.18 }}
+        style={{ fontSize: Math.max(11, size * 0.18) }}
       >
         {percent === null ? "–" : `${value}%`}
       </span>
@@ -278,7 +282,7 @@ export function EmojiSquare({ emoji, tone }: { emoji: string; tone: Tone }) {
   return (
     <span
       aria-hidden="true"
-      className={`mr-2 inline-flex size-7 shrink-0 items-center justify-center rounded-[9px] border-2 border-ink align-middle text-sm ${SQUARE[tone]}`}
+      className={`mr-2 inline-flex size-7 shrink-0 items-center justify-center rounded-[9px] border-[2.5px] border-ink align-middle text-sm ${SQUARE[tone]}`}
     >
       {emoji}
     </span>
@@ -296,7 +300,7 @@ export function PageHeader({ title, action }: { title: string; action?: ReactNod
 
 // Class strings for a table: put TABLE on the table inside an overflow-x-auto wrapper.
 export const TABLE =
-  "w-full border-separate border-spacing-0 overflow-hidden rounded-2xl border-[2.5px] border-ink bg-card text-sm shadow-chunky";
+  "w-full border-separate border-spacing-0 overflow-hidden rounded-[18px] border-[2.5px] border-ink bg-card text-sm shadow-chunky";
 export const TH =
   "border-b-[2.5px] border-ink bg-yellow px-3 py-2 text-left text-[11px] font-black tracking-wider uppercase";
 export const TD = "border-b-[1.5px] border-zinc-200 px-3 py-2 font-bold";
