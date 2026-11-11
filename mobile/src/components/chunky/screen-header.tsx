@@ -11,19 +11,22 @@ import { ChunkyBox } from "./chunky-box";
 type Props = {
   title: string;
   back?: boolean;
+  backDisabled?: boolean; // e.g. while a save is in flight
   right?: ReactNode;
 };
 
 // The top of a screen: an optional back button, the title (it wraps, never clips), and actions on the right.
-export function ScreenHeader({ title, back = false, right }: Props) {
+export function ScreenHeader({ title, back = false, backDisabled = false, right }: Props) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
       {back ? (
         <Pressable
           onPress={() => router.back()}
+          disabled={backDisabled}
           accessibilityRole="button"
           accessibilityLabel="Back"
+          accessibilityState={{ disabled: backDisabled }}
           hitSlop={4}
         >
           {({ pressed }) => (
@@ -38,6 +41,29 @@ export function ScreenHeader({ title, back = false, right }: Props) {
       </Text>
       {right ? <View style={styles.right}>{right}</View> : null}
     </View>
+  );
+}
+
+type ActionProps = { icon: string; label: string; onPress: () => void; disabled?: boolean };
+
+// A square icon button for a header's right side.
+export function HeaderAction({ icon, label, onPress, disabled = false }: ActionProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      hitSlop={4}
+      style={{ opacity: disabled ? 0.6 : 1 }}
+    >
+      {({ pressed }) => (
+        <ChunkyBox pressed={pressed && !disabled} flat={disabled} radius={INPUT_RADIUS} offset={SHADOW_OFFSET_SM} style={styles.back}>
+          <Icon source={icon} size={22} color={BRAND.ink} />
+        </ChunkyBox>
+      )}
+    </Pressable>
   );
 }
 

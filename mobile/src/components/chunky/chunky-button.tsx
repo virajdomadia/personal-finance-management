@@ -22,6 +22,8 @@ type Props = {
   disabled?: boolean;
   loading?: boolean;
   style?: StyleProp<ViewStyle>; // layout: flex, alignSelf, margins
+  compact?: boolean; // a smaller button, for actions inside a row
+  accessibilityLabel?: string; // when the spoken name differs from the label
 };
 
 // The label is natural case with an uppercase style, so a screen reader still hears "Save".
@@ -33,6 +35,8 @@ export function ChunkyButton({
   disabled = false,
   loading = false,
   style,
+  compact = false,
+  accessibilityLabel,
 }: Props) {
   const { bg, fg } = FILL[variant];
   const inactive = disabled || loading;
@@ -41,7 +45,7 @@ export function ChunkyButton({
       onPress={onPress}
       disabled={inactive}
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: inactive, busy: loading }}
       style={[{ opacity: disabled ? 0.6 : 1 }, style]}
     >
@@ -51,7 +55,7 @@ export function ChunkyButton({
           flat={disabled}
           radius={INPUT_RADIUS}
           offset={SHADOW_OFFSET}
-          style={[styles.box, { backgroundColor: bg }]}
+          style={[styles.box, compact ? styles.compact : null, { backgroundColor: bg }]}
         >
           <View style={styles.content}>
             {loading ? <ActivityIndicator size="small" color={fg} /> : icon ? <Icon source={icon} size={18} color={fg} /> : null}
@@ -67,6 +71,7 @@ export function ChunkyButton({
 
 const styles = StyleSheet.create({
   box: { minHeight: 48, paddingHorizontal: 16, paddingVertical: 10, justifyContent: "center" },
+  compact: { minHeight: 38, paddingHorizontal: 12, paddingVertical: 6 },
   content: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   label: {
     fontSize: 13,

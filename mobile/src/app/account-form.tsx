@@ -12,7 +12,7 @@ import {
   type ScrollViewInstance,
   type TextInputInstance,
 } from "react-native";
-import { Appbar, Button, Checkbox, Chip, Dialog, HelperText, Portal, Text, TextInput, useTheme } from "react-native-paper";
+import { Button, Checkbox, Dialog, HelperText, Portal, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
@@ -34,8 +34,11 @@ import {
 } from "@/lib/accounts";
 import { payFromAccounts } from "@/lib/deposits";
 import { ApiError, apiFetch } from "@/lib/api";
+import { ChunkyBox, ChunkyButton, HeaderAction, ScreenHeader } from "@/components/chunky";
 import { DateField } from "@/components/date-field";
+import { Banner, Choice } from "@/components/form-parts";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 import { todayIndia } from "@/lib/transactions";
 
 const BANK_KINDS = [
@@ -121,10 +124,7 @@ export default function AccountFormScreen() {
   if (status !== "ready") {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
-        <Appbar.Header>
-          <Appbar.BackAction onPress={() => router.back()} />
-          <Appbar.Content title="Edit account" />
-        </Appbar.Header>
+        <ScreenHeader title="Edit account" back />
         <View style={styles.center}>
           {status === "loading" ? (
             <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading account" />
@@ -134,16 +134,15 @@ export default function AccountFormScreen() {
                 {status === "missing" ? "This account was not found. It may have been archived." : loadError}
               </Text>
               {status === "failed" ? (
-                <Button mode="contained" onPress={() => {
+                <ChunkyButton
+                  label="Try again"
+                  onPress={() => {
                     setStatus("loading");
                     setAttempt((n) => n + 1);
-                  }}>
-                  Try again
-                </Button>
+                  }}
+                />
               ) : (
-                <Button mode="contained" onPress={() => router.back()}>
-                  Back to accounts
-                </Button>
+                <ChunkyButton label="Back to accounts" onPress={() => router.back()} />
               )}
             </>
           )}
@@ -497,31 +496,29 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} disabled={saving || archiving} />
-        <Appbar.Content title={editing ? "Edit account" : "Add account"} />
-        {editing ? (
-          <Appbar.Action
-            icon="format-list-bulleted"
-            accessibilityLabel="Transactions for this account"
-            disabled={busy}
-            onPress={() =>
-              router.push({
-                pathname: "/account-transactions",
-                params: { id: String(account.id), name: account.name },
-              })
-            }
-          />
-        ) : null}
-        {editing ? (
-          <Appbar.Action
-            icon="archive-outline"
-            accessibilityLabel="Archive account"
-            disabled={busy}
-            onPress={() => setConfirming(true)}
-          />
-        ) : null}
-      </Appbar.Header>
+      <ScreenHeader
+        title={editing ? "Edit account" : "Add account"}
+        back
+        backDisabled={saving || archiving}
+        right={
+          editing ? (
+            <>
+              <HeaderAction
+                icon="format-list-bulleted"
+                label="Transactions for this account"
+                disabled={busy}
+                onPress={() =>
+                  router.push({
+                    pathname: "/account-transactions",
+                    params: { id: String(account.id), name: account.name },
+                  })
+                }
+              />
+              <HeaderAction icon="archive-outline" label="Archive account" disabled={busy} onPress={() => setConfirming(true)} />
+            </>
+          ) : undefined
+        }
+      />
 
       <KeyboardAvoidingView style={styles.screen} behavior="padding">
         <ScrollView
@@ -531,33 +528,18 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         >
           {conflict !== null ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
+            <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
               <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
                 {conflict}
               </Text>
-              <Button mode="contained" onPress={() => router.back()}>
-                Back to accounts
-              </Button>
-            </View>
+              <ChunkyButton label="Back to accounts" onPress={() => router.back()} />
+            </ChunkyBox>
           ) : null}
-          {general.length > 0 ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
-              {general.map((message) => (
-                <Text
-                  key={message}
-                  variant="bodyMedium"
-                  accessibilityRole="alert"
-                  style={{ color: colors.onErrorContainer }}
-                >
-                  {message}
-                </Text>
-              ))}
-            </View>
-          ) : null}
+          <Banner messages={general} />
 
           {editing ? (
             <View>
-              <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
+              <Text variant="labelLarge" style={{ color: BRAND.zinc600 }}>
                 Type
               </Text>
               <Text variant="bodyLarge">{TYPE_LABELS[type]}</Text>
@@ -566,22 +548,12 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
             field(
               "type",
               <View>
-              <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
+              <Text variant="labelLarge" style={{ color: BRAND.zinc600 }}>
                 Type
               </Text>
               <View style={styles.chips}>
                 {TYPE_ORDER.map((option) => (
-                  <Chip
-                    key={option}
-                    selected={type === option}
-                    showSelectedCheck
-                    disabled={busy}
-                    onPress={() => changeType(option)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: type === option, disabled: busy }}
-                  >
-                    {TYPE_LABELS[option]}
-                  </Chip>
+                  <Choice key={option} label={TYPE_LABELS[option]} selected={type === option} disabled={busy} onPress={() => changeType(option)} />
                 ))}
               </View>
               </View>,
@@ -597,22 +569,12 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
             ? field(
                 "bank_kind",
                 <View>
-                  <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
+                  <Text variant="labelLarge" style={{ color: BRAND.zinc600 }}>
                     Kind
                   </Text>
                   <View style={styles.chips}>
                     {BANK_KINDS.map((kind) => (
-                      <Chip
-                        key={kind.value}
-                        selected={form.bank_kind === kind.value}
-                        showSelectedCheck
-                        disabled={busy}
-                        onPress={() => set("bank_kind", kind.value)}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected: form.bank_kind === kind.value, disabled: busy }}
-                      >
-                        {kind.label}
-                      </Chip>
+                      <Choice key={kind.value} label={kind.label} selected={form.bank_kind === kind.value} disabled={busy} onPress={() => set("bank_kind", kind.value)} />
                     ))}
                   </View>
                 </View>,
@@ -656,7 +618,7 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
               {field(
                 "pay_from_id",
                 <View>
-                  <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
+                  <Text variant="labelLarge" style={{ color: BRAND.zinc600 }}>
                     Deposits paid from
                   </Text>
                   <View style={styles.chips}>
@@ -664,17 +626,7 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
                       ...(type === "ppf" ? [{ id: "", name: "Not linked" }] : []),
                       ...payFrom.map((a) => ({ id: String(a.id), name: a.name })),
                     ].map((option) => (
-                      <Chip
-                        key={option.id || "none"}
-                        selected={form.pay_from_id === option.id}
-                        showSelectedCheck
-                        disabled={busy}
-                        onPress={() => set("pay_from_id", option.id)}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected: form.pay_from_id === option.id, disabled: busy }}
-                      >
-                        {option.name}
-                      </Chip>
+                      <Choice key={option.id || "none"} label={option.name} selected={form.pay_from_id === option.id} disabled={busy} onPress={() => set("pay_from_id", option.id)} />
                     ))}
                   </View>
                 </View>,
@@ -691,22 +643,12 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
               {field(
                 "pay_from_id",
                 <View>
-                  <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
+                  <Text variant="labelLarge" style={{ color: BRAND.zinc600 }}>
                     EMIs paid from
                   </Text>
                   <View style={styles.chips}>
                     {[{ id: "", name: "Not linked" }, ...payFrom.map((a) => ({ id: String(a.id), name: a.name }))].map((option) => (
-                      <Chip
-                        key={option.id || "none"}
-                        selected={form.pay_from_id === option.id}
-                        showSelectedCheck
-                        disabled={busy}
-                        onPress={() => setForm((f) => ({ ...f, pay_from_id: option.id, moved_from_card: "" }))}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected: form.pay_from_id === option.id, disabled: busy }}
-                      >
-                        {option.name}
-                      </Chip>
+                      <Choice key={option.id || "none"} label={option.name} selected={form.pay_from_id === option.id} disabled={busy} onPress={() => setForm((f) => ({ ...f, pay_from_id: option.id, moved_from_card: "" }))} />
                     ))}
                   </View>
                 </View>,
@@ -730,16 +672,13 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
             </>
           ) : null}
 
-          <Button
-            mode="contained"
+          <ChunkyButton
+            label={saving ? "Saving..." : editing ? "Save changes" : "Add account"}
             onPress={() => void save()}
             loading={saving}
-            disabled={busy}
-            contentStyle={styles.saveContent}
+            disabled={busy && !saving}
             style={styles.save}
-          >
-            {saving ? "Saving..." : editing ? "Save changes" : "Add account"}
-          </Button>
+          />
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -770,10 +709,9 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 4 },
-  banner: { borderRadius: 12, padding: 12, gap: 8, marginBottom: 8 },
+  banner: { padding: 12, gap: 8, marginBottom: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8, marginBottom: 8 },
   save: { marginTop: 16 },
-  saveContent: { height: 48 },
   check: { paddingHorizontal: 0 },
   checkLabel: { textAlign: "left" },
 });

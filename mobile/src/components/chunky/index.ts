@@ -4,7 +4,7 @@ export { Chip } from "./chip";
 export { Logo } from "./logo";
 export { ProgressBar, Ring } from "./progress";
 export { Row } from "./row";
-export { ScreenHeader } from "./screen-header";
+export { HeaderAction, ScreenHeader } from "./screen-header";
 export { Segmented } from "./segmented";
 export { StackedBar } from "./stacked-bar";
 export { Sticker } from "./sticker";
