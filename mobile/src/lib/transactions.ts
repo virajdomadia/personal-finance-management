@@ -1,5 +1,6 @@
 import { type Account, cleanMoney, formatRupees } from "./accounts.ts";
 import { formatCoinQty } from "./crypto.ts";
+import type { HistoryLine } from "./goals.ts";
 
 export type TransactionType = "income" | "expense" | "transfer" | "emi";
 
@@ -310,4 +311,10 @@ export function activityLabel(a: Activity): string {
 export function activityAmount(signed: string): string {
   const text = signed.trim();
   return text.startsWith("-") ? `-${formatRupees(text.slice(1))}` : `+${formatRupees(text.replace(/^\+/, ""))}`;
+}
+
+// "Release and record an expense": the expense that matches a release, from the same account for the
+// same amount (the release is stored negative), dated today. The caller saves the release first.
+export function expenseFormFromRelease(entry: HistoryLine, today: string): TransactionForm {
+  return { ...blankForm("expense", today, entry.account_id), amount: entry.amount.replace(/^-/, "") };
 }
