@@ -7,6 +7,12 @@
     "platforms": [
       "android"
     ],
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/df6c3593-73b4-417a-84f6-89871a3995b4"
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
