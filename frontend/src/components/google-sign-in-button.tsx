@@ -62,9 +62,9 @@ export function GoogleSignInButton({ clientId }: { clientId: string }) {
         onReady={renderButton}
         onError={() => setError(UNAVAILABLE)}
       />
-      <div ref={buttonRef} className="min-h-10" />
+      <div ref={buttonRef} className="chunky min-h-12 w-fit rounded-[14px] bg-card p-1" />
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm font-bold text-loss">
           {error}
         </p>
       )}
