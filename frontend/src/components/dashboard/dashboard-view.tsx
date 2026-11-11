@@ -7,7 +7,9 @@ import { logout } from "@/app/login/actions";
 import { type Dashboard, formatDueDate, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Signed } from "@/components/investments/shared";
+import { ProgressBar } from "@/components/goals/goals-view";
 import { DueSection } from "@/components/recurring/due-list";
+import { progressText } from "@/lib/goals";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: Dashboard };
 
@@ -119,7 +121,28 @@ function Content({ data, onChanged }: { data: Dashboard; onChanged: () => void }
         </Link>
       )}
 
-      <DueSection items={data.recurring} onChanged={onChanged} />
+      <DueSection items={data.recurring} goals={data.goals_due ?? []} onChanged={onChanged} />
+
+      {data.goals && data.goals.length > 0 && (
+        <section aria-labelledby="goals-title">
+          <h2 id="goals-title" className="mb-1 px-1 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
+            Goals
+          </h2>
+          <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+            {data.goals.map((g) => (
+              <li key={g.id}>
+                <Link href={`/goals/${g.id}`} className={`block px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${FOCUS}`}>
+                  <span className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <span className="text-sm font-medium [overflow-wrap:anywhere]">{g.name}</span>
+                    <span className="text-xs text-zinc-600 tabular-nums dark:text-zinc-400">{progressText(g)}</span>
+                  </span>
+                  {g.target !== null && <ProgressBar percent={g.percent} reached={g.reached} label={`${g.name} progress`} className="mt-2" />}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {(due || used) && (
         <section aria-labelledby="attention-title">

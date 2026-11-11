@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { logout } from "@/app/login/actions";
-import { type Account, type AccountList, formatFullDate, formatRupees } from "@/lib/accounts";
+import { type Account, type AccountList, type GoalTag, formatFullDate, formatRupees } from "@/lib/accounts";
 import { apiFetch } from "@/lib/api";
 import {
   type Coin,
@@ -42,6 +42,7 @@ import { todayIndia } from "@/lib/transactions";
 
 import {
   ConfirmDelete,
+  GoalTagLink,
   LIST,
   Notice,
   PRIMARY,
@@ -51,6 +52,7 @@ import {
   Signed,
   TradeRow,
   archivedIds,
+  goalsByInstrument,
   isUnauthorized,
   tradeDeleteText,
 } from "./shared";
@@ -419,7 +421,7 @@ function Content({
       ) : (
         <>
           <Summary totals={portfolio.totals} />
-          <Holdings rows={portfolio.by_stock} />
+          <Holdings rows={portfolio.by_stock} goals={goalsByInstrument(portfolio.holdings, (h) => h.stock_id)} />
           {portfolio.closed.length > 0 && (
             <details className="group">
               <summary className="cursor-pointer rounded px-1 py-1 text-xs font-medium tracking-wide text-zinc-500 uppercase hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400 dark:hover:text-zinc-100">
@@ -481,7 +483,7 @@ function Figure({ label, sub, children }: { label: string; sub?: React.ReactNode
 
 const TH = "px-4 py-2 text-xs font-medium text-zinc-500 dark:text-zinc-400";
 
-function Holdings({ rows }: { rows: StockTotal[] }) {
+function Holdings({ rows, goals }: { rows: StockTotal[]; goals: Map<number, GoalTag> }) {
   if (rows.length === 0) return null;
   return (
     <section aria-labelledby="holdings-title">
@@ -511,6 +513,7 @@ function Holdings({ rows }: { rows: StockTotal[] }) {
                     {row.symbol}
                   </Link>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{row.name}</p>
+                  <GoalTagLink tag={goals.get(row.stock_id)} />
                 </th>
                 <td className="px-4 py-3 text-right tabular-nums">{row.shares}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{formatRupees(row.average_cost)}</td>
@@ -681,7 +684,7 @@ function Funds({
       ) : (
         <>
           {!empty && <Summary totals={funds.totals} />}
-          <FundRows rows={funds.by_fund} />
+          <FundRows rows={funds.by_fund} goals={goalsByInstrument(funds.holdings, (h) => h.fund_id)} />
           {unheld.length > 0 && (
             <div>
               <h3 className={SECTION_TITLE}>No units yet</h3>
@@ -734,7 +737,7 @@ function Funds({
   );
 }
 
-function FundRows({ rows }: { rows: FundTotal[] }) {
+function FundRows({ rows, goals }: { rows: FundTotal[]; goals: Map<number, GoalTag> }) {
   if (rows.length === 0) return null;
   return (
     <div>
@@ -764,6 +767,7 @@ function FundRows({ rows }: { rows: FundTotal[] }) {
                     {row.name}
                   </Link>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">{row.symbol}</p>
+                  <GoalTagLink tag={goals.get(row.fund_id)} />
                 </th>
                 <td className="px-4 py-3 text-right tabular-nums">{formatUnits(row.units)}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{formatNav(row.average_nav)}</td>
@@ -862,7 +866,7 @@ function Crypto({
       ) : (
         <>
           {!empty && <Summary totals={crypto.totals} />}
-          <CoinRows rows={crypto.by_coin} />
+          <CoinRows rows={crypto.by_coin} goals={goalsByInstrument(crypto.holdings, (h) => h.coin_id)} />
           {unheld.length > 0 && (
             <div>
               <h3 className={SECTION_TITLE}>No coins yet</h3>
@@ -915,7 +919,7 @@ function Crypto({
   );
 }
 
-function CoinRows({ rows }: { rows: CoinTotal[] }) {
+function CoinRows({ rows, goals }: { rows: CoinTotal[]; goals: Map<number, GoalTag> }) {
   if (rows.length === 0) return null;
   return (
     <div>
@@ -945,6 +949,7 @@ function CoinRows({ rows }: { rows: CoinTotal[] }) {
                     {row.name}
                   </Link>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">{row.symbol}</p>
+                  <GoalTagLink tag={goals.get(row.coin_id)} />
                 </th>
                 <td className="px-4 py-3 text-right tabular-nums">{formatCoinQty(row.quantity)}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{formatCoinAverage(row.average_price)}</td>

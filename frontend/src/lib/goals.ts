@@ -155,7 +155,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const shortMonth = (ym: string) => MONTHS[Number(ym.slice(5, 7)) - 1];
 
 // "₹45,500 of ₹1,20,000 · 38%", "₹1,30,000 saved · Reached", or "₹45,500 saved" with no target.
-export function progressText(g: Goal): string {
+export function progressText(g: Pick<Goal, "saved" | "target" | "reached" | "percent">): string {
   if (g.target === null) return `${whole(g.saved)} saved`;
   if (g.reached) return `${whole(g.saved)} saved · Reached`;
   return `${whole(g.saved)} of ${whole(g.target)} · ${g.percent ?? 0}%`;

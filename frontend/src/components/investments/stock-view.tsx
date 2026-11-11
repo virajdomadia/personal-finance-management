@@ -26,6 +26,7 @@ import {
   archivedIds,
   isUnauthorized,
   tradeDeleteText,
+  GoalTagLink,
 } from "./shared";
 import { StockDialog } from "./stock-dialog";
 import { TradeDialog, type TradeKind } from "./trade-dialog";
@@ -122,6 +123,7 @@ export function StockView({ stockId }: { stockId: number }) {
           <div className="min-w-0">
             <h1 className="text-xl font-semibold [overflow-wrap:anywhere]">{data.stock.symbol}</h1>
             <p className="text-sm text-zinc-600 dark:text-zinc-400 [overflow-wrap:anywhere]">{data.stock.name}</p>
+            <GoalTagLink tag={holdings.find((h) => h.in_goal)?.in_goal} />
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" className={QUIET} onClick={() => setDialog({ kind: "rename" })}>

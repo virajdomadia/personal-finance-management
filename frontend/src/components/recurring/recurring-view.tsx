@@ -32,6 +32,7 @@ export function RecurringView() {
   const [notice, setNotice] = useState<string | null>(null);
   const [dueKey, setDueKey] = useState(0);
   const [toggling, setToggling] = useState<number | null>(null);
+  const [undoing, setUndoing] = useState<string | null>(null);
   const latest = useRef(0);
   const busy = useRef(false);
 
@@ -71,6 +72,27 @@ export function RecurringView() {
     } finally {
       busy.current = false;
       setToggling(null);
+    }
+  }
+
+  // Un-skip an occurrence, so it shows as due (or coming up) again.
+  async function undoSkip(t: Template, occurrence: string) {
+    if (busy.current) return;
+    busy.current = true;
+    setUndoing(`${t.id}-${occurrence}`);
+    setNotice(null);
+    try {
+      await apiFetch(`/recurring/${t.id}/skip/${occurrence}`, { method: "DELETE" });
+      reload();
+    } catch (err) {
+      if (isUnauthorized(err)) void logout();
+      else {
+        setNotice(errorMessage(err));
+        reload();
+      }
+    } finally {
+      busy.current = false;
+      setUndoing(null);
     }
   }
 
@@ -123,6 +145,8 @@ export function RecurringView() {
                 key={t.id}
                 template={t}
                 toggling={toggling === t.id}
+                undoing={undoing}
+                onUndoSkip={(occurrence) => undoSkip(t, occurrence)}
                 onEdit={() => setDialog({ kind: "form", template: t })}
                 onToggle={() => toggle(t)}
                 onDelete={() => setDialog({ kind: "delete", template: t })}
@@ -170,12 +194,16 @@ export function RecurringView() {
 function TemplateRow({
   template: t,
   toggling,
+  undoing,
+  onUndoSkip,
   onEdit,
   onToggle,
   onDelete,
 }: {
   template: Template;
   toggling: boolean;
+  undoing: string | null;
+  onUndoSkip: (occurrence: string) => void;
   onEdit: () => void;
   onToggle: () => void;
   onDelete: () => void;
@@ -199,6 +227,25 @@ function TemplateRow({
         </p>
         <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{details.filter(Boolean).join(" · ")}</p>
         <p className={`text-xs ${t.active ? "" : "text-zinc-500 dark:text-zinc-400"}`}>{nextText(t)}</p>
+        {t.skipped.length > 0 && (
+          <ul aria-label={`Skipped dates for ${t.name}`} className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+            <li>Skipped:</li>
+            {t.skipped.map((occurrence) => (
+              <li key={occurrence} className="flex items-center gap-0.5">
+                {formatFullDate(occurrence)}
+                <button
+                  type="button"
+                  className={ROW_ACTION}
+                  aria-label={`Undo skipping ${t.name} on ${formatFullDate(occurrence)}`}
+                  disabled={undoing === `${t.id}-${occurrence}`}
+                  onClick={() => onUndoSkip(occurrence)}
+                >
+                  {undoing === `${t.id}-${occurrence}` ? "Undoing..." : "Undo"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       <p className="min-w-0 max-w-full text-right text-sm font-medium tabular-nums [overflow-wrap:anywhere]">{whole(t.amount)}</p>
       <div className="flex shrink-0 justify-end gap-1">
