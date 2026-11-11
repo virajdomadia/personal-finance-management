@@ -28,3 +28,7 @@ backend/.pgdata/
 Thumbs.db
 .vscode/*
 !.vscode/extensions.json
+
+# Brainstorm mockups / design tooling
+.superpowers/
+.impeccable/
