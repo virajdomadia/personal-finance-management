@@ -26,6 +26,13 @@ export default function ProfileScreen() {
         accessibilityRole="button"
       />
       <List.Item
+        title="Goals"
+        description="Money set aside and holdings for what you're saving for"
+        left={(props) => <List.Icon {...props} icon="flag-outline" />}
+        onPress={() => router.push("/goals")}
+        accessibilityRole="button"
+      />
+      <List.Item
         title="Log out"
         left={(props) => <List.Icon {...props} icon="logout" />}
         onPress={logOut}
