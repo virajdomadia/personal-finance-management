@@ -65,7 +65,7 @@ function PolicyCard({
 
   return (
     <ChunkyBox style={styles.card}>
-      <View accessible accessibilityLabel={name} style={styles.head}>
+      <View accessible accessibilityLabel={`${name}, ${renewal ?? "Lapsed"}`} style={styles.head}>
         <View style={styles.square}>
           <Text style={styles.emoji} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             {policy.active ? "❤️" : "🛡️"}
@@ -326,8 +326,9 @@ export default function InsuranceScreen() {
                         emoji="❤️"
                         tone="pink"
                         title={policy.insurer}
-                        meta={renewalText(policy) ?? undefined}
+                        meta={[policy.plan, renewalText(policy)].filter(Boolean).join(" · ")}
                         amount={whole(policy.premium)}
+                        sub="a year"
                       >
                         <View style={styles.actions}>
                           <ChunkyButton

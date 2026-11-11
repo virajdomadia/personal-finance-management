@@ -221,8 +221,7 @@ function FormBody({ goal, groups }: Loaded) {
                   >
                     <RadioButton.Item
                       value={o.value}
-                      label={`${o.title}
-${o.detail}`}
+                      label={`${o.title}\n${o.detail}`}
                       accessibilityLabel={`${o.title}, ${o.detail}`}
                       disabled={busy}
                       mode="android"
