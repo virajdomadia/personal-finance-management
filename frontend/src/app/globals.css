@@ -1,28 +1,80 @@
 @import "tailwindcss";
 
+/* Light only: every dark: class goes inert. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-bg: #fffdf5;
+  --color-ink: #1a1a1a;
+  --color-card: #ffffff;
+
+  --color-green: #58cc02;
+  --color-yellow: #ffc800;
+  --color-pink: #ff4b8b;
+  --color-blue: #1cb0f6;
+  --color-purple: #a560ff;
+  --color-orange: #ff7a00;
+
+  /* Deeper shades for tiles that carry white text (each is at least 5.1:1 against white). */
+  --color-green-strong: #2f7d00;
+  --color-pink-strong: #cc2860;
+  --color-blue-strong: #0c6fa8;
+  --color-purple-strong: #7a35d9;
+  --color-orange-strong: #b34f00;
+
+  --color-due: #fff1c2;
+  /* Gain is a touch deeper than the brand green so it stays 4.5:1 on the cream page. */
+  --color-gain: #2c8000;
+  --color-loss: #d7263d;
+
+  /* The old grey scale, warmed up, so screens not yet restyled already read as on-brand. */
+  --color-zinc-50: #fbf9f2;
+  --color-zinc-100: #f4f1e6;
+  --color-zinc-200: #e6e2d6;
+  --color-zinc-300: #d3cebf;
+  --color-zinc-400: #9c9788;
+  --color-zinc-500: #6b675c;
+  --color-zinc-600: #565247;
+  --color-zinc-700: #403d35;
+  --color-zinc-800: #2b2925;
+  --color-zinc-900: #1a1a1a;
+  --color-zinc-950: #1a1a1a;
+
+  --font-sans: var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
+
+  --shadow-chunky: 0 4px 0 var(--color-ink);
+  --shadow-chunky-sm: 0 3px 0 var(--color-ink);
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
   color-scheme: light;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    color-scheme: dark;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-weight: 700;
+}
+
+/* Amounts line up in columns. */
+.tabular-nums,
+td,
+input[inputmode] {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility chunky {
+  border: 2.5px solid var(--color-ink);
+  box-shadow: var(--shadow-chunky);
+}
+
+@utility chunky-press {
+  @media (prefers-reduced-motion: no-preference) {
+    transition: transform 80ms ease-out, box-shadow 80ms ease-out;
+    &:active:not(:disabled) {
+      transform: translateY(4px);
+      box-shadow: none;
+    }
+  }
 }
