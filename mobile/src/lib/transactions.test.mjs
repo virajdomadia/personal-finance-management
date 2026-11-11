@@ -10,6 +10,7 @@ import {
   emiForm,
   subtractMoney,
   formFromTransaction,
+  dayLabel,
   formatDate,
   formatMonth,
   activityAmount,
@@ -328,4 +329,10 @@ test("activityLabel names the trade, using coin formatting for crypto", () => {
   assert.equal(activityLabel({ ...a, side: "sell" }), "Sold 0.00485 BTC");
   assert.equal(activityLabel({ ...a, kind: "stock", quantity: "10" }), "Bought 10 BTC");
   assert.equal(activityLabel({ ...a, sip_id: 3, name: "Nifty Fund" }), "SIP: Nifty Fund");
+});
+
+test("dayLabel says Today and Yesterday, then the date", () => {
+  assert.equal(dayLabel("2026-11-11", "2026-11-11"), "Today");
+  assert.equal(dayLabel("2026-11-10", "2026-11-11"), "Yesterday");
+  assert.equal(dayLabel("2026-11-09", "2026-11-11"), "9 Nov 2026");
 });

@@ -205,6 +205,13 @@ export function formatDate(iso: string): string {
   return `${Number(day)} ${MONTHS[Number(month) - 1].slice(0, 3)} ${year}`;
 }
 
+// The day header in the list: "Today", "Yesterday", then the date.
+export function dayLabel(iso: string, today: string): string {
+  if (iso === today) return "Today";
+  if (iso === previousDay(today)) return "Yesterday";
+  return formatDate(iso);
+}
+
 export function groupByDate(transactions: Transaction[]): { date: string; transactions: Transaction[] }[] {
   const groups: { date: string; transactions: Transaction[] }[] = [];
   for (const tx of transactions) {

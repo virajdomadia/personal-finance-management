@@ -1,14 +1,16 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl, ScrollView, SectionList, StyleSheet, View } from "react-native";
-import { Button, FAB, IconButton, Surface, Text, useTheme } from "react-native-paper";
+import { Text, useTheme } from "react-native-paper";
 
-import { Chip, Row } from "@/components/chunky";
+import { ChunkyButton, Chip, HeaderAction, Row, StackedBar, Tile } from "@/components/chunky";
 
 import { DueList } from "@/components/due-list";
 import type { GoalDue } from "@/lib/goals";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { whole } from "@/lib/recurring";
+import { BRAND } from "@/lib/theme";
 import { categoryEmoji, investmentEmoji } from "@/lib/fun";
 import type { DueItem } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
@@ -18,6 +20,7 @@ import {
   type Transaction,
   type TransactionList,
   type TransactionType,
+  dayLabel,
   formatDate,
   activityAmount,
   activityLabel,
@@ -43,7 +46,7 @@ function query(filters: Filters, offset: number): string {
 
 const amountTone = (amount: string) => (amount.startsWith("+") ? "gain" : amount.startsWith("-") ? "loss" : undefined);
 
-function TransactionRow({
+export function TransactionRow({
   transaction: tx,
   viewedAccountId,
   onPress,
@@ -74,6 +77,33 @@ function TransactionRow({
         accessibilityLabel={`${title}, ${amount}, ${accounts}`}
       />
     </View>
+  );
+}
+
+// The month's spending, split by category. The bar is left out when there is nothing to split.
+export function SpentTile({ list, label }: { list: TransactionList; label: string }) {
+  const split = list.expense_by_category.map((c) => ({ label: c.category, value: Number(c.amount) }));
+  return (
+    <Tile tone="card" label={label} value={whole(list.total_expense)} size="huge">
+      <View style={styles.incomeLine}>
+        <Text variant="labelLarge" style={styles.incomeLabel}>
+          Income
+        </Text>
+        <Text variant="titleMedium" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={styles.incomeAmount}>
+          {whole(list.total_income)}
+        </Text>
+      </View>
+      <StackedBar items={split} label="Spending by category" />
+    </Tile>
+  );
+}
+
+// "TODAY", "YESTERDAY", then a date.
+export function DayHeader({ date, today }: { date: string; today: string }) {
+  return (
+    <Text variant="titleSmall" accessibilityRole="header" style={styles.sectionHeader}>
+      {dayLabel(date, today).toUpperCase()}
+    </Text>
   );
 }
 
@@ -246,6 +276,7 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
     [list],
   );
 
+  const today = todayIndia();
   const activeIds = accounts?.active.map((a) => a.id) ?? [];
   const canAdd = activeIds.length > 0 && (fixedAccountId === null || activeIds.includes(fixedAccountId));
   const noAccounts = accounts !== null && accounts.active.length === 0 && accounts.archived.length === 0;
@@ -254,17 +285,17 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
   const filterBar = (
     <View style={styles.filters}>
       <View style={styles.monthRow}>
-        <IconButton
+        <HeaderAction
           icon="chevron-left"
-          accessibilityLabel="Previous month"
+          label="Previous month"
           onPress={() => applyFilters({ month: shiftMonth(filters.month, -1) })}
         />
-        <Text variant="titleMedium" accessibilityLiveRegion="polite">
+        <Text variant="titleMedium" accessibilityLiveRegion="polite" style={styles.month}>
           {formatMonth(filters.month)}
         </Text>
-        <IconButton
+        <HeaderAction
           icon="chevron-right"
-          accessibilityLabel="Next month"
+          label="Next month"
           disabled={filters.month >= thisMonth}
           onPress={() => applyFilters({ month: shiftMonth(filters.month, 1) })}
         />
@@ -312,9 +343,7 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
             <Text variant="bodyLarge" style={styles.centerText}>
               {error}
             </Text>
-            <Button mode="contained" onPress={() => void refresh()} loading={refreshing} disabled={refreshing}>
-              Try again
-            </Button>
+            <ChunkyButton label="Try again" onPress={() => void refresh()} loading={refreshing} />
           </View>
         </>
       ) : (
@@ -335,31 +364,19 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
               ) : null}
               <View style={styles.header}>
                 {error ? (
-                  <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.error, marginBottom: 12 }}>
+                  <Text variant="bodyMedium" accessibilityRole="alert" style={styles.error}>
                     {error} Pull down to try again.
                   </Text>
                 ) : null}
-                <Surface elevation={1} style={styles.totals}>
-                  <View style={styles.total}>
-                    <Text variant="labelLarge">Income</Text>
-                    <Text variant="titleLarge" style={styles.totalAmount}>
-                      {formatRupees(list.total_income)}
-                    </Text>
-                  </View>
-                  <View style={styles.total}>
-                    <Text variant="labelLarge">Spent</Text>
-                    <Text variant="titleLarge" style={styles.totalAmount}>
-                      {formatRupees(list.total_expense)}
-                    </Text>
-                  </View>
-                </Surface>
+                <SpentTile
+                  list={list}
+                  label={filters.month === thisMonth ? "Spent this month" : `Spent in ${formatMonth(filters.month)}`}
+                />
               </View>
             </View>
           }
           renderSectionHeader={({ section }) => (
-            <Text variant="titleSmall" accessibilityRole="header" style={[styles.sectionHeader, { color: colors.primary }]}>
-              {formatDate(section.date)}
-            </Text>
+            <DayHeader date={section.date} today={today} />
           )}
           renderItem={({ item }) => (
             <TransactionRow
@@ -372,16 +389,14 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
             noAccounts ? (
               <View style={styles.empty}>
                 <Text variant="titleMedium">Add an account first</Text>
-                <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
+                <Text variant="bodyMedium" style={[styles.centerText, styles.muted]}>
                   Every transaction belongs to an account.
                 </Text>
-                <Button mode="contained" onPress={() => router.navigate("/accounts")}>
-                  Go to accounts
-                </Button>
+                <ChunkyButton label="Go to accounts" onPress={() => router.navigate("/accounts")} />
               </View>
             ) : (
               <View style={styles.empty}>
-                <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
+                <Text variant="bodyMedium" style={[styles.centerText, styles.muted]}>
                   No transactions match in {formatMonth(filters.month)}.
                 </Text>
               </View>
@@ -391,15 +406,15 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
             // The account's investment activity sits above Load more, so the button stays last.
             <View>
               {fixedAccountId !== null && filters.type === null && activity === undefined ? (
-                <Text variant="bodyMedium" style={[styles.centerText, styles.activityNote, { color: colors.onSurfaceVariant }]}>
+                <Text variant="bodyMedium" style={[styles.centerText, styles.activityNote, styles.muted]}>
                   Investment activity could not be loaded. Pull down to try again.
                 </Text>
               ) : null}
               {fixedAccountId !== null && filters.type === null && activity ? (
                 activity.length > 0 ? (
                   <View accessibilityRole="list">
-                    <Text variant="titleSmall" accessibilityRole="header" style={[styles.sectionHeader, { color: colors.primary }]}>
-                      Investment activity
+                    <Text variant="titleSmall" accessibilityRole="header" style={styles.sectionHeader}>
+                      INVESTMENT ACTIVITY
                     </Text>
                     {activity.map((row) => (
                       <View key={`${row.kind}-${row.trade_id}`}>
@@ -410,9 +425,13 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
                 ) : null
               ) : null}
               {list.has_more ? (
-                <Button onPress={() => void loadMore()} loading={loadingMore} disabled={loadingMore} style={styles.more}>
-                  {loadingMore ? "Loading..." : "Load more"}
-                </Button>
+                <ChunkyButton
+                  variant="alt"
+                  label={loadingMore ? "Loading..." : "Load more"}
+                  onPress={() => void loadMore()}
+                  loading={loadingMore}
+                  style={styles.more}
+                />
               ) : null}
             </View>
           }
@@ -420,13 +439,15 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
       )}
 
       {canAdd ? (
-        <FAB
-          icon="plus"
-          label="Add"
-          accessibilityLabel="Add transaction"
-          style={styles.fab}
-          onPress={() => open(defaultAccount === null ? {} : { account: String(defaultAccount) })}
-        />
+        <View style={styles.fab}>
+          <ChunkyButton
+            variant="green"
+            icon="plus"
+            label="Add"
+            accessibilityLabel="Add transaction"
+            onPress={() => open(defaultAccount === null ? {} : { account: String(defaultAccount) })}
+          />
+        </View>
       ) : null}
     </View>
   );
@@ -438,18 +459,21 @@ const styles = StyleSheet.create({
   centerText: { textAlign: "center" },
   content: { paddingBottom: 96 },
   filters: { gap: 8, paddingBottom: 8 },
-  monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
-  chipRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 4 },
-  header: { paddingHorizontal: 16, paddingTop: 8 },
+  monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },
+  month: { flex: 1, textAlign: "center", color: BRAND.ink },
+  chipRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 6 },
+  header: { paddingHorizontal: 16, paddingTop: 8, gap: 8 },
   due: { paddingHorizontal: 16, paddingTop: 8 },
   dueEmpty: { paddingHorizontal: 16 },
-  totals: { borderRadius: 12, padding: 16, gap: 12 },
-  total: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
-  totalAmount: { flexShrink: 1, textAlign: "right" },
-  sectionHeader: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
+  error: { color: BRAND.loss },
+  muted: { color: BRAND.zinc600 },
+  incomeLine: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginTop: 4 },
+  incomeLabel: { color: BRAND.zinc600 },
+  incomeAmount: { flexShrink: 1, color: BRAND.gain, textAlign: "right", fontVariant: ["tabular-nums"] },
+  sectionHeader: { color: BRAND.ink, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4, letterSpacing: 0.6 },
   rowWrap: { paddingHorizontal: 16, paddingVertical: 4 },
   empty: { alignItems: "center", gap: 8, padding: 32 },
-  more: { marginTop: 8 },
+  more: { marginTop: 8, marginHorizontal: 16 },
   activityNote: { paddingHorizontal: 16, paddingTop: 16 },
   fab: { position: "absolute", right: 16, bottom: 16 },
 });
