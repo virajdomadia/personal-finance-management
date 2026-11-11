@@ -1,15 +1,26 @@
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.api.routes import dashboard
+from app.api.routes import coins, crypto_trades, dashboard, fund_trades, funds, sips
+from app.api.routes.accounts import fmt
 from app.api.routes.dashboard import next_due_date
 from app.main import app
 from tests.test_accounts import Headers, auth, make
-from tests.test_recurring import made
+from tests.test_coins import add_coin_price
+from tests.test_crypto_trades import coin, exchange
+from tests.test_crypto_trades import existing as existing_coin
+from tests.test_deposits import ppf
+from tests.test_fund_trades import add_nav, bank, fund
+from tests.test_fund_trades import made as made_fund
+from tests.test_portfolio import price
+from tests.test_recurring import made as made_recurring
+from tests.test_trades import broker, stock
+from tests.test_trades import made as made_trade
 
 client = TestClient(app)
 URL = "/api/dashboard"
@@ -24,6 +35,7 @@ EMPTY = {
     "recurring": [],
     "goals_due": [],
     "goals": [],
+    "asset_split": [],
 }
 
 
@@ -204,8 +216,8 @@ def test_recurring_shows_due_and_coming_up_and_leaves_other_keys(
     before = get(headers)
     assert before["recurring"] == []
 
-    rent = made(headers, account_id, day=1, start_date="2026-11-01", remind_days=3)
-    premium = made(
+    rent = made_recurring(headers, account_id, day=1, start_date="2026-11-01", remind_days=3)
+    premium = made_recurring(
         headers, account_id, name="Premium", day=10, start_date="2026-11-10", remind_days=3
     )
 
@@ -218,3 +230,61 @@ def test_recurring_shows_due_and_coming_up_and_leaves_other_keys(
         (rent["id"], "2026-11-01", "due"),
         (premium["id"], "2026-11-10", "coming_up"),
     ]
+
+
+# Asset split
+
+
+def split(headers: Headers) -> list[dict[str, str]]:
+    return get(headers)["asset_split"]
+
+
+def test_asset_split_empty(headers: Headers) -> None:
+    assert split(headers) == []
+
+
+def test_asset_split_bank_and_cash(headers: Headers) -> None:
+    make(headers, type="bank", name="SBI", bank_kind="savings", balance="1000.00")
+    make(headers, type="cash", name="Wallet", balance="500.00")
+    card(headers, balance="300.00")
+
+    assert split(headers) == [{"group": "bank_cash", "value": "1500.00"}]
+
+
+def test_asset_split_with_ppf_and_stock(headers: Headers) -> None:
+    ppf(headers, balance="100000.00")
+    broker_id, infy = broker(headers, balance="7000.00"), stock(headers)
+    made_trade(headers, stock_id=infy, account_id=broker_id, quantity=10, price="500.00")
+    price(headers, infy, "600.00")
+
+    assert split(headers) == [
+        {"group": "bank_cash", "value": "2000.00"},
+        {"group": "deposits", "value": "100000.00"},
+        {"group": "stocks", "value": "6000.00"},
+    ]
+
+
+def test_asset_split_sums_to_total_have(headers: Headers, monkeypatch: pytest.MonkeyPatch) -> None:
+    for module in (funds, fund_trades, sips, coins, crypto_trades):
+        monkeypatch.setattr(module, "today_india", lambda: date(2026, 11, 8))
+    account = bank(headers, balance="20000.00")
+    ppf(headers, balance="100000.00")
+    card(headers, balance="700.00")
+    broker_id, infy = broker(headers, balance="1000.00"), stock(headers)
+    made_trade(headers, stock_id=infy, account_id=broker_id, quantity=10, price="500.00")
+    price(headers, infy, "600.00")
+    ppfcf = fund(headers)
+    made_fund(
+        headers, fund_id=ppfcf, account_id=account, opening=True, units="253.462", amount="21000.00"
+    )
+    add_nav(headers, ppfcf, "2026-11-05", "84.3793")
+    exch, btc = exchange(headers), coin(headers, "BTC")
+    existing_coin(headers, coin_id=btc, account_id=exch)
+    add_coin_price(headers, btc, "2026-11-05", "7504827.5")
+
+    body = get(headers)
+    groups = [s["group"] for s in body["asset_split"]]
+    assert groups == ["bank_cash", "deposits", "stocks", "funds", "crypto"]
+    values = [Decimal(s["value"]) for s in body["asset_split"]]
+    assert all(v > 0 for v in values)  # in particular bank_cash is never negative
+    assert fmt(sum(values, Decimal(0))) == body["total_have"]
