@@ -41,7 +41,20 @@ The look, in words:
 - **Net-worth trend chart and the "NEW HIGH!" sticker.** Both need a net-worth history table, a Neon migration and weeks of data before they look like anything. They're deferred to a follow-up, and the dashboard's net-worth tile shows "▲/▼ this month" only if it can be computed without history. If it can't, it shows nothing extra.
 - **Dark mode.** The mockups are light-only. Both platforms switch to the light theme. The "Loud at night" (B2b) variant is a possible follow-up. The web drops its `prefers-color-scheme: dark` styles, and the app forces the light theme.
 - No new features beyond the above, no changes to what any screen does, and no navigation restructuring on the app. The five tabs stay, and goals/recurring/insurance stay under Profile.
-- No renaming of the product. "Paisa" in the mockups was a placeholder. Keep "Personal Finance" (app) and "Personal Finance Manager" (web).
+- No technical renaming. The Android package (`com.virajdomadia.personalfinance`), the Expo slug and the URL scheme stay as they are, because Google sign-in and EAS are tied to them. Only the **display name** changes (see Brand).
+
+## Brand (owner asked for a name, logo, favicon and app icon, and delegated the choice)
+
+**Name: Gullak**, the Hindi word for the clay piggy-bank pot. It's about saving, warm and Indian, and it doesn't read like a bank. Picked by Claude from four options (Gullak, Chillar, Rupi, Paisa Pop) shown in `.superpowers/brainstorm/4979-1794386878/content/name-logo.html`.
+
+**Logo**: an orange (`#FF7A00`) clay pot with a neck and a dark coin slot, a green (`#58CC02`) coin dropping in above it, and ink (`#1A1A1A`) outlines. For the app icon and favicon it sits on a yellow (`#FFC800`) rounded square with an ink border. The master is the SVG in `name-logo.html` (option 1). The favicon uses the simplified version (thicker strokes, no slot shading) so it reads at 16px.
+
+**Where the name shows**: the web `<title>` ("Gullak", with the page name before it where pages set one), the sidebar top (logo + "Gullak"), the login page headline lockup, the app's `expo.name` ("Gullak") and the login screen.
+
+**Files to produce** (one script renders them all from the SVG masters, using the `sharp` already installed under `frontend/node_modules`, plus Pillow for the `.ico`):
+- Web: `frontend/src/app/icon.svg`, `frontend/src/app/favicon.ico` (16/32/48), `frontend/src/app/apple-icon.png` (180). Remove the unused Next starter SVGs in `frontend/public`.
+- App: `mobile/assets/icon.png` (1024, full tile), `android-icon-foreground.png` (1024, transparent, pot and coin inside the centre 66% safe zone), `android-icon-background.png` (1024, solid yellow), `android-icon-monochrome.png` (1024, white silhouette on transparent), `splash-icon.png` (pot and coin, transparent). Set `adaptiveIcon.backgroundColor` and the splash background to `#FFC800`.
+- Keep the master SVGs and the script in the repo (`branding/`), so the icons can be regenerated.
 
 ## Constraints
 
