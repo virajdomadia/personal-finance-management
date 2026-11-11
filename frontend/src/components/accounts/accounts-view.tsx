@@ -23,6 +23,9 @@ import { freeBalanceText, overSetAsideText } from "@/lib/goals";
 import { emiForm, todayIndia } from "@/lib/transactions";
 import { depositLines, instalmentForm, interestForm, ppfDepositForm, ppfInterestText, rdDueText } from "@/lib/deposits";
 import { TransactionDialog } from "@/components/transactions/transaction-dialog";
+import { ProgressBar } from "@/components/goals/goals-view";
+import { FOCUS, PageHeader, Tile, buttonClass } from "@/components/ui/chunky";
+import { accountEmoji } from "@/lib/fun";
 
 import { AccountDialog } from "./account-dialog";
 import { CloseRdDialog } from "./close-rd-dialog";
@@ -38,12 +41,20 @@ type Dialog =
   | { kind: "ppf-interest"; account: Account }
   | { kind: "close-rd"; account: Account };
 
-const BUTTON =
-  "rounded-md px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none disabled:opacity-60";
-const PRIMARY = `${BUTTON} bg-zinc-900 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300`;
-const QUIET = `${BUTTON} text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800`;
-const ROW_ACTION =
-  "rounded px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none disabled:opacity-60 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100";
+const PRIMARY = buttonClass("primary");
+const QUIET = buttonClass("alt");
+const ROW_ACTION = `${buttonClass("alt")} !px-2.5 !py-1`;
+const CARD = "rounded-[18px] border-[2.5px] border-ink bg-card p-5 shadow-chunky";
+const SOON_DAYS = 5; // a card due within this many days gets the "due" tone
+
+// Whole days from one "YYYY-MM-DD" to another, from the text so no timezone shifts the day.
+function daysUntil(date: string, from: string): number {
+  const ms = (iso: string) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  return Math.round((ms(date) - ms(from)) / 86_400_000);
+}
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof ApiError && err.status === 401;
@@ -89,41 +100,43 @@ export function AccountsView() {
   const activeAccounts = load.status === "ready" && !archived ? load.data.accounts : [];
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h1 className="text-xl font-semibold">{archived ? "Archived accounts" : "Accounts"}</h1>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className={QUIET} onClick={() => switchView(!archived)}>
-            {archived ? "Back to accounts" : "View archived"}
-          </button>
-          {!archived && (
-            <button type="button" className={PRIMARY} onClick={() => setDialog({ kind: "form", account: null })}>
-              Add account
+    <div className="mx-auto max-w-5xl">
+      <PageHeader
+        title={archived ? "Archived accounts" : "Accounts"}
+        action={
+          <>
+            <button type="button" className={QUIET} onClick={() => switchView(!archived)}>
+              {archived ? "BACK TO ACCOUNTS" : "VIEW ARCHIVED"}
             </button>
-          )}
-        </div>
-      </div>
+            {!archived && (
+              <button type="button" className={PRIMARY} onClick={() => setDialog({ kind: "form", account: null })}>
+                + ADD ACCOUNT
+              </button>
+            )}
+          </>
+        }
+      />
 
       {notice ? (
-        <p
-          role="alert"
-          className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
-        >
+        <p role="alert" className="mb-4 rounded-[14px] border-[2.5px] border-ink bg-pink/15 px-3 py-2 text-sm font-extrabold text-ink">
           {notice}
         </p>
       ) : null}
 
       {load.status === "loading" && (
-        <p role="status" className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p role="status" className="text-sm font-bold text-zinc-600">
           Loading accounts...
         </p>
       )}
 
       {load.status === "error" && (
-        <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
-          <p>We couldn&apos;t load your accounts.</p>
-          <button type="button" className={`${QUIET} mt-2 -ml-3`} onClick={() => switchView(archived)}>
-            Try again
+        <div role="alert" className={CARD}>
+          <p className="text-4xl" aria-hidden="true">
+            🙈
+          </p>
+          <p className="mt-1 font-extrabold">We couldn&apos;t load your accounts.</p>
+          <button type="button" className={`${QUIET} mt-3`} onClick={() => switchView(archived)}>
+            TRY AGAIN
           </button>
         </div>
       )}
@@ -294,23 +307,44 @@ function Content({
     else sections.push({ key: deposit ? "deposits" : g.type, title: deposit ? "Deposits" : TYPE_LABELS[g.type], accounts: [...g.accounts] });
   }
 
+  // Credit used across the cards that have a limit. Available credit already counts loans paid from a card.
+  const limited = archived ? [] : data.accounts.filter((a) => a.type === "credit_card" && a.credit_limit !== null && a.available_credit !== null);
+  const limit = limited.reduce((sum, a) => sum + Number(a.credit_limit), 0);
+  const used = Math.max(0, limited.reduce((sum, a) => sum + (Number(a.credit_limit) - Number(a.available_credit)), 0));
+  const usedPercent = limit > 0 ? Math.max(0, Math.round((used * 100) / limit)) : null;
+
   return (
     <>
       {!archived && (
-        <dl className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Total label="You have" value={data.total_have} sub={includedHint(data)} />
-          <Total label="You owe" value={data.total_owe} />
-        </dl>
+        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Tile tone="yellow" emoji="💰" label="You have" value={formatRupees(data.total_have)}>
+            {includedHint(data) ? <span className="mt-0.5 block text-xs font-extrabold break-words">{includedHint(data)}</span> : null}
+          </Tile>
+          <Tile tone="pink" emoji="🧾" label="You owe" value={formatRupees(data.total_owe)} />
+          {usedPercent !== null ? (
+            <div className="sm:col-span-2 lg:col-span-1">
+              <Tile label="Credit used" emoji="💳" value={`${usedPercent}%`}>
+                <ProgressBar percent={usedPercent} reached={false} label="Credit used" className="mt-2" />
+                <span className="mt-1.5 block text-xs font-extrabold break-words">
+                  {formatRupees(used.toFixed(2))} of {formatRupees(limit.toFixed(2))}
+                </span>
+              </Tile>
+            </div>
+          ) : null}
+        </div>
       )}
 
       {dueLines.length > 0 && (
-        <ul aria-label="Due now" className="mb-6 flex flex-col gap-2">
+        <ul aria-label="Due now" className="mb-6 flex flex-col gap-2.5">
           {dueLines.map((line) => (
             <li
               key={line.key}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-[14px] border-[2.5px] border-ink bg-due px-4 py-2 text-sm font-extrabold shadow-chunky-sm"
             >
-              <span className="min-w-0 [overflow-wrap:anywhere]">{line.text}</span>
+              <span className="min-w-0 [overflow-wrap:anywhere]">
+                <span aria-hidden="true">⏰ </span>
+                {line.text}
+              </span>
               <button type="button" className={ROW_ACTION} onClick={line.run}>
                 {line.label}
               </button>
@@ -320,17 +354,20 @@ function Content({
       )}
 
       {groups.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700">
+        <div className={`${CARD} px-6 py-10 text-center`}>
+          <p className="text-4xl" aria-hidden="true">
+            {archived ? "📦" : "👛"}
+          </p>
           {archived ? (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">No archived accounts.</p>
+            <p className="mt-2 text-sm font-extrabold">No archived accounts.</p>
           ) : (
             <>
-              <p className="font-medium">Add your first account</p>
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+              <p className="mt-2 font-black">Add your first account</p>
+              <p className="mt-1 text-sm font-bold text-zinc-600">
                 Bank accounts, credit cards, cash, broker balances, wallets and loans all live here.
               </p>
               <button type="button" className={`${PRIMARY} mt-4`} onClick={onAdd}>
-                Add account
+                + ADD ACCOUNT
               </button>
             </>
           )}
@@ -339,10 +376,11 @@ function Content({
         <div className="flex flex-col gap-6">
           {sections.map(({ key, title, accounts }) => (
             <section key={key} aria-labelledby={`group-${key}`}>
-              <h2 id={`group-${key}`} className="mb-1 px-1 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
+              <h2 id={`group-${key}`} className="mb-2 text-xs font-black tracking-wide uppercase">
+                <span aria-hidden="true">{key === "deposits" ? "🐷" : accountEmoji(key)} </span>
                 {title}
               </h2>
-              <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+              <ul className="overflow-hidden rounded-[18px] border-[2.5px] border-ink bg-card shadow-chunky">
                 {accounts.map((account) => (
                   <AccountRow
                     key={account.id}
@@ -367,16 +405,6 @@ function Content({
 function includedHint(data: AccountList): string | null {
   const investments = investmentsIn(data);
   return investments === null ? null : `Includes investments ${formatRupees(investments)}`;
-}
-
-function Total({ label, value, sub = null }: { label: string; value: string; sub?: string | null }) {
-  return (
-    <div className="min-w-0 rounded-lg border border-zinc-200 px-4 py-3 dark:border-zinc-800">
-      <dt className="text-sm text-zinc-600 dark:text-zinc-400">{label}</dt>
-      <dd className="mt-1 text-2xl font-semibold tabular-nums [overflow-wrap:anywhere]">{formatRupees(value)}</dd>
-      {sub ? <dd className="text-sm text-zinc-500 tabular-nums dark:text-zinc-400">{sub}</dd> : null}
-    </div>
-  );
 }
 
 function AccountRow({
@@ -420,53 +448,68 @@ function AccountRow({
     account.last4 ? maskLast4(account.last4) : null,
   ].filter(Boolean);
 
+  const dueSoon =
+    card && account.due_day !== null && daysUntil(nextDueDate(account.due_day, today), today) <= SOON_DAYS;
   const freeText = freeBalanceText(account);
   const overText = overSetAsideText(account);
 
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+    <li
+      className={`flex flex-wrap items-center gap-x-4 gap-y-2 border-b-[1.5px] border-zinc-200 px-4 py-3 last:border-b-0 ${dueSoon ? "bg-due" : ""}`}
+    >
+      <span
+        aria-hidden="true"
+        className={`inline-flex size-9 shrink-0 items-center justify-center rounded-[11px] border-[2.5px] border-ink text-lg ${dueSoon ? "bg-yellow" : "bg-zinc-100"}`}
+      >
+        {accountEmoji(account.type)}
+      </span>
       <div className="min-w-32 flex-1">
-        <p className="text-sm font-medium [overflow-wrap:anywhere]">
+        <p className="text-sm font-extrabold [overflow-wrap:anywhere]">
           {account.name}
           {account.in_goal && (
             <>
               {" "}
-              <Link href={`/goals/${account.in_goal.id}`} className="text-xs font-normal text-zinc-500 underline dark:text-zinc-400">
+              <Link href={`/goals/${account.in_goal.id}`} className={`rounded text-xs font-bold text-zinc-600 underline ${FOCUS}`}>
                 For: {account.in_goal.name}
               </Link>
             </>
           )}
         </p>
         {details.length > 0 && (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{details.join(" · ")}</p>
+          <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">{details.join(" · ")}</p>
         )}
         {lines.length > 0 && (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{lines.join(" · ")}</p>
+          <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">{lines.join(" · ")}</p>
         )}
         {loanDetails.length > 0 && (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{loanDetails.join(" · ")}</p>
+          <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">{loanDetails.join(" · ")}</p>
+        )}
+        {dueSoon && account.due_day !== null && (
+          <p className="mt-0.5 text-xs font-black [overflow-wrap:anywhere]">
+            <span aria-hidden="true">⏰ </span>Due {formatDueDate(nextDueDate(account.due_day, today))}
+          </p>
         )}
         {overText && (
-          <p role="note" className="mt-1 text-xs text-amber-800 dark:text-amber-300 [overflow-wrap:anywhere]">
+          <p role="note" className="mt-1 text-xs font-extrabold text-loss [overflow-wrap:anywhere]">
             {overText}
           </p>
         )}
       </div>
       <div className="min-w-0 max-w-full text-right tabular-nums [overflow-wrap:anywhere]">
-        <p className="text-sm font-medium">
+        <p className="text-sm font-black">
           {owed && (
-            <span className="mr-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400">{paidOff ? "Paid off" : "Owed"}</span>
+            <span className="mr-1.5 text-xs font-bold text-zinc-600">{paidOff ? "Paid off" : "Owed"}</span>
           )}
           {formatRupees(headlineBalance(account))}
         </p>
-        {freeText && <p className="text-xs text-zinc-500 dark:text-zinc-400">{freeText}</p>}
+        {freeText && <p className="text-xs font-bold text-zinc-600">{freeText}</p>}
         {card && account.available_credit !== null && (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          <p className="text-xs font-bold text-zinc-600">
             Available <span className="tabular-nums">{formatRupees(account.available_credit)}</span>
           </p>
         )}
       </div>
-      <div className="flex max-w-full flex-wrap gap-1">
+      <div className="flex max-w-full flex-wrap gap-1.5">
         <Link href={`/transactions?account=${account.id}`} className={ROW_ACTION} aria-label={`Transactions for ${account.name}`}>
           Transactions
         </Link>
@@ -579,22 +622,22 @@ function ArchiveDialog({
         if (saving) e.preventDefault();
       }}
       onClose={onClose}
-      className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-lg border border-zinc-200 bg-white p-0 text-zinc-900 shadow-xl backdrop:bg-black/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+      className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-[18px] border-[2.5px] border-ink bg-card p-0 text-ink shadow-chunky backdrop:bg-ink/60"
     >
       <div className="px-5 py-4">
-        <h2 id="archive-title" className="text-base font-semibold">
+        <h2 id="archive-title" className="text-base font-black">
           Archive {account.name}?
         </h2>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2 text-sm font-bold text-zinc-600">
           It leaves your list and totals. Nothing is deleted, and you can restore it from the archived view.
         </p>
       </div>
-      <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+      <div className="flex justify-end gap-2 border-t-[2.5px] border-ink px-5 py-3">
         <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
-          Cancel
+          CANCEL
         </button>
         <button type="button" className={PRIMARY} disabled={saving} onClick={confirm}>
-          {saving ? "Archiving..." : "Archive"}
+          {saving ? "ARCHIVING..." : "ARCHIVE"}
         </button>
       </div>
     </dialog>

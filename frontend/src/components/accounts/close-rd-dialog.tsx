@@ -7,10 +7,10 @@ import { type Account, errorMessage, formatRupees, splitErrors } from "@/lib/acc
 import { ApiError, apiFetch } from "@/lib/api";
 import { type CloseRdForm, closeRdForm, closeRdPayload } from "@/lib/deposits";
 import { todayIndia } from "@/lib/transactions";
+import { FOCUS, buttonClass } from "@/components/ui/chunky";
 import { Select } from "@/components/ui/select";
 
-const INPUT =
-  "w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 disabled:opacity-60 aria-[invalid=true]:border-red-600 dark:border-zinc-700";
+const INPUT = `w-full rounded-[14px] border-[2.5px] border-ink bg-card px-3 py-2 text-sm font-extrabold outline-none disabled:opacity-60 aria-[invalid=true]:border-loss aria-[invalid=true]:bg-pink/10 ${FOCUS}`;
 const RENDERED = ["amount", "date", "account_id"];
 
 type Props = {
@@ -71,7 +71,7 @@ export function CloseRdDialog({ account, accounts, onClose, onDone, onConflict }
   const set = (key: keyof CloseRdForm, value: string) => setForm((f) => ({ ...f, [key]: value }));
   const err = (key: string) =>
     errors[key] ? (
-      <p id={`cr-e-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+      <p id={`cr-e-${key}`} className="mt-1 text-xs font-extrabold text-loss">
         {errors[key]}
       </p>
     ) : null;
@@ -90,16 +90,16 @@ export function CloseRdDialog({ account, accounts, onClose, onDone, onConflict }
         if (saving) e.preventDefault();
       }}
       onClose={onClose}
-      className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-lg border border-zinc-200 bg-white p-0 text-zinc-900 shadow-xl backdrop:bg-black/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+      className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-[18px] border-[2.5px] border-ink bg-card p-0 text-ink shadow-chunky backdrop:bg-ink/60"
     >
       <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
-        <h2 id="close-rd-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+        <h2 id="close-rd-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
           Close {account.name}
         </h2>
         <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="cr-amount" className="mb-1 block text-sm font-medium">
+              <label htmlFor="cr-amount" className="mb-1 block text-xs font-black tracking-wide uppercase">
                 Amount received
               </label>
               <input
@@ -116,7 +116,7 @@ export function CloseRdDialog({ account, accounts, onClose, onDone, onConflict }
               {err("amount")}
             </div>
             <div>
-              <label htmlFor="cr-date" className="mb-1 block text-sm font-medium">
+              <label htmlFor="cr-date" className="mb-1 block text-xs font-black tracking-wide uppercase">
                 Date
               </label>
               <input
@@ -133,7 +133,7 @@ export function CloseRdDialog({ account, accounts, onClose, onDone, onConflict }
             </div>
           </div>
           <div>
-            <label htmlFor="cr-account_id" className="mb-1 block text-sm font-medium">
+            <label htmlFor="cr-account_id" className="mb-1 block text-xs font-black tracking-wide uppercase">
               Received in
             </label>
             <Select
@@ -147,31 +147,31 @@ export function CloseRdDialog({ account, accounts, onClose, onDone, onConflict }
             />
             {err("account_id")}
           </div>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm font-bold text-zinc-600">
             Balance {formatRupees(account.balance)}. The difference is recorded as interest, or as a fee if you received less.
             The RD is then archived.
           </p>
           {formError ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            <p role="alert" className="text-sm font-extrabold text-loss">
               {formError}
             </p>
           ) : null}
         </div>
-        <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+        <div className="flex justify-end gap-2 border-t-[2.5px] border-ink px-5 py-3">
           <button
             type="button"
             disabled={saving}
             onClick={() => ref.current?.close()}
-            className="rounded-md px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none disabled:opacity-60 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className={buttonClass("alt")}
           >
-            Cancel
+            CANCEL
           </button>
           <button
             type="submit"
             disabled={saving}
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300 dark:focus-visible:ring-offset-zinc-900"
+            className={buttonClass("primary")}
           >
-            {saving ? "Closing..." : "Close RD"}
+            {saving ? "CLOSING..." : "CLOSE RD"}
           </button>
         </div>
       </form>
