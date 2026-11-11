@@ -1,9 +1,10 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KeyboardAvoidingView, ScrollView, StyleSheet, View } from "react-native";
-import { Appbar, Button, Switch, Text, TextInput, useTheme } from "react-native-paper";
+import { Switch, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ChunkyBox, ChunkyButton, ScreenHeader } from "@/components/chunky";
 import { DateField } from "@/components/date-field";
 import { Banner, Choice, Heading, LoadingScreen, useBlockBack, useFieldScroll } from "@/components/form-parts";
 import { type Account, type AccountList, errorMessage, splitErrors } from "@/lib/accounts";
@@ -20,6 +21,7 @@ import {
   templatePayload,
 } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 import { type CategoryList, isDeposit, todayIndia } from "@/lib/transactions";
 
 const MONEY_MAX_LENGTH = 24;
@@ -249,10 +251,7 @@ function FormBody({ accounts, categories, template }: Loaded) {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} disabled={saving} />
-        <Appbar.Content title={editing ? "Edit reminder" : "Add reminder"} />
-      </Appbar.Header>
+      <ScreenHeader title={editing ? "Edit reminder" : "Add reminder"} back backDisabled={saving} />
 
       <KeyboardAvoidingView style={styles.screen} behavior="padding">
         <ScrollView
@@ -262,14 +261,12 @@ function FormBody({ accounts, categories, template }: Loaded) {
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         >
           {conflict !== null ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
+            <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
               <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
                 {conflict}
               </Text>
-              <Button mode="contained" onPress={() => router.back()}>
-                Back to reminders
-              </Button>
-            </View>
+              <ChunkyButton label="Back to reminders" onPress={() => router.back()} />
+            </ChunkyBox>
           ) : null}
           <Banner messages={general} />
           {fromPolicy ? (
@@ -363,7 +360,7 @@ function FormBody({ accounts, categories, template }: Loaded) {
           )}
           {field("day", input("day", "Day of the month", { keyboardType: "number-pad", maxLength: 2 }), errors.day)}
           {Number(form.day) > 28 ? (
-            <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+            <Text variant="bodySmall" style={{ color: BRAND.zinc600 }}>
               In shorter months it falls on the last day.
             </Text>
           ) : null}
@@ -432,16 +429,14 @@ function FormBody({ accounts, categories, template }: Loaded) {
             </View>
           ) : null}
 
-          <Button
-            mode="contained"
+          <ChunkyButton
+            variant="green"
+            label={saving ? "Saving..." : editing ? "Save changes" : "Add reminder"}
             onPress={() => void save()}
             loading={saving}
-            disabled={busy}
-            contentStyle={styles.saveContent}
+            disabled={busy && !saving}
             style={styles.save}
-          >
-            {saving ? "Saving..." : editing ? "Save changes" : "Add reminder"}
-          </Button>
+          />
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -451,10 +446,9 @@ function FormBody({ accounts, categories, template }: Loaded) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { padding: 16, gap: 12 },
-  banner: { borderRadius: 12, padding: 12, gap: 8 },
+  banner: { padding: 12, gap: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
   switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   switchLabel: { flexShrink: 1 },
   save: { marginTop: 8 },
-  saveContent: { height: 48 },
 });

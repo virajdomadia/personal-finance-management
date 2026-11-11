@@ -1,32 +1,44 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { Appbar, Button, Card, Dialog, Divider, Portal, Text, useTheme } from "react-native-paper";
+import { Button, Dialog, Portal, Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ChunkyBox, ChunkyButton, HeaderAction, Row, ScreenHeader, Tile } from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
 import { errorMessage } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type Policy, cardBillText, fundingText, renewalText } from "@/lib/insurance";
 import { whole } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 import { formatDate } from "@/lib/transactions";
 
 const FAILED = "We couldn't load your policies.";
 
+// A policy renewing within this many days (or already past) is listed under Renew soon.
+const RENEW_SOON_DAYS = 60;
+
 type Asking = { kind: "lapse" | "delete"; policy: Policy };
 
 function Fact({ label, value }: { label: string; value: string }) {
-  const { colors } = useTheme();
   return (
     <View style={styles.fact}>
-      <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+      <Text variant="bodySmall" style={styles.muted}>
         {label}
       </Text>
       <Text variant="bodyMedium" style={styles.factValue}>
         {value}
       </Text>
     </View>
+  );
+}
+
+function SectionTitle({ label }: { label: string }) {
+  return (
+    <Text variant="titleSmall" accessibilityRole="header" style={styles.sectionTitle}>
+      {label.toUpperCase()}
+    </Text>
   );
 }
 
@@ -45,7 +57,6 @@ function PolicyCard({
   onLapse: () => void;
   onDelete: () => void;
 }) {
-  const { colors } = useTheme();
   const renewal = renewalText(policy);
   const funding = fundingText(policy);
   const cardBill = cardBillText(policy);
@@ -53,108 +64,124 @@ function PolicyCard({
   const name = `${policy.insurer}, ${policy.plan}`;
 
   return (
-    <Card mode="outlined" accessibilityLabel={name}>
-      <Card.Content style={styles.card}>
-        <View style={styles.head}>
-          <View style={styles.headText}>
-            <Text variant="titleMedium">{policy.insurer}</Text>
-            <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
-              {policy.plan}
-            </Text>
-          </View>
-          <Text variant="bodyMedium" style={styles.renewal}>
+    <ChunkyBox style={styles.card}>
+      <View accessible accessibilityLabel={name} style={styles.head}>
+        <View style={styles.square}>
+          <Text style={styles.emoji} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            {policy.active ? "❤️" : "🛡️"}
+          </Text>
+        </View>
+        <View style={styles.headText}>
+          <Text variant="titleMedium" style={styles.insurer}>
+            {policy.insurer}
+          </Text>
+          <Text variant="bodyMedium" style={styles.muted}>
+            {policy.plan}
+          </Text>
+          <Text variant="bodySmall" style={styles.renewal}>
             {renewal ?? "Lapsed"}
           </Text>
         </View>
+      </View>
 
-        <View style={styles.facts}>
-          <Fact label="Policy number" value={policy.policy_number} />
-          <Fact label="Insured" value={policy.insured} />
-          <Fact label="Sum insured" value={whole(policy.sum_insured)} />
-          <Fact label="Premium" value={`${whole(policy.premium)} a year`} />
+      <View style={styles.facts}>
+        <Fact label="Policy number" value={policy.policy_number} />
+        <Fact label="Insured" value={policy.insured} />
+        <Fact label="Sum insured" value={whole(policy.sum_insured)} />
+        <Fact label="Premium" value={`${whole(policy.premium)} a year`} />
+      </View>
+
+      {funding ? <Text variant="bodyMedium">{funding}</Text> : null}
+      {cardBill ? <Banner tone="info" messages={[`Heads up. ${cardBill}`]} /> : null}
+
+      {policy.details ? (
+        <View style={styles.section}>
+          <Text variant="labelLarge" style={styles.label}>
+            Details
+          </Text>
+          <Text variant="bodyMedium">{policy.details}</Text>
         </View>
+      ) : null}
 
-        {funding ? <Text variant="bodyMedium">{funding}</Text> : null}
-        {cardBill ? <Banner tone="info" messages={[`Heads up. ${cardBill}`]} /> : null}
+      {policy.premium_by_fy.length > 0 ? (
+        <View style={styles.section}>
+          <Text variant="labelLarge" style={styles.label}>
+            Premium paid by financial year
+          </Text>
+          {policy.premium_by_fy.map((fy) => (
+            <Text key={fy.fy} variant="bodyMedium">
+              FY {fy.fy}: {whole(fy.amount)}
+            </Text>
+          ))}
+          <Text variant="bodySmall" style={styles.muted}>
+            Health premiums are usually deductible under section 80D.
+          </Text>
+        </View>
+      ) : null}
 
-        {policy.details ? (
-          <View style={styles.section}>
-            <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
-              Details
-            </Text>
-            <Text variant="bodyMedium">{policy.details}</Text>
-          </View>
-        ) : null}
-
-        {policy.premium_by_fy.length > 0 ? (
-          <View style={styles.section}>
-            <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
-              Premium paid by financial year
-            </Text>
-            {policy.premium_by_fy.map((fy) => (
-              <Text key={fy.fy} variant="bodyMedium">
-                FY {fy.fy}: {whole(fy.amount)}
-              </Text>
-            ))}
-            <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-              Health premiums are usually deductible under section 80D.
-            </Text>
-          </View>
-        ) : null}
-
-        {periods.length > 0 ? (
-          <View style={styles.section}>
-            <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
-              Policy years
-            </Text>
-            {periods.map((p, index) => (
-              <View key={p.period_start}>
-                {index > 0 ? <Divider /> : null}
-                <View style={styles.period}>
-                  <View style={styles.headText}>
-                    <Text variant="bodyMedium">
-                      {formatDate(p.period_start)} to {formatDate(p.period_end)}
-                    </Text>
-                    <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                      {p.transaction_id === null
-                        ? `Paid ${formatDate(p.paid_on)}, before using the app`
-                        : `Paid ${formatDate(p.paid_on)}`}
-                      {" · "}sum insured {whole(p.sum_insured)}
-                    </Text>
-                  </View>
-                  <Text variant="bodyMedium" style={styles.factValue}>
-                    {whole(p.premium)}
-                  </Text>
-                </View>
+      {periods.length > 0 ? (
+        <View style={styles.section}>
+          <Text variant="labelLarge" style={styles.label}>
+            Policy years
+          </Text>
+          {periods.map((p, index) => (
+            <View key={p.period_start} style={[styles.period, index > 0 ? styles.periodDivider : null]}>
+              <View style={styles.headText}>
+                <Text variant="bodyMedium">
+                  {formatDate(p.period_start)} to {formatDate(p.period_end)}
+                </Text>
+                <Text variant="bodySmall" style={styles.muted}>
+                  {p.transaction_id === null
+                    ? `Paid ${formatDate(p.paid_on)}, before using the app`
+                    : `Paid ${formatDate(p.paid_on)}`}
+                  {" · "}sum insured {whole(p.sum_insured)}
+                </Text>
               </View>
-            ))}
-            {periods.length > 1 ? (
-              <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                Renewed by mistake? Delete the latest premium payment in Transactions and the policy goes back a year.
+              <Text variant="bodyMedium" style={styles.periodAmount}>
+                {whole(p.premium)}
               </Text>
-            ) : null}
-          </View>
-        ) : null}
-      </Card.Content>
+            </View>
+          ))}
+          {periods.length > 1 ? (
+            <Text variant="bodySmall" style={styles.muted}>
+              Renewed by mistake? Delete the latest premium payment in Transactions and the policy goes back a year.
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
       <View style={styles.actions}>
         {policy.active ? (
-          <Button mode="contained" disabled={disabled} onPress={onRenew} accessibilityLabel={`Renew ${name}`}>
-            Renew
-          </Button>
+          <ChunkyButton
+            compact
+            variant="green"
+            label="Renew"
+            disabled={disabled}
+            onPress={onRenew}
+            accessibilityLabel={`Renew ${name}`}
+          />
         ) : null}
-        <Button disabled={disabled} onPress={onEdit} accessibilityLabel={`Edit ${name}`}>
-          Edit
-        </Button>
+        <ChunkyButton compact variant="alt" label="Edit" disabled={disabled} onPress={onEdit} accessibilityLabel={`Edit ${name}`} />
         {policy.active ? (
-          <Button disabled={disabled} onPress={onLapse} accessibilityLabel={`Mark ${name} lapsed`}>
-            Mark lapsed
-          </Button>
+          <ChunkyButton
+            compact
+            variant="alt"
+            label="Mark lapsed"
+            disabled={disabled}
+            onPress={onLapse}
+            accessibilityLabel={`Mark ${name} lapsed`}
+          />
         ) : null}
-        <Button disabled={disabled} onPress={onDelete} accessibilityLabel={`Delete ${name}`}>
-          Delete
-        </Button>
+        <ChunkyButton
+          compact
+          variant="alt"
+          label="Delete"
+          disabled={disabled}
+          onPress={onDelete}
+          accessibilityLabel={`Delete ${name}`}
+        />
       </View>
-    </Card>
+    </ChunkyBox>
   );
 }
 
@@ -243,13 +270,14 @@ export default function InsuranceScreen() {
     void load();
   }
 
+  const active = (policies ?? []).filter((p) => p.active);
+  const lapsed = (policies ?? []).filter((p) => !p.active);
+  const soon = active.filter((p) => p.days_to_renewal !== null && p.days_to_renewal <= RENEW_SOON_DAYS);
+  const cover = active.reduce((sum, p) => sum + Number(p.sum_insured), 0);
+
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Insurance" />
-        <Appbar.Action icon="plus" accessibilityLabel="Add policy" onPress={() => go("/policy-form")} />
-      </Appbar.Header>
+      <ScreenHeader title="Insurance" back right={<HeaderAction icon="plus" label="Add policy" onPress={() => go("/policy-form")} />} />
 
       {policies === null && !failed ? (
         <View style={styles.center}>
@@ -260,9 +288,7 @@ export default function InsuranceScreen() {
           <Text variant="bodyLarge" style={styles.centerText}>
             {FAILED}
           </Text>
-          <Button mode="contained" onPress={() => void refresh()} loading={refreshing} disabled={refreshing}>
-            Try again
-          </Button>
+          <ChunkyButton label="Try again" onPress={() => void refresh()} loading={refreshing} />
         </View>
       ) : (
         <ScrollView
@@ -274,26 +300,73 @@ export default function InsuranceScreen() {
           {policies.length === 0 ? (
             <View style={styles.empty}>
               <Text variant="titleMedium">No policies yet</Text>
-              <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
+              <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
                 Add your health insurance to get a renewal reminder, see what each year cost, and check your premium fund
                 covers it.
               </Text>
-              <Button mode="contained" onPress={() => go("/policy-form")}>
-                Add policy
-              </Button>
+              <ChunkyButton label="Add policy" onPress={() => go("/policy-form")} />
             </View>
           ) : (
-            policies.map((policy) => (
-              <PolicyCard
-                key={policy.id}
-                policy={policy}
-                disabled={working}
-                onRenew={() => go({ pathname: "/renew-form", params: { policyId: String(policy.id) } })}
-                onEdit={() => go(withId("/policy-form", policy.id))}
-                onLapse={() => setAsking({ kind: "lapse", policy })}
-                onDelete={() => setAsking({ kind: "delete", policy })}
-              />
-            ))
+            <>
+              <Tile tone="green" emoji="🛡️" label="You're covered for" size="huge" value={whole(String(cover))}>
+                <Text variant="bodySmall" style={styles.onTile}>
+                  {active.length} active {active.length === 1 ? "policy" : "policies"}
+                </Text>
+              </Tile>
+
+              {soon.length > 0 ? (
+                <View style={styles.list}>
+                  <SectionTitle label="Renew soon" />
+                  {soon.map((policy) => {
+                    const name = `${policy.insurer}, ${policy.plan}`;
+                    return (
+                      <Row
+                        key={policy.id}
+                        highlight
+                        emoji="❤️"
+                        tone="pink"
+                        title={policy.insurer}
+                        meta={renewalText(policy) ?? undefined}
+                        amount={whole(policy.premium)}
+                      >
+                        <View style={styles.actions}>
+                          <ChunkyButton
+                            compact
+                            variant="green"
+                            label="Renew"
+                            disabled={working}
+                            accessibilityLabel={`Renew ${name} soon`}
+                            onPress={() => go({ pathname: "/renew-form", params: { policyId: String(policy.id) } })}
+                          />
+                        </View>
+                      </Row>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+              {[
+                { title: "Active policies", list: active },
+                { title: "Lapsed", list: lapsed },
+              ].map((group) =>
+                group.list.length > 0 ? (
+                  <View key={group.title} style={styles.list}>
+                    <SectionTitle label={group.title} />
+                    {group.list.map((policy) => (
+                      <PolicyCard
+                        key={policy.id}
+                        policy={policy}
+                        disabled={working}
+                        onRenew={() => go({ pathname: "/renew-form", params: { policyId: String(policy.id) } })}
+                        onEdit={() => go(withId("/policy-form", policy.id))}
+                        onLapse={() => setAsking({ kind: "lapse", policy })}
+                        onDelete={() => setAsking({ kind: "delete", policy })}
+                      />
+                    ))}
+                  </View>
+                ) : null,
+              )}
+            </>
           )}
         </ScrollView>
       )}
@@ -330,14 +403,33 @@ const styles = StyleSheet.create({
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
   empty: { alignItems: "center", gap: 12, paddingVertical: 32 },
-  card: { gap: 12 },
-  head: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
-  headText: { flex: 1, flexShrink: 1 },
-  renewal: { flexShrink: 1, textAlign: "right" },
+  card: { padding: 14, gap: 12 },
+  head: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  square: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    borderWidth: 2.5,
+    borderColor: BRAND.ink,
+    backgroundColor: BRAND.purple,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emoji: { fontSize: 18, lineHeight: 24 },
+  headText: { flex: 1, minWidth: 0 },
+  insurer: { color: BRAND.ink },
+  renewal: { color: BRAND.ink, fontWeight: "700", marginTop: 2 },
+  muted: { color: BRAND.zinc600 },
+  label: { color: BRAND.ink },
+  onTile: { color: "#FFFFFF", marginTop: 4 },
+  list: { gap: 8 },
+  sectionTitle: { color: BRAND.ink, letterSpacing: 0.6, paddingTop: 4 },
   facts: { flexDirection: "row", flexWrap: "wrap", columnGap: 16, rowGap: 8 },
-  fact: { minWidth: "40%", flexGrow: 1 },
-  factValue: { fontWeight: "600" },
+  fact: { minWidth: "40%", flexGrow: 1, flexShrink: 1 },
+  factValue: { fontWeight: "600", color: BRAND.ink },
   section: { gap: 4 },
-  period: { flexDirection: "row", justifyContent: "space-between", gap: 12, paddingVertical: 8 },
-  actions: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 4, padding: 8 },
+  period: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, paddingVertical: 8 },
+  periodDivider: { borderTopWidth: 1.5, borderTopColor: BRAND.zinc200, borderStyle: "dashed" },
+  periodAmount: { fontWeight: "600", flexShrink: 0, maxWidth: "45%", textAlign: "right", fontVariant: ["tabular-nums"] },
+  actions: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 8, paddingTop: 4 },
 });

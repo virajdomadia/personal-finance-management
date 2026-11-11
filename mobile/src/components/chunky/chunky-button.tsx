@@ -47,6 +47,7 @@ export function ChunkyButton({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: inactive, busy: loading }}
+      hitSlop={compact ? { top: 4, bottom: 4 } : undefined}
       style={[{ opacity: disabled ? 0.6 : 1 }, style]}
     >
       {({ pressed }) => (

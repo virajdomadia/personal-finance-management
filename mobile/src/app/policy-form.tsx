@@ -1,9 +1,10 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KeyboardAvoidingView, ScrollView, StyleSheet, View } from "react-native";
-import { Appbar, Button, HelperText, Text, TextInput, useTheme } from "react-native-paper";
+import { HelperText, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ChunkyBox, ChunkyButton, ScreenHeader } from "@/components/chunky";
 import { DateField } from "@/components/date-field";
 import { Banner, Choice, Heading, LoadingScreen, useBlockBack, useFieldScroll } from "@/components/form-parts";
 import { type Account, type AccountList, errorMessage, splitErrors } from "@/lib/accounts";
@@ -20,6 +21,7 @@ import {
   policyPayload,
 } from "@/lib/insurance";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 import { isDeposit, todayIndia } from "@/lib/transactions";
 
 const MONEY_MAX_LENGTH = 24;
@@ -230,10 +232,7 @@ function FormBody({ accounts, policy }: Loaded) {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} disabled={saving} />
-        <Appbar.Content title={editing ? "Edit policy" : "Add policy"} />
-      </Appbar.Header>
+      <ScreenHeader title={editing ? "Edit policy" : "Add policy"} back backDisabled={saving} />
 
       <KeyboardAvoidingView style={styles.screen} behavior="padding">
         <ScrollView
@@ -243,18 +242,16 @@ function FormBody({ accounts, policy }: Loaded) {
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         >
           {conflict !== null ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
+            <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
               <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
                 {conflict}
               </Text>
-              <Button mode="contained" onPress={() => router.back()}>
-                Back to insurance
-              </Button>
-            </View>
+              <ChunkyButton label="Back to insurance" onPress={() => router.back()} />
+            </ChunkyBox>
           ) : null}
           <Banner messages={general} />
           {!editing ? (
-            <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
+            <Text variant="bodyMedium" style={{ color: BRAND.zinc600 }}>
               Add the policy as it stands now. A yearly reminder for the premium is created with it, starting at the end of
               this year.
             </Text>
@@ -372,16 +369,14 @@ function FormBody({ accounts, policy }: Loaded) {
               )
             : null}
 
-          <Button
-            mode="contained"
+          <ChunkyButton
+            variant="green"
+            label={saving ? "Saving..." : editing ? "Save changes" : "Add policy"}
             onPress={() => void save()}
             loading={saving}
-            disabled={busy}
-            contentStyle={styles.saveContent}
+            disabled={busy && !saving}
             style={styles.save}
-          >
-            {saving ? "Saving..." : editing ? "Save changes" : "Add policy"}
-          </Button>
+          />
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -391,8 +386,7 @@ function FormBody({ accounts, policy }: Loaded) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { padding: 16, gap: 12 },
-  banner: { borderRadius: 12, padding: 12, gap: 8 },
+  banner: { padding: 12, gap: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
   save: { marginTop: 8 },
-  saveContent: { height: 48 },
 });
