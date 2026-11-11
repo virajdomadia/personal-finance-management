@@ -1,22 +1,13 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import {
-  Appbar,
-  Button,
-  Dialog,
-  Divider,
-  IconButton,
-  Portal,
-  Surface,
-  Text,
-  TouchableRipple,
-  useTheme,
-} from "react-native-paper";
+import { Button, Dialog, Portal, Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GoalTagChip } from "@/components/goal-tag";
-import { Signed, signedLabel } from "@/components/signed";
+import { ChunkyBox, ChunkyButton, HeaderAction, ScreenHeader } from "@/components/chunky";
+import { Banner } from "@/components/form-parts";
+import { EmptyBox, GainPill, HeldRow, HistoryRow, PriceLine, SectionTitle, StatLine, StatsCard, TradeRow, WorthTile } from "@/components/investment-parts";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import {
@@ -29,7 +20,9 @@ import {
   fundTradeTitle,
 } from "@/lib/funds";
 import type { Portfolio } from "@/lib/investments";
+import { investmentEmoji, investmentSticker } from "@/lib/fun";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 import { formatDate } from "@/lib/transactions";
 
 type Data = {
@@ -189,31 +182,24 @@ export default function FundScreen() {
   if (data === null) {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
-        <Appbar.Header>
-          <Appbar.BackAction onPress={() => router.back()} />
-          <Appbar.Content title={title} />
-        </Appbar.Header>
+        <ScreenHeader title={title} back />
         <View style={styles.center}>
           {load.status === "loading" ? (
             <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading this fund" />
           ) : load.status === "missing" ? (
             <>
               <Text variant="titleMedium">Fund not found</Text>
-              <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
+              <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
                 It may have been deleted.
               </Text>
-              <Button mode="contained" onPress={() => router.back()}>
-                Back to investments
-              </Button>
+              <ChunkyButton label="Back to investments" onPress={() => router.back()} />
             </>
           ) : (
             <>
               <Text variant="bodyLarge" style={styles.centerText}>
                 {load.status === "error" ? load.message : null}
               </Text>
-              <Button mode="contained" onPress={() => void refresh()} loading={refreshing} disabled={refreshing}>
-                Try again
-              </Button>
+              <ChunkyButton label="Try again" onPress={() => void refresh()} loading={refreshing} />
             </>
           )}
         </View>
@@ -223,7 +209,7 @@ export default function FundScreen() {
 
   const { fund } = data;
   const fundId = String(fund.id);
-  const total = data.portfolio.funds.by_fund.find((f) => f.fund_id === fund.id);
+  const total = data.portfolio.funds.by_fund.find((x) => x.fund_id === fund.id);
   const holdings = data.portfolio.funds.holdings.filter((h) => h.fund_id === fund.id);
   const locked = new Set(data.archived.map((a) => a.id));
   // Units in an archived bank account can't be redeemed until it's restored.
@@ -233,123 +219,105 @@ export default function FundScreen() {
   const trade = (params: Record<string, string>) => go({ pathname: "/fund-trade-form", params: { fundId, ...params } });
   const recordSip = (sip: Sip) =>
     trade({ mode: "sip", sipId: String(sip.id), ...(sip.due_date ? { date: sip.due_date } : {}) });
-
-  const sectionTitle = (label: string, action?: React.ReactNode) => (
-    <View style={styles.sectionRow}>
-      <Text variant="titleSmall" accessibilityRole="header" style={[styles.sectionHeader, { color: colors.primary }]}>
-        {label}
-      </Text>
-      {action}
-    </View>
-  );
+  // The NAVs come newest first; a line runs oldest to newest.
+  const line = [...data.navs].reverse().map((n) => ({ date: n.date, value: n.nav }));
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title={fund.symbol} />
-        <Appbar.Action
-          icon="pencil-outline"
-          accessibilityLabel="Rename or delete fund"
-          onPress={() => go({ pathname: "/fund-form", params: { id: fundId } })}
-        />
-      </Appbar.Header>
+      <ScreenHeader
+        title={fund.symbol}
+        back
+        right={
+          <HeaderAction
+            icon="pencil-outline"
+            label="Rename or delete fund"
+            onPress={() => go({ pathname: "/fund-form", params: { id: fundId } })}
+          />
+        }
+      />
 
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
         contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
       >
         <View style={styles.top}>
-          <Text variant="titleMedium">{fund.name}</Text>
+          <Text variant="titleMedium" style={styles.name}>
+            {fund.name}
+          </Text>
           <GoalTagChip tag={holdings.find((h) => h.in_goal)?.in_goal} />
 
-          {notice ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
-              <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
-                {notice}
-              </Text>
-            </View>
-          ) : null}
+          {notice ? <Banner messages={[notice]} /> : null}
 
-          <Surface elevation={1} style={styles.summary}>
-            <Line label="NAV">
-              <View style={styles.end}>
-                <Text variant="titleMedium" style={styles.right}>
-                  {fund.nav !== null ? formatNav(fund.nav) : "No NAV yet"}
-                </Text>
-                <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
-                  {fund.nav_date ? `as of ${formatDate(fund.nav_date)}` : "Valued at cost"}
-                </Text>
-              </View>
-            </Line>
-            <Line label="Units held">
-              <View style={styles.end}>
-                <Text variant="titleMedium" style={styles.right}>
-                  {formatUnits(total?.units ?? "0.000")}
-                </Text>
-                {total ? (
-                  <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
-                    avg NAV {formatNav(total.average_nav)}
-                  </Text>
-                ) : null}
-              </View>
-            </Line>
-            <Line label="Current value">
-              <View style={styles.end}>
-                <Text variant="titleMedium" style={styles.right}>
-                  {formatRupees(total?.value ?? "0.00")}
-                </Text>
-                {total ? (
-                  <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
-                    {formatRupees(total.invested)} invested{total.at_cost ? " · at cost" : ""}
-                  </Text>
-                ) : null}
-              </View>
-            </Line>
-            <Line label="Unrealised P&L">
-              <View style={styles.end}>
-                <Signed value={total?.unrealised ?? "0.00"} variant="titleMedium" style={styles.right} />
-                {total ? <Signed value={total.unrealised_percent} percent variant="bodySmall" style={styles.right} /> : null}
-              </View>
-            </Line>
-            <View style={styles.actions}>
-              <Button mode="text" icon="tag-outline" onPress={() => go({ pathname: "/nav-form", params: { fundId } })}>
-                Update NAV
-              </Button>
-              {redeemable.length > 0 ? (
-                <Button
-                  mode="outlined"
-                  onPress={() =>
-                    trade(redeemable.length === 1 ? { mode: "sell", accountId: String(redeemable[0].account_id) } : { mode: "sell" })
-                  }
-                >
-                  Redeem
-                </Button>
-              ) : null}
-              <Button mode="contained" onPress={() => trade({ mode: "buy" })}>
-                Buy
-              </Button>
-            </View>
-          </Surface>
+          <WorthTile
+            label={`${investmentEmoji("mutual_fund")} Current value`}
+            value={formatRupees(total?.value ?? "0.00")}
+            sticker={total ? investmentSticker(total.unrealised_percent) : null}
+          >
+            {total ? <GainPill unrealised={total.unrealised} percent={total.unrealised_percent} /> : null}
+            {total ? (
+              <Text variant="bodySmall" style={styles.onTile}>
+                {formatRupees(total.invested)} invested{total.at_cost ? " · at cost" : ""}
+              </Text>
+            ) : null}
+          </WorthTile>
+
+          <StatsCard>
+            <StatLine
+              label="NAV"
+              value={fund.nav !== null ? formatNav(fund.nav) : "No NAV yet"}
+              note={fund.nav_date ? `as of ${formatDate(fund.nav_date)}` : "Valued at cost"}
+            />
+            <StatLine
+              label="Units held"
+              value={formatUnits(total?.units ?? "0.000")}
+              note={total ? `avg NAV ${formatNav(total.average_nav)}` : undefined}
+            />
+          </StatsCard>
         </View>
 
-        {sectionTitle(
-          "SIPs",
-          data.sips.length > 0 ? (
-            <Button compact icon="plus" onPress={() => go({ pathname: "/sip-form", params: { fundId } })}>
-              Add SIP
-            </Button>
-          ) : undefined,
-        )}
-        {data.sips.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
-              No SIP in this fund. A SIP reminds you each month, and you record it with that day&apos;s NAV.
-            </Text>
-            <Button mode="outlined" onPress={() => go({ pathname: "/sip-form", params: { fundId } })}>
-              Add SIP
-            </Button>
+        <PriceLine points={line} title="NAV" format={formatNav} />
+
+        <View style={styles.actions}>
+          <ChunkyButton
+            variant="alt"
+            icon="tag-outline"
+            label="Update NAV"
+            onPress={() => go({ pathname: "/nav-form", params: { fundId } })}
+          />
+          <View style={styles.tradeButtons}>
+            {redeemable.length > 0 ? (
+              <ChunkyButton
+                variant="pink"
+                label="Redeem"
+                style={styles.grow}
+                onPress={() =>
+                  trade(redeemable.length === 1 ? { mode: "sell", accountId: String(redeemable[0].account_id) } : { mode: "sell" })
+                }
+              />
+            ) : null}
+            <ChunkyButton variant="green" label="Buy" style={styles.grow} onPress={() => trade({ mode: "buy" })} />
           </View>
+        </View>
+
+        <SectionTitle
+          label="SIPs"
+          action={
+            data.sips.length > 0 ? (
+              <ChunkyButton
+                compact
+                variant="alt"
+                icon="plus"
+                label="Add SIP"
+                onPress={() => go({ pathname: "/sip-form", params: { fundId } })}
+              />
+            ) : undefined
+          }
+        />
+        {data.sips.length === 0 ? (
+          <EmptyBox
+            text="No SIP in this fund. A SIP reminds you each month, and you record it with that day's NAV."
+            action={{ label: "Add SIP", onPress: () => go({ pathname: "/sip-form", params: { fundId } }) }}
+          />
         ) : (
           <View style={styles.sipList}>
             {data.sips.map((sip) => (
@@ -368,104 +336,81 @@ export default function FundScreen() {
 
         {holdings.length > 0 ? (
           <>
-            {sectionTitle("Held in")}
-            {holdings.map((h, index) => (
-              <View key={h.account_id}>
-                {index > 0 ? <Divider /> : null}
-                <View style={styles.row}>
-                  <View style={styles.main}>
-                    <Text variant="titleMedium">{h.account_name}</Text>
-                    <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                      {formatUnits(h.units)} units · avg NAV {formatNav(h.average_nav)}
-                    </Text>
-                    <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                      {formatRupees(h.invested)} invested
-                    </Text>
-                  </View>
-                  <View style={styles.amounts}>
-                    <Text variant="titleMedium" style={styles.right}>
-                      {formatRupees(h.value)}
-                    </Text>
-                    {h.at_cost ? (
-                      <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
-                        at cost
-                      </Text>
-                    ) : null}
-                    <Signed value={h.unrealised} variant="bodySmall" style={styles.right} />
-                    <Signed value={h.unrealised_percent} percent variant="bodySmall" style={styles.right} />
-                  </View>
-                </View>
-                {locked.has(h.account_id) ? null : (
-                  <View style={styles.rowAction}>
-                    <Button
+            <SectionTitle label="Held in" />
+            {holdings.map((h) => (
+              <HeldRow
+                key={h.account_id}
+                emoji="🏦"
+                title={h.account_name}
+                lines={[`${formatUnits(h.units)} units · avg NAV ${formatNav(h.average_nav)}`, `${formatRupees(h.invested)} invested`]}
+                value={formatRupees(h.value)}
+                atCost={h.at_cost}
+                unrealised={h.unrealised}
+                unrealisedPercent={h.unrealised_percent}
+                action={
+                  locked.has(h.account_id) ? null : (
+                    <ChunkyButton
                       compact
+                      variant="alt"
+                      label="Redeem"
                       accessibilityLabel={`Redeem ${h.symbol} from ${h.account_name}`}
                       onPress={() => trade({ mode: "sell", accountId: String(h.account_id) })}
-                    >
-                      Redeem
-                    </Button>
-                  </View>
-                )}
-              </View>
+                    />
+                  )
+                }
+              />
             ))}
           </>
         ) : null}
 
-        {sectionTitle("Transactions")}
+        <SectionTitle label="Transactions" />
         {data.trades.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
-              No transactions yet.
-            </Text>
-            <Button mode="outlined" onPress={() => trade({ mode: "opening" })}>
-              Add existing units
-            </Button>
-          </View>
+          <EmptyBox text="No transactions yet." action={{ label: "Add existing units", onPress: () => trade({ mode: "opening" }) }} />
         ) : (
-          data.trades.map((t, index) => (
-            <View key={t.id}>
-              {index > 0 ? <Divider /> : null}
+          data.trades.map((t) => {
+            const details = [
+              formatDate(t.date),
+              t.account_name,
+              t.opening ? `avg NAV ${formatNav(t.nav)}` : `NAV ${formatNav(t.nav)}`,
+              t.charges !== "0.00" ? `${formatRupees(t.charges)} ${t.side === "buy" ? "stamp duty" : "charges"}` : null,
+              t.note,
+            ].filter((d): d is string => Boolean(d));
+            return (
               <TradeRow
-                trade={t}
+                key={t.id}
+                emoji={investmentEmoji("mutual_fund")}
+                title={fundTradeTitle(t)}
+                details={details}
+                cash={t.opening ? "Cost" : t.side === "buy" ? "Paid" : "Received"}
+                amount={formatRupees(t.amount)}
+                realised={t.realised}
                 archived={locked.has(t.account_id)}
+                archivedNote="Archived bank account. Restore it to change this."
+                archivedLabel="archived bank account"
+                hint="Opens the transaction to edit or delete"
                 onPress={() => trade({ id: String(t.id) })}
               />
-            </View>
-          ))
+            );
+          })
         )}
 
-        {sectionTitle("NAV history")}
+        <SectionTitle label="NAV history" />
         {data.navs.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
-              No NAV recorded. Until you add one, holdings are valued at cost.
-            </Text>
-          </View>
+          <EmptyBox text="No NAV recorded. Until you add one, holdings are valued at cost." />
         ) : (
           data.navs.map((nav, index) => {
             const source =
               nav.trade_id === null ? null : sides.get(nav.trade_id) === "sell" ? "from a redemption" : "from a purchase";
             const note = [index === 0 ? "Current" : null, source].filter(Boolean).join(" · ");
             return (
-              <View key={nav.id}>
-                {index > 0 ? <Divider /> : null}
-                <View style={styles.navRow}>
-                  <View style={styles.main}>
-                    <Text variant="bodyLarge">{formatDate(nav.date)}</Text>
-                    {note ? (
-                      <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                        {note}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Text variant="titleMedium">{formatNav(nav.nav)}</Text>
-                  <IconButton
-                    icon="delete-outline"
-                    accessibilityLabel={`Delete the NAV on ${formatDate(nav.date)}`}
-                    onPress={() => setDeletingNav(nav)}
-                  />
-                </View>
-              </View>
+              <HistoryRow
+                key={nav.id}
+                date={nav.date}
+                value={formatNav(nav.nav)}
+                note={note || undefined}
+                deleteLabel={`Delete the NAV on ${formatDate(nav.date)}`}
+                onDelete={() => setDeletingNav(nav)}
+              />
             );
           })
         )}
@@ -496,17 +441,22 @@ export default function FundScreen() {
   );
 }
 
-function Line({ label, children }: { label: string; children: React.ReactNode }) {
-  const { colors } = useTheme();
-  return (
-    <View style={styles.line}>
-      <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
-        {label}
-      </Text>
-      {children}
-    </View>
-  );
-}
+const styles = StyleSheet.create({
+  sipCard: { padding: 12, gap: 2 },
+  sipTitle: { color: BRAND.ink },
+  sipDetails: { color: BRAND.zinc600 },
+  sipActions: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 8, marginTop: 8 },
+  screen: { flex: 1 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
+  centerText: { textAlign: "center" },
+  top: { padding: 16, paddingTop: 8, gap: 12 },
+  name: { color: BRAND.zinc600 },
+  onTile: { color: "#FFFFFF", marginTop: 8 },
+  actions: { paddingHorizontal: 16, paddingTop: 12, gap: 8 },
+  tradeButtons: { flexDirection: "row", gap: 12 },
+  grow: { flex: 1 },
+  sipList: { gap: 12, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 },
+});
 
 // One SIP: its status up top, and the actions a thumb needs underneath. Delete lives in its edit screen.
 function SipCard({
@@ -524,7 +474,6 @@ function SipCard({
   onEdit: () => void;
   onActive: () => void;
 }) {
-  const { colors } = useTheme();
   const due = sip.active && sip.due_date !== null;
   const label = `${sipAmount(sip)} SIP on day ${sip.day}`;
   const status = !sip.active
@@ -538,108 +487,31 @@ function SipCard({
     `${sip.instalments} ${sip.instalments === 1 ? "instalment" : "instalments"}`,
   ].join(" · ");
   return (
-    <Surface
-      elevation={0}
-      style={[styles.sipCard, { backgroundColor: due ? colors.tertiaryContainer : colors.surfaceVariant }]}
-    >
-      <Text variant="titleMedium" style={{ color: due ? colors.onTertiaryContainer : colors.onSurface }}>
+    <ChunkyBox radius={14} offset={3} style={[styles.sipCard, { backgroundColor: due ? BRAND.due : BRAND.card }]}>
+      <Text variant="titleMedium" style={styles.sipTitle}>
         {label}
       </Text>
-      <Text variant="labelLarge" style={{ color: due ? colors.onTertiaryContainer : colors.onSurfaceVariant }}>
+      <Text variant="labelLarge" style={styles.sipTitle}>
         {status}
       </Text>
-      <Text variant="bodySmall" style={{ color: due ? colors.onTertiaryContainer : colors.onSurfaceVariant }}>
+      <Text variant="bodySmall" style={styles.sipDetails}>
         {details}
       </Text>
       <View style={styles.sipActions}>
-        <Button compact disabled={busy} accessibilityLabel={`Edit the ${label}`} onPress={onEdit}>
-          Edit
-        </Button>
-        <Button
+        <ChunkyButton compact variant="alt" label="Edit" disabled={busy} accessibilityLabel={`Edit the ${label}`} onPress={onEdit} />
+        <ChunkyButton
           compact
-          disabled={busy}
+          variant="alt"
+          label={sip.active ? "Stop" : "Restart"}
+          disabled={busy && !saving}
           loading={saving}
           accessibilityLabel={`${sip.active ? "Stop" : "Restart"} the ${label}`}
           onPress={onActive}
-        >
-          {sip.active ? "Stop" : "Restart"}
-        </Button>
+        />
         {due ? (
-          <Button mode="contained" compact disabled={busy} accessibilityLabel={`Record the ${label}`} onPress={onRecord}>
-            Record
-          </Button>
+          <ChunkyButton compact variant="green" label="Record" disabled={busy} accessibilityLabel={`Record the ${label}`} onPress={onRecord} />
         ) : null}
       </View>
-    </Surface>
+    </ChunkyBox>
   );
 }
-
-// One transaction. Tapping opens it to edit or delete; ones in an archived bank are locked until it's restored.
-function TradeRow({ trade, archived, onPress }: { trade: FundTrade; archived: boolean; onPress: () => void }) {
-  const { colors } = useTheme();
-  const title = fundTradeTitle(trade);
-  const details = [
-    formatDate(trade.date),
-    trade.account_name,
-    trade.opening ? `avg NAV ${formatNav(trade.nav)}` : `NAV ${formatNav(trade.nav)}`,
-    trade.charges !== "0.00" ? `${formatRupees(trade.charges)} ${trade.side === "buy" ? "stamp duty" : "charges"}` : null,
-    trade.note,
-  ].filter(Boolean);
-  const cash = trade.opening ? "Cost" : trade.side === "buy" ? "Paid" : "Received";
-  return (
-    <TouchableRipple
-      onPress={onPress}
-      disabled={archived}
-      accessibilityRole={archived ? undefined : "button"}
-      accessibilityLabel={`${title}, ${details.join(", ")}, ${cash} ${formatRupees(trade.amount)}${trade.realised !== null ? `, realised ${signedLabel(trade.realised)}` : ""}${archived ? ", archived bank account" : ""}`}
-      accessibilityHint={archived ? undefined : "Opens the transaction to edit or delete"}
-    >
-      <View style={styles.row}>
-        <View style={styles.main}>
-          <Text variant="titleMedium">{title}</Text>
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            {details.join(" · ")}
-          </Text>
-          {archived ? (
-            <Text variant="labelSmall" style={{ color: colors.onSurfaceVariant }}>
-              Archived bank account. Restore it to change this.
-            </Text>
-          ) : null}
-        </View>
-        <View style={styles.amounts}>
-          <Text variant="labelSmall" style={{ color: colors.onSurfaceVariant }}>
-            {cash}
-          </Text>
-          <Text variant="titleMedium" style={styles.right}>
-            {formatRupees(trade.amount)}
-          </Text>
-          {trade.realised !== null ? <Signed value={trade.realised} variant="bodySmall" style={styles.right} /> : null}
-        </View>
-      </View>
-    </TouchableRipple>
-  );
-}
-
-const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
-  centerText: { textAlign: "center" },
-  top: { padding: 16, paddingTop: 8, gap: 12 },
-  banner: { borderRadius: 12, padding: 12 },
-  summary: { borderRadius: 12, padding: 16, gap: 10 },
-  line: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
-  end: { alignItems: "flex-end", flexShrink: 1 },
-  right: { textAlign: "right" },
-  actions: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 8, marginTop: 4 },
-  sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingRight: 8 },
-  sectionHeader: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
-  sipList: { gap: 8, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 },
-  sipCard: { borderRadius: 12, padding: 12, gap: 2 },
-  sipActions: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 4, marginTop: 4 },
-  row: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-  main: { flex: 1, gap: 2 },
-  amounts: { flexShrink: 1, maxWidth: "55%", alignItems: "flex-end" },
-  rowAction: { alignItems: "flex-end", paddingHorizontal: 8, paddingBottom: 4 },
-  navRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 16, paddingRight: 4, paddingVertical: 4 },
-  emptyBox: { alignItems: "center", gap: 12, paddingHorizontal: 24, paddingVertical: 16 },
-});

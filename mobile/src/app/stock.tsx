@@ -1,27 +1,19 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import {
-  Appbar,
-  Button,
-  Chip,
-  Dialog,
-  Divider,
-  IconButton,
-  Portal,
-  Surface,
-  Text,
-  TouchableRipple,
-  useTheme,
-} from "react-native-paper";
+import { Button, Dialog, Portal, Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GoalTagChip } from "@/components/goal-tag";
-import { Signed, signedLabel } from "@/components/signed";
+import { ChunkyButton, Chip, HeaderAction, ScreenHeader } from "@/components/chunky";
+import { Banner } from "@/components/form-parts";
+import { EmptyBox, GainPill, HeldRow, HistoryRow, PriceLine, SectionTitle, StatLine, StatsCard, TradeRow, WorthTile } from "@/components/investment-parts";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type Portfolio, type Price, type Stock, type Trade, tradeTitle } from "@/lib/investments";
+import { investmentEmoji, investmentSticker } from "@/lib/fun";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 import { formatDate } from "@/lib/transactions";
 
 type Data = {
@@ -186,31 +178,24 @@ export default function StockScreen() {
   if (data === null) {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
-        <Appbar.Header>
-          <Appbar.BackAction onPress={() => router.back()} />
-          <Appbar.Content title={title} />
-        </Appbar.Header>
+        <ScreenHeader title={title} back />
         <View style={styles.center}>
           {load.status === "loading" ? (
             <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading this stock" />
           ) : load.status === "missing" ? (
             <>
               <Text variant="titleMedium">Stock not found</Text>
-              <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
+              <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
                 It may have been deleted.
               </Text>
-              <Button mode="contained" onPress={() => router.back()}>
-                Back to investments
-              </Button>
+              <ChunkyButton label="Back to investments" onPress={() => router.back()} />
             </>
           ) : (
             <>
               <Text variant="bodyLarge" style={styles.centerText}>
                 {load.status === "error" ? load.message : null}
               </Text>
-              <Button mode="contained" onPress={() => void refresh()} loading={refreshing} disabled={refreshing}>
-                Try again
-              </Button>
+              <ChunkyButton label="Try again" onPress={() => void refresh()} loading={refreshing} />
             </>
           )}
         </View>
@@ -233,218 +218,178 @@ export default function StockScreen() {
   const shown = effective === "" ? data.trades : data.trades.filter((t) => String(t.account_id) === effective);
 
   const trade = (params: Record<string, string>) => go({ pathname: "/trade-form", params: { stockId, ...params } });
-
-  const sectionTitle = (label: string) => (
-    <Text variant="titleSmall" accessibilityRole="header" style={[styles.sectionHeader, { color: colors.primary }]}>
-      {label}
-    </Text>
-  );
+  // The prices come newest first; a line runs oldest to newest.
+  const line = [...data.prices].reverse().map((p) => ({ date: p.date, value: p.price }));
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title={stock.symbol} />
-        <Appbar.Action
-          icon="pencil-outline"
-          accessibilityLabel="Rename stock"
-          onPress={() => go({ pathname: "/stock-form", params: { stockId } })}
-        />
-        <Appbar.Action icon="delete-outline" accessibilityLabel="Delete stock" onPress={() => setDeletingStock(true)} />
-      </Appbar.Header>
+      <ScreenHeader
+        title={stock.symbol}
+        back
+        right={
+          <>
+            <HeaderAction
+              icon="pencil-outline"
+              label="Rename stock"
+              onPress={() => go({ pathname: "/stock-form", params: { stockId } })}
+            />
+            <HeaderAction icon="delete-outline" label="Delete stock" onPress={() => setDeletingStock(true)} />
+          </>
+        }
+      />
 
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
         contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
       >
         <View style={styles.top}>
-          <Text variant="bodyLarge" style={{ color: colors.onSurfaceVariant }}>
+          <Text variant="bodyLarge" style={styles.name}>
             {stock.name}
           </Text>
           <GoalTagChip tag={holdings.find((h) => h.in_goal)?.in_goal} />
 
-          {notice ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
-              <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
-                {notice}
-              </Text>
-            </View>
-          ) : null}
+          {notice ? <Banner messages={[notice]} /> : null}
 
-          <Surface elevation={1} style={styles.summary}>
-            <Line label="Current price">
-              <View style={styles.end}>
-                <Text variant="titleMedium" style={styles.right}>
-                  {stock.price !== null ? formatRupees(stock.price) : "No price yet"}
-                </Text>
-                <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
-                  {stock.price_date ? `as of ${formatDate(stock.price_date)}` : "Valued at cost"}
-                </Text>
-              </View>
-            </Line>
-            <Line label="Shares held">
-              <View style={styles.end}>
-                <Text variant="titleMedium" style={styles.right}>
-                  {total ? total.shares : 0}
-                </Text>
-                {total ? (
-                  <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
-                    avg cost {formatRupees(total.average_cost)}
-                  </Text>
-                ) : null}
-              </View>
-            </Line>
-            <Line label="Current value">
-              <View style={styles.end}>
-                <Text variant="titleMedium" style={styles.right}>
-                  {formatRupees(total?.value ?? "0.00")}
-                </Text>
-                {total ? (
-                  <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
-                    {formatRupees(total.invested)} invested{total.at_cost ? " · at cost" : ""}
-                  </Text>
-                ) : null}
-              </View>
-            </Line>
-            <Line label="Unrealised P&L">
-              <View style={styles.end}>
-                <Signed value={total?.unrealised ?? "0.00"} variant="titleMedium" style={styles.right} />
-                {total ? <Signed value={total.unrealised_percent} percent variant="bodySmall" style={styles.right} /> : null}
-              </View>
-            </Line>
-            <View style={styles.actions}>
-              <Button mode="text" icon="tag-outline" onPress={() => go({ pathname: "/price-form", params: { stockId } })}>
-                Update price
-              </Button>
-              {sellable.length > 0 ? (
-                <Button
-                  mode="outlined"
-                  onPress={() => trade(sellable.length === 1 ? { side: "sell", accountId: String(sellable[0].account_id) } : { side: "sell" })}
-                >
-                  Sell
-                </Button>
-              ) : null}
-              <Button mode="contained" onPress={() => trade({ side: "buy" })}>
-                Buy
-              </Button>
-            </View>
-          </Surface>
+          <WorthTile
+            label={`${investmentEmoji("stock")} Current value`}
+            value={formatRupees(total?.value ?? "0.00")}
+            sticker={total ? investmentSticker(total.unrealised_percent) : null}
+          >
+            {total ? <GainPill unrealised={total.unrealised} percent={total.unrealised_percent} /> : null}
+            {total ? (
+              <Text variant="bodySmall" style={styles.onTile}>
+                {formatRupees(total.invested)} invested{total.at_cost ? " · at cost" : ""}
+              </Text>
+            ) : null}
+          </WorthTile>
+
+          <StatsCard>
+            <StatLine
+              label="Current price"
+              value={stock.price !== null ? formatRupees(stock.price) : "No price yet"}
+              note={stock.price_date ? `as of ${formatDate(stock.price_date)}` : "Valued at cost"}
+            />
+            <StatLine
+              label="Shares held"
+              value={String(total ? total.shares : 0)}
+              note={total ? `avg cost ${formatRupees(total.average_cost)}` : undefined}
+            />
+          </StatsCard>
+        </View>
+
+        <PriceLine points={line} title="Price" format={formatRupees} />
+
+        <View style={styles.actions}>
+          <ChunkyButton
+            variant="alt"
+            icon="tag-outline"
+            label="Update price"
+            onPress={() => go({ pathname: "/price-form", params: { stockId } })}
+          />
+          <View style={styles.tradeButtons}>
+            {sellable.length > 0 ? (
+              <ChunkyButton
+                variant="pink"
+                label="Sell"
+                style={styles.grow}
+                onPress={() => trade(sellable.length === 1 ? { side: "sell", accountId: String(sellable[0].account_id) } : { side: "sell" })}
+              />
+            ) : null}
+            <ChunkyButton variant="green" label="Buy" style={styles.grow} onPress={() => trade({ side: "buy" })} />
+          </View>
         </View>
 
         {holdings.length > 0 ? (
           <>
-            {sectionTitle("Held in")}
-            {holdings.map((h, index) => (
-              <View key={h.account_id}>
-                {index > 0 ? <Divider /> : null}
-                <View style={styles.row}>
-                  <View style={styles.main}>
-                    <Text variant="titleMedium">{h.account_name}</Text>
-                    <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                      {h.shares} shares · avg cost {formatRupees(h.average_cost)}
-                    </Text>
-                    <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                      {formatRupees(h.invested)} invested
-                    </Text>
-                  </View>
-                  <View style={styles.amounts}>
-                    <Text variant="titleMedium" style={styles.right}>
-                      {formatRupees(h.value)}
-                    </Text>
-                    {h.at_cost ? (
-                      <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
-                        at cost
-                      </Text>
-                    ) : null}
-                    <Signed value={h.unrealised} variant="bodySmall" style={styles.right} />
-                    <Signed value={h.unrealised_percent} percent variant="bodySmall" style={styles.right} />
-                  </View>
-                </View>
-                {locked.has(h.account_id) ? null : (
-                  <View style={styles.rowAction}>
-                    <Button
+            <SectionTitle label="Held in" />
+            {holdings.map((h) => (
+              <HeldRow
+                key={h.account_id}
+                emoji="🏦"
+                title={h.account_name}
+                lines={[`${h.shares} shares · avg cost ${formatRupees(h.average_cost)}`, `${formatRupees(h.invested)} invested`]}
+                value={formatRupees(h.value)}
+                atCost={h.at_cost}
+                unrealised={h.unrealised}
+                unrealisedPercent={h.unrealised_percent}
+                action={
+                  locked.has(h.account_id) ? null : (
+                    <ChunkyButton
                       compact
+                      variant="alt"
+                      label="Sell"
                       accessibilityLabel={`Sell ${h.symbol} from ${h.account_name}`}
                       onPress={() => trade({ side: "sell", accountId: String(h.account_id) })}
-                    >
-                      Sell
-                    </Button>
-                  </View>
-                )}
-              </View>
+                    />
+                  )
+                }
+              />
             ))}
           </>
         ) : null}
 
-        {sectionTitle("Trades")}
+        <SectionTitle label="Trades" />
         {brokers.length > 1 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
             {[["", "All brokers"] as const, ...brokers.map(([brokerId, name]) => [String(brokerId), name] as const)].map(
               ([value, label]) => (
                 <Chip
                   key={value || "all"}
+                  label={label}
                   selected={effective === value}
-                  showSelectedCheck
                   onPress={() => setFilter(value)}
                   accessibilityRole="radio"
-                  accessibilityState={{ selected: effective === value }}
-                >
-                  {label}
-                </Chip>
+                />
               ),
             )}
           </ScrollView>
         ) : null}
         {shown.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
-              {filterName ? `No trades in ${filterName} yet.` : "No trades yet."}
-            </Text>
-            <Button mode="outlined" onPress={() => trade({ opening: "1" })}>
-              Add existing shares
-            </Button>
-          </View>
+          <EmptyBox
+            text={filterName ? `No trades in ${filterName} yet.` : "No trades yet."}
+            action={{ label: "Add existing shares", onPress: () => trade({ opening: "1" }) }}
+          />
         ) : (
-          shown.map((t, index) => (
-            <View key={t.id}>
-              {index > 0 ? <Divider /> : null}
+          shown.map((t) => {
+            const details = [
+              formatDate(t.date),
+              t.account_name,
+              `${t.quantity} × ${formatRupees(t.price)}`,
+              t.charges !== "0.00" ? `${formatRupees(t.charges)} charges` : null,
+              t.note,
+            ].filter((d): d is string => Boolean(d));
+            return (
               <TradeRow
-                trade={t}
+                key={t.id}
+                emoji={investmentEmoji("stock")}
+                title={tradeTitle(t)}
+                details={details}
+                cash={t.opening ? "Cost" : t.side === "buy" ? "Paid" : "Received"}
+                amount={formatRupees(t.amount)}
+                realised={t.realised}
                 archived={locked.has(t.account_id)}
+                archivedNote="Archived broker. Restore it to change this trade."
+                archivedLabel="archived broker"
+                hint="Opens the trade to edit or delete"
                 onPress={() => go({ pathname: "/trade-form", params: { id: String(t.id), stockId } })}
               />
-            </View>
-          ))
+            );
+          })
         )}
 
-        {sectionTitle("Price history")}
+        <SectionTitle label="Price history" />
         {data.prices.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
-              No prices recorded. Until you add one, holdings are valued at cost.
-            </Text>
-          </View>
+          <EmptyBox text="No prices recorded. Until you add one, holdings are valued at cost." />
         ) : (
           data.prices.map((price, index) => (
-            <View key={price.id}>
-              {index > 0 ? <Divider /> : null}
-              <View style={styles.priceRow}>
-                <View style={styles.main}>
-                  <Text variant="bodyLarge">{formatDate(price.date)}</Text>
-                  {index === 0 ? (
-                    <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                      Current
-                    </Text>
-                  ) : null}
-                </View>
-                <Text variant="titleMedium">{formatRupees(price.price)}</Text>
-                <IconButton
-                  icon="delete-outline"
-                  accessibilityLabel={`Delete the price on ${formatDate(price.date)}`}
-                  onPress={() => setDeletingPrice(price)}
-                />
-              </View>
-            </View>
+            <HistoryRow
+              key={price.id}
+              date={price.date}
+              value={formatRupees(price.price)}
+              note={index === 0 ? "Current" : undefined}
+              deleteLabel={`Delete the price on ${formatDate(price.date)}`}
+              onDelete={() => setDeletingPrice(price)}
+            />
           ))
         )}
       </ScrollView>
@@ -492,81 +437,15 @@ export default function StockScreen() {
   );
 }
 
-function Line({ label, children }: { label: string; children: React.ReactNode }) {
-  const { colors } = useTheme();
-  return (
-    <View style={styles.line}>
-      <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
-        {label}
-      </Text>
-      {children}
-    </View>
-  );
-}
-
-// One trade. Tapping opens it to edit or delete; trades in an archived broker are locked until it's restored.
-function TradeRow({ trade, archived, onPress }: { trade: Trade; archived: boolean; onPress: () => void }) {
-  const { colors } = useTheme();
-  const title = tradeTitle(trade);
-  const details = [
-    formatDate(trade.date),
-    trade.account_name,
-    `${trade.quantity} × ${formatRupees(trade.price)}`,
-    trade.charges !== "0.00" ? `${formatRupees(trade.charges)} charges` : null,
-    trade.note,
-  ].filter(Boolean);
-  const cash = trade.opening ? "Cost" : trade.side === "buy" ? "Paid" : "Received";
-  return (
-    <TouchableRipple
-      onPress={onPress}
-      disabled={archived}
-      accessibilityRole={archived ? undefined : "button"}
-      accessibilityLabel={`${title}, ${details.join(", ")}, ${cash} ${formatRupees(trade.amount)}${trade.realised !== null ? `, realised ${signedLabel(trade.realised)}` : ""}${archived ? ", archived broker" : ""}`}
-      accessibilityHint={archived ? undefined : "Opens the trade to edit or delete"}
-    >
-      <View style={styles.row}>
-        <View style={styles.main}>
-          <Text variant="titleMedium">{title}</Text>
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            {details.join(" · ")}
-          </Text>
-          {archived ? (
-            <Text variant="labelSmall" style={{ color: colors.onSurfaceVariant }}>
-              Archived broker. Restore it to change this trade.
-            </Text>
-          ) : null}
-        </View>
-        <View style={styles.amounts}>
-          <Text variant="labelSmall" style={{ color: colors.onSurfaceVariant }}>
-            {cash}
-          </Text>
-          <Text variant="titleMedium" style={styles.right}>
-            {formatRupees(trade.amount)}
-          </Text>
-          {trade.realised !== null ? <Signed value={trade.realised} variant="bodySmall" style={styles.right} /> : null}
-        </View>
-      </View>
-    </TouchableRipple>
-  );
-}
-
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
   top: { padding: 16, paddingTop: 8, gap: 12 },
-  banner: { borderRadius: 12, padding: 12 },
-  summary: { borderRadius: 12, padding: 16, gap: 10 },
-  line: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
-  end: { alignItems: "flex-end", flexShrink: 1 },
-  right: { textAlign: "right" },
-  actions: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 8, marginTop: 4 },
-  sectionHeader: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
+  name: { color: BRAND.zinc600 },
+  onTile: { color: "#FFFFFF", marginTop: 8 },
+  actions: { paddingHorizontal: 16, paddingTop: 12, gap: 8 },
+  tradeButtons: { flexDirection: "row", gap: 12 },
+  grow: { flex: 1 },
   chips: { gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
-  row: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-  main: { flex: 1, gap: 2 },
-  amounts: { flexShrink: 1, maxWidth: "55%", alignItems: "flex-end" },
-  rowAction: { alignItems: "flex-end", paddingHorizontal: 8, paddingBottom: 4 },
-  priceRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 16, paddingRight: 4, paddingVertical: 4 },
-  emptyBox: { alignItems: "center", gap: 12, paddingHorizontal: 24, paddingVertical: 16 },
 });
