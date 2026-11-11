@@ -36,7 +36,9 @@ export function Chip({
       accessibilityRole={accessibilityRole}
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
-      accessibilityState={{ selected, disabled }}
+      accessibilityState={
+        accessibilityRole === "radio" ? { selected, checked: selected, disabled } : { selected, disabled }
+      }
       style={{ opacity: disabled ? 0.6 : 1 }}
     >
       {({ pressed }) => (

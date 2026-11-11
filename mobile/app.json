@@ -36,7 +36,14 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-splash-screen"
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "backgroundColor": "#FFC800",
+          "imageWidth": 200
+        }
+      ]
     ],
     "extra": {
       "router": {

@@ -34,9 +34,11 @@ export function Tile({ tone = "card", emoji, label, value, size = "md", sticker,
             style={[
               styles.value,
               size === "huge" ? styles.huge : styles.md,
-              sticker ? styles.stickerGap : null,
               { color: fg },
             ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.5}
           >
             {value}
           </Text>

@@ -30,7 +30,8 @@ type Props = {
 const AMOUNT_COLOR = { gain: BRAND.gain, loss: BRAND.loss } as const;
 
 // A list row: an emoji square, a title with detail lines, and an amount on the right. The amount
-// column takes up to 55% and wraps, so a 13 digit figure never clips or runs under the title.
+// column keeps its natural width (up to 65%, then the figure shrinks to fit), so a 13 digit figure
+// never wraps or runs under the title.
 export function Row({
   emoji,
   tone,
@@ -83,6 +84,9 @@ export function Row({
             {amount !== undefined ? (
               <Text
                 variant="titleMedium"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.6}
                 style={[styles.amount, amountTone ? { color: AMOUNT_COLOR[amountTone] } : null]}
               >
                 {amount}
@@ -133,7 +137,8 @@ const styles = StyleSheet.create({
   title: { color: BRAND.ink, fontSize: 16, lineHeight: 22 },
   lines: { gap: 1 },
   meta: { color: BRAND.zinc600, fontSize: 12, lineHeight: 16 },
-  amounts: { flexShrink: 1, maxWidth: "55%", alignItems: "flex-end" },
+  // Natural width, so an amount never wraps and its sign stays attached; the title column gives way.
+  amounts: { flexShrink: 0, maxWidth: "65%", alignItems: "flex-end" },
   amount: { color: BRAND.ink, fontSize: 16, lineHeight: 22, textAlign: "right", fontVariant: ["tabular-nums"] },
   subLines: { alignItems: "flex-end" },
   right: { textAlign: "right" },
