@@ -495,6 +495,21 @@ def test_the_first_periods_payment_stays(headers: Headers) -> None:
     assert response.json()["detail"] == "This payment renewed an insurance policy, so it stays."
 
 
+def test_a_policys_reminder_survives_an_archived_paying_account(
+    headers: Headers, clock: type[Clock], db_session: Session
+) -> None:
+    paying = card(headers)
+    body = made(headers, paying)
+    archived_behind_the_back(db_session, paying)
+    clock.today = date(2027, 4, 5)
+    assert due(headers) == [("2027-04-06", "coming_up")]
+    template = listed(headers)[0]["template"]
+    assert template["coming_up"] == "2027-04-06"
+    response = renew(headers, body["id"], paying)
+    assert response.status_code == 422
+    assert messages(response) == {"account_id": "Signet is archived. Restore it to use it."}
+
+
 def test_undo_obeys_the_delete_checks(
     headers: Headers, clock: type[Clock], db_session: Session
 ) -> None:

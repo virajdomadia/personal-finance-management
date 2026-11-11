@@ -4,6 +4,7 @@ import { ActivityIndicator, RefreshControl, ScrollView, SectionList, StyleSheet,
 import { Button, Chip, Divider, FAB, IconButton, Surface, Text, TouchableRipple, useTheme } from "react-native-paper";
 
 import { DueList } from "@/components/due-list";
+import type { GoalDue } from "@/lib/goals";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import type { DueItem } from "@/lib/recurring";
@@ -125,6 +126,7 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
   const [activity, setActivity] = useState<Activity[] | null | undefined>(null);
   // Due and coming-up reminders, shown above the list when it isn't one account's.
   const [due, setDue] = useState<DueItem[]>([]);
+  const [goalsDue, setGoalsDue] = useState<GoalDue[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -154,14 +156,17 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
             }),
         fixedAccountId !== null
           ? Promise.resolve(null)
-          : apiFetch<{ items: DueItem[] }>("/recurring/due", auth).catch((err: unknown) => {
+          : apiFetch<{ items: DueItem[]; goals_due?: GoalDue[] }>("/recurring/due", auth).catch((err: unknown) => {
               // A 401 signs out below; anything else keeps the reminders already shown.
               if (err instanceof ApiError && err.status === 401) throw err;
               return null;
             }),
       ]);
       if (mine !== latest.current) return;
-      if (dueResult !== null) setDue(dueResult.items);
+      if (dueResult !== null) {
+        setDue(dueResult.items);
+        setGoalsDue(dueResult.goals_due ?? []);
+      }
       setActivity(activityResult === null ? null : activityResult === undefined ? undefined : activityResult.items);
       setList(result);
       setAccounts({ active: active.accounts, archived: archived.accounts });
@@ -350,7 +355,7 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
               {fixedAccountId === null ? (
                 // Rendered even when empty, so a failed skip's message still shows.
                 <View style={due.length > 0 ? styles.due : styles.dueEmpty}>
-                  <DueList items={due} onChanged={() => void load()} />
+                  <DueList items={due} goals={goalsDue} onChanged={() => void load()} />
                 </View>
               ) : null}
               <View style={styles.header}>

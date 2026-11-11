@@ -184,12 +184,14 @@ export function paceText(g: Goal): string | null {
   return `Set aside ${whole(g.per_month)} a month to reach it by ${MONTHS[Number(month) - 1]} ${year}`;
 }
 
-type Balances = Pick<Account, "balance" | "set_aside">;
+type Balances = Pick<Account, "type" | "balance" | "set_aside">;
 
-// "₹80,000 in the bank · ₹50,000 set aside for goals", or null when nothing is set aside here.
+const HELD_IN: Record<string, string> = { cash: "in cash", wallet: "in the wallet" };
+
+// "₹80,000 in the bank · ₹50,000 set aside for goals" (cash: "in cash", wallet: "in the wallet"), or null when nothing is set aside here.
 export function freeBalanceText(a: Balances): string | null {
   if (a.set_aside === "0.00") return null;
-  return `${whole(a.balance)} in the bank · ${whole(a.set_aside)} set aside for goals`;
+  return `${whole(a.balance)} ${HELD_IN[a.type] ?? "in the bank"} · ${whole(a.set_aside)} set aside for goals`;
 }
 
 // When more is set aside than the account holds (the free balance is negative).

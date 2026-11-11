@@ -146,6 +146,28 @@ def test_emergency_fund_without_a_full_month_has_no_target(
     assert body["percent"] is None
 
 
+def test_emergency_fund_with_no_expenses_in_the_window_has_no_figure(
+    headers: Headers, db_session: Session
+) -> None:
+    uid = me(db_session)
+    bank = account(db_session, uid)
+    db_session.add(
+        Transaction(
+            user_id=uid,
+            type="income",
+            amount=Decimal("500.00"),
+            date=date(2026, 9, 1),
+            account_id=bank.id,
+        )
+    )
+    db_session.commit()
+    body = emergency(headers).json()
+    assert body["target"] is None
+    assert body["ef"]["monthly"] is None
+    assert body["ef"]["computed"] is None
+    assert body["percent"] is None
+
+
 def test_custom_goal_progress(headers: Headers, db_session: Session) -> None:
     goal_id = create(headers, target_date="2027-06-30").json()["id"]
     bank = account(db_session, me(db_session))
@@ -766,6 +788,27 @@ def test_restore_refused_while_an_account_it_has_money_in_is_archived(
 
     assert client.post(f"/api/accounts/{bank}/restore", headers=headers).status_code == 200
     assert client.post(f"{URL}/{goal_id}/restore", headers=headers).status_code == 200
+
+
+def test_deleting_a_release_is_refused_while_its_account_is_archived(
+    headers: Headers, db_session: Session
+) -> None:
+    goal_id = create(headers).json()["id"]
+    bank = account(db_session, me(db_session)).id
+    db_session.commit()
+    earmark(headers, goal_id, bank, "set_aside", "100.00")
+    earmark(headers, goal_id, bank, "release", "40.00")
+    before = client.get(f"{URL}/{goal_id}", headers=headers).json()
+    release_id = before["history"][0]["id"]
+    row = db_session.get(Account, bank)
+    assert row is not None
+    row.archived_at = datetime(2026, 11, 1, tzinfo=UTC)
+    db_session.commit()
+
+    response = client.delete(f"{URL}/{goal_id}/earmarks/{release_id}", headers=headers)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "SBI is archived. Restore it first."
+    assert client.get(f"{URL}/{goal_id}", headers=headers).json() == before
 
 
 def test_restore_ignores_an_archived_account_the_goal_released(

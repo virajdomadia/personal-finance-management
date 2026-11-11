@@ -230,8 +230,10 @@ def template_responses(
     for t, account, to_account in rows:
         found = occurrence_status(_row(t), paid[t.id], skips[t.id], today)
         # Nothing can be recorded against an archived account, so nothing is asked for.
-        closed = account.archived_at is not None or (
-            to_account is not None and to_account.archived_at is not None
+        # A policy's reminder is the exception: only lapsing the policy stops it.
+        closed = t.id not in policies and (
+            account.archived_at is not None
+            or (to_account is not None and to_account.archived_at is not None)
         )
         out.append(
             TemplateResponse(

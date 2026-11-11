@@ -65,6 +65,8 @@ def monthly_expenses(
     if not months:
         return ExpenseFigure(None, [])
     total = sum((spend.get(m, Decimal(0)) for m in months), Decimal(0))
+    if total == 0:  # months but nothing spent in them: not enough to go on
+        return ExpenseFigure(None, [])
     return ExpenseFigure(round_paise(total / len(months)), months)
 
 

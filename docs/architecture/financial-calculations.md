@@ -212,7 +212,7 @@ progress = saved ÷ target, rounded half up to a whole percent (it can pass 100%
 reached  = saved ≥ target
 ```
 
-- **Earmarked money.** A goal's earmark in an account is the sum of its signed entries there (set aside is +, release is −). Only active bank, cash and wallet accounts can be used. A release can't take a goal's earmark in an account below zero. Entries are added and deleted, never edited, and deleting one is refused when a later release depends on it.
+- **Earmarked money.** A goal's earmark in an account is the sum of its signed entries there (set aside is +, release is −). Only active bank, cash and wallet accounts can be used. A release can't take a goal's earmark in an account below zero. Entries are added and deleted, never edited, and deleting one is refused when a later release depends on it. Earmark changes on an archived goal are refused ("Restore this goal first."). Restoring a goal, and deleting a release, is refused while an account it has money set aside in is archived ("{account} is archived. Restore it first.").
 - **Holdings.** A whole instrument (all units, any account) counts at market value from the latest recorded price, or at cost before one exists, as the portfolio shows it. A PPF or RD counts at its balance, never the interest estimate. A holding that is sold out counts as ₹0 and shows "sold"; a closed (archived) PPF or RD counts as ₹0 and shows "closed". A PPF or RD that is also an active policy's `funded_by` carries the note "Also funds the {insurer} premium."
 - **One active goal per holding.** An instrument or account can be in at most one active goal, so the same money never counts twice. Archiving a goal deactivates its holdings; restoring it is refused if one has since joined another active goal.
 
@@ -235,7 +235,7 @@ monthly expenses = the owner's override, if set
 ```
 
 - A month's expenses are every `expense` (any account, cards included) plus the **full amount of every EMI**, principal and interest. Transfers, investment trades, PPF and RD deposits and income (refunds included) don't count.
-- The window ends before the current month. It starts no earlier than the month after the owner's first transaction, or that month itself only when the first transaction is dated the 1st, so a part-recorded month never pulls the average down. With fewer than 6 usable months the average is over those; with none there is no computed figure and no target until an override is set. The average is rounded half up to paise.
+- The window ends before the current month. It starts no earlier than the month after the owner's first transaction, or that month itself only when the first transaction is dated the 1st, so a part-recorded month never pulls the average down. With fewer than 6 usable months the average is over those; with none there is no computed figure and no target until an override is set. A computed monthly figure of 0 (months in the window but no expenses or EMIs in them) counts as not enough history, so it is treated the same way. The average is rounded half up to paise.
 - Example: ₹32,400 a month × 6 = **₹1,94,400**. Only one emergency fund can be active at a time.
 
 ### Free balance
@@ -247,7 +247,7 @@ set_aside    = sum of active (not archived) goals' earmarks in the account
 free_balance = balance − set_aside
 ```
 
-A bank with ₹80,000 and ₹50,000 set aside has a free balance of **₹30,000**. Clients show `free_balance` as the headline. It goes negative when more is set aside than the account holds, and each goal with an earmark there shows a warning ("₹X more is set aside than {account} holds."). Nothing is released automatically. A PPF or RD in a goal carries an `in_goal` tag instead.
+A bank with ₹80,000 and ₹50,000 set aside has a free balance of **₹30,000**. Clients show `free_balance` as the headline. It goes negative when more is set aside than the account holds, and each goal with an earmark there shows a warning ("₹X more is set aside than {account} holds."). Nothing is released automatically. A PPF or RD in a goal also carries an `in_goal` tag.
 
 Archiving an account that has money set aside is refused ("₹X of {account} is set aside for {goals}. Release it first."). Account archiving locks the account and its PPFs in id order, rereads the PPF ids under the lock and retries up to 3 times if they changed.
 

@@ -122,8 +122,13 @@ test("paceText", () => {
 });
 
 test("freeBalanceText", () => {
-  const a = { balance: "80000.00", set_aside: "50000.00", free_balance: "30000.00" };
+  const a = { type: "bank", balance: "80000.00", set_aside: "50000.00", free_balance: "30000.00" };
   assert.equal(freeBalanceText(a), "₹80,000 in the bank · ₹50,000 set aside for goals");
+  assert.equal(freeBalanceText({ ...a, type: "cash" }), "₹80,000 in cash · ₹50,000 set aside for goals");
+  assert.equal(
+    freeBalanceText({ ...a, type: "wallet" }),
+    "₹80,000 in the wallet · ₹50,000 set aside for goals",
+  );
   assert.equal(freeBalanceText({ ...a, set_aside: "0.00" }), null);
 });
 

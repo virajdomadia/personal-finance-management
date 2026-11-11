@@ -405,6 +405,11 @@ def delete_earmark(id: int, entry_id: int, user: CurrentUser, db: DbSession) -> 
     lock_accounts(db, user.id, [entry.account_id])
     goal = _locked_active(db, user.id, id)
     entry = _entry(db, user.id, goal.id, entry_id)  # read again now that the goal is locked
+    holder = db.get(Account, entry.account_id)
+    if entry.amount < 0 and holder is not None and holder.archived_at is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"{holder.name} is archived. Restore it first."
+        )
     if _earmarked(db, goal.id, entry.account_id) - entry.amount < 0:
         raise HTTPException(status.HTTP_409_CONFLICT, _LATER_RELEASE)
     db.delete(entry)

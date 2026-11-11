@@ -172,13 +172,14 @@ export function GoalView({ goalId }: { goalId: number }) {
         <>
           <div className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <div className="min-w-0">
-              <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold [overflow-wrap:anywhere]">
-                {goal.name}
+              {/* The badges sit beside the heading, not in it, so its name is just the goal's. */}
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-semibold [overflow-wrap:anywhere]">{goal.name}</h1>
                 {goal.kind === "emergency" && <EmergencyBadge />}
                 {goal.archived && (
                   <span className="rounded-full border border-zinc-300 px-2 py-0.5 text-xs font-medium dark:border-zinc-700">Archived</span>
                 )}
-              </h1>
+              </div>
               <p className="text-sm text-zinc-600 tabular-nums dark:text-zinc-400">{progressText(goal)}</p>
             </div>
             <div className="flex flex-wrap gap-2">
