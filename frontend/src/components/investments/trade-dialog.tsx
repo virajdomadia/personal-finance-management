@@ -214,13 +214,13 @@ export function TradeDialog(props: Props) {
 
   const field = (key: Key, label: string, input: React.ReactNode, hint?: React.ReactNode) => (
     <div>
-      <label htmlFor={`tr-${key}`} className="mb-1 block text-sm font-medium">
+      <label htmlFor={`tr-${key}`} className="mb-1 block text-xs font-black tracking-wide uppercase">
         {label}
       </label>
       {input}
       {hint}
       {errors[key] ? (
-        <p id={`tre-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+        <p id={`tre-${key}`} className="mt-1 text-xs font-extrabold text-loss">
           {errors[key]}
         </p>
       ) : null}
@@ -276,16 +276,16 @@ export function TradeDialog(props: Props) {
     >
       {brokers.length === 0 && !editing ? (
         <div>
-          <h2 id="trade-dialog-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+          <h2 id="trade-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
           </h2>
           <div className="px-5 py-4">
-            <p className="text-sm font-medium">Add a broker account first</p>
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="text-sm font-extrabold">Add a broker account first</p>
+            <p className="mt-1 text-sm text-zinc-600">
               Shares are held in a broker account, and buys and sells move its cash.
             </p>
           </div>
-          <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+          <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
             {closeButton}
             <Link href="/accounts" className={PRIMARY}>
               Go to accounts
@@ -294,23 +294,24 @@ export function TradeDialog(props: Props) {
         </div>
       ) : (
         <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
-          <h2 id="trade-dialog-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+          <h2 id="trade-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
           </h2>
           <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
             {editing ? (
               <div>
-                <span className="mb-1 block text-sm font-medium">Type</span>
-                <p className="text-sm text-zinc-600 dark:text-zinc-400">{sideLabel(form)}</p>
+                <span className="mb-1 block text-xs font-black tracking-wide uppercase">Type</span>
+                <p className="text-sm text-zinc-600">{sideLabel(form)}</p>
               </div>
             ) : (
               <fieldset disabled={saving}>
-                <legend className="mb-1 block text-sm font-medium">Type</legend>
+                <legend className="mb-1 block text-xs font-black tracking-wide uppercase">Type</legend>
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
                   {KINDS.map((option) => (
-                    <label key={option.value} className="flex items-center gap-1.5 text-sm">
+                    <label key={option.value} className="flex items-center gap-1.5 text-sm font-extrabold">
                       <input
                         type="radio"
+                        className="size-4 accent-ink"
                         name="kind"
                         value={option.value}
                         checked={kind === option.value}
@@ -328,7 +329,7 @@ export function TradeDialog(props: Props) {
               "Stock",
               <Select {...pickerProps("stock_id")} placeholder="Choose a stock" options={stockOptions} />,
               kind === "sell" && stockOptions.length === 0 ? (
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">You don&apos;t hold any shares to sell.</p>
+                <p className="mt-1 text-xs text-zinc-600">You don&apos;t hold any shares to sell.</p>
               ) : null,
             )}
 
@@ -348,7 +349,7 @@ export function TradeDialog(props: Props) {
               "Broker account",
               <Select {...pickerProps("account_id")} placeholder="Choose a broker account" options={brokerOptions} />,
               kind === "sell" && form.stock_id && form.account_id ? (
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400" aria-live="polite">
+                <p className="mt-1 text-xs text-zinc-600" aria-live="polite">
                   {held ? `You hold ${held.shares} here.` : "You hold none of this stock here."}
                 </p>
               ) : null,
@@ -374,34 +375,34 @@ export function TradeDialog(props: Props) {
 
             {field("note", "Note (optional)", <input {...props_("note")} type="text" autoComplete="off" maxLength={200} />)}
 
-            <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm dark:bg-zinc-800/60" aria-live="polite">
+            <p className="rounded-[14px] border-2 border-ink bg-bg px-3 py-2 text-sm font-bold" aria-live="polite">
               {kind === "opening" ? (
                 <>
                   {total !== null && !total.startsWith("-") ? `Cost ${formatRupees(total)}. ` : null}
                   Your broker&apos;s cash won&apos;t change.
                 </>
               ) : total === null ? (
-                <span className="text-zinc-500 dark:text-zinc-400">
+                <span className="text-zinc-600">
                   Enter shares and price to see the total. Charges are brokerage, taxes and fees together.
                 </span>
               ) : total.startsWith("-") ? (
-                <span className="text-zinc-500 dark:text-zinc-400">The charges are more than the sale value.</span>
+                <span className="text-zinc-600">The charges are more than the sale value.</span>
               ) : (
                 <>
                   {kind === "buy" ? "You pay " : "You receive "}
-                  <span className="font-medium tabular-nums">{formatRupees(total)}</span>
+                  <span className="font-black tabular-nums">{formatRupees(total)}</span>
                   {kind === "buy" ? " from your broker's cash." : " into your broker's cash."}
                 </>
               )}
             </p>
 
             {formError ? (
-              <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+              <p role="alert" className="text-sm font-extrabold text-loss">
                 {formError}
               </p>
             ) : null}
           </div>
-          <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+          <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
             {closeButton}
             <button ref={submitRef} type="submit" disabled={saving} className={PRIMARY}>
               {saving ? "Saving..." : editing ? "Save changes" : kind === "opening" ? "Add shares" : kind === "buy" ? "Buy" : "Sell"}

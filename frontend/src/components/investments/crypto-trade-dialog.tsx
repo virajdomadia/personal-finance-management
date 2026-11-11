@@ -213,13 +213,13 @@ export function CryptoTradeDialog(props: Props) {
 
   const field = (key: Key, label: string, input: React.ReactNode, hint?: React.ReactNode) => (
     <div>
-      <label htmlFor={`ct-${key}`} className="mb-1 block text-sm font-medium">
+      <label htmlFor={`ct-${key}`} className="mb-1 block text-xs font-black tracking-wide uppercase">
         {label}
       </label>
       {input}
       {hint}
       {errors[key] ? (
-        <p id={`cte-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+        <p id={`cte-${key}`} className="mt-1 text-xs font-extrabold text-loss">
           {errors[key]}
         </p>
       ) : null}
@@ -283,16 +283,16 @@ export function CryptoTradeDialog(props: Props) {
     >
       {brokers.length === 0 && !editing ? (
         <div>
-          <h2 id="crypto-trade-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+          <h2 id="crypto-trade-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
           </h2>
           <div className="px-5 py-4">
-            <p className="text-sm font-medium">Add an exchange account first</p>
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="text-sm font-extrabold">Add an exchange account first</p>
+            <p className="mt-1 text-sm text-zinc-600">
               Coins are bought through an exchange account, like CoinDCX, and sales are paid back into it.
             </p>
           </div>
-          <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+          <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
             {closeButton}
             <Link href="/accounts" className={PRIMARY}>
               Go to accounts
@@ -301,23 +301,24 @@ export function CryptoTradeDialog(props: Props) {
         </div>
       ) : (
         <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
-          <h2 id="crypto-trade-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+          <h2 id="crypto-trade-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
           </h2>
           <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
             {editing ? (
               <div>
-                <span className="mb-1 block text-sm font-medium">Type</span>
-                <p className="text-sm text-zinc-600 dark:text-zinc-400">{modeLabel(mode)}</p>
+                <span className="mb-1 block text-xs font-black tracking-wide uppercase">Type</span>
+                <p className="text-sm text-zinc-600">{modeLabel(mode)}</p>
               </div>
             ) : (
               <fieldset disabled={saving}>
-                <legend className="mb-1 block text-sm font-medium">Type</legend>
+                <legend className="mb-1 block text-xs font-black tracking-wide uppercase">Type</legend>
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
                   {MODES.map((option) => (
-                    <label key={option.value} className="flex items-center gap-1.5 text-sm">
+                    <label key={option.value} className="flex items-center gap-1.5 text-sm font-extrabold">
                       <input
                         type="radio"
+                        className="size-4 accent-ink"
                         name="mode"
                         value={option.value}
                         checked={mode === option.value}
@@ -341,7 +342,7 @@ export function CryptoTradeDialog(props: Props) {
                 options={coinOptions}
               />,
               mode === "sell" && coinOptions.length === 0 ? (
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">You don&apos;t hold any coins to sell.</p>
+                <p className="mt-1 text-xs text-zinc-600">You don&apos;t hold any coins to sell.</p>
               ) : null,
             )}
 
@@ -365,7 +366,7 @@ export function CryptoTradeDialog(props: Props) {
               "Exchange account",
               <Select {...pickerProps("account_id")} onChange={(v) => set("account_id", v)} placeholder="Choose an exchange account" options={brokerOptions} />,
               mode === "sell" && form.coin_id && form.account_id ? (
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400" aria-live="polite">
+                <p className="mt-1 text-xs text-zinc-600" aria-live="polite">
                   {held ? `You hold ${formatCoinQty(held.quantity)} here.` : "You hold none of this coin here."}
                 </p>
               ) : null,
@@ -422,23 +423,23 @@ export function CryptoTradeDialog(props: Props) {
             )}
 
             {mismatch ? (
-              <p id="ct-mismatch" className="-mt-2 text-xs text-amber-700 dark:text-amber-400" aria-live="polite">
+              <p id="ct-mismatch" className="-mt-2 text-xs font-extrabold text-orange-700" aria-live="polite">
                 {MISMATCH}
               </p>
             ) : null}
 
             {field("note", "Note (optional)", <input {...inputProps("note")} type="text" autoComplete="off" maxLength={200} />)}
 
-            <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm dark:bg-zinc-800/60" aria-live="polite">
+            <p className="rounded-[14px] border-2 border-ink bg-bg px-3 py-2 text-sm font-bold" aria-live="polite">
               {mode === "opening" ? (
                 <>Your {broker ? broker.name : "exchange"} balance won&apos;t change.</>
               ) : amountShown === null ? (
-                <span className="text-zinc-500 dark:text-zinc-400">
+                <span className="text-zinc-600">
                   {mode === "buy" ? "Enter the amount, quantity and price." : "Enter the amount you received."}
                 </span>
               ) : (
                 <>
-                  <span className="font-medium tabular-nums">{amountShown}</span>
+                  <span className="font-black tabular-nums">{amountShown}</span>
                   {mode === "buy" ? " leaves " : " goes into "}
                   {broker ? broker.name : "your exchange account"}.
                 </>
@@ -446,12 +447,12 @@ export function CryptoTradeDialog(props: Props) {
             </p>
 
             {formError ? (
-              <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+              <p role="alert" className="text-sm font-extrabold text-loss">
                 {formError}
               </p>
             ) : null}
           </div>
-          <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+          <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
             {closeButton}
             <button ref={submitRef} type="submit" disabled={saving} className={PRIMARY}>
               {saving ? "Saving..." : editing ? "Save changes" : mode === "buy" ? "Buy" : mode === "sell" ? "Sell" : "Add coins"}

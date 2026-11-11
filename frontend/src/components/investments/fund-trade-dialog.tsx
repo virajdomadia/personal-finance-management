@@ -310,13 +310,13 @@ export function FundTradeDialog(props: Props) {
 
   const field = (key: Key, label: string, input: React.ReactNode, hint?: React.ReactNode) => (
     <div>
-      <label htmlFor={`ft-${key}`} className="mb-1 block text-sm font-medium">
+      <label htmlFor={`ft-${key}`} className="mb-1 block text-xs font-black tracking-wide uppercase">
         {label}
       </label>
       {input}
       {hint}
       {errors[key] ? (
-        <p id={`fte-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+        <p id={`fte-${key}`} className="mt-1 text-xs font-extrabold text-loss">
           {errors[key]}
         </p>
       ) : null}
@@ -384,16 +384,16 @@ export function FundTradeDialog(props: Props) {
     >
       {banks.length === 0 && !editing ? (
         <div>
-          <h2 id="fund-trade-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+          <h2 id="fund-trade-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
           </h2>
           <div className="px-5 py-4">
-            <p className="text-sm font-medium">Add a bank account first</p>
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="text-sm font-extrabold">Add a bank account first</p>
+            <p className="mt-1 text-sm text-zinc-600">
               Mutual funds are bought from a bank account, and redemptions are paid back into one.
             </p>
           </div>
-          <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+          <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
             {closeButton}
             <Link href="/accounts" className={PRIMARY}>
               Go to accounts
@@ -402,23 +402,24 @@ export function FundTradeDialog(props: Props) {
         </div>
       ) : (
         <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
-          <h2 id="fund-trade-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+          <h2 id="fund-trade-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
           </h2>
           <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
             {editing ? (
               <div>
-                <span className="mb-1 block text-sm font-medium">Type</span>
-                <p className="text-sm text-zinc-600 dark:text-zinc-400">{modeLabel(mode)}</p>
+                <span className="mb-1 block text-xs font-black tracking-wide uppercase">Type</span>
+                <p className="text-sm text-zinc-600">{modeLabel(mode)}</p>
               </div>
             ) : (
               <fieldset disabled={saving}>
-                <legend className="mb-1 block text-sm font-medium">Type</legend>
+                <legend className="mb-1 block text-xs font-black tracking-wide uppercase">Type</legend>
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
                   {MODES.map((option) => (
-                    <label key={option.value} className="flex items-center gap-1.5 text-sm">
+                    <label key={option.value} className="flex items-center gap-1.5 text-sm font-extrabold">
                       <input
                         type="radio"
+                        className="size-4 accent-ink"
                         name="mode"
                         value={option.value}
                         checked={mode === option.value}
@@ -436,7 +437,7 @@ export function FundTradeDialog(props: Props) {
               "Fund",
               <Select {...pickerProps("fund_id")} disabled={editing || saving} onChange={changeFund} placeholder="Choose a fund" options={fundOptions} />,
               mode === "sell" && fundOptions.length === 0 ? (
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">You don&apos;t hold any fund units to redeem.</p>
+                <p className="mt-1 text-xs text-zinc-600">You don&apos;t hold any fund units to redeem.</p>
               ) : null,
             )}
 
@@ -464,7 +465,7 @@ export function FundTradeDialog(props: Props) {
                 sipOptions.length > 0 ? (
                   <Select {...pickerProps("sip_id")} onChange={changeSip} placeholder="Choose a SIP" options={sipOptions} />
                 ) : (
-                  <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                  <p className="text-sm text-zinc-600">
                     This fund has no SIP, so this is recorded as a plain purchase. Add the SIP from the fund&apos;s page.
                   </p>
                 ),
@@ -475,7 +476,7 @@ export function FundTradeDialog(props: Props) {
               "Bank account",
               <Select {...pickerProps("account_id")} onChange={(v) => set("account_id", v)} placeholder="Choose a bank account" options={bankOptions} />,
               mode === "sell" && form.fund_id && form.account_id ? (
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400" aria-live="polite">
+                <p className="mt-1 text-xs text-zinc-600" aria-live="polite">
                   {held ? `You hold ${formatUnits(held.units)} units here.` : "You hold none of this fund here."}
                 </p>
               ) : null,
@@ -522,10 +523,10 @@ export function FundTradeDialog(props: Props) {
               />,
               <>
                 {purchase && !unitsByHand && form.units !== "" ? (
-                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Worked out from the amount, stamp duty and NAV. Check it against your statement.</p>
+                  <p className="mt-1 text-xs text-zinc-600">Worked out from the amount, stamp duty and NAV. Check it against your statement.</p>
                 ) : null}
                 {mismatch ? (
-                  <p id="ft-mismatch" className="mt-1 text-xs text-amber-700 dark:text-amber-400" aria-live="polite">
+                  <p id="ft-mismatch" className="mt-1 text-xs font-extrabold text-orange-700" aria-live="polite">
                     {MISMATCH}
                   </p>
                 ) : null}
@@ -534,16 +535,16 @@ export function FundTradeDialog(props: Props) {
 
             {field("note", "Note (optional)", <input {...inputProps("note")} type="text" autoComplete="off" maxLength={200} />)}
 
-            <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm dark:bg-zinc-800/60" aria-live="polite">
+            <p className="rounded-[14px] border-2 border-ink bg-bg px-3 py-2 text-sm font-bold" aria-live="polite">
               {mode === "opening" ? (
                 <>Your bank balance won&apos;t change.</>
               ) : amountShown === null ? (
-                <span className="text-zinc-500 dark:text-zinc-400">
+                <span className="text-zinc-600">
                   {purchase ? "Enter the amount and NAV, and the units are worked out." : "Enter the amount you received."}
                 </span>
               ) : (
                 <>
-                  <span className="font-medium tabular-nums">{amountShown}</span>
+                  <span className="font-black tabular-nums">{amountShown}</span>
                   {purchase ? " leaves " : " goes into "}
                   {bank ? bank.name : "your bank account"}.
                 </>
@@ -551,12 +552,12 @@ export function FundTradeDialog(props: Props) {
             </p>
 
             {formError ? (
-              <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+              <p role="alert" className="text-sm font-extrabold text-loss">
                 {formError}
               </p>
             ) : null}
           </div>
-          <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+          <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
             {closeButton}
             <button ref={submitRef} type="submit" disabled={saving} className={PRIMARY}>
               {saving

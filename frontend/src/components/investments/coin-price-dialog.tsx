@@ -92,7 +92,7 @@ export function CoinPriceDialog({
   });
   const error = (key: Key) =>
     errors[key] ? (
-      <p id={`cpe-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+      <p id={`cpe-${key}`} className="mt-1 text-xs font-extrabold text-loss">
         {errors[key]}
       </p>
     ) : null;
@@ -108,25 +108,25 @@ export function CoinPriceDialog({
       className={`${DIALOG} w-[min(26rem,calc(100vw-2rem))]`}
     >
       <form onSubmit={submit} noValidate>
-        <h2 id="coin-price-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+        <h2 id="coin-price-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
           Update price of {coin.name}
         </h2>
         <div className="flex flex-col gap-4 px-5 py-4">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-zinc-600">
             {coin.price !== null && coin.price_date !== null
               ? `Last recorded ${formatCoinPrice(coin.price)} on ${formatDate(coin.price_date)}.`
               : "No price recorded yet, so holdings are valued at cost."}
           </p>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="cp-price" className="mb-1 block text-sm font-medium">
+              <label htmlFor="cp-price" className="mb-1 block text-xs font-black tracking-wide uppercase">
                 Price per coin (₹)
               </label>
               <input {...input("price")} type="text" inputMode="decimal" autoComplete="off" placeholder="7504827.5" required />
               {error("price")}
             </div>
             <div>
-              <label htmlFor="cp-date" className="mb-1 block text-sm font-medium">
+              <label htmlFor="cp-date" className="mb-1 block text-xs font-black tracking-wide uppercase">
                 As of
               </label>
               <input {...input("date")} type="date" max={todayIndia()} required />
@@ -134,12 +134,12 @@ export function CoinPriceDialog({
             </div>
           </div>
           {formError ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            <p role="alert" className="text-sm font-extrabold text-loss">
               {formError}
             </p>
           ) : null}
         </div>
-        <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+        <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
           <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
             Cancel
           </button>

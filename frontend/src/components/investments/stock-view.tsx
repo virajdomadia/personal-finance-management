@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -12,17 +11,23 @@ import { formatDate } from "@/lib/transactions";
 import { Select } from "@/components/ui/select";
 
 import { PriceDialog } from "./price-dialog";
+import { Tile } from "@/components/ui/chunky";
+import { investmentSticker } from "@/lib/fun";
 import {
   ConfirmDelete,
   LIST,
   Notice,
-  PRIMARY,
   QUIET,
   ROW_ACTION,
-  SECONDARY,
   SECTION_TITLE,
   Signed,
+  BUY,
+  SELL,
+  PlainSigned,
+  PriceCard,
   TradeRow,
+  TradesTable,
+  BackLink,
   archivedIds,
   isUnauthorized,
   tradeDeleteText,
@@ -111,18 +116,13 @@ export function StockView({ stockId }: { stockId: number }) {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <Link
-        href="/investments"
-        className="mb-3 inline-block rounded text-sm text-zinc-600 hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400"
-      >
-        ‹ Investments
-      </Link>
+      <BackLink />
 
       {data && (
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
           <div className="min-w-0">
-            <h1 className="text-xl font-semibold [overflow-wrap:anywhere]">{data.stock.symbol}</h1>
-            <p className="text-sm text-zinc-600 dark:text-zinc-400 [overflow-wrap:anywhere]">{data.stock.name}</p>
+            <h1 className="text-2xl font-black [overflow-wrap:anywhere]"><span aria-hidden="true">📈 </span>{data.stock.symbol}</h1>
+            <p className="text-sm font-bold text-zinc-700 [overflow-wrap:anywhere]">{data.stock.name}</p>
             <GoalTagLink tag={holdings.find((h) => h.in_goal)?.in_goal} />
           </div>
           <div className="flex flex-wrap gap-2">
@@ -136,11 +136,11 @@ export function StockView({ stockId }: { stockId: number }) {
               Update price
             </button>
             {holdings.length > 0 && (
-              <button type="button" className={SECONDARY} onClick={() => openTrade("sell", holdings.length === 1 ? holdings[0].account_id : null)}>
+              <button type="button" className={SELL} onClick={() => openTrade("sell", holdings.length === 1 ? holdings[0].account_id : null)}>
                 Sell
               </button>
             )}
-            <button type="button" className={PRIMARY} onClick={() => openTrade("buy")}>
+            <button type="button" className={BUY} onClick={() => openTrade("buy")}>
               Buy
             </button>
           </div>
@@ -150,24 +150,24 @@ export function StockView({ stockId }: { stockId: number }) {
       <Notice message={notice} />
 
       {load.status === "loading" && (
-        <p role="status" className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p role="status" className="text-sm font-bold text-zinc-600">
           Loading this stock...
         </p>
       )}
 
       {load.status === "missing" && (
-        <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
-          <h1 className="font-medium">Stock not found</h1>
-          <p className="mt-1 text-zinc-600 dark:text-zinc-400">It may have been deleted.</p>
+        <div role="alert" className="rounded-[18px] border-[2.5px] border-ink bg-card p-4 text-sm font-extrabold shadow-chunky">
+          <h1 className="font-extrabold">Stock not found</h1>
+          <p className="mt-1 font-bold text-zinc-600">It may have been deleted.</p>
         </div>
       )}
 
       {load.status === "error" && (
-        <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
+        <div role="alert" className="rounded-[18px] border-[2.5px] border-ink bg-card p-4 text-sm font-extrabold shadow-chunky">
           <p>We couldn&apos;t load this stock.</p>
           <button
             type="button"
-            className={`${QUIET} mt-2 -ml-3`}
+            className={`${QUIET} mt-2`}
             onClick={() => {
               setLoad({ status: "loading" });
               reload();
@@ -253,29 +253,37 @@ function StockSummary({ data }: { data: Data }) {
   const total = data.portfolio.by_stock.find((s) => s.stock_id === data.stock.id);
   const { stock } = data;
   return (
-    <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <Figure label="Current price" sub={stock.price_date ? `as of ${formatDate(stock.price_date)}` : "No price recorded yet"}>
-        {stock.price !== null ? formatRupees(stock.price) : "—"}
-      </Figure>
-      <Figure label="Shares held" sub={total ? `avg cost ${formatRupees(total.average_cost)}` : undefined}>
-        {total ? total.shares : 0}
-      </Figure>
-      <Figure label="Current value" sub={total ? `${formatRupees(total.invested)} invested${total.at_cost ? " · at cost" : ""}` : undefined}>
-        {formatRupees(total?.value ?? "0.00")}
-      </Figure>
-      <Figure label="Unrealised P&L" sub={total ? <Signed value={total.unrealised_percent} percentOnly /> : undefined}>
-        <Signed value={total?.unrealised ?? "0.00"} />
-      </Figure>
-    </dl>
-  );
-}
-
-function Figure({ label, sub, children }: { label: string; sub?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="min-w-0 rounded-lg border border-zinc-200 px-4 py-3 dark:border-zinc-800">
-      <dt className="text-sm text-zinc-600 dark:text-zinc-400">{label}</dt>
-      <dd className="mt-1 text-xl font-semibold tabular-nums [overflow-wrap:anywhere]">{children}</dd>
-      {sub ? <dd className="text-sm text-zinc-500 tabular-nums dark:text-zinc-400">{sub}</dd> : null}
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="sm:col-span-2">
+          <Tile
+            tone="blue"
+            size="huge"
+            emoji="📈"
+            label="Worth today"
+            value={formatRupees(total?.value ?? "0.00")}
+            sticker={investmentSticker(total?.unrealised_percent ?? null)}
+          >
+            {total ? (
+              <span className="mt-0.5 block text-xs font-extrabold break-words">
+                <PlainSigned value={total.unrealised} percent={total.unrealised_percent} />
+                {total.at_cost ? " · at cost" : ""}
+              </span>
+            ) : null}
+          </Tile>
+        </div>
+        <Tile tone="yellow" emoji="💰" label="You put in" value={formatRupees(total?.invested ?? "0.00")} />
+        <Tile label="Shares held" value={total ? total.shares : 0}>
+          {total ? <span className="mt-0.5 block text-xs font-bold text-zinc-600">avg cost {formatRupees(total.average_cost)}</span> : null}
+        </Tile>
+      </div>
+      <PriceCard
+        label="Current price"
+        value={stock.price !== null ? formatRupees(stock.price) : "—"}
+        sub={stock.price_date ? `as of ${formatDate(stock.price_date)}` : "No price recorded yet"}
+        points={data.prices.map((p) => ({ date: p.date, value: Number(p.price) }))}
+        lineLabel="Price history"
+      />
     </div>
   );
 }
@@ -291,14 +299,14 @@ function BrokerHoldings({ holdings, onSell }: { holdings: Holding[]; onSell: (h:
         {holdings.map((h) => (
           <li key={h.account_id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
             <div className="min-w-32 flex-1">
-              <p className="text-sm font-medium [overflow-wrap:anywhere]">{h.account_name}</p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              <p className="text-sm font-extrabold [overflow-wrap:anywhere]">{h.account_name}</p>
+              <p className="text-xs font-bold text-zinc-600">
                 {h.shares} shares · avg cost {formatRupees(h.average_cost)} · {formatRupees(h.invested)} invested
               </p>
             </div>
             <div className="text-right text-sm tabular-nums">
-              <p className="font-medium">
-                {h.at_cost && <span className="mr-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400">at cost</span>}
+              <p className="font-extrabold">
+                {h.at_cost && <span className="mr-1.5 text-xs font-bold text-zinc-600">at cost</span>}
                 {formatRupees(h.value)}
               </p>
               <p className="text-xs">
@@ -343,7 +351,7 @@ function Trades({
   return (
     <section aria-labelledby="trades-title">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2 px-1">
-        <h2 id="trades-title" className="text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
+        <h2 id="trades-title" className="text-xs font-black tracking-wider uppercase">
           Trades
         </h2>
         {brokers.length > 1 && (
@@ -357,14 +365,14 @@ function Trades({
         )}
       </div>
       {shown.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+        <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-4 py-6 text-center text-sm font-extrabold text-zinc-700">
           <p>{filterName ? `No trades in ${filterName} yet.` : "No trades yet."}</p>
           <button type="button" className={`${QUIET} mt-2`} onClick={onAdd}>
             Add existing shares
           </button>
         </div>
       ) : (
-        <ul className={LIST}>
+        <TradesTable caption="Trades">
           {shown.map((trade) => (
             <TradeRow
               key={trade.id}
@@ -375,7 +383,7 @@ function Trades({
               onDelete={() => onDelete(trade)}
             />
           ))}
-        </ul>
+        </TradesTable>
       )}
     </section>
   );
@@ -388,7 +396,7 @@ function PriceHistory({ prices, onDelete }: { prices: Price[]; onDelete: (price:
         Price history
       </h2>
       {prices.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+        <p className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-4 py-6 text-center text-sm font-extrabold text-zinc-700">
           No prices recorded. Until you add one, holdings are valued at cost.
         </p>
       ) : (
@@ -397,9 +405,9 @@ function PriceHistory({ prices, onDelete }: { prices: Price[]; onDelete: (price:
             <li key={price.id} className="flex items-center gap-x-4 px-4 py-2">
               <p className="flex-1 text-sm">
                 {formatDate(price.date)}
-                {index === 0 && <span className="ml-2 text-xs text-zinc-500 dark:text-zinc-400">current</span>}
+                {index === 0 && <span className="ml-2 text-xs font-bold text-zinc-600">current</span>}
               </p>
-              <p className="text-sm font-medium tabular-nums">{formatRupees(price.price)}</p>
+              <p className="text-sm font-extrabold tabular-nums">{formatRupees(price.price)}</p>
               <div className="flex w-24 shrink-0 justify-end">
                 <button
                   type="button"

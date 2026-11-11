@@ -39,18 +39,23 @@ import {
   settle,
 } from "@/lib/investments";
 import { todayIndia } from "@/lib/transactions";
+import { investmentEmoji, investmentSticker } from "@/lib/fun";
+import { EmojiSquare, PageHeader, StackedBar, TABLE, TD, TD_NUM, TH, Tile } from "@/components/ui/chunky";
 
 import {
   ConfirmDelete,
   GoalTagLink,
   LIST,
   Notice,
-  PRIMARY,
+  BUY,
+  SELL,
+  PlainSigned,
   QUIET,
   SECONDARY,
   SECTION_TITLE,
   Signed,
   TradeRow,
+  TradesTable,
   archivedIds,
   goalsByInstrument,
   isUnauthorized,
@@ -174,25 +179,23 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold">Investments</h1>
-        {data && <Overall portfolio={data.portfolio} />}
-      </div>
+      <PageHeader title="Investments" />
+      {data && <Overall portfolio={data.portfolio} />}
 
       <Notice message={notice} />
 
       {load.status === "loading" && (
-        <p role="status" className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p role="status" className="text-sm font-bold text-zinc-600">
           Loading your investments...
         </p>
       )}
 
       {load.status === "error" && (
-        <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
+        <div role="alert" className="rounded-[18px] border-[2.5px] border-ink bg-card p-4 text-sm font-extrabold shadow-chunky">
           <p>We couldn&apos;t load your investments.</p>
           <button
             type="button"
-            className={`${QUIET} mt-2 -ml-3`}
+            className={`${QUIET} mt-2`}
             onClick={() => {
               setLoad({ status: "loading" });
               reload();
@@ -325,9 +328,9 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
 
 function SectionError({ onRetry, what, retrying }: { onRetry: () => void; what: string; retrying: boolean }) {
   return (
-    <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
+    <div role="alert" className="rounded-[18px] border-[2.5px] border-ink bg-card p-4 text-sm font-extrabold shadow-chunky">
       <p>We couldn&apos;t load your {what}.</p>
-      <button type="button" className={`${QUIET} mt-2 -ml-3`} disabled={retrying} onClick={onRetry}>
+      <button type="button" className={`${QUIET} mt-2`} disabled={retrying} onClick={onRetry}>
         {retrying ? "Trying again..." : "Try again"}
       </button>
     </div>
@@ -337,7 +340,7 @@ function SectionError({ onRetry, what, retrying }: { onRetry: () => void; what: 
 // Shown where the buttons and dialogs would be when the accounts they need didn't load.
 function NeedsAccounts({ retrying, onRetry }: { retrying: boolean; onRetry: () => void }) {
   return (
-    <p className="text-sm text-zinc-600 dark:text-zinc-400">
+    <p className="text-sm font-bold text-zinc-600">
       Adding is unavailable until your accounts load.{" "}
       <button type="button" className={`${QUIET} -mx-1 inline`} disabled={retrying} onClick={onRetry}>
         {retrying ? "Trying again..." : "Try again"}
@@ -375,8 +378,8 @@ function Content({
   return (
     <section aria-labelledby="stocks-title" className="flex flex-col gap-8">
       <div className="-mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h2 id="stocks-title" className="text-base font-semibold">
-          Stocks
+        <h2 id="stocks-title" className="text-lg font-black">
+          <span aria-hidden="true">{investmentEmoji("stock")} </span>Stocks
         </h2>
         {extra && (
           <div className="flex flex-wrap gap-2">
@@ -384,11 +387,11 @@ function Content({
               Add existing shares
             </button>
             {hasHoldings && (
-              <button type="button" className={SECONDARY} onClick={() => onAdd("sell")}>
+              <button type="button" className={SELL} onClick={() => onAdd("sell")}>
                 Sell
               </button>
             )}
-            <button type="button" className={PRIMARY} onClick={() => onAdd("buy")}>
+            <button type="button" className={BUY} onClick={() => onAdd("buy")}>
               Buy
             </button>
           </div>
@@ -402,9 +405,9 @@ function Content({
       {!stocksLoaded ? (
         <SectionError onRetry={onRetry} what="stocks" retrying={retrying} />
       ) : empty ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700">
-          <p className="font-medium">Add your shares</p>
-          <p className="mx-auto mt-1 max-w-md text-sm text-zinc-600 dark:text-zinc-400">
+        <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-12 text-center">
+          <p className="font-black">Add your shares</p>
+          <p className="mx-auto mt-1 max-w-md text-sm font-bold text-zinc-600">
             Enter shares you already own, or record a buy. Buys and sells move your broker account&apos;s cash.
           </p>
           {extra && (
@@ -412,7 +415,7 @@ function Content({
               <button type="button" className={SECONDARY} onClick={() => onAdd("opening")}>
                 Add existing shares
               </button>
-              <button type="button" className={PRIMARY} onClick={() => onAdd("buy")}>
+              <button type="button" className={BUY} onClick={() => onAdd("buy")}>
                 Buy
               </button>
             </div>
@@ -424,7 +427,7 @@ function Content({
           <Holdings rows={portfolio.by_stock} goals={goalsByInstrument(portfolio.holdings, (h) => h.stock_id)} />
           {portfolio.closed.length > 0 && (
             <details className="group">
-              <summary className="cursor-pointer rounded px-1 py-1 text-xs font-medium tracking-wide text-zinc-500 uppercase hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400 dark:hover:text-zinc-100">
+              <summary className="cursor-pointer rounded px-1 py-1 text-xs font-black tracking-wider uppercase hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded">
                 Sold ({portfolio.closed.length})
               </summary>
               <ul className={`${LIST} mt-1`}>
@@ -433,16 +436,16 @@ function Content({
                     <div className="min-w-32 flex-1">
                       <Link
                         href={`/investments/${c.stock_id}`}
-                        className="text-sm font-medium hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none"
+                        className="text-sm font-extrabold hover:underline focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded"
                       >
                         {c.symbol}
                       </Link>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">
+                      <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">
                         {c.name} · {c.account_name}
                       </p>
                     </div>
                     <p className="text-right text-sm">
-                      <span className="mr-1.5 text-xs text-zinc-500 dark:text-zinc-400">Realised</span>
+                      <span className="mr-1.5 text-xs font-bold text-zinc-600">Realised</span>
                       <Signed value={c.realised} />
                     </p>
                   </li>
@@ -458,30 +461,25 @@ function Content({
 
 function Summary({ totals }: { totals: Totals }) {
   return (
-    <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <Figure label="Invested">{formatRupees(totals.invested)}</Figure>
-      <Figure label="Current value">{formatRupees(totals.value)}</Figure>
-      <Figure label="Unrealised P&L" sub={<Signed value={totals.unrealised_percent} percentOnly />}>
-        <Signed value={totals.unrealised} />
-      </Figure>
-      <Figure label="Realised P&L">
-        <Signed value={totals.realised} />
-      </Figure>
-    </dl>
-  );
-}
-
-function Figure({ label, sub, children }: { label: string; sub?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="min-w-0 rounded-lg border border-zinc-200 px-4 py-3 dark:border-zinc-800">
-      <dt className="text-sm text-zinc-600 dark:text-zinc-400">{label}</dt>
-      <dd className="mt-1 text-xl font-semibold tabular-nums [overflow-wrap:anywhere]">{children}</dd>
-      {sub ? <dd className="text-sm tabular-nums">{sub}</dd> : null}
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Tile label="Invested" value={formatRupees(totals.invested)} />
+      <Tile label="Current value" value={formatRupees(totals.value)} />
+      <Tile label="Unrealised P&L">
+        <span className="mt-0.5 block text-[22px] leading-tight font-black tabular-nums break-words">
+          <Signed value={totals.unrealised} />
+        </span>
+        <span className="block text-xs font-extrabold">
+          <Signed value={totals.unrealised_percent} percentOnly />
+        </span>
+      </Tile>
+      <Tile label="Realised P&L">
+        <span className="mt-0.5 block text-[22px] leading-tight font-black tabular-nums break-words">
+          <Signed value={totals.realised} />
+        </span>
+      </Tile>
     </div>
   );
 }
-
-const TH = "px-4 py-2 text-xs font-medium text-zinc-500 dark:text-zinc-400";
 
 function Holdings({ rows, goals }: { rows: StockTotal[]; goals: Map<number, GoalTag> }) {
   if (rows.length === 0) return null;
@@ -490,43 +488,44 @@ function Holdings({ rows, goals }: { rows: StockTotal[]; goals: Map<number, Goal
       <h3 id="holdings-title" className={SECTION_TITLE}>
         Holdings
       </h3>
-      <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full min-w-[40rem] text-sm">
-          <thead className="border-b border-zinc-200 dark:border-zinc-800">
+      <div className="overflow-x-auto pb-1">
+        <table className={`${TABLE} max-lg:[&_td]:px-2 max-lg:[&_th]:px-2`}>
+          <thead>
             <tr>
               <th scope="col" className={`${TH} text-left`}>Stock</th>
               <th scope="col" className={`${TH} text-right`}>Shares</th>
-              <th scope="col" className={`${TH} text-right`}>Avg cost</th>
-              <th scope="col" className={`${TH} text-right`}>Invested</th>
-              <th scope="col" className={`${TH} text-right`}>Current value</th>
+              <th scope="col" className={`${TH} hidden text-right lg:table-cell`}>Avg cost</th>
+              <th scope="col" className={`${TH} hidden text-right lg:table-cell`}>Invested</th>
+              <th scope="col" className={`${TH} text-right`}>Value</th>
               <th scope="col" className={`${TH} text-right`}>Unrealised P&amp;L</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+          <tbody>
             {rows.map((row) => (
-              <tr key={row.stock_id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900">
-                <th scope="row" className="px-4 py-3 text-left font-normal">
+              <tr key={row.stock_id} className="hover:bg-due/30">
+                <th scope="row" className={`${TD} text-left`}>
+                  <EmojiSquare emoji={investmentEmoji("stock")} tone="blue" />
                   <Link
                     href={`/investments/${row.stock_id}`}
-                    className="font-medium hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none"
+                    className="font-extrabold hover:underline focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded"
                   >
                     {row.symbol}
                   </Link>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{row.name}</p>
+                  <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">{row.name}</p>
                   <GoalTagLink tag={goals.get(row.stock_id)} />
                 </th>
-                <td className="px-4 py-3 text-right tabular-nums">{row.shares}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatRupees(row.average_cost)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatRupees(row.invested)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">
+                <td className={`${TD_NUM}`}>{row.shares}</td>
+                <td className={`${TD_NUM} hidden lg:table-cell`}>{formatRupees(row.average_cost)}</td>
+                <td className={`${TD_NUM} hidden lg:table-cell`}>{formatRupees(row.invested)}</td>
+                <td className={`${TD_NUM}`}>
                   {formatRupees(row.value)}
                   {row.at_cost ? (
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">at cost</p>
+                    <p className="text-xs font-bold text-zinc-600">at cost</p>
                   ) : row.price !== null ? (
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">@ {formatRupees(row.price)}</p>
+                    <p className="text-xs font-bold text-zinc-600">@ {formatRupees(row.price)}</p>
                   ) : null}
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className={`${TD} text-right`}>
                   <Signed value={row.unrealised} />
                   <p className="text-xs">
                     <Signed value={row.unrealised_percent} percentOnly />
@@ -557,19 +556,19 @@ function BrokerTrades({
   const trades = extra.trades ?? [];
   return (
     <section aria-labelledby="broker-trades-title">
-      <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2 px-1">
-        <h3 id="broker-trades-title" className="text-base font-semibold [overflow-wrap:anywhere]">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2 px-1">
+        <h3 id="broker-trades-title" className="text-lg font-black [overflow-wrap:anywhere]">
           {broker ? `Trades in ${broker.name}` : "Broker account not found"}
         </h3>
         <Link
           href="/investments"
-          className="rounded text-sm text-zinc-600 underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400"
+          className="rounded text-sm font-extrabold text-zinc-700 underline underline-offset-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded"
         >
           Show all investments
         </Link>
       </div>
       {broker && trades.length > 0 ? (
-        <ul className={LIST}>
+        <TradesTable caption={`Trades in ${broker.name}`}>
           {trades.map((trade) => (
             <TradeRow
               key={trade.id}
@@ -580,9 +579,9 @@ function BrokerTrades({
               onDelete={() => onDelete(trade)}
             />
           ))}
-        </ul>
+        </TradesTable>
       ) : (
-        <p className="rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+        <p className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-4 py-6 text-center text-sm font-extrabold text-zinc-700">
           {broker ? `No trades in ${broker.name} yet.` : "This broker account doesn't exist, or isn't yours."}
         </p>
       )}
@@ -595,15 +594,40 @@ function Overall({ portfolio }: { portfolio: Portfolio }) {
   const { overall } = portfolio;
   if (holdingKinds(portfolio) < 2) return null;
   return (
-    <p className="mt-1 text-sm text-zinc-600 tabular-nums dark:text-zinc-400">
-      All investments <span className="font-semibold text-zinc-900 dark:text-zinc-100">{formatRupees(overall.value)}</span>
-      {" · "}
-      {formatRupees(overall.invested)} invested
-      {" · unrealised "}
-      <Signed value={overall.unrealised} /> (<Signed value={overall.unrealised_percent} percentOnly />)
-      {" · realised "}
-      <Signed value={overall.realised} />
-    </p>
+    <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="sm:col-span-2">
+        <Tile
+          tone="blue"
+          size="huge"
+          emoji="💎"
+          label="All investments, worth today"
+          value={formatRupees(overall.value)}
+          sticker={investmentSticker(overall.unrealised_percent)}
+        >
+          <span className="mt-0.5 block text-xs font-extrabold break-words">
+            Unrealised <PlainSigned value={overall.unrealised} percent={overall.unrealised_percent} />
+          </span>
+        </Tile>
+      </div>
+      <Tile tone="yellow" emoji="💰" label="You put in" value={formatRupees(overall.invested)} />
+      <Tile label="Realised">
+        <span className="mt-0.5 block text-[22px] leading-tight font-black tabular-nums break-words">
+          <Signed value={overall.realised} />
+        </span>
+      </Tile>
+      <div className="sm:col-span-2 lg:col-span-4">
+        <Tile label="Split">
+          <StackedBar
+            label="Split by kind"
+            items={[
+              { label: "Stocks", value: Number(portfolio.totals.value) },
+              { label: "Funds", value: Number(portfolio.funds.totals.value) },
+              { label: "Crypto", value: Number(portfolio.crypto.totals.value) },
+            ]}
+          />
+        </Tile>
+      </div>
+    </div>
   );
 }
 
@@ -636,8 +660,8 @@ function Funds({
   return (
     <section aria-labelledby="funds-title" className="flex flex-col gap-8">
       <div className="-mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h2 id="funds-title" className="text-base font-semibold">
-          Mutual funds
+        <h2 id="funds-title" className="text-lg font-black">
+          <span aria-hidden="true">{investmentEmoji("mutual_fund")} </span>Mutual funds
         </h2>
         {fundsData && canAdd && (
           <div className="flex flex-wrap gap-2">
@@ -648,11 +672,11 @@ function Funds({
               Add existing units
             </button>
             {hasHoldings && (
-              <button type="button" className={SECONDARY} onClick={() => onAdd("sell")}>
+              <button type="button" className={SELL} onClick={() => onAdd("sell")}>
                 Redeem
               </button>
             )}
-            <button type="button" className={PRIMARY} onClick={() => onAdd("buy")}>
+            <button type="button" className={BUY} onClick={() => onAdd("buy")}>
               Buy
             </button>
           </div>
@@ -664,9 +688,9 @@ function Funds({
       {!fundsData ? (
         <SectionError onRetry={onRetry} what="mutual funds" retrying={retrying} />
       ) : empty && unheld.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700">
-          <p className="font-medium">Add your mutual funds</p>
-          <p className="mx-auto mt-1 max-w-md text-sm text-zinc-600 dark:text-zinc-400">
+        <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-12 text-center">
+          <p className="font-black">Add your mutual funds</p>
+          <p className="mx-auto mt-1 max-w-md text-sm font-bold text-zinc-600">
             Enter units you already own, or add a SIP and record each instalment with its NAV. Purchases and redemptions move your
             bank balance.
           </p>
@@ -693,11 +717,11 @@ function Funds({
                   <li key={f.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3">
                     <Link
                       href={`/investments/funds/${f.id}`}
-                      className="text-sm font-medium hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none [overflow-wrap:anywhere]"
+                      className="text-sm font-extrabold hover:underline focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded [overflow-wrap:anywhere]"
                     >
                       {f.name}
                     </Link>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">{f.symbol}</p>
+                    <p className="text-xs font-bold text-zinc-600">{f.symbol}</p>
                   </li>
                 ))}
               </ul>
@@ -705,7 +729,7 @@ function Funds({
           )}
           {funds.closed.length > 0 && (
             <details className="group">
-              <summary className="cursor-pointer rounded px-1 py-1 text-xs font-medium tracking-wide text-zinc-500 uppercase hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400 dark:hover:text-zinc-100">
+              <summary className="cursor-pointer rounded px-1 py-1 text-xs font-black tracking-wider uppercase hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded">
                 Redeemed ({funds.closed.length})
               </summary>
               <ul className={`${LIST} mt-1`}>
@@ -714,16 +738,16 @@ function Funds({
                     <div className="min-w-32 flex-1">
                       <Link
                         href={`/investments/funds/${c.fund_id}`}
-                        className="text-sm font-medium hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none [overflow-wrap:anywhere]"
+                        className="text-sm font-extrabold hover:underline focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded [overflow-wrap:anywhere]"
                       >
                         {c.name}
                       </Link>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">
+                      <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">
                         {c.symbol} · {c.account_name}
                       </p>
                     </div>
                     <p className="text-right text-sm">
-                      <span className="mr-1.5 text-xs text-zinc-500 dark:text-zinc-400">Realised</span>
+                      <span className="mr-1.5 text-xs font-bold text-zinc-600">Realised</span>
                       <Signed value={c.realised} />
                     </p>
                   </li>
@@ -744,43 +768,44 @@ function FundRows({ rows, goals }: { rows: FundTotal[]; goals: Map<number, GoalT
       <h3 id="fund-holdings-title" className={SECTION_TITLE}>
         Holdings
       </h3>
-      <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-        <table aria-labelledby="fund-holdings-title" className="w-full min-w-[40rem] text-sm">
-          <thead className="border-b border-zinc-200 dark:border-zinc-800">
+      <div className="overflow-x-auto pb-1">
+        <table aria-labelledby="fund-holdings-title" className={`${TABLE} max-lg:[&_td]:px-2 max-lg:[&_th]:px-2`}>
+          <thead>
             <tr>
               <th scope="col" className={`${TH} text-left`}>Fund</th>
               <th scope="col" className={`${TH} text-right`}>Units</th>
-              <th scope="col" className={`${TH} text-right`}>Avg NAV</th>
-              <th scope="col" className={`${TH} text-right`}>Invested</th>
-              <th scope="col" className={`${TH} text-right`}>Current value</th>
+              <th scope="col" className={`${TH} hidden text-right lg:table-cell`}>Avg NAV</th>
+              <th scope="col" className={`${TH} hidden text-right lg:table-cell`}>Invested</th>
+              <th scope="col" className={`${TH} text-right`}>Value</th>
               <th scope="col" className={`${TH} text-right`}>Unrealised P&amp;L</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+          <tbody>
             {rows.map((row) => (
-              <tr key={row.fund_id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900">
-                <th scope="row" className="px-4 py-3 text-left font-normal">
+              <tr key={row.fund_id} className="hover:bg-due/30">
+                <th scope="row" className={`${TD} text-left`}>
+                  <EmojiSquare emoji={investmentEmoji("mutual_fund")} tone="yellow" />
                   <Link
                     href={`/investments/funds/${row.fund_id}`}
-                    className="font-medium hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none [overflow-wrap:anywhere]"
+                    className="font-extrabold hover:underline focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded [overflow-wrap:anywhere]"
                   >
                     {row.name}
                   </Link>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">{row.symbol}</p>
+                  <p className="text-xs font-bold text-zinc-600">{row.symbol}</p>
                   <GoalTagLink tag={goals.get(row.fund_id)} />
                 </th>
-                <td className="px-4 py-3 text-right tabular-nums">{formatUnits(row.units)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatNav(row.average_nav)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatRupees(row.invested)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">
+                <td className={`${TD_NUM}`}>{formatUnits(row.units)}</td>
+                <td className={`${TD_NUM} hidden lg:table-cell`}>{formatNav(row.average_nav)}</td>
+                <td className={`${TD_NUM} hidden lg:table-cell`}>{formatRupees(row.invested)}</td>
+                <td className={`${TD_NUM}`}>
                   {formatRupees(row.value)}
                   {row.at_cost ? (
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">at cost</p>
+                    <p className="text-xs font-bold text-zinc-600">at cost</p>
                   ) : row.nav !== null ? (
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">@ {formatNav(row.nav)}</p>
+                    <p className="text-xs font-bold text-zinc-600">@ {formatNav(row.nav)}</p>
                   ) : null}
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className={`${TD} text-right`}>
                   <Signed value={row.unrealised} />
                   <p className="text-xs">
                     <Signed value={row.unrealised_percent} percentOnly />
@@ -822,8 +847,8 @@ function Crypto({
   return (
     <section aria-labelledby="crypto-title" className="flex flex-col gap-8">
       <div className="-mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h2 id="crypto-title" className="text-base font-semibold">
-          Crypto
+        <h2 id="crypto-title" className="text-lg font-black">
+          <span aria-hidden="true">{investmentEmoji("crypto")} </span>Crypto
         </h2>
         {coinsData && canAdd && (
           <div className="flex flex-wrap gap-2">
@@ -831,11 +856,11 @@ function Crypto({
               Add existing coins
             </button>
             {hasHoldings && (
-              <button type="button" className={SECONDARY} onClick={() => onAdd("sell")}>
+              <button type="button" className={SELL} onClick={() => onAdd("sell")}>
                 Sell
               </button>
             )}
-            <button type="button" className={PRIMARY} onClick={() => onAdd("buy")}>
+            <button type="button" className={BUY} onClick={() => onAdd("buy")}>
               Buy
             </button>
           </div>
@@ -847,9 +872,9 @@ function Crypto({
       {!coinsData ? (
         <SectionError onRetry={onRetry} what="crypto" retrying={retrying} />
       ) : empty && unheld.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700">
-          <p className="font-medium">Add your crypto</p>
-          <p className="mx-auto mt-1 max-w-md text-sm text-zinc-600 dark:text-zinc-400">
+        <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-12 text-center">
+          <p className="font-black">Add your crypto</p>
+          <p className="mx-auto mt-1 max-w-md text-sm font-bold text-zinc-600">
             Enter coins you already own, or record a buy. Buys and sells move your exchange account&apos;s balance.
           </p>
           {canAdd && (
@@ -857,7 +882,7 @@ function Crypto({
               <button type="button" className={SECONDARY} onClick={() => onAdd("opening")}>
                 Add existing coins
               </button>
-              <button type="button" className={PRIMARY} onClick={() => onAdd("buy")}>
+              <button type="button" className={BUY} onClick={() => onAdd("buy")}>
                 Buy
               </button>
             </div>
@@ -875,11 +900,11 @@ function Crypto({
                   <li key={c.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3">
                     <Link
                       href={`/investments/crypto/${c.id}`}
-                      className="text-sm font-medium hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none [overflow-wrap:anywhere]"
+                      className="text-sm font-extrabold hover:underline focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded [overflow-wrap:anywhere]"
                     >
                       {c.name}
                     </Link>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">{c.symbol}</p>
+                    <p className="text-xs font-bold text-zinc-600">{c.symbol}</p>
                   </li>
                 ))}
               </ul>
@@ -887,7 +912,7 @@ function Crypto({
           )}
           {crypto.closed.length > 0 && (
             <details className="group">
-              <summary className="cursor-pointer rounded px-1 py-1 text-xs font-medium tracking-wide text-zinc-500 uppercase hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400 dark:hover:text-zinc-100">
+              <summary className="cursor-pointer rounded px-1 py-1 text-xs font-black tracking-wider uppercase hover:text-zinc-900 focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded">
                 Sold ({crypto.closed.length})
               </summary>
               <ul className={`${LIST} mt-1`}>
@@ -896,16 +921,16 @@ function Crypto({
                     <div className="min-w-32 flex-1">
                       <Link
                         href={`/investments/crypto/${c.coin_id}`}
-                        className="text-sm font-medium hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none [overflow-wrap:anywhere]"
+                        className="text-sm font-extrabold hover:underline focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded [overflow-wrap:anywhere]"
                       >
                         {c.name}
                       </Link>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">
+                      <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">
                         {c.symbol} · {c.account_name}
                       </p>
                     </div>
                     <p className="text-right text-sm">
-                      <span className="mr-1.5 text-xs text-zinc-500 dark:text-zinc-400">Realised</span>
+                      <span className="mr-1.5 text-xs font-bold text-zinc-600">Realised</span>
                       <Signed value={c.realised} />
                     </p>
                   </li>
@@ -926,43 +951,44 @@ function CoinRows({ rows, goals }: { rows: CoinTotal[]; goals: Map<number, GoalT
       <h3 id="coin-holdings-title" className={SECTION_TITLE}>
         Holdings
       </h3>
-      <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-        <table aria-labelledby="coin-holdings-title" className="w-full min-w-[40rem] text-sm">
-          <thead className="border-b border-zinc-200 dark:border-zinc-800">
+      <div className="overflow-x-auto pb-1">
+        <table aria-labelledby="coin-holdings-title" className={`${TABLE} max-lg:[&_td]:px-2 max-lg:[&_th]:px-2`}>
+          <thead>
             <tr>
               <th scope="col" className={`${TH} text-left`}>Coin</th>
               <th scope="col" className={`${TH} text-right`}>Quantity</th>
-              <th scope="col" className={`${TH} text-right`}>Avg price</th>
-              <th scope="col" className={`${TH} text-right`}>Invested</th>
-              <th scope="col" className={`${TH} text-right`}>Current value</th>
+              <th scope="col" className={`${TH} hidden text-right lg:table-cell`}>Avg price</th>
+              <th scope="col" className={`${TH} hidden text-right lg:table-cell`}>Invested</th>
+              <th scope="col" className={`${TH} text-right`}>Value</th>
               <th scope="col" className={`${TH} text-right`}>Unrealised P&amp;L</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+          <tbody>
             {rows.map((row) => (
-              <tr key={row.coin_id} className="hover:bg-zinc-50 dark:hover:bg-zinc-900">
-                <th scope="row" className="px-4 py-3 text-left font-normal">
+              <tr key={row.coin_id} className="hover:bg-due/30">
+                <th scope="row" className={`${TD} text-left`}>
+                  <EmojiSquare emoji={investmentEmoji("crypto")} tone="orange" />
                   <Link
                     href={`/investments/crypto/${row.coin_id}`}
-                    className="font-medium hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none [overflow-wrap:anywhere]"
+                    className="font-extrabold hover:underline focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded [overflow-wrap:anywhere]"
                   >
                     {row.name}
                   </Link>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">{row.symbol}</p>
+                  <p className="text-xs font-bold text-zinc-600">{row.symbol}</p>
                   <GoalTagLink tag={goals.get(row.coin_id)} />
                 </th>
-                <td className="px-4 py-3 text-right tabular-nums">{formatCoinQty(row.quantity)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatCoinAverage(row.average_price)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatRupees(row.invested)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">
+                <td className={`${TD_NUM}`}>{formatCoinQty(row.quantity)}</td>
+                <td className={`${TD_NUM} hidden lg:table-cell`}>{formatCoinAverage(row.average_price)}</td>
+                <td className={`${TD_NUM} hidden lg:table-cell`}>{formatRupees(row.invested)}</td>
+                <td className={`${TD_NUM}`}>
                   {formatRupees(row.value)}
                   {row.at_cost ? (
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">at cost</p>
+                    <p className="text-xs font-bold text-zinc-600">at cost</p>
                   ) : row.price !== null ? (
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">@ {formatCoinPrice(row.price)}</p>
+                    <p className="text-xs font-bold text-zinc-600">@ {formatCoinPrice(row.price)}</p>
                   ) : null}
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className={`${TD} text-right`}>
                   <Signed value={row.unrealised} />
                   <p className="text-xs">
                     <Signed value={row.unrealised_percent} percentOnly />
@@ -982,11 +1008,11 @@ function DepositsSection({ deposits }: { deposits: Portfolio["deposits"] }) {
   return (
     <section aria-labelledby="deposits-title" className="flex flex-col gap-4">
       <div>
-        <h2 id="deposits-title" className="text-base font-semibold">
-          Deposits
+        <h2 id="deposits-title" className="text-lg font-black">
+          <span aria-hidden="true">🐷 </span>Deposits
         </h2>
-        <p className="mt-1 text-sm text-zinc-600 tabular-nums dark:text-zinc-400">
-          <span className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">{formatRupees(deposits.value)}</span>
+        <p className="mt-1 text-sm font-bold text-zinc-700 tabular-nums">
+          <span className="text-2xl font-black text-ink text-zinc-900">{formatRupees(deposits.value)}</span>
           {" · ≈ "}
           {formatRupees(deposits.interest_estimate)} interest (estimate)
         </p>
@@ -1006,17 +1032,17 @@ function DepositItem({ row }: { row: DepositRow }) {
       <div className="min-w-32 flex-1">
         <Link
           href="/accounts"
-          className="text-sm font-medium hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none [overflow-wrap:anywhere]"
+          className="text-sm font-extrabold hover:underline focus-visible:outline-2 focus-visible:outline-transparent focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg rounded [overflow-wrap:anywhere]"
         >
           {row.name}
         </Link>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="text-xs font-bold text-zinc-600">
           {row.type === "ppf" ? "PPF" : "RD"} · Matures {formatFullDate(row.maturity_date)}
         </p>
       </div>
       <p className="text-right text-sm tabular-nums">
         {formatRupees(row.balance)}
-        <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+        <span className="block text-xs font-bold text-zinc-600">
           ≈ {formatRupees(row.interest_estimate)} interest (estimate)
         </span>
       </p>

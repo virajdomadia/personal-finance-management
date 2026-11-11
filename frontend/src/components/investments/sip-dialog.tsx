@@ -170,13 +170,13 @@ export function SipDialog(props: Props) {
 
   const field = (key: Key, label: string, input: React.ReactNode, hint?: React.ReactNode) => (
     <div>
-      <label htmlFor={`sip-${key}`} className="mb-1 block text-sm font-medium">
+      <label htmlFor={`sip-${key}`} className="mb-1 block text-xs font-black tracking-wide uppercase">
         {label}
       </label>
       {input}
       {hint}
       {errors[key] ? (
-        <p id={`sipe-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+        <p id={`sipe-${key}`} className="mt-1 text-xs font-extrabold text-loss">
           {errors[key]}
         </p>
       ) : null}
@@ -225,14 +225,14 @@ export function SipDialog(props: Props) {
     >
       {banks.length === 0 ? (
         <div>
-          <h2 id="sip-dialog-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+          <h2 id="sip-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
           </h2>
           <div className="px-5 py-4">
-            <p className="text-sm font-medium">Add a bank account first</p>
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">A SIP is debited from a bank account each month.</p>
+            <p className="text-sm font-extrabold">Add a bank account first</p>
+            <p className="mt-1 text-sm text-zinc-600">A SIP is debited from a bank account each month.</p>
           </div>
-          <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+          <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
             {closeButton}
             <Link href="/accounts" className={PRIMARY}>
               Go to accounts
@@ -241,7 +241,7 @@ export function SipDialog(props: Props) {
         </div>
       ) : (
         <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
-          <h2 id="sip-dialog-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold [overflow-wrap:anywhere] dark:border-zinc-800">
+          <h2 id="sip-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black [overflow-wrap:anywhere]">
             {title}
           </h2>
           <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
@@ -270,7 +270,7 @@ export function SipDialog(props: Props) {
                 "day",
                 "Debit day",
                 <input {...inputProps("day")} type="text" inputMode="numeric" autoComplete="off" placeholder="5" required />,
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">1 to 31. Short months use their last day.</p>,
+                <p className="mt-1 text-xs text-zinc-600">1 to 31. Short months use their last day.</p>,
               )}
             </div>
 
@@ -279,20 +279,20 @@ export function SipDialog(props: Props) {
                 "start_date",
                 "First instalment",
                 <input {...inputProps("start_date")} type="date" required />,
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Months from here on show as due until you record them.</p>,
+                <p className="mt-1 text-xs text-zinc-600">Months from here on show as due until you record them.</p>,
               )}
 
-            <p className="rounded-md bg-zinc-50 px-3 py-2 text-sm text-zinc-600 dark:bg-zinc-800/60 dark:text-zinc-400">
+            <p className="rounded-[14px] border-2 border-ink bg-bg px-3 py-2 text-sm font-bold text-zinc-700">
               Nothing is recorded on its own. Each month the SIP shows as due, and you record it with that day&apos;s NAV.
             </p>
 
             {formError ? (
-              <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+              <p role="alert" className="text-sm font-extrabold text-loss">
                 {formError}
               </p>
             ) : null}
           </div>
-          <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+          <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
             {closeButton}
             <button ref={submitRef} type="submit" disabled={saving} className={PRIMARY}>
               {saving ? "Saving..." : editing ? "Save changes" : "Add SIP"}
