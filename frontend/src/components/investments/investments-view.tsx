@@ -519,6 +519,9 @@ function Holdings({ rows, goals }: { rows: StockTotal[]; goals: Map<number, Goal
                 <td className={`${TD_NUM} hidden lg:table-cell`}>{formatRupees(row.invested)}</td>
                 <td className={`${TD_NUM}`}>
                   {formatRupees(row.value)}
+                  <p className="text-xs font-bold text-zinc-600 lg:hidden">
+                    <span className="whitespace-nowrap">Invested {formatRupees(row.invested)}</span>{" · "}<span className="whitespace-nowrap">Avg {formatRupees(row.average_cost)}</span>
+                  </p>
                   {row.at_cost ? (
                     <p className="text-xs font-bold text-zinc-600">at cost</p>
                   ) : row.price !== null ? (
@@ -605,7 +608,7 @@ function Overall({ portfolio }: { portfolio: Portfolio }) {
           sticker={investmentSticker(overall.unrealised_percent)}
         >
           <span className="mt-0.5 block text-xs font-extrabold break-words">
-            Unrealised <PlainSigned value={overall.unrealised} percent={overall.unrealised_percent} />
+            <span className="uppercase">Unrealised</span> <PlainSigned value={overall.unrealised} percent={overall.unrealised_percent} />
           </span>
         </Tile>
       </div>
@@ -616,7 +619,7 @@ function Overall({ portfolio }: { portfolio: Portfolio }) {
         </span>
       </Tile>
       <div className="sm:col-span-2 lg:col-span-4">
-        <Tile label="Split">
+        <Tile label="Split (stocks, funds, crypto)">
           <StackedBar
             label="Split by kind"
             items={[
@@ -799,6 +802,9 @@ function FundRows({ rows, goals }: { rows: FundTotal[]; goals: Map<number, GoalT
                 <td className={`${TD_NUM} hidden lg:table-cell`}>{formatRupees(row.invested)}</td>
                 <td className={`${TD_NUM}`}>
                   {formatRupees(row.value)}
+                  <p className="text-xs font-bold text-zinc-600 lg:hidden">
+                    <span className="whitespace-nowrap">Invested {formatRupees(row.invested)}</span>{" · "}<span className="whitespace-nowrap">Avg NAV {formatNav(row.average_nav)}</span>
+                  </p>
                   {row.at_cost ? (
                     <p className="text-xs font-bold text-zinc-600">at cost</p>
                   ) : row.nav !== null ? (
@@ -982,6 +988,9 @@ function CoinRows({ rows, goals }: { rows: CoinTotal[]; goals: Map<number, GoalT
                 <td className={`${TD_NUM} hidden lg:table-cell`}>{formatRupees(row.invested)}</td>
                 <td className={`${TD_NUM}`}>
                   {formatRupees(row.value)}
+                  <p className="text-xs font-bold text-zinc-600 lg:hidden">
+                    <span className="whitespace-nowrap">Invested {formatRupees(row.invested)}</span>{" · "}<span className="whitespace-nowrap">Avg {formatCoinAverage(row.average_price)}</span>
+                  </p>
                   {row.at_cost ? (
                     <p className="text-xs font-bold text-zinc-600">at cost</p>
                   ) : row.price !== null ? (
@@ -1012,7 +1021,7 @@ function DepositsSection({ deposits }: { deposits: Portfolio["deposits"] }) {
           <span aria-hidden="true">🐷 </span>Deposits
         </h2>
         <p className="mt-1 text-sm font-bold text-zinc-700 tabular-nums">
-          <span className="text-2xl font-black text-ink text-zinc-900">{formatRupees(deposits.value)}</span>
+          <span className="text-2xl font-black text-ink">{formatRupees(deposits.value)}</span>
           {" · ≈ "}
           {formatRupees(deposits.interest_estimate)} interest (estimate)
         </p>
