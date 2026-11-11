@@ -64,13 +64,13 @@ def add_tx(
 def test_endpoint_uses_india_date(headers: Headers, db_session: Session) -> None:
     # 2026-11-10T18:30:00Z is 2026-11-11 00:00 IST, so it counts for the 11th.
     add_tx(db_session, headers, datetime(2026, 11, 10, 18, 30, tzinfo=UTC))
-    assert client.get("/api/streak", headers=headers).json() == {"days": 1}
+    assert client.get("/api/streak", headers=headers).json() == {"days": 1, "logged_today": True}
 
 
 def test_endpoint_counts_consecutive_days(headers: Headers, db_session: Session) -> None:
     add_tx(db_session, headers, datetime(2026, 11, 10, 18, 30, tzinfo=UTC))
     add_tx(db_session, headers, datetime(2026, 11, 10, 12, 0, tzinfo=UTC))
-    assert client.get("/api/streak", headers=headers).json() == {"days": 2}
+    assert client.get("/api/streak", headers=headers).json() == {"days": 2, "logged_today": True}
 
 
 def test_other_users_transactions_ignored(
@@ -78,8 +78,13 @@ def test_other_users_transactions_ignored(
 ) -> None:
     other = auth(db_session, monkeypatch, "other@example.com")
     add_tx(db_session, other, datetime(2026, 11, 11, 5, 0, tzinfo=UTC), "other@example.com")
-    assert client.get("/api/streak", headers=headers).json() == {"days": 0}
+    assert client.get("/api/streak", headers=headers).json() == {"days": 0, "logged_today": False}
 
 
 def test_requires_a_session() -> None:
     assert client.get("/api/streak").status_code == 401
+
+
+def test_yesterday_only_is_not_logged_today(headers: Headers, db_session: Session) -> None:
+    add_tx(db_session, headers, datetime(2026, 11, 10, 12, 0, tzinfo=UTC))
+    assert client.get("/api/streak", headers=headers).json() == {"days": 1, "logged_today": False}

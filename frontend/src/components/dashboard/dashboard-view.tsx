@@ -152,15 +152,23 @@ function Content({ data, onChanged }: { data: Dashboard; onChanged: () => void }
           <h2 id="attention-title" className="mb-1 text-xs font-extrabold">
             <span aria-hidden="true">⏰ </span>Needs attention
           </h2>
-          {due && (
-            <Link href="/accounts" className={ITEM}>
-              {due.name} due {formatDueDate(due.due_date)}
-            </Link>
-          )}
-          {used && (
-            <Link href="/accounts" className={ITEM}>
-              {used.percent}% of credit limit used
-            </Link>
+          {(due || used) && (
+            <ul>
+              {due && (
+                <li>
+                  <Link href="/accounts" className={ITEM}>
+                    {due.name} due {formatDueDate(due.due_date)}
+                  </Link>
+                </li>
+              )}
+              {used && (
+                <li>
+                  <Link href="/accounts" className={ITEM}>
+                    {used.percent}% of credit limit used
+                  </Link>
+                </li>
+              )}
+            </ul>
           )}
           <DueSection items={data.recurring} goals={goalsDue} onChanged={onChanged} embedded />
           {!due && !used && data.recurring.length === 0 && goalsDue.length === 0 && (

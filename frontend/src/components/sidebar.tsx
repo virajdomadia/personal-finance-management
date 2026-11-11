@@ -59,7 +59,9 @@ export function Sidebar() {
         <CurrentLinks />
       </Suspense>
       <div className="mt-auto pt-3">
-        <StreakBox />
+        <Suspense fallback={null}>
+          <StreakBox />
+        </Suspense>
         <form action={logout}>
           <button
             type="submit"

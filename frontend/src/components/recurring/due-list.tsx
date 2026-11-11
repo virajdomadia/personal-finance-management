@@ -93,10 +93,10 @@ export function DueList({ items, onRecord, onSkipped, onError, onClearError }: L
                       <button
                         type="button"
                         className={SMALL_GREEN}
-                        aria-label={`${isPolicy ? "Renew" : "Record"} ${item.template.name}`}
+                        aria-label={isPolicy ? `Renew ${item.template.name}` : `Done: record ${item.template.name}`}
                         onClick={() => onRecord(item)}
                       >
-                        {isPolicy ? "RENEW" : "✓ PAID"}
+                        {isPolicy ? "RENEW" : "✓ DONE"}
                       </button>
                       {canSkip(item) && (
                         <button
@@ -209,7 +209,7 @@ function GoalsDue({ goals, onRecord }: { goals: GoalDue[]; onRecord: (due: GoalD
               <button
                 type="button"
                 className={SMALL_GREEN}
-                aria-label={`Record setting aside for ${due.name}`}
+                aria-label={`Done: set aside for ${due.name}`}
                 onClick={() => onRecord(due)}
               >
                 ✓ DONE

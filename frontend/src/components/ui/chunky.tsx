@@ -59,7 +59,7 @@ export function Tile({
       </span>
       {value !== undefined && value !== null ? (
         <span
-          className={`mt-0.5 block font-black tabular-nums break-words ${sticker ? "pr-12" : ""} ${size === "huge" ? "text-[clamp(1.5rem,3vw,2.25rem)] leading-tight tracking-tight" : "text-[22px] leading-tight"}`}
+          className={`mt-0.5 block font-black tabular-nums break-words ${sticker ? "pr-[4.75rem]" : ""} ${size === "huge" ? "text-[clamp(1.5rem,3vw,2.25rem)] leading-tight tracking-tight" : "text-[22px] leading-tight"}`}
         >
           {value}
         </span>

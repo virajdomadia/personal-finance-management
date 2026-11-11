@@ -14,6 +14,7 @@ router = APIRouter(prefix="/streak", tags=["streak"], dependencies=[Depends(get_
 
 class StreakResponse(BaseModel):
     days: int
+    logged_today: bool
 
 
 def streak_days(logged_on: set[date], today: date) -> int:
@@ -35,4 +36,5 @@ def _india_day(stamp: datetime) -> date:
 def get_streak(user: CurrentUser, db: DbSession) -> StreakResponse:
     stamps = db.scalars(select(Transaction.created_at).where(Transaction.user_id == user.id))
     days = {_india_day(s) for s in stamps}
-    return StreakResponse(days=streak_days(days, today_india()))
+    today = today_india()
+    return StreakResponse(days=streak_days(days, today), logged_today=today in days)
