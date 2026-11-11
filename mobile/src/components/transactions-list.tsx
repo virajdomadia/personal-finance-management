@@ -66,8 +66,8 @@ export function TransactionRow({
   return (
     <View style={styles.rowWrap}>
       <Row
-        emoji={tx.type === "transfer" ? "🔄" : tx.type === "emi" ? "🏧" : categoryEmoji(tx.category)}
-        tone={tx.type === "income" ? "green" : tx.type === "expense" ? "pink" : tx.type === "emi" ? "orange" : "blue"}
+        emoji={tx.type === "transfer" ? "🔁" : tx.type === "emi" ? "🏧" : categoryEmoji(tx.category)}
+        tone={tx.type === "income" ? "green" : tx.type === "expense" ? "pink" : tx.type === "emi" ? "purple" : "blue"}
         title={title ?? ""}
         meta={tx.note ? `${accounts} · ${tx.note}` : accounts}
         amount={amount}

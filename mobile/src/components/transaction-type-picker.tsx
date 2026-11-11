@@ -8,8 +8,8 @@ import type { TransactionType } from "@/lib/transactions";
 const LOOK: Record<TransactionType, { emoji: string; tone: Tone }> = {
   expense: { emoji: "\u{1F4B8}", tone: "pink" },
   income: { emoji: "\u{1F4B0}", tone: "green" },
-  transfer: { emoji: "\u{1F504}", tone: "blue" },
-  emi: { emoji: "\u{1F3E7}", tone: "orange" },
+  transfer: { emoji: "\u{1F501}", tone: "blue" },
+  emi: { emoji: "\u{1F3E7}", tone: "purple" },
 };
 
 type Props = {

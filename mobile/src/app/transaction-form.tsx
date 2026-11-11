@@ -627,7 +627,7 @@ function FormBody({
 
           <ChunkyButton
             variant="green"
-            label={saving ? "Saving..." : "Save \u2713"}
+            label={saving ? "Saving..." : editing ? "Save \u2713" : "Add \u2713"}
             accessibilityLabel={saving ? "Saving" : editing ? "Save changes" : "Add transaction"}
             onPress={() => void save()}
             loading={saving}

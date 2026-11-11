@@ -28,6 +28,7 @@ export function ScreenHeader({ title, back = false, backDisabled = false, right 
           accessibilityLabel="Back"
           accessibilityState={{ disabled: backDisabled }}
           hitSlop={4}
+          style={{ opacity: backDisabled ? 0.6 : 1 }}
         >
           {({ pressed }) => (
             <ChunkyBox pressed={pressed} radius={INPUT_RADIUS} offset={SHADOW_OFFSET_SM} style={styles.back}>
