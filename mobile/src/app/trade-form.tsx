@@ -13,9 +13,7 @@ import {
   type TextInputInstance,
 } from "react-native";
 import {
-  Appbar,
   Button,
-  Chip,
   Dialog,
   HelperText,
   List,
@@ -45,7 +43,10 @@ import {
   tradePayload,
   tradeTotal,
 } from "@/lib/investments";
+import { ChunkyBox, ChunkyButton, Chip, HeaderAction, ScreenHeader } from "@/components/chunky";
+import { Banner } from "@/components/form-parts";
 import { DateField } from "@/components/date-field";
+import { BRAND, FONT } from "@/lib/theme";
 import { useSession } from "@/lib/session";
 import { previousDay, todayIndia } from "@/lib/transactions";
 
@@ -122,10 +123,7 @@ export default function TradeFormScreen() {
   if (loaded === null) {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
-        <Appbar.Header>
-          <Appbar.BackAction onPress={() => router.back()} />
-          <Appbar.Content title={fallbackTitle} />
-        </Appbar.Header>
+        <ScreenHeader title={fallbackTitle} back />
         <View style={styles.center}>
           {loadError === null ? (
             <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading" />
@@ -134,15 +132,10 @@ export default function TradeFormScreen() {
               <Text variant="bodyLarge" style={styles.centerText}>
                 {loadError}
               </Text>
-              <Button
-                mode="contained"
-                onPress={() => {
+              <ChunkyButton label="Try again" onPress={() => {
                   setLoadError(null);
                   setAttempt((n) => n + 1);
-                }}
-              >
-                Try again
-              </Button>
+                }} />
             </>
           )}
         </View>
@@ -153,18 +146,13 @@ export default function TradeFormScreen() {
   if (loaded.brokers.length === 0 && !editing) {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
-        <Appbar.Header>
-          <Appbar.BackAction onPress={() => router.back()} />
-          <Appbar.Content title={fallbackTitle} />
-        </Appbar.Header>
+        <ScreenHeader title={fallbackTitle} back />
         <View style={styles.center}>
           <Text variant="titleMedium">Add a broker account first</Text>
-          <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
+          <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
             Shares are held in a broker account, and buys and sells move its cash.
           </Text>
-          <Button mode="contained" onPress={() => router.navigate("/accounts")}>
-            Go to accounts
-          </Button>
+          <ChunkyButton label="Go to accounts" onPress={() => router.navigate("/accounts")} />
         </View>
       </View>
     );
@@ -537,21 +525,11 @@ function FormBody(props: Loaded & { kind: Kind; defaultStockId?: string; default
   );
 
   const choice = (label: string, selected: boolean, onPress: () => void, key = label) => (
-    <Chip
-      key={key}
-      selected={selected}
-      showSelectedCheck
-      disabled={busy}
-      onPress={onPress}
-      accessibilityRole="radio"
-      accessibilityState={{ selected, disabled: busy }}
-    >
-      {label}
-    </Chip>
+    <Chip key={key} label={label} selected={selected} disabled={busy} onPress={onPress} accessibilityRole="radio" />
   );
 
   const heading = (label: string) => (
-    <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
+    <Text variant="labelLarge" style={{ color: BRAND.zinc600 }}>
       {label}
     </Text>
   );
@@ -577,22 +555,18 @@ function FormBody(props: Loaded & { kind: Kind; defaultStockId?: string; default
         <Text variant="bodyLarge" style={styles.grow}>
           New stock
         </Text>
-        <Button compact disabled={busy} onPress={() => chooseStock("")}>
-          Choose another
-        </Button>
+        <ChunkyButton compact variant="alt" label="Choose another" disabled={busy} onPress={() => chooseStock("")} />
       </View>
     ) : chosen ? (
       <View style={styles.picked}>
         <View style={styles.grow}>
           <Text variant="titleMedium">{chosen.symbol}</Text>
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+          <Text variant="bodySmall" style={{ color: BRAND.zinc600 }}>
             {chosen.name}
           </Text>
         </View>
         {editing ? null : (
-          <Button compact disabled={busy} accessibilityLabel={`Change stock, ${chosen.symbol} chosen`} onPress={() => chooseStock("")}>
-            Change
-          </Button>
+          <ChunkyButton compact variant="alt" label="Change" disabled={busy} accessibilityLabel={`Change stock, ${chosen.symbol} chosen`} onPress={() => chooseStock("")} />
         )}
       </View>
     ) : (
@@ -607,7 +581,7 @@ function FormBody(props: Loaded & { kind: Kind; defaultStockId?: string; default
             register={registerInput}
           />
         ) : null}
-        <Surface elevation={0} style={[styles.results, { borderColor: errors.stock_id ? colors.error : colors.outlineVariant }]}>
+        <Surface elevation={0} style={[styles.results, { borderColor: errors.stock_id ? BRAND.loss : BRAND.ink }]}>
           {matches.slice(0, MATCHES_SHOWN).map((s) => (
             <List.Item
               key={s.id}
@@ -620,17 +594,17 @@ function FormBody(props: Loaded & { kind: Kind; defaultStockId?: string; default
             />
           ))}
           {matches.length > MATCHES_SHOWN ? (
-            <Text variant="bodySmall" style={[styles.more, { color: colors.onSurfaceVariant }]}>
+            <Text variant="bodySmall" style={[styles.more, { color: BRAND.zinc600 }]}>
               {matches.length - MATCHES_SHOWN} more. Type to narrow the list.
             </Text>
           ) : null}
           {query && matches.length === 0 ? (
-            <Text variant="bodySmall" style={[styles.more, { color: colors.onSurfaceVariant }]}>
+            <Text variant="bodySmall" style={[styles.more, { color: BRAND.zinc600 }]}>
               No stock matches “{search.trim()}”.
             </Text>
           ) : null}
           {kind === "sell" && choosable.length === 0 ? (
-            <Text variant="bodyMedium" style={[styles.more, { color: colors.onSurfaceVariant }]}>
+            <Text variant="bodyMedium" style={[styles.more, { color: BRAND.zinc600 }]}>
               You don&apos;t hold any shares to sell.
             </Text>
           ) : null}
@@ -650,13 +624,16 @@ function FormBody(props: Loaded & { kind: Kind; defaultStockId?: string; default
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} disabled={saving || deleting} />
-        <Appbar.Content title={title} />
-        {editing ? (
-          <Appbar.Action icon="delete-outline" accessibilityLabel="Delete trade" disabled={busy} onPress={() => setConfirming(true)} />
-        ) : null}
-      </Appbar.Header>
+      <ScreenHeader
+        title={title}
+        back
+        backDisabled={saving || deleting}
+        right={
+          editing ? (
+            <HeaderAction icon="delete-outline" label="Delete trade" disabled={busy} onPress={() => setConfirming(true)} />
+          ) : undefined
+        }
+      />
 
       <KeyboardAvoidingView style={styles.screen} behavior="padding">
         <ScrollView
@@ -666,24 +643,14 @@ function FormBody(props: Loaded & { kind: Kind; defaultStockId?: string; default
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         >
           {missing !== null ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
+            <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
               <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
                 {missing}
               </Text>
-              <Button mode="contained" onPress={() => router.back()}>
-                Go back
-              </Button>
-            </View>
+              <ChunkyButton label="Go back" onPress={() => router.back()} />
+            </ChunkyBox>
           ) : null}
-          {general.length > 0 ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
-              {general.map((message) => (
-                <Text key={message} variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
-                  {message}
-                </Text>
-              ))}
-            </View>
-          ) : null}
+          <Banner messages={general} />
 
           <View>
             {heading("Type")}
@@ -764,8 +731,8 @@ function FormBody(props: Loaded & { kind: Kind; defaultStockId?: string; default
 
           {field("note", input("note", "Note (optional)", { maxLength: 200 }))}
 
-          <Surface elevation={0} style={[styles.total, { backgroundColor: colors.surfaceVariant }]}>
-            <Text variant="bodyLarge" accessibilityLiveRegion="polite" style={{ color: colors.onSurfaceVariant }}>
+          <ChunkyBox radius={14} offset={3} style={[styles.total, { backgroundColor: BRAND.due }]}>
+            <Text variant="bodyLarge" accessibilityLiveRegion="polite" style={{ color: BRAND.zinc600 }}>
               {kind === "opening" ? (
                 <>
                   {total !== null && !total.startsWith("-") ? (
@@ -780,23 +747,21 @@ function FormBody(props: Loaded & { kind: Kind; defaultStockId?: string; default
               ) : (
                 <>
                   {kind === "buy" ? "You pay " : "You receive "}
-                  <Text style={[styles.strong, { color: colors.onSurface }]}>{formatRupees(total)}</Text>
+                  <Text style={[styles.strong, { color: BRAND.ink }]}>{formatRupees(total)}</Text>
                   {kind === "buy" ? " from your broker's cash." : " into your broker's cash."}
                 </>
               )}
             </Text>
-          </Surface>
+          </ChunkyBox>
 
-          <Button
-            mode="contained"
+          <ChunkyButton
+            variant={kind === "sell" ? "pink" : "green"}
+            label={saving ? "Saving..." : editing ? "Save changes" : kind === "opening" ? "Add shares" : kind === "buy" ? "Buy" : "Sell"}
             onPress={() => void save()}
             loading={saving}
-            disabled={busy}
-            contentStyle={styles.saveContent}
+            disabled={busy && !saving}
             style={styles.save}
-          >
-            {saving ? "Saving..." : editing ? "Save changes" : kind === "opening" ? "Add shares" : kind === "buy" ? "Buy" : "Sell"}
-          </Button>
+          />
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -825,16 +790,15 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
-  banner: { borderRadius: 12, padding: 12, gap: 8 },
+  banner: { padding: 12, gap: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
   gap: { marginTop: 8 },
   picked: { flexDirection: "row", alignItems: "center", gap: 8 },
   grow: { flex: 1 },
   search: { gap: 8 },
-  results: { borderRadius: 12, borderWidth: 1, overflow: "hidden" },
+  results: { borderRadius: 14, borderWidth: 2.5, overflow: "hidden" },
   more: { paddingHorizontal: 16, paddingVertical: 8 },
-  total: { borderRadius: 12, padding: 12 },
-  strong: { fontWeight: "600" },
+  total: { padding: 12 },
+  strong: { fontFamily: FONT.black },
   save: { marginTop: 8 },
-  saveContent: { height: 48 },
 });

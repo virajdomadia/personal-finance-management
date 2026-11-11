@@ -12,9 +12,7 @@ import {
   type TextInputInstance,
 } from "react-native";
 import {
-  Appbar,
   Button,
-  Chip,
   Dialog,
   HelperText,
   List,
@@ -31,7 +29,10 @@ import { type Account, type AccountList, cleanMoney, errorMessage, splitErrors }
 import { ApiError, apiFetch } from "@/lib/api";
 import { type Fund, type Sip, type SipForm, blankSipForm, sipFormFrom, sipPayload } from "@/lib/funds";
 import { realDate } from "@/lib/investments";
+import { ChunkyBox, ChunkyButton, Chip, HeaderAction, ScreenHeader } from "@/components/chunky";
 import { DateField } from "@/components/date-field";
+import { Banner } from "@/components/form-parts";
+import { BRAND } from "@/lib/theme";
 import { useSession } from "@/lib/session";
 import { todayIndia } from "@/lib/transactions";
 
@@ -89,20 +90,15 @@ export default function SipFormScreen() {
   if (loaded === null || (loaded.banks.length === 0 && !editing)) {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
-        <Appbar.Header>
-          <Appbar.BackAction onPress={() => router.back()} />
-          <Appbar.Content title={fallbackTitle} />
-        </Appbar.Header>
+        <ScreenHeader title={fallbackTitle} back />
         <View style={styles.center}>
           {loaded !== null ? (
             <>
               <Text variant="titleMedium">Add a bank account first</Text>
-              <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
+              <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
                 A SIP is debited from a bank account each month.
               </Text>
-              <Button mode="contained" onPress={() => router.navigate("/accounts")}>
-                Go to accounts
-              </Button>
+              <ChunkyButton label="Go to accounts" onPress={() => router.navigate("/accounts")} />
             </>
           ) : loadError === null ? (
             <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading" />
@@ -111,15 +107,10 @@ export default function SipFormScreen() {
               <Text variant="bodyLarge" style={styles.centerText}>
                 {loadError}
               </Text>
-              <Button
-                mode="contained"
-                onPress={() => {
+              <ChunkyButton label="Try again" onPress={() => {
                   setLoadError(null);
                   setAttempt((n) => n + 1);
-                }}
-              >
-                Try again
-              </Button>
+                }} />
             </>
           )}
         </View>
@@ -369,20 +360,23 @@ function FormBody(props: Loaded & { defaultFundId?: string }) {
   );
 
   const heading = (label: string) => (
-    <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
+    <Text variant="labelLarge" style={{ color: BRAND.zinc600 }}>
       {label}
     </Text>
   );
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} disabled={saving || deleting} />
-        <Appbar.Content title={title} />
-        {sip && sip.instalments === 0 ? (
-          <Appbar.Action icon="delete-outline" accessibilityLabel="Delete SIP" disabled={busy} onPress={() => setConfirming(true)} />
-        ) : null}
-      </Appbar.Header>
+      <ScreenHeader
+        title={title}
+        back
+        backDisabled={saving || deleting}
+        right={
+          sip && sip.instalments === 0 ? (
+            <HeaderAction icon="delete-outline" label="Delete SIP" disabled={busy} onPress={() => setConfirming(true)} />
+          ) : undefined
+        }
+      />
 
       <KeyboardAvoidingView style={styles.screen} behavior="padding">
         <ScrollView
@@ -391,24 +385,14 @@ function FormBody(props: Loaded & { defaultFundId?: string }) {
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         >
           {missing !== null ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
+            <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
               <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
                 {missing}
               </Text>
-              <Button mode="contained" onPress={() => router.back()}>
-                Go back
-              </Button>
-            </View>
+              <ChunkyButton label="Go back" onPress={() => router.back()} />
+            </ChunkyBox>
           ) : null}
-          {general.length > 0 ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
-              {general.map((message) => (
-                <Text key={message} variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
-                  {message}
-                </Text>
-              ))}
-            </View>
-          ) : null}
+          <Banner messages={general} />
 
           {field(
             "fund_id",
@@ -423,27 +407,23 @@ function FormBody(props: Loaded & { defaultFundId?: string }) {
                       New fund
                     </Text>
                     {funds.length > 0 ? (
-                      <Button compact disabled={busy} onPress={() => set("fund_id", "")}>
-                        Choose another
-                      </Button>
+                      <ChunkyButton compact variant="alt" label="Choose another" disabled={busy} onPress={() => set("fund_id", "")} />
                     ) : null}
                   </View>
                 ) : chosen ? (
                   <View style={styles.picked}>
                     <View style={styles.grow}>
                       <Text variant="titleMedium">{chosen.name}</Text>
-                      <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+                      <Text variant="bodySmall" style={{ color: BRAND.zinc600 }}>
                         {chosen.symbol}
                       </Text>
                     </View>
-                    <Button compact disabled={busy} accessibilityLabel={`Change fund, ${chosen.name} chosen`} onPress={() => set("fund_id", "")}>
-                      Change
-                    </Button>
+                    <ChunkyButton compact variant="alt" label="Change" disabled={busy} accessibilityLabel={`Change fund, ${chosen.name} chosen`} onPress={() => set("fund_id", "")} />
                   </View>
                 ) : (
                   <Surface
                     elevation={0}
-                    style={[styles.results, { borderColor: errors.fund_id ? colors.error : colors.outlineVariant }]}
+                    style={[styles.results, { borderColor: errors.fund_id ? BRAND.loss : BRAND.ink }]}
                   >
                     {funds.map((f) => (
                       <List.Item
@@ -501,17 +481,7 @@ function FormBody(props: Loaded & { defaultFundId?: string }) {
                 {banks.map((b) => {
                   const selected = form.account_id === String(b.id);
                   return (
-                    <Chip
-                      key={b.id}
-                      selected={selected}
-                      showSelectedCheck
-                      disabled={busy}
-                      onPress={() => set("account_id", String(b.id))}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected, disabled: busy }}
-                    >
-                      {b.name}
-                    </Chip>
+                    <Chip key={b.id} label={b.name} selected={selected} disabled={busy} onPress={() => set("account_id", String(b.id))} accessibilityRole="radio" />
                   );
                 })}
               </View>
@@ -543,11 +513,12 @@ function FormBody(props: Loaded & { defaultFundId?: string }) {
             <View style={styles.switchRow}>
               <View style={styles.grow}>
                 <Text variant="bodyLarge">Active</Text>
-                <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+                <Text variant="bodySmall" style={{ color: BRAND.zinc600 }}>
                   A stopped SIP is never due. Its past instalments stay.
                 </Text>
               </View>
               <Switch
+                color={BRAND.greenStrong}
                 value={form.active}
                 disabled={busy}
                 onValueChange={(active) => setForm((f) => ({ ...f, active }))}
@@ -556,22 +527,20 @@ function FormBody(props: Loaded & { defaultFundId?: string }) {
             </View>
           ) : null}
 
-          <Surface elevation={0} style={[styles.note, { backgroundColor: colors.surfaceVariant }]}>
-            <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
+          <ChunkyBox radius={14} offset={3} style={[styles.note, { backgroundColor: BRAND.due }]}>
+            <Text variant="bodyMedium" style={{ color: BRAND.zinc600 }}>
               Nothing is recorded on its own. Each month the SIP shows as due, and you record it with that day&apos;s NAV.
             </Text>
-          </Surface>
+          </ChunkyBox>
 
-          <Button
-            mode="contained"
+          <ChunkyButton
+            variant="green"
+            label={saving ? "Saving..." : editing ? "Save changes" : "Add SIP"}
             onPress={() => void save()}
             loading={saving}
-            disabled={busy}
-            contentStyle={styles.saveContent}
+            disabled={busy && !saving}
             style={styles.save}
-          >
-            {saving ? "Saving..." : editing ? "Save changes" : "Add SIP"}
-          </Button>
+          />
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -602,14 +571,13 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
-  banner: { borderRadius: 12, padding: 12, gap: 8 },
+  banner: { padding: 12, gap: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
   gap: { marginTop: 8 },
   picked: { flexDirection: "row", alignItems: "center", gap: 8 },
   grow: { flex: 1 },
-  results: { borderRadius: 12, borderWidth: 1, overflow: "hidden" },
+  results: { borderRadius: 14, borderWidth: 2.5, overflow: "hidden" },
   switchRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  note: { borderRadius: 12, padding: 12 },
+  note: { padding: 12 },
   save: { marginTop: 8 },
-  saveContent: { height: 48 },
 });

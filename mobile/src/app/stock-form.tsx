@@ -10,12 +10,14 @@ import {
   View,
   type TextInputInstance,
 } from "react-native";
-import { Appbar, Button, HelperText, Text, TextInput, useTheme } from "react-native-paper";
+import { HelperText, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { errorMessage, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import type { Stock } from "@/lib/investments";
+import { ChunkyBox, ChunkyButton, ScreenHeader } from "@/components/chunky";
+import { Banner } from "@/components/form-parts";
 import { useSession } from "@/lib/session";
 
 type Key = "symbol" | "name";
@@ -158,10 +160,7 @@ export default function StockFormScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} disabled={saving} />
-        <Appbar.Content title={title} />
-      </Appbar.Header>
+      <ScreenHeader title={title} back backDisabled={saving} />
 
       {stock === null ? (
         <View style={styles.center}>
@@ -172,15 +171,10 @@ export default function StockFormScreen() {
               <Text variant="bodyLarge" style={styles.centerText}>
                 {loadError}
               </Text>
-              <Button
-                mode="contained"
-                onPress={() => {
+              <ChunkyButton label="Try again" onPress={() => {
                   setLoadError(null);
                   setAttempt((n) => n + 1);
-                }}
-              >
-                Try again
-              </Button>
+                }} />
             </>
           )}
         </View>
@@ -191,38 +185,26 @@ export default function StockFormScreen() {
             contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
           >
             {missing !== null ? (
-              <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
+              <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
                 <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
                   {missing}
                 </Text>
-                <Button mode="contained" onPress={() => router.back()}>
-                  Go back
-                </Button>
-              </View>
+                <ChunkyButton label="Go back" onPress={() => router.back()} />
+              </ChunkyBox>
             ) : null}
-            {general.length > 0 ? (
-              <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
-                {general.map((message) => (
-                  <Text key={message} variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
-                    {message}
-                  </Text>
-                ))}
-              </View>
-            ) : null}
+            <Banner messages={general} />
 
             {input("symbol", "Symbol, like INFY", { maxLength: 20, autoCapitalize: "characters" })}
             {input("name", "Company name", { maxLength: 60 })}
 
-            <Button
-              mode="contained"
-              onPress={() => void save()}
-              loading={saving}
-              disabled={busy}
-              contentStyle={styles.saveContent}
-              style={styles.save}
-            >
-              {saving ? "Saving..." : "Save"}
-            </Button>
+            <ChunkyButton
+            variant="green"
+            label={saving ? "Saving..." : "Save"}
+            onPress={() => void save()}
+            loading={saving}
+            disabled={busy && !saving}
+            style={styles.save}
+          />
           </ScrollView>
         </KeyboardAvoidingView>
       )}
@@ -235,7 +217,6 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
-  banner: { borderRadius: 12, padding: 12, gap: 8 },
+  banner: { padding: 12, gap: 8 },
   save: { marginTop: 8 },
-  saveContent: { height: 48 },
 });
