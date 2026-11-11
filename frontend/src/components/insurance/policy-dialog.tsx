@@ -244,13 +244,13 @@ export function PolicyDialog({ policy, onClose, onSaved, onConflict }: Props) {
 
   const field = (key: Key, label: string, input: React.ReactNode, hint?: string) => (
     <div>
-      <label htmlFor={`p-${key}`} className="mb-1 block text-sm font-medium">
+      <label htmlFor={`p-${key}`} className="mb-1 block text-xs font-black tracking-wide uppercase">
         {label}
       </label>
       {input}
-      {hint ? <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{hint}</p> : null}
+      {hint ? <p className="mt-1 text-xs font-bold text-zinc-600">{hint}</p> : null}
       {errors[key] ? (
-        <p id={`pe-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+        <p id={`pe-${key}`} className="mt-1 text-xs font-extrabold text-loss">
           {errors[key]}
         </p>
       ) : null}
@@ -307,12 +307,12 @@ export function PolicyDialog({ policy, onClose, onSaved, onConflict }: Props) {
       className={`${DIALOG} w-[min(36rem,calc(100vw-2rem))]`}
     >
       <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
-        <h2 id="policy-dialog-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+        <h2 id="policy-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black [overflow-wrap:anywhere]">
           {editing ? "Edit policy" : "Add health insurance policy"}
         </h2>
         <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
           {!editing && (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="text-sm font-bold text-zinc-700">
               Add the policy as it stands now. A yearly reminder for the premium is created with it, starting at the end of this year.
             </p>
           )}
@@ -342,7 +342,7 @@ export function PolicyDialog({ policy, onClose, onSaved, onConflict }: Props) {
             "An RD you're saving in to pay the premium. The policy then shows whether it will cover it.",
           )}
           <div>
-            <label htmlFor="p-details" className="mb-1 block text-sm font-medium">
+            <label htmlFor="p-details" className="mb-1 block text-xs font-black tracking-wide uppercase">
               Details (optional)
             </label>
             <textarea
@@ -357,9 +357,9 @@ export function PolicyDialog({ policy, onClose, onSaved, onConflict }: Props) {
               aria-describedby={errors.details ? "pe-details" : undefined}
               onChange={(e) => set("details", e.target.value)}
             />
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Bonus, add-ons, waiting periods, nominee.</p>
+            <p className="mt-1 text-xs font-bold text-zinc-600">Bonus, add-ons, waiting periods, nominee.</p>
             {errors.details ? (
-              <p id="pe-details" className="mt-1 text-xs text-red-700 dark:text-red-400">
+              <p id="pe-details" className="mt-1 text-xs font-extrabold text-loss">
                 {errors.details}
               </p>
             ) : null}
@@ -367,7 +367,7 @@ export function PolicyDialog({ policy, onClose, onSaved, onConflict }: Props) {
 
           {showPaidOn && (
             <fieldset className="flex flex-col gap-4">
-              <legend className="mb-2 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
+              <legend className="mb-2 text-xs font-black tracking-wide uppercase">
                 This year&apos;s premium
               </legend>
               {field(
@@ -398,12 +398,12 @@ export function PolicyDialog({ policy, onClose, onSaved, onConflict }: Props) {
           )}
 
           {formError ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            <p role="alert" className="text-sm font-extrabold text-loss">
               {formError}
             </p>
           ) : null}
         </div>
-        <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+        <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
           <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
             Cancel
           </button>

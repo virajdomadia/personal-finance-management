@@ -95,12 +95,12 @@ export function RenewDialog({ policy, onClose, onRenewed }: Props) {
 
   const field = (key: Key, label: string, input: React.ReactNode) => (
     <div>
-      <label htmlFor={`r-${key}`} className="mb-1 block text-sm font-medium">
+      <label htmlFor={`r-${key}`} className="mb-1 block text-xs font-black tracking-wide uppercase">
         {label}
       </label>
       {input}
       {errors[key] ? (
-        <p id={`re-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+        <p id={`re-${key}`} className="mt-1 text-xs font-extrabold text-loss">
           {errors[key]}
         </p>
       ) : null}
@@ -128,23 +128,23 @@ export function RenewDialog({ policy, onClose, onRenewed }: Props) {
       className={`${DIALOG} w-[min(32rem,calc(100vw-2rem))]`}
     >
       <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
-        <h2 id="renew-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+        <h2 id="renew-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black [overflow-wrap:anywhere]">
           Renew {policy.insurer}
         </h2>
         <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm font-bold text-zinc-700">
             This records the premium as an expense and moves the policy to its new year, together. The current year ends{" "}
             {formatFullDate(policy.period_end)}.
           </p>
           {cardBill && (
-            <p role="note" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-              <span className="font-medium">Heads up. </span>
+            <p role="note" className="rounded-[14px] border-[2.5px] border-ink bg-due px-3 py-2 text-sm font-bold text-ink">
+              <span className="font-black">Heads up. </span>
               {cardBill}
             </p>
           )}
 
           <fieldset className="flex flex-col gap-4">
-            <legend className="mb-2 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">Payment</legend>
+            <legend className="mb-2 text-xs font-black tracking-wide uppercase">Payment</legend>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {field("date", "Paid on", <input {...props("date")} type="date" max={today} required />)}
               {field(
@@ -176,7 +176,7 @@ export function RenewDialog({ policy, onClose, onRenewed }: Props) {
           </fieldset>
 
           <fieldset className="flex flex-col gap-4">
-            <legend className="mb-2 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">New policy year</legend>
+            <legend className="mb-2 text-xs font-black tracking-wide uppercase">New policy year</legend>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {field("period_start", "Starts", <input {...props("period_start")} type="date" required />)}
               {field("period_end", "Ends", <input {...props("period_end")} type="date" required />)}
@@ -189,12 +189,12 @@ export function RenewDialog({ policy, onClose, onRenewed }: Props) {
           </fieldset>
 
           {formError ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            <p role="alert" className="text-sm font-extrabold text-loss">
               {formError}
             </p>
           ) : null}
         </div>
-        <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+        <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
           <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
             Cancel
           </button>
