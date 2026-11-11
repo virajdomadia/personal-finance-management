@@ -1,5 +1,6 @@
 import { type Account, cleanMoney, formatRupees } from "./accounts.ts";
 import { formatCoinQty } from "./crypto.ts";
+import { MONTHS, formatDate } from "./dates.ts";
 import type { HistoryLine } from "./goals.ts";
 
 export type TransactionType = "income" | "expense" | "transfer" | "emi";
@@ -180,30 +181,13 @@ export function shiftMonth(month: string, by: number): string {
   return `${year}-${String(total - year * 12 + 1).padStart(2, "0")}`;
 }
 
-const MONTHS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
-
 // Read from the text, not a Date, so no timezone can shift the day.
 export function formatMonth(month: string): string {
   return `${MONTHS[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`;
 }
 
-export function formatDate(iso: string): string {
-  const [year, month, day] = iso.split("-");
-  return `${Number(day)} ${MONTHS[Number(month) - 1].slice(0, 3)} ${year}`;
-}
+// formatDate lives in dates.ts (a module with no imports) so crypto.ts can use it without a require cycle.
+export { formatDate };
 
 // The day header in the list: "Today", "Yesterday", then the date.
 export function dayLabel(iso: string, today: string): string {
