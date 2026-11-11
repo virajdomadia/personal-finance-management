@@ -11,6 +11,7 @@ from decimal import Decimal
 import pytest
 from alembic import command
 from sqlalchemy import Engine, create_engine, inspect, make_url, text
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import Settings
 from tests.conftest import PG_URL, _ensure_database, alembic_config, reset_schema
@@ -43,6 +44,9 @@ ALL_TABLES = {
     "recurring_skips",
     "insurance_policies",
     "policy_periods",
+    "goals",
+    "goal_earmarks",
+    "goal_holdings",
 }
 
 
@@ -230,7 +234,9 @@ def test_downgrade_refuses_fund_data(migrations_db: str) -> None:
 
 DEPOSITS_REVISION = "3b8f2c61a7d4"
 NEW_REVISION = "5d7e3a90c1f2"
-HEAD_REVISION = "8e4c1b7a2d95"
+RECURRING_REVISION = "8e4c1b7a2d95"
+HEAD_REVISION = "a1d4f7c92b36"
+GOAL_TABLES = {"goals", "goal_earmarks", "goal_holdings"}
 RECURRING_TABLES = {
     "recurring_templates",
     "recurring_skips",
@@ -358,7 +364,7 @@ def test_recurring_migration_round_trip(migrations_db: str) -> None:
     assert rows(migrations_db, "SELECT recurring_template_id FROM transactions") == [(None,)]
 
     command.downgrade(config, NEW_REVISION)
-    assert tables(migrations_db) == ALL_TABLES - RECURRING_TABLES
+    assert tables(migrations_db) == ALL_TABLES - RECURRING_TABLES - GOAL_TABLES
     columns = {c["name"] for c in inspect(create_engine(migrations_db)).get_columns("transactions")}
     assert "recurring_template_id" not in columns
     assert rows(migrations_db, "SELECT id FROM transactions") == [(1,)]
@@ -390,3 +396,89 @@ def test_downgrade_refuses_recurring_data(migrations_db: str) -> None:
     assert tables(migrations_db) == ALL_TABLES
     assert rows(migrations_db, "SELECT name, active FROM recurring_templates") == [("Rent", True)]
     assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(HEAD_REVISION,)]
+
+
+def run_sql(url: str, *statements: str) -> None:
+    engine = create_engine(url)
+    try:
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(text(statement), {"s": STAMP})
+    finally:
+        engine.dispose()
+
+
+def test_goals_migration_round_trip(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, "head")
+    assert GOAL_TABLES <= tables(migrations_db)
+
+    command.downgrade(config, RECURRING_REVISION)
+    assert tables(migrations_db) == ALL_TABLES - GOAL_TABLES
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(RECURRING_REVISION,)]
+
+    command.upgrade(config, "head")
+    assert tables(migrations_db) == ALL_TABLES
+
+
+def test_downgrade_refuses_goal_data(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, "head")
+    seed_investments(migrations_db)
+    run_sql(
+        migrations_db,
+        "INSERT INTO goals (id, user_id, name, kind, created_at, updated_at)"
+        " VALUES (1, 1, 'Car', 'custom', :s, :s)",
+    )
+
+    with pytest.raises(RuntimeError, match="Goal data exists; remove it before downgrading."):
+        command.downgrade(config, RECURRING_REVISION)
+    assert tables(migrations_db) == ALL_TABLES
+    assert rows(migrations_db, "SELECT name FROM goals") == [("Car",)]
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(HEAD_REVISION,)]
+
+
+def test_goal_indexes_and_checks_on_postgres(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, "head")
+    seed_investments(migrations_db)
+    run_sql(
+        migrations_db,
+        "INSERT INTO goals (id, user_id, name, kind, created_at, updated_at)"
+        " VALUES (1, 1, 'Safety', 'emergency', :s, :s)",
+        "INSERT INTO goals (id, user_id, name, kind, archived_at, created_at, updated_at)"
+        " VALUES (2, 1, 'Old safety', 'emergency', :s, :s, :s)",
+        "INSERT INTO goals (id, user_id, name, kind, created_at, updated_at)"
+        " VALUES (3, 1, 'Car', 'custom', :s, :s)",
+        "INSERT INTO goal_holdings (id, user_id, goal_id, instrument_id, created_at)"
+        " VALUES (1, 1, 3, 1, :s)",
+        "INSERT INTO goal_holdings (id, user_id, goal_id, instrument_id, active, created_at)"
+        " VALUES (2, 1, 3, 1, false, :s)",
+    )
+
+    def fails(sql: str) -> None:
+        with pytest.raises(IntegrityError):
+            run_sql(migrations_db, sql)
+
+    fails(
+        "INSERT INTO goals (id, user_id, name, kind, created_at, updated_at)"
+        " VALUES (4, 1, 'Second', 'emergency', :s, :s)"
+    )
+    fails(
+        "INSERT INTO goal_holdings (id, user_id, goal_id, instrument_id, created_at)"
+        " VALUES (3, 1, 3, 1, :s)"
+    )
+    fails(
+        "INSERT INTO goal_holdings (id, user_id, goal_id, account_id, created_at)"
+        " VALUES (3, 1, 3, 1, :s)"
+        ", (4, 1, 3, 1, :s)"
+    )
+    fails("INSERT INTO goal_holdings (id, user_id, goal_id, created_at) VALUES (3, 1, 3, :s)")
+    fails(
+        "INSERT INTO goal_holdings (id, user_id, goal_id, instrument_id, account_id, created_at)"
+        " VALUES (3, 1, 3, 1, 1, :s)"
+    )
+    fails(
+        "INSERT INTO goal_earmarks (id, user_id, goal_id, account_id, amount, date, created_at)"
+        " VALUES (1, 1, 3, 1, 0, '2026-10-01', :s)"
+    )

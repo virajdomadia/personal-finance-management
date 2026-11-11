@@ -108,6 +108,9 @@ def test_response_shape(headers: Headers) -> None:
         "deposit_amount": None,
         "tenure_months": None,
         "deposit": None,
+        "set_aside": "0.00",
+        "free_balance": "2500.00",
+        "in_goal": None,
     }
 
 
@@ -321,7 +324,12 @@ def test_patch_updates_only_sent_fields(headers: Headers) -> None:
     response = patch(headers, created["id"], name="Renamed", balance="10.50")
 
     assert response.status_code == 200
-    assert response.json() == {**created, "name": "Renamed", "balance": "10.50"}
+    assert response.json() == {
+        **created,
+        "name": "Renamed",
+        "balance": "10.50",
+        "free_balance": "10.50",
+    }
 
 
 def test_patch_null_clears_optional_field(headers: Headers) -> None:
@@ -767,3 +775,204 @@ def test_investment_activity(
     other = auth(db_session, monkeypatch, "other@example.com")
     assert _activity(other, bank["id"]).status_code == 404
     assert _activity(headers, 2**40).status_code == 404
+
+
+# Goals: free balance, goal tags and the archive checks. The goal, deposit and policy helpers are
+# imported inside the tests, since those test modules import this one.
+
+GOALS = "/api/goals"
+GOAL_DAY = date(2026, 11, 11)
+
+
+@pytest.fixture
+def goal_headers(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> Headers:
+    from app.api.routes import (
+        accounts,
+        dashboard,
+        deposits,
+        goals,
+        policies,
+        recurring,
+        transactions,
+    )
+
+    for module in (accounts, dashboard, deposits, goals, policies, recurring, transactions):
+        monkeypatch.setattr(module, "today_india", lambda: GOAL_DAY)
+    return auth(db_session, monkeypatch)
+
+
+def _goal(headers: Headers, name: str, kind: str = "custom") -> int:
+    body: dict[str, Any] = {"name": name, "kind": kind}
+    if kind == "custom":
+        body["target_amount"] = "100000.00"
+    response = client.post(GOALS, json=body, headers=headers)
+    assert response.status_code == 201, response.json()
+    return response.json()["id"]
+
+
+def _earmark(headers: Headers, goal_id: int, account_id: int, action: str, amount: str) -> Response:
+    body = {"account_id": account_id, "action": action, "amount": amount}
+    response = client.post(f"{GOALS}/{goal_id}/earmarks", json=body, headers=headers)
+    assert response.status_code == 201, response.json()
+    return response
+
+
+def _account(headers: Headers, id_: int) -> dict:
+    archived = client.get(URL, params={"archived": True}, headers=headers).json()["accounts"]
+    active = client.get(URL, headers=headers).json()["accounts"]
+    return next(a for a in [*active, *archived] if a["id"] == id_)
+
+
+def _hdfc(headers: Headers) -> int:
+    response = make(headers, type="bank", name="HDFC", bank_kind="savings", balance="80000.00")
+    assert response.status_code == 201, response.json()
+    return response.json()["id"]
+
+
+def _money(account: dict) -> tuple[str, str, str]:
+    return account["balance"], account["set_aside"], account["free_balance"]
+
+
+def test_free_balance_is_the_balance_less_what_active_goals_set_aside(
+    goal_headers: Headers,
+) -> None:
+    headers = goal_headers
+    hdfc = _hdfc(headers)
+    plain = _account(headers, hdfc)
+    assert _money(plain) == ("80000.00", "0.00", "80000.00")
+    assert plain["in_goal"] is None
+    before = client.get(URL, headers=headers).json()
+    worth = client.get("/api/dashboard", headers=headers).json()["net_worth"]
+
+    ef = _goal(headers, "Emergency fund", "emergency")
+    _earmark(headers, ef, hdfc, "set_aside", "50000.00")
+    assert _money(_account(headers, hdfc)) == ("80000.00", "50000.00", "30000.00")
+
+    bike = _goal(headers, "Bike")
+    over = _earmark(headers, bike, hdfc, "set_aside", "40000.00")
+    assert _money(_account(headers, hdfc)) == ("80000.00", "90000.00", "-10000.00")
+    warning = "₹10,000 more is set aside than HDFC holds."
+    assert warning in over.json()["warnings"]
+    assert warning in client.get(f"{GOALS}/{ef}", headers=headers).json()["warnings"]
+
+    # Goals only label money: the totals and net worth stay as they were.
+    after = client.get(URL, headers=headers).json()
+    assert (after["total_have"], after["total_owe"]) == (before["total_have"], before["total_owe"])
+    assert client.get("/api/dashboard", headers=headers).json()["net_worth"] == worth
+
+    # An archived goal's earmark stops counting.
+    client.post(f"{GOALS}/{bike}/archive", headers=headers)
+    assert _money(_account(headers, hdfc)) == ("80000.00", "50000.00", "30000.00")
+
+
+def test_archiving_an_account_with_money_set_aside_is_refused(goal_headers: Headers) -> None:
+    headers = goal_headers
+    hdfc = _hdfc(headers)
+    ef = _goal(headers, "Emergency fund", "emergency")
+    bike = _goal(headers, "Bike")
+    _earmark(headers, bike, hdfc, "set_aside", "40000.00")
+    _earmark(headers, ef, hdfc, "set_aside", "50000.00")
+
+    response = archive(headers, hdfc)
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "₹90,000 of HDFC is set aside for Emergency fund, Bike. Release it first."
+    )
+    assert _account(headers, hdfc)["archived"] is False
+
+    # A goal released in full no longer counts; nor does an archived goal.
+    _earmark(headers, bike, hdfc, "release", "40000.00")
+    response = archive(headers, hdfc)
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "₹50,000 of HDFC is set aside for Emergency fund. Release it first."
+    )
+    client.post(f"{GOALS}/{ef}/archive", headers=headers)
+    assert archive(headers, hdfc).status_code == 200
+
+
+def test_archiving_the_account_a_policy_pays_from_is_refused(goal_headers: Headers) -> None:
+    from tests.test_policies import card, new
+
+    headers = goal_headers
+    signet = card(headers)
+    policy = new(headers, signet)
+    assert policy.status_code == 201, policy.json()
+
+    response = archive(headers, signet)
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "This account pays the Care Health Insurance premium. "
+        "Change the policy's paying account or lapse the policy first."
+    )
+    assert _account(headers, signet)["archived"] is False
+
+
+def test_an_rd_in_a_goal_is_tagged_and_can_still_be_closed(goal_headers: Headers) -> None:
+    from tests.test_deposits import close, rd
+
+    headers = goal_headers
+    hdfc = _hdfc(headers)
+    created = rd(headers, hdfc, opened_on="2026-09-01")
+    assert created.status_code == 201, created.json()
+    rd_id = created.json()["id"]
+    bike = _goal(headers, "Bike")
+    added = client.post(f"{GOALS}/{bike}/holdings", json={"account_id": rd_id}, headers=headers)
+    assert added.status_code == 201, added.json()
+
+    assert _account(headers, rd_id)["in_goal"] == {"id": bike, "name": "Bike"}
+    assert _account(headers, hdfc)["in_goal"] is None
+
+    closed = close(headers, rd_id, amount="5000.00", date="2026-11-11", account_id=hdfc)
+    assert closed.status_code == 200, closed.json()
+    assert closed.json()["archived"] is True
+    holdings = client.get(f"{GOALS}/{bike}", headers=headers).json()["holdings"]
+    assert [(h["account_id"], h["status"]) for h in holdings] == [(rd_id, "closed")]
+
+
+def test_archive_rereads_ppfs_repointed_before_the_lock(
+    goal_headers: Headers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.routes import accounts
+    from tests.test_deposits import ppf
+
+    headers = goal_headers
+    hdfc = _hdfc(headers)
+    created = ppf(headers, pay_from_id=hdfc)
+    assert created.status_code == 201, created.json()
+    real = accounts._ppf_ids
+    calls: list[list[int]] = []
+
+    def first_read_misses_it(db: Any, user_id: int, id_: int) -> list[int]:
+        found = list(real(db, user_id, id_))
+        calls.append(found)
+        return [] if len(calls) == 1 else found  # as if repointed just after the first read
+
+    monkeypatch.setattr(accounts, "_ppf_ids", first_read_misses_it)
+    assert archive(headers, hdfc).status_code == 200
+    assert len(calls) == 4  # read, re-read, then both again
+    assert _account(headers, created.json()["id"])["pay_from_id"] is None
+
+
+def test_archive_gives_up_when_the_ppfs_keep_changing(
+    goal_headers: Headers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.routes import accounts
+    from tests.test_deposits import ppf
+
+    headers = goal_headers
+    hdfc = _hdfc(headers)
+    ppf_id = ppf(headers, pay_from_id=hdfc).json()["id"]
+    calls: list[int] = []
+
+    def always_changing(db: Any, user_id: int, id_: int) -> list[int]:
+        calls.append(id_)
+        return [] if len(calls) % 2 else [ppf_id]
+
+    monkeypatch.setattr(accounts, "_ppf_ids", always_changing)
+    response = archive(headers, hdfc)
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Something changed while archiving. Try again."
+    assert len(calls) == 6
+    assert _account(headers, hdfc)["archived"] is False
+    assert _account(headers, ppf_id)["pay_from_id"] == hdfc

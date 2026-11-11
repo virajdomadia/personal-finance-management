@@ -1,4 +1,4 @@
-import { cleanMoney, formatDueDate, formatRupees } from "./accounts.ts";
+import { type GoalTag, cleanMoney, formatDueDate, formatRupees } from "./accounts.ts";
 import { realDate } from "./investments.ts";
 import { formatDate } from "./transactions.ts";
 
@@ -62,7 +62,7 @@ type FundFigures = {
   unrealised_percent: string;
 };
 
-export type FundHolding = FundFigures & { account_id: number; account_name: string };
+export type FundHolding = FundFigures & { account_id: number; account_name: string; in_goal: GoalTag | null };
 export type FundTotal = FundFigures;
 
 export type FundClosed = {

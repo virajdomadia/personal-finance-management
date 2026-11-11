@@ -22,6 +22,8 @@ EMPTY = {
     "credit_used": None,
     "investments": None,
     "recurring": [],
+    "goals_due": [],
+    "goals": [],
 }
 
 

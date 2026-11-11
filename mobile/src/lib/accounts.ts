@@ -1,4 +1,8 @@
+import type { GoalCard, GoalDue } from "./goals.ts";
 import type { DueItem } from "./recurring.ts";
+
+// The active goal a holding is in. Mirrors GoalTag in backend/app/api/routes/accounts.py.
+export type GoalTag = { id: number; name: string };
 
 export type AccountType = "bank" | "credit_card" | "cash" | "broker" | "wallet" | "ppf" | "rd" | "loan";
 
@@ -30,7 +34,10 @@ export type Account = {
   id: number;
   type: AccountType;
   name: string;
-  balance: string;
+  balance: string; // the real balance
+  set_aside: string; // what active goals have set aside here
+  free_balance: string; // balance - set_aside; negative when more is set aside than held
+  in_goal: GoalTag | null; // a PPF or RD in an active goal
   institution: string | null;
   bank_kind: string | null;
   last4: string | null;
@@ -65,6 +72,8 @@ export type Dashboard = {
   credit_used: { percent: number } | null;
   investments: { value: string; unrealised: string; unrealised_percent: string } | null;
   recurring: DueItem[];
+  goals_due: GoalDue[];
+  goals: GoalCard[];
 };
 
 export type AccountForm = {
@@ -118,6 +127,10 @@ const APPLICABLE: Record<AccountType, (keyof AccountForm)[]> = {
 
 const MONEY_FIELDS = new Set<keyof AccountForm>(["balance", "credit_limit", "interest_rate", "emi_amount", "deposit_amount"]);
 const NUMBER_FIELDS = new Set<keyof AccountForm>(["statement_day", "due_day", "emis_left", "pay_from_id", "tenure_months", "deposits_paid"]);
+
+// What an account's headline shows: the free balance, or the balance for an older response.
+export const headlineBalance = (a: Pick<Account, "balance"> & Partial<Pick<Account, "free_balance">>) =>
+  a.free_balance ?? a.balance;
 
 // Groups the digits on the string itself so money never goes through a float.
 export function formatRupees(value: string): string {

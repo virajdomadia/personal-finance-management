@@ -8,10 +8,14 @@ import {
   TYPE_LABELS,
   formatDueDate,
   formatRupees,
+  headlineBalance,
   maskLast4,
   nextDueDate,
 } from "@/lib/accounts";
 import { depositLines } from "@/lib/deposits";
+import { freeBalanceText, overSetAsideText } from "@/lib/goals";
+
+import { GoalTagLine } from "./goal-tag";
 import { todayIndia } from "@/lib/transactions";
 
 function detailLine(account: Account, showType: boolean): string {
@@ -51,7 +55,11 @@ export function AccountRow({ account, onPress, showType = false, action }: Props
   const detail = detailLine(account, showType);
   const loan = loanLine(account);
   const deposit = depositLines(account);
-  const amount = formatRupees(account.balance);
+  // The headline is what is free to spend: the balance less what goals have set aside here.
+  const amount = formatRupees(headlineBalance(account));
+  // Guarded so a response from before goals (no set-aside keys) still renders.
+  const free = account.set_aside ? freeBalanceText(account) : null;
+  const over = account.free_balance ? overSetAsideText(account) : null;
   const available = owed && account.available_credit !== null ? formatRupees(account.available_credit) : null;
 
   return (
@@ -59,12 +67,13 @@ export function AccountRow({ account, onPress, showType = false, action }: Props
       onPress={onPress}
       disabled={!onPress}
       accessibilityRole={onPress ? "button" : undefined}
-      accessibilityLabel={`${account.name}, ${owed ? "owed" : "balance"} ${amount}`}
+      accessibilityLabel={`${account.name}, ${owed ? "owed" : free ? "free" : "balance"} ${amount}${free ? `. ${free}` : ""}${over ? `. ${over}` : ""}${account.in_goal ? `. For ${account.in_goal.name}` : ""}`}
     >
       <View>
         <View style={styles.row}>
           <View style={styles.main}>
             <Text variant="titleMedium">{account.name}</Text>
+            <GoalTagLine tag={account.in_goal} />
             {detail ? (
               <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
                 {detail}
@@ -80,6 +89,11 @@ export function AccountRow({ account, onPress, showType = false, action }: Props
                 {line}
               </Text>
             ))}
+            {over ? (
+              <Text variant="bodySmall" style={{ color: colors.error }}>
+                {over}
+              </Text>
+            ) : null}
           </View>
           <View style={styles.amounts}>
             {owed ? (
@@ -90,6 +104,11 @@ export function AccountRow({ account, onPress, showType = false, action }: Props
             <Text variant="titleMedium" style={styles.amount}>
               {amount}
             </Text>
+            {free ? (
+              <Text variant="bodySmall" style={[styles.amount, { color: colors.onSurfaceVariant }]}>
+                {free}
+              </Text>
+            ) : null}
             {available ? (
               <Text variant="bodySmall" style={[styles.amount, { color: colors.onSurfaceVariant }]}>
                 Available {available}

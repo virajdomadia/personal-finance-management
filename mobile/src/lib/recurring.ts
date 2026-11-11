@@ -1,4 +1,5 @@
 import { cleanMoney, formatDueDate, formatRupees } from "./accounts.ts";
+import type { GoalDue } from "./goals.ts";
 import { realDate } from "./investments.ts";
 import { type TransactionForm, blankForm } from "./transactions.ts";
 
@@ -28,9 +29,13 @@ export type Template = {
   due: string[];
   coming_up: string | null;
   recorded: number;
+  skipped: string[]; // oldest first, for the un-skip button
 };
 
 export type DueItem = { template: Template; occurrence: string; state: "due" | "coming_up" };
+
+// Mirrors DueList: reminders due or coming up, and goals with money still to set aside this month.
+export type DueList = { items: DueItem[]; goals_due: GoalDue[] };
 
 export type TemplateForm = {
   name: string;

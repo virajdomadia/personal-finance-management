@@ -27,6 +27,7 @@ from app.api.routes.accounts import (
     create_account,
     update_account,
 )
+from app.api.routes.goals import EarmarkCreate, HoldingCreate, add_earmark, add_holding
 from app.api.routes.sips import SipUpdate, delete_sip, update_sip
 from app.api.routes.transactions import (
     TransactionCreate,
@@ -37,7 +38,8 @@ from app.api.routes.transactions import (
     update_transaction,
 )
 from app.models.account import Account
-from app.models.investment import Instrument, Sip
+from app.models.goal import Goal, GoalEarmark, GoalHolding
+from app.models.investment import Instrument, InvestmentTrade, Sip
 from app.models.transaction import Transaction
 from app.models.user import User
 
@@ -512,5 +514,73 @@ def test_archive_bank_and_ppf_edit_lock_in_id_order(engine: Engine) -> None:
             assert db.get(Account, bank).archived_at is not None
             # The archive clears only a PPF still paid from the bank; the move always stands.
             assert db.get(Account, ppf).pay_from_id == other
+        with engine.begin() as conn:
+            conn.execute(text("TRUNCATE users, accounts, transactions RESTART IDENTITY CASCADE"))
+
+
+def test_one_instrument_joins_only_one_of_two_goals_added_at_once(engine: Engine) -> None:
+    """Both adds pass the 'already in a goal' check; the partial unique index stops the second."""
+    for _ in range(5):
+        user, [broker] = setup(engine, ("broker", "10000.00"))
+        with Session(engine) as db:
+            fund = Instrument(user_id=user.id, kind="mutual_fund", symbol="F", name="A fund")
+            goals = [Goal(user_id=user.id, name=n, kind="custom") for n in ("EF", "Bike")]
+            db.add_all([fund, *goals])
+            db.flush()
+            db.add(
+                InvestmentTrade(
+                    user_id=user.id,
+                    instrument_id=fund.id,
+                    account_id=broker,
+                    side="buy",
+                    date=date(2026, 1, 1),
+                    quantity=Decimal("10"),
+                    price=Decimal("100"),
+                    charges=Decimal("0.00"),
+                    amount=Decimal("1000.00"),
+                )
+            )
+            db.commit()
+            fund_id, goal_ids = fund.id, [g.id for g in goals]
+        body = HoldingCreate.model_validate({"instrument_id": fund_id})
+
+        results = together(
+            engine, [(lambda db, g=g, b=body, u=user: add_holding(g, b, u, db)) for g in goal_ids]
+        )
+
+        assert sorted(results) == ["ok", "refused"]
+        with Session(engine) as db:
+            assert db.scalar(select(func.count()).select_from(GoalHolding)) == 1
+        with engine.begin() as conn:
+            conn.execute(text("TRUNCATE users, accounts, transactions RESTART IDENTITY CASCADE"))
+
+
+def test_setting_money_aside_and_archiving_the_bank_never_both_succeed(engine: Engine) -> None:
+    """Both lock the bank first, so the second sees the first: earmarked or archived, not both."""
+    for _ in range(10):
+        user, [bank] = setup(engine, ("bank", "1000.00"))
+        with Session(engine) as db:
+            goal = Goal(user_id=user.id, name="EF", kind="custom")
+            db.add(goal)
+            db.commit()
+            goal_id = goal.id
+        body = EarmarkCreate.model_validate(
+            {"account_id": bank, "action": "set_aside", "amount": "500.00"}
+        )
+
+        results = together(
+            engine,
+            [
+                lambda db, g=goal_id, b=body, u=user: add_earmark(g, b, u, db),
+                lambda db, a=bank, u=user: archive_account(a, u, db),
+            ],
+        )
+
+        assert sorted(results) == ["ok", "refused"]
+        with Session(engine) as db:
+            archived = db.get(Account, bank).archived_at is not None
+            earmarked = db.scalar(select(func.count()).select_from(GoalEarmark)) == 1
+            assert archived != earmarked
+            assert results == (["refused", "ok"] if archived else ["ok", "refused"])
         with engine.begin() as conn:
             conn.execute(text("TRUNCATE users, accounts, transactions RESTART IDENTITY CASCADE"))

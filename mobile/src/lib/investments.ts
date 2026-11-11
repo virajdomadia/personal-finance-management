@@ -1,4 +1,4 @@
-import { cleanMoney, formatRupees } from "./accounts.ts";
+import { type GoalTag, cleanMoney, formatRupees } from "./accounts.ts";
 import type { CryptoPortfolio } from "./crypto.ts";
 import type { FundsPortfolio } from "./funds.ts";
 import { formatDate } from "./transactions.ts";
@@ -48,7 +48,7 @@ type Figures = {
   unrealised_percent: string;
 };
 
-export type Holding = Figures & { account_id: number; account_name: string };
+export type Holding = Figures & { account_id: number; account_name: string; in_goal: GoalTag | null };
 export type StockTotal = Figures;
 
 export type ClosedPosition = {

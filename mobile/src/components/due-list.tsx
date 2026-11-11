@@ -5,6 +5,7 @@ import { Button, Card, Dialog, Portal, Text, useTheme } from "react-native-paper
 
 import { errorMessage } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { type GoalDue, goalDueText } from "@/lib/goals";
 import { type DueItem, canSkip, dueText } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
 
@@ -24,14 +25,21 @@ export function openRecord(item: DueItem) {
   }
 }
 
+// Set aside opens the earmark form for the goal, with what is left for this month filled in.
+export function openSetAside(d: GoalDue) {
+  router.push({ pathname: "/earmark-form", params: { goalId: String(d.goal_id), action: "set_aside", amount: d.amount } });
+}
+
 type Props = {
   items: DueItem[];
+  // Goals with money still to set aside this month. Kept apart from `items`, which are always reminders.
+  goals?: GoalDue[];
   // Called after a skip, so the screen reloads what it shows (also after a failed one).
   onChanged: () => void;
 };
 
 // Due and coming-up reminders: tap to record, hold to skip. An insurance premium is only renewed.
-export function DueList({ items, onChanged }: Props) {
+export function DueList({ items, goals = [], onChanged }: Props) {
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const [asking, setAsking] = useState<DueItem | null>(null);
@@ -117,6 +125,26 @@ export function DueList({ items, onChanged }: Props) {
           <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
             {items.some(canSkip) ? "Tap to record, hold to skip." : "Tap to renew."}
           </Text>
+        </View>
+      ) : null}
+      {goals.length > 0 ? (
+        <View style={styles.group}>
+          <Text variant="titleSmall" accessibilityRole="header" style={{ color: colors.primary }}>
+            Set aside for goals
+          </Text>
+          {goals.map((d) => (
+            <Card
+              key={`goal-${d.goal_id}`}
+              mode="outlined"
+              onPress={() => openSetAside(d)}
+              accessibilityRole="button"
+              accessibilityHint="Opens set aside for this goal."
+            >
+              <Card.Content>
+                <Text variant="bodyLarge">{goalDueText(d)}</Text>
+              </Card.Content>
+            </Card>
+          ))}
         </View>
       ) : null}
       <Portal>

@@ -5,10 +5,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type Account, type AccountList, errorMessage } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { EarmarkDialog } from "@/components/goals/earmark-dialog";
 import { RenewDialog } from "@/components/insurance/renew-dialog";
 import { LIST, Notice, PRIMARY, QUIET, ROW_ACTION, SECTION_TITLE, isUnauthorized } from "@/components/investments/shared";
 import { TransactionDialog } from "@/components/transactions/transaction-dialog";
-import { type DueItem, canSkip, dueText, transactionFormFromTemplate } from "@/lib/recurring";
+import { type GoalDue, goalDueText } from "@/lib/goals";
+import { type DueItem, type DueList as DueListData, canSkip, dueText, transactionFormFromTemplate } from "@/lib/recurring";
 import type { Policy } from "@/lib/insurance";
 import { todayIndia } from "@/lib/transactions";
 
@@ -185,9 +187,39 @@ function RecordFlow({
   return null;
 }
 
+// Goals with money still to set aside this month. Record opens the set-aside form pre-filled.
+function GoalsDue({ goals, onRecord }: { goals: GoalDue[]; onRecord: (due: GoalDue) => void }) {
+  if (goals.length === 0) return null;
+  return (
+    <section aria-labelledby="goals-due-title">
+      <h2 id="goals-due-title" className={SECTION_TITLE}>
+        Set aside
+      </h2>
+      <ul className={LIST}>
+        {goals.map((due) => (
+          <li key={due.goal_id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+            <p className="min-w-32 flex-1 text-sm [overflow-wrap:anywhere]">{goalDueText(due)}</p>
+            <div className="flex shrink-0 items-center justify-end gap-1">
+              <button
+                type="button"
+                className={`${PRIMARY} !px-3 !py-1 !text-xs`}
+                aria-label={`Record setting aside for ${due.name}`}
+                onClick={() => onRecord(due)}
+              >
+                Record
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 type SectionProps = {
   // Items the page already has (the dashboard's); without them the section loads its own.
   items?: DueItem[];
+  goals?: GoalDue[];
   // Change to reload the section's own items, e.g. after the page's transactions changed.
   refreshKey?: number;
   // Called after something was recorded or skipped, so the page can reload what it shows. A recorded
@@ -196,8 +228,10 @@ type SectionProps = {
 };
 
 // The due and coming-up lists with their Record and Skip, ready to drop into a page.
-export function DueSection({ items: given, refreshKey = 0, onChanged }: SectionProps) {
+export function DueSection({ items: given, goals: givenGoals, refreshKey = 0, onChanged }: SectionProps) {
   const [fetched, setFetched] = useState<DueItem[]>([]);
+  const [fetchedGoals, setFetchedGoals] = useState<GoalDue[]>([]);
+  const [recordGoal, setRecordGoal] = useState<GoalDue | null>(null);
   const [failed, setFailed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [record, setRecord] = useState<DueItem | null>(null);
@@ -206,10 +240,11 @@ export function DueSection({ items: given, refreshKey = 0, onChanged }: SectionP
 
   const load = useCallback(() => {
     const request = ++latest.current;
-    apiFetch<{ items: DueItem[] }>("/recurring/due")
+    apiFetch<DueListData>("/recurring/due")
       .then((data) => {
         if (request !== latest.current) return;
         setFetched(data.items);
+        setFetchedGoals(data.goals_due ?? []);
         setFailed(false);
       })
       .catch((err: unknown) => {
@@ -234,6 +269,7 @@ export function DueSection({ items: given, refreshKey = 0, onChanged }: SectionP
   };
 
   const items = given ?? fetched;
+  const goals = (own ? fetchedGoals : givenGoals) ?? [];
   return (
     <>
       <Notice message={notice} />
@@ -245,12 +281,32 @@ export function DueSection({ items: given, refreshKey = 0, onChanged }: SectionP
           </button>
         </p>
       )}
-      {items.length > 0 && (
-        <div className="mb-6">
+      {(items.length > 0 || goals.length > 0) && (
+        <div className="mb-6 flex flex-col gap-4">
           <DueList items={items} onRecord={setRecord} onSkipped={() => changed()} onError={setNotice} onClearError={() => setNotice(null)} />
+          <GoalsDue goals={goals} onRecord={setRecordGoal} />
         </div>
       )}
       {record && <RecordFlow key={itemKey(record)} item={record} onClose={closeRecord} onDone={recorded} />}
+      {recordGoal && (
+        <EarmarkDialog
+          key={recordGoal.goal_id}
+          goal={{ id: recordGoal.goal_id, name: recordGoal.name }}
+          action="set_aside"
+          initialAmount={recordGoal.amount}
+          onClose={() => setRecordGoal(null)}
+          onSaved={() => {
+            setRecordGoal(null);
+            setNotice(null);
+            changed();
+          }}
+          onConflict={(message) => {
+            setRecordGoal(null);
+            setNotice(message);
+            changed();
+          }}
+        />
+      )}
     </>
   );
 }

@@ -37,6 +37,7 @@ import {
   Signed,
   archivedIds,
   isUnauthorized,
+  GoalTagLink,
 } from "./shared";
 
 type Data = {
@@ -196,6 +197,7 @@ export function CoinView({ coinId }: { coinId: number }) {
           <div className="min-w-0">
             <h1 className="text-xl font-semibold [overflow-wrap:anywhere]">{data.coin.name}</h1>
             <p className="text-sm text-zinc-600 dark:text-zinc-400 [overflow-wrap:anywhere]">{data.coin.symbol} · crypto</p>
+            <GoalTagLink tag={holdings.find((h) => h.in_goal)?.in_goal} />
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" className={QUIET} onClick={() => setDialog({ kind: "rename" })}>

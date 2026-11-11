@@ -12,6 +12,7 @@ import {
   formFromAccount,
   formatDueDate,
   formatRupees,
+  headlineBalance,
   investmentsIn,
   nextDueDate,
   maskLast4,
@@ -401,4 +402,9 @@ test("depositErrors still checks deposits_paid when the tenure is invalid", () =
   assert.equal(depositErrors(rdForm({ tenure_months: "0", deposits_paid: "121" })).deposits_paid, "Enter the instalments paid so far, from 0 to the tenure.");
   assert.equal(depositErrors(rdForm({ tenure_months: "121", deposits_paid: "120" })).deposits_paid, undefined);
   assert.equal(depositErrors(rdForm({ tenure_months: "", deposits_paid: "-1" })).deposits_paid, "Enter the instalments paid so far, from 0 to the tenure.");
+});
+
+test("headlineBalance is the free balance, or the balance for an older response", () => {
+  assert.equal(headlineBalance({ balance: "80000.00", free_balance: "30000.00" }), "30000.00");
+  assert.equal(headlineBalance({ balance: "80000.00" }), "80000.00");
 });

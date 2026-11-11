@@ -79,6 +79,8 @@ Snapshots, trend over 12 months, asset allocation and a financial health overvie
 
 Goals with a target amount and date, linked to existing accounts, with contributions and progress.
 
+**Status:** built on branch `goals` ([design](../superpowers/specs/2026-11-11-goals-design.md)). Goals have a basket of money set aside in bank, cash and wallet accounts (earmarked, no money moves) and whole holdings (a fund, stock, coin, PPF or RD). Progress, months left and the monthly figure, an emergency fund worked out from recent expenses (6 months by default), a free balance on accounts, a monthly set-aside reminder and a goals summary on the dashboard are built. Goals never count in net worth. Folded in: archived accounts stop reminders, archiving an account is refused while money is set aside or it pays an active policy, and a SIP moved to another bank no longer shows old months as due. Phone notifications, inflation-adjusted targets and projected growth are not built. The Alembic migration must be run on Neon by hand before this merges.
+
 ## Milestone 8: Reports and data portability
 
 Monthly and yearly reports, investment and asset and liability reports. CSV export (website) and share/export (app). PDF reports. Full backup and a tested restore.

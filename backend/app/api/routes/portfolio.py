@@ -7,6 +7,7 @@ from sqlalchemy import select
 from app.api.dates import today_india
 from app.api.deposits import deposit_rows, with_deposits
 from app.api.deps import CurrentUser, get_current_user
+from app.api.goals import GoalTags, load_goal_tags
 from app.api.loans import load_book
 from app.api.portfolio import (
     fmt_coin,
@@ -20,7 +21,7 @@ from app.api.portfolio import (
     summarise,
     unrealised_percent,
 )
-from app.api.routes.accounts import fmt, list_sort_key
+from app.api.routes.accounts import GoalTag, fmt, goal_tag, list_sort_key
 from app.api.routes.coins import CRYPTO
 from app.api.routes.funds import MUTUAL_FUND
 from app.api.routes.sips import SipResponse, due_sip_list
@@ -53,6 +54,7 @@ class Figures(BaseModel):
 class Holding(Figures):
     account_id: int
     account_name: str
+    in_goal: GoalTag | None  # the active goal the instrument is in
 
 
 class StockTotal(Figures):
@@ -94,6 +96,7 @@ class FundFigures(BaseModel):
 class FundHolding(FundFigures):
     account_id: int
     account_name: str
+    in_goal: GoalTag | None  # the active goal the instrument is in
 
 
 class FundTotal(FundFigures):
@@ -135,6 +138,7 @@ class CoinFigures(BaseModel):
 class CoinHolding(CoinFigures):
     account_id: int
     account_name: str
+    in_goal: GoalTag | None  # the active goal the instrument is in
 
 
 class CoinTotal(CoinFigures):
@@ -262,7 +266,7 @@ def _totals(summary) -> Totals:
 
 
 def _fund_portfolio(
-    db: DbSession, user_id: int, result, prices: dict, names: dict[int, str]
+    db: DbSession, user_id: int, result, prices: dict, names: dict[int, str], tags: GoalTags
 ) -> FundPortfolio:
     funds = {
         f.id: f
@@ -280,7 +284,12 @@ def _fund_portfolio(
         if pos.quantity > 0:
             figures = _fund_figures(fund, pos.quantity, pos.invested, prices.get(fund_id))
             holdings.append(
-                FundHolding(**figures, account_id=account_id, account_name=names[account_id])
+                FundHolding(
+                    **figures,
+                    account_id=account_id,
+                    account_name=names[account_id],
+                    in_goal=goal_tag(tags, ("instrument", fund_id)),
+                )
             )
             total = combined.setdefault(fund_id, [Decimal("0"), ZERO])
             total[0] += pos.quantity
@@ -313,7 +322,7 @@ def _fund_portfolio(
 
 
 def _crypto_portfolio(
-    db: DbSession, user_id: int, result, prices: dict, names: dict[int, str]
+    db: DbSession, user_id: int, result, prices: dict, names: dict[int, str], tags: GoalTags
 ) -> CryptoPortfolio:
     coins = {
         c.id: c
@@ -331,7 +340,12 @@ def _crypto_portfolio(
         if pos.quantity > 0:
             figures = _coin_figures(coin, pos.quantity, pos.invested, prices.get(coin_id))
             holdings.append(
-                CoinHolding(**figures, account_id=account_id, account_name=names[account_id])
+                CoinHolding(
+                    **figures,
+                    account_id=account_id,
+                    account_name=names[account_id],
+                    in_goal=goal_tag(tags, ("instrument", coin_id)),
+                )
             )
             total = combined.setdefault(coin_id, [Decimal("0"), ZERO])
             total[0] += pos.quantity
@@ -378,6 +392,7 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
     active = sorted((a for a in accounts if a.archived_at is None), key=list_sort_key)
     book = load_book(db, user.id, accounts)
     deposits = deposit_rows(active, book, today_india())
+    tags = load_goal_tags(db, user.id)
 
     holdings: list[Holding] = []
     closed: list[Closed] = []
@@ -390,7 +405,12 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
         if shares > 0:
             figures = _figures(stock, shares, pos.invested, prices.get(stock_id))
             holdings.append(
-                Holding(**figures, account_id=account_id, account_name=names[account_id])
+                Holding(
+                    **figures,
+                    account_id=account_id,
+                    account_name=names[account_id],
+                    in_goal=goal_tag(tags, ("instrument", stock_id)),
+                )
             )
             total = combined.setdefault(stock_id, [0, ZERO])
             total[0] += shares
@@ -419,8 +439,8 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
         by_stock=by_stock,
         closed=closed,
         totals=_totals(summarise(result, prices, only=set(stocks))),
-        funds=_fund_portfolio(db, user.id, result, prices, names),
-        crypto=_crypto_portfolio(db, user.id, result, prices, names),
+        funds=_fund_portfolio(db, user.id, result, prices, names, tags),
+        crypto=_crypto_portfolio(db, user.id, result, prices, names, tags),
         overall=_totals(with_deposits(summarise(result, prices), deposits)),
         deposits=Deposits(
             value=fmt(sum((d.balance for d in deposits), ZERO)),

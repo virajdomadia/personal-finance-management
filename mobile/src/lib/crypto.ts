@@ -1,4 +1,4 @@
-import { cleanMoney, formatRupees } from "./accounts.ts";
+import { type GoalTag, cleanMoney, formatRupees } from "./accounts.ts";
 import { realDate } from "./investments.ts";
 import { formatDate } from "./transactions.ts";
 
@@ -45,7 +45,7 @@ type CoinFigures = {
   unrealised_percent: string;
 };
 
-export type CoinHolding = CoinFigures & { account_id: number; account_name: string };
+export type CoinHolding = CoinFigures & { account_id: number; account_name: string; in_goal: GoalTag | null };
 export type CoinTotal = CoinFigures;
 
 export type CoinClosed = {

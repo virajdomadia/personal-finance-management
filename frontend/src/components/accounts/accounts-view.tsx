@@ -13,11 +13,13 @@ import {
   errorMessage,
   formatDueDate,
   formatRupees,
+  headlineBalance,
   investmentsIn,
   maskLast4,
   nextDueDate,
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { freeBalanceText, overSetAsideText } from "@/lib/goals";
 import { emiForm, todayIndia } from "@/lib/transactions";
 import { depositLines, instalmentForm, interestForm, ppfDepositForm, ppfInterestText, rdDueText } from "@/lib/deposits";
 import { TransactionDialog } from "@/components/transactions/transaction-dialog";
@@ -418,10 +420,23 @@ function AccountRow({
     account.last4 ? maskLast4(account.last4) : null,
   ].filter(Boolean);
 
+  const freeText = freeBalanceText(account);
+  const overText = overSetAsideText(account);
+
   return (
     <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
       <div className="min-w-32 flex-1">
-        <p className="text-sm font-medium [overflow-wrap:anywhere]">{account.name}</p>
+        <p className="text-sm font-medium [overflow-wrap:anywhere]">
+          {account.name}
+          {account.in_goal && (
+            <>
+              {" "}
+              <Link href={`/goals/${account.in_goal.id}`} className="text-xs font-normal text-zinc-500 underline dark:text-zinc-400">
+                For: {account.in_goal.name}
+              </Link>
+            </>
+          )}
+        </p>
         {details.length > 0 && (
           <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{details.join(" · ")}</p>
         )}
@@ -431,14 +446,20 @@ function AccountRow({
         {loanDetails.length > 0 && (
           <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{loanDetails.join(" · ")}</p>
         )}
+        {overText && (
+          <p role="note" className="mt-1 text-xs text-amber-800 dark:text-amber-300 [overflow-wrap:anywhere]">
+            {overText}
+          </p>
+        )}
       </div>
       <div className="min-w-0 max-w-full text-right tabular-nums [overflow-wrap:anywhere]">
         <p className="text-sm font-medium">
           {owed && (
             <span className="mr-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400">{paidOff ? "Paid off" : "Owed"}</span>
           )}
-          {formatRupees(account.balance)}
+          {formatRupees(headlineBalance(account))}
         </p>
+        {freeText && <p className="text-xs text-zinc-500 dark:text-zinc-400">{freeText}</p>}
         {card && account.available_credit !== null && (
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
             Available <span className="tabular-nums">{formatRupees(account.available_credit)}</span>

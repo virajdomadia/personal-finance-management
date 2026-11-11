@@ -49,6 +49,11 @@ function Screens() {
             <Stack.Screen name="insurance" />
             <Stack.Screen name="policy-form" />
             <Stack.Screen name="renew-form" />
+            <Stack.Screen name="goals" />
+            <Stack.Screen name="goal" />
+            <Stack.Screen name="goal-form" />
+            <Stack.Screen name="earmark-form" />
+            <Stack.Screen name="goal-holding-form" />
           </Stack.Protected>
           <Stack.Protected guard={!loggedIn}>
             <Stack.Screen name="login" />

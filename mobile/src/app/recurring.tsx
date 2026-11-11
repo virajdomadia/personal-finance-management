@@ -1,13 +1,14 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { Appbar, Button, Card, Dialog, Portal, Text, useTheme } from "react-native-paper";
+import { Appbar, Button, Card, Chip, Dialog, Portal, Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { DueList } from "@/components/due-list";
 import { Banner } from "@/components/form-parts";
 import { errorMessage, formatDueDate } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import type { GoalDue } from "@/lib/goals";
 import { type DueItem, type Template, scheduleText, toggleLabel, whole } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
 import { formatDate } from "@/lib/transactions";
@@ -30,10 +31,12 @@ export default function RecurringScreen() {
   const insets = useSafeAreaInsets();
   const [templates, setTemplates] = useState<Template[] | null>(null);
   const [due, setDue] = useState<DueItem[]>([]);
+  const [goalsDue, setGoalsDue] = useState<GoalDue[]>([]);
   const [failed, setFailed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [toggling, setToggling] = useState<number | null>(null);
+  const [undoing, setUndoing] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Template | null>(null);
   const [removing, setRemoving] = useState(false);
   const busy = useRef(false);
@@ -46,11 +49,12 @@ export default function RecurringScreen() {
     try {
       const [list, items] = await Promise.all([
         apiFetch<{ templates: Template[] }>("/recurring", auth),
-        apiFetch<{ items: DueItem[] }>("/recurring/due", auth),
+        apiFetch<{ items: DueItem[]; goals_due?: GoalDue[] }>("/recurring/due", auth),
       ]);
       if (mine !== latest.current) return;
       setTemplates(list.templates);
       setDue(items.items);
+      setGoalsDue(items.goals_due ?? []);
       setFailed(false);
     } catch (err) {
       if (mine !== latest.current) return;
@@ -109,6 +113,24 @@ export default function RecurringScreen() {
     void load();
   }
 
+  // Takes a skipped date back, so it shows as due (or coming up) again.
+  async function undoSkip(t: Template, occurrence: string) {
+    if (busy.current) return;
+    busy.current = true;
+    setUndoing(`${t.id}-${occurrence}`);
+    setNotice(null);
+    try {
+      await apiFetch(`/recurring/${t.id}/skip/${occurrence}`, { method: "DELETE", token: token ?? undefined });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) void logOut();
+      else setNotice(errorMessage(err instanceof ApiError ? { detail: err.detail } : err));
+    } finally {
+      busy.current = false;
+      setUndoing(null);
+    }
+    void load();
+  }
+
   async function remove(t: Template) {
     if (busy.current) return;
     busy.current = true;
@@ -155,7 +177,7 @@ export default function RecurringScreen() {
         >
           {failed ? <Banner messages={[`${FAILED} Pull down to try again.`]} /> : null}
           {notice !== null ? <Banner messages={[notice]} /> : null}
-          <DueList items={due} onChanged={() => void load()} />
+          <DueList items={due} goals={goalsDue} onChanged={() => void load()} />
 
           {templates.length === 0 ? (
             <View style={styles.empty}>
@@ -170,6 +192,7 @@ export default function RecurringScreen() {
               const accounts = t.type === "transfer" ? `${t.account_name} to ${t.to_account_name}` : t.account_name;
               const details = [TYPE_LABEL[t.type], scheduleText(t), accounts, t.category].filter(Boolean).join(" · ");
               const working = toggling === t.id;
+              const skipped = t.skipped ?? [];
               const toggleText = toggleLabel(t);
               return (
                 <Card
@@ -192,6 +215,28 @@ export default function RecurringScreen() {
                     <Text variant="bodySmall" style={{ color: t.active ? colors.onSurface : colors.onSurfaceVariant }}>
                       {t.policy_id !== null ? `Insurance policy · ${nextText(t)}` : nextText(t)}
                     </Text>
+                    {skipped.length > 0 ? (
+                      <View style={styles.skipped}>
+                        <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+                          Skipped
+                        </Text>
+                        {skipped.map((occurrence) => {
+                          const key = `${t.id}-${occurrence}`;
+                          return (
+                            <Chip
+                              key={occurrence}
+                              compact
+                              closeIcon="undo"
+                              onClose={() => void undoSkip(t, occurrence)}
+                              disabled={undoing !== null || removing}
+                              closeIconAccessibilityLabel={`Undo skipping ${t.name} on ${formatDate(occurrence)}`}
+                            >
+                              {undoing === key ? "Undoing..." : formatDate(occurrence)}
+                            </Chip>
+                          );
+                        })}
+                      </View>
+                    ) : null}
                   </Card.Content>
                   {toggleText !== null || t.policy_id === null ? (
                     <Card.Actions>
@@ -245,4 +290,5 @@ const styles = StyleSheet.create({
   card: { gap: 4 },
   cardTop: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
   cardName: { flexShrink: 1 },
+  skipped: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 4 },
 });

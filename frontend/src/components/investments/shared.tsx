@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { logout } from "@/app/login/actions";
-import { type Account, errorMessage, formatRupees } from "@/lib/accounts";
+import { type Account, type GoalTag, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type Trade, formatPercent, formatSigned, tone } from "@/lib/investments";
 import { formatDate } from "@/lib/transactions";
@@ -21,6 +22,29 @@ export const DIALOG =
   "m-auto rounded-lg border border-zinc-200 bg-white p-0 text-zinc-900 shadow-xl backdrop:bg-black/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100";
 export const SECTION_TITLE = "mb-1 px-1 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400";
 export const LIST = "divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800";
+
+// The active goal each instrument is in, from the per-account holdings (all of an instrument's rows
+// carry the same tag, since a whole instrument goes in a goal).
+export function goalsByInstrument<T extends { in_goal: GoalTag | null }>(rows: T[], id: (row: T) => number): Map<number, GoalTag> {
+  const tags = new Map<number, GoalTag>();
+  for (const row of rows) {
+    if (row.in_goal) tags.set(id(row), row.in_goal);
+  }
+  return tags;
+}
+
+// "For: Bike", linking to the goal a holding is in.
+export function GoalTagLink({ tag, className = "" }: { tag: GoalTag | null | undefined; className?: string }) {
+  if (!tag) return null;
+  return (
+    <Link
+      href={`/goals/${tag.id}`}
+      className={`text-xs text-zinc-500 underline hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400 dark:hover:text-zinc-100 ${className}`}
+    >
+      For: {tag.name}
+    </Link>
+  );
+}
 
 export function isUnauthorized(err: unknown): boolean {
   return err instanceof ApiError && err.status === 401;

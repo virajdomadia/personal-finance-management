@@ -30,6 +30,7 @@ import {
   type TransactionType,
   changedPayload,
   applyDepositRules,
+  expenseFormFromRelease,
   emiForm,
   fromOptions,
   incomeCategories,
@@ -65,7 +66,8 @@ export default function TransactionFormScreen() {
   // `loan` opens a new EMI for that loan, pre-filled with its suggested split. `rd` opens the RD's
   // next instalment, `ppf` a deposit to that PPF, `interest` the PPF's interest as income.
   // `templateId` with `occurrence` opens a reminder's payment, pre-filled from the reminder.
-  const { id, account, loan, rd, ppf, interest, templateId, occurrence } = useLocalSearchParams<{
+  // `releaseAccount` with `releaseAmount` opens the expense for money just released from a goal.
+  const { id, account, loan, rd, ppf, interest, templateId, occurrence, releaseAccount, releaseAmount } = useLocalSearchParams<{
     id?: string;
     account?: string;
     loan?: string;
@@ -74,6 +76,8 @@ export default function TransactionFormScreen() {
     interest?: string;
     templateId?: string;
     occurrence?: string;
+    releaseAccount?: string;
+    releaseAmount?: string;
   }>();
   const { token, logOut } = useSession();
   const { colors } = useTheme();
@@ -159,8 +163,17 @@ export default function TransactionFormScreen() {
   const forPpf = loaded.accounts.find((a) => a.type === "ppf" && String(a.id) === ppf);
   const forInterest = loaded.accounts.find((a) => a.type === "ppf" && String(a.id) === interest);
   const today = todayIndia();
+  const fromRelease =
+    releaseAccount !== undefined && releaseAmount !== undefined
+      ? expenseFormFromRelease(
+          { id: 0, account_id: Number(releaseAccount), account_name: "", amount: `-${releaseAmount}`, date: today, note: null },
+          today,
+        )
+      : undefined;
   const initialForm = loaded.template
     ? transactionFormFromTemplate(loaded.template, occurrence ?? today, today)
+    : fromRelease
+    ? fromRelease
     : forLoan
     ? emiForm(forLoan, today)
     : forRd

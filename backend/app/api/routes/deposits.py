@@ -11,7 +11,7 @@ from app.api.balances import Movement, balance_of, load_movements
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.loans import load_book
-from app.api.routes.accounts import AccountResponse, Money, field_error, to_response
+from app.api.routes.accounts import AccountResponse, Money, account_response, field_error
 from app.api.routes.transactions import AccountRef, Day, balance_problem, lock_accounts
 from app.db.session import DbSession
 from app.models.transaction import Transaction
@@ -105,7 +105,7 @@ def close_rd(id: int, body: CloseRd, user: CurrentUser, db: DbSession) -> Accoun
     db.add_all(added)
     rd.archived_at = datetime.now(UTC)
     db.commit()
-    return to_response(rd, load_book(db, user.id))
+    return account_response(db, user.id, rd)
 
 
 def _row(

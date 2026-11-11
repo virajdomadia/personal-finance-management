@@ -15,8 +15,9 @@ import {
   useTheme,
 } from "react-native-paper";
 
+import { GoalTagLine } from "@/components/goal-tag";
 import { Signed, signedLabel } from "@/components/signed";
-import { errorMessage, formatRupees } from "@/lib/accounts";
+import { type GoalTag, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type CoinTotal, type CryptoTradeMode, formatCoinAverage, formatCoinPrice, formatCoinQty } from "@/lib/crypto";
 import { type FundTotal, type FundTradeMode, type Sip, dueText, formatNav, formatUnits } from "@/lib/funds";
@@ -27,6 +28,13 @@ import { formatDate } from "@/lib/transactions";
 type Kind = "buy" | "sell" | "opening";
 type Segment = "stocks" | "funds" | "deposits" | "crypto";
 type Go = (target: Parameters<typeof router.push>[0]) => void;
+
+// The goal each instrument is in, from its per-account holdings (an instrument is in one goal at most).
+function goalsOf<T extends { in_goal?: GoalTag | null }>(rows: T[], id: (row: T) => number): Map<number, GoalTag> {
+  const tags = new Map<number, GoalTag>();
+  for (const row of rows) if (row.in_goal) tags.set(id(row), row.in_goal);
+  return tags;
+}
 
 export default function InvestmentsScreen() {
   const { token, logOut } = useSession();
@@ -146,6 +154,7 @@ export default function InvestmentsScreen() {
     );
   } else if (segment === "stocks") {
     const empty = portfolio.by_stock.length === 0 && portfolio.closed.length === 0;
+    const stockGoals = goalsOf(portfolio.holdings, (h) => h.stock_id);
     body = (
       <FlatList
         data={portfolio.by_stock}
@@ -185,7 +194,9 @@ export default function InvestmentsScreen() {
             </View>
           ) : undefined
         }
-        renderItem={({ item }) => <HoldingRow row={item} onPress={() => openStock(item)} />}
+        renderItem={({ item }) => (
+          <HoldingRow row={item} goal={stockGoals.get(item.stock_id)} onPress={() => openStock(item)} />
+        )}
         ListEmptyComponent={
           empty ? (
             <View style={styles.empty}>
@@ -236,6 +247,7 @@ export default function InvestmentsScreen() {
   } else if (segment === "crypto") {
     const crypto = portfolio.crypto;
     const empty = crypto.by_coin.length === 0 && crypto.closed.length === 0;
+    const coinGoals = goalsOf(crypto.holdings, (h) => h.coin_id);
     body = (
       <FlatList
         data={crypto.by_coin}
@@ -274,7 +286,9 @@ export default function InvestmentsScreen() {
             </View>
           ) : undefined
         }
-        renderItem={({ item }) => <CoinRow row={item} onPress={() => openCoin(item)} />}
+        renderItem={({ item }) => (
+          <CoinRow row={item} goal={coinGoals.get(item.coin_id)} onPress={() => openCoin(item)} />
+        )}
         ListEmptyComponent={
           empty ? (
             <View style={styles.empty}>
@@ -294,6 +308,7 @@ export default function InvestmentsScreen() {
   } else {
     const funds = portfolio.funds;
     const empty = funds.by_fund.length === 0 && funds.closed.length === 0;
+    const fundGoals = goalsOf(funds.holdings, (h) => h.fund_id);
     body = (
       <FlatList
         data={funds.by_fund}
@@ -333,7 +348,9 @@ export default function InvestmentsScreen() {
             </View>
           ) : undefined
         }
-        renderItem={({ item }) => <FundRow row={item} onPress={() => openFund(item)} />}
+        renderItem={({ item }) => (
+          <FundRow row={item} goal={fundGoals.get(item.fund_id)} onPress={() => openFund(item)} />
+        )}
         ListEmptyComponent={
           empty ? (
             <View style={styles.empty}>
@@ -607,14 +624,14 @@ function ClosedRow({
 }
 
 // Amounts sit in a column of up to 55% of the row and wrap, so a long figure never runs under the name.
-function HoldingRow({ row, onPress }: { row: StockTotal; onPress: () => void }) {
+function HoldingRow({ row, goal, onPress }: { row: StockTotal; goal?: GoalTag; onPress: () => void }) {
   const { colors } = useTheme();
   const priced = row.at_cost ? "at cost" : row.price !== null ? `@ ${formatRupees(row.price)}` : null;
   return (
     <TouchableRipple
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${row.symbol}, ${row.name}, ${row.shares} shares, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}`}
+      accessibilityLabel={`${row.symbol}, ${row.name}, ${row.shares} shares, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}${goal ? `, for ${goal.name}` : ""}`}
       accessibilityHint="Opens its trades and prices"
     >
       <View style={styles.row}>
@@ -626,6 +643,7 @@ function HoldingRow({ row, onPress }: { row: StockTotal; onPress: () => void }) 
           <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
             {row.shares} shares · avg {formatRupees(row.average_cost)}
           </Text>
+          <GoalTagLine tag={goal} />
         </View>
         <View style={styles.amounts}>
           <Text variant="titleMedium" style={styles.right}>
@@ -645,14 +663,14 @@ function HoldingRow({ row, onPress }: { row: StockTotal; onPress: () => void }) 
 }
 
 // Fund names are long, so the name leads and the short symbol sits with the units underneath.
-function FundRow({ row, onPress }: { row: FundTotal; onPress: () => void }) {
+function FundRow({ row, goal, onPress }: { row: FundTotal; goal?: GoalTag; onPress: () => void }) {
   const { colors } = useTheme();
   const priced = row.at_cost ? "at cost" : row.nav !== null ? `NAV ${formatNav(row.nav)}` : null;
   return (
     <TouchableRipple
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${row.name}, ${formatUnits(row.units)} units, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}`}
+      accessibilityLabel={`${row.name}, ${formatUnits(row.units)} units, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}${goal ? `, for ${goal.name}` : ""}`}
       accessibilityHint="Opens its transactions, NAVs and SIPs"
     >
       <View style={styles.row}>
@@ -664,6 +682,7 @@ function FundRow({ row, onPress }: { row: FundTotal; onPress: () => void }) {
           <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
             avg NAV {formatNav(row.average_nav)}
           </Text>
+          <GoalTagLine tag={goal} />
         </View>
         <View style={styles.amounts}>
           <Text variant="titleMedium" style={styles.right}>
@@ -684,14 +703,14 @@ function FundRow({ row, onPress }: { row: FundTotal; onPress: () => void }) {
 
 // Coin names lead, with the quantity and ticker underneath. Prices go through formatCoinPrice,
 // averages through formatCoinAverage.
-function CoinRow({ row, onPress }: { row: CoinTotal; onPress: () => void }) {
+function CoinRow({ row, goal, onPress }: { row: CoinTotal; goal?: GoalTag; onPress: () => void }) {
   const { colors } = useTheme();
   const priced = row.at_cost ? "at cost" : row.price !== null ? `@ ${formatCoinPrice(row.price)}` : null;
   return (
     <TouchableRipple
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${row.name}, ${formatCoinQty(row.quantity)} ${row.symbol}, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}`}
+      accessibilityLabel={`${row.name}, ${formatCoinQty(row.quantity)} ${row.symbol}, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}${goal ? `, for ${goal.name}` : ""}`}
       accessibilityHint="Opens its transactions and prices"
     >
       <View style={styles.row}>
@@ -703,6 +722,7 @@ function CoinRow({ row, onPress }: { row: CoinTotal; onPress: () => void }) {
           <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
             avg {formatCoinAverage(row.average_price)}
           </Text>
+          <GoalTagLine tag={goal} />
         </View>
         <View style={styles.amounts}>
           <Text variant="titleMedium" style={styles.right}>

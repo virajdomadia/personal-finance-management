@@ -9,6 +9,7 @@ from app.api.balances import balance_of
 from app.api.dates import clamped_date, today_india
 from app.api.deposits import deposit_rows, with_deposits
 from app.api.deps import CurrentUser, get_current_user
+from app.api.goals import GoalDue, goals_due, load_goal_book
 from app.api.loans import linked_owed, load_book
 from app.api.portfolio import (
     latest_prices,
@@ -52,6 +53,16 @@ class Investments(BaseModel):
     unrealised_percent: str
 
 
+class GoalCard(BaseModel):
+    id: int
+    name: str
+    kind: str
+    saved: str
+    target: str | None
+    percent: int | None
+    reached: bool
+
+
 class DashboardResponse(BaseModel):
     has_accounts: bool
     net_worth: str
@@ -61,6 +72,8 @@ class DashboardResponse(BaseModel):
     credit_used: CreditUsed | None
     investments: Investments | None
     recurring: list[DueItem]
+    goals_due: list[GoalDue]
+    goals: list[GoalCard]
 
 
 @router.get("")
@@ -106,6 +119,7 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
             unrealised_percent=fmt(unrealised_percent(overall.unrealised, overall.invested)),
         )
 
+    goal_book = load_goal_book(db, user.id, today)
     return DashboardResponse(
         has_accounts=bool(active),
         net_worth=fmt(have - owe),
@@ -117,4 +131,18 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
         credit_used=credit_used,
         investments=investments,
         recurring=due_items(db, user.id, today),
+        goals_due=goals_due(db, user.id, today, goal_book),
+        goals=[
+            GoalCard(
+                id=r.id,
+                name=r.name,
+                kind=r.kind,
+                saved=r.saved,
+                target=r.target,
+                percent=r.percent,
+                reached=r.reached,
+            )
+            for r in goal_book.responses.values()
+            if not r.archived
+        ],
     )

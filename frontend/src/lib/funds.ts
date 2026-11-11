@@ -1,4 +1,4 @@
-import { cleanMoney, formatDueDate, formatRupees } from "./accounts.ts";
+import { type GoalTag, cleanMoney, formatDueDate, formatRupees } from "./accounts.ts";
 
 // These mirror the response models in backend/app/api/routes/{funds,fund_trades,sips,portfolio}.py.
 export type Fund = {
@@ -60,7 +60,7 @@ type FundFigures = {
   unrealised_percent: string;
 };
 
-export type FundHolding = FundFigures & { account_id: number; account_name: string };
+export type FundHolding = FundFigures & { account_id: number; account_name: string; in_goal: GoalTag | null };
 export type FundTotal = FundFigures;
 
 export type FundClosed = {

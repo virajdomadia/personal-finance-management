@@ -137,3 +137,9 @@ test("canSkip refuses a policy's reminder", () => {
   assert.equal(canSkip({ template: rent(), occurrence: "2026-03-01", state: "due" }), true);
   assert.equal(canSkip({ template: { ...premium, policy_id: 2 }, occurrence: "2027-04-06", state: "coming_up" }), false);
 });
+
+test("a template carries the dates skipped, which a form ignores", () => {
+  const t = rent({ skipped: ["2026-02-01"] });
+  assert.equal("skipped" in templateFormFrom(t), false);
+  assert.equal("skipped" in templatePayload(templateFormFrom(t), "edit"), false);
+});

@@ -1,13 +1,14 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { Button, Card, Text, useTheme } from "react-native-paper";
+import { Button, Card, ProgressBar, Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { DueList } from "@/components/due-list";
 import { Signed } from "@/components/signed";
 import { type Dashboard, formatDueDate, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { progressText } from "@/lib/goals";
 import { useSession } from "@/lib/session";
 
 const FAILED = "We couldn't load your dashboard.";
@@ -115,7 +116,7 @@ export default function DashboardScreen() {
         </Card.Content>
       </Card>
 
-      <DueList items={data.recurring ?? []} onChanged={() => void load()} />
+      <DueList items={data.recurring ?? []} goals={data.goals_due ?? []} onChanged={() => void load()} />
 
       {data.has_accounts ? (
         <>
@@ -158,6 +159,35 @@ export default function DashboardScreen() {
         </Card>
       ) : null}
 
+      {(data.goals ?? []).length > 0 ? (
+        <Card
+          mode="outlined"
+          onPress={() => router.push("/goals")}
+          accessibilityRole="button"
+          accessibilityLabel={`Goals. ${data.goals.map((g) => `${g.name}, ${progressText(g)}`).join(". ")}`}
+          accessibilityHint="Opens Goals"
+        >
+          <Card.Content style={styles.goals}>
+            <Text variant="labelLarge">Goals</Text>
+            {data.goals.map((g) => (
+              <View key={g.id} style={styles.goal}>
+                <View style={styles.figure}>
+                  <Text variant="bodyLarge" style={styles.goalName}>
+                    {g.name}
+                  </Text>
+                  <Text variant="bodySmall" style={[styles.figureAmount, { color: colors.onSurfaceVariant }]}>
+                    {progressText(g)}
+                  </Text>
+                </View>
+                {g.target !== null ? (
+                  <ProgressBar progress={g.reached ? 1 : (g.percent ?? 0) / 100} style={styles.bar} />
+                ) : null}
+              </View>
+            ))}
+          </Card.Content>
+        </Card>
+      ) : null}
+
       {due || used ? (
         <>
           <Text variant="titleSmall" accessibilityRole="header" style={{ color: colors.primary }}>
@@ -196,5 +226,9 @@ const styles = StyleSheet.create({
   figure: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
   figureAmount: { flexShrink: 1, textAlign: "right" },
   investments: { gap: 4 },
+  goals: { gap: 12 },
+  goal: { gap: 6 },
+  goalName: { flexShrink: 1 },
+  bar: { height: 6, borderRadius: 3 },
   unrealised: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 },
 });

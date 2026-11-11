@@ -113,6 +113,7 @@ Funds use the same cost, value and FIFO rules, with these differences. See the [
 - **The ₹1.00 check.** On a purchase, units × NAV must be within ₹1.00 of `amount − charges`. This catches a misplaced decimal without rejecting the statement's own rounding.
 - **Automatic NAVs.** Recording a purchase or redemption that isn't an opening one also records its NAV for that day, unless a NAV already exists for that date. The NAV follows the trade when it is edited or deleted.
 - **SIP due months.** A SIP never posts by itself. From its start month to the current month, a month is due when its debit day (clamped to the month's length, so day 31 falls on 28 or 29 February) is on or before today and no purchase for that SIP is recorded that month. A start date after the debit day makes the following month the first due. Missed months stay due until recorded.
+- **A moved SIP keeps its history.** A month is also settled by an unlinked, non-opening buy of the same fund from any account, so a SIP moved to another bank isn't asked for its old months again. The exception is a buy from the account of another active SIP of that fund, whose own months it belongs to. A buy linked to a SIP always settles that SIP's month.
 - **The portfolio** reports stocks and funds separately (and crypto, see below), plus `overall`: the sum of the figures of all of them, with its percent worked out from the summed figures.
 
 ### Crypto rules
@@ -179,6 +180,7 @@ Close RD records, in one step: the interest (what you received minus the balance
 - Payments are matched oldest first. Of the occurrences a payment matches and that are still open, it settles the one in its own calendar month when there is one, otherwise the nearest (the earlier on a tie). A skipped occurrence never takes a payment. Example: rent on the 1st, remind 3 days, October already paid on 5 October; a payment on 30 October (recorded from "Coming up 1 Nov") settles 1 November. A lone payment on 15 October with October unpaid settles October, even with a long reminder.
 - An occurrence is **due** when its date is on or before today, nothing settles it and it isn't skipped. It is **coming up** when it falls within the template's `remind_days` after today (3 days by default for monthly, 30 for yearly). A skipped occurrence shows nowhere.
 - A stopped template is never due or coming up.
+- **An archived account stops the reminder.** A template whose account (or, for a transfer, its other account) is archived is never due or coming up, because nothing can be recorded against it. A policy's reminder is the exception: an account that pays an active policy's premium can't be archived ("This account pays the {insurer} premium. Change the policy's paying account or lapse the policy first."), so only lapsing the policy stops its reminder.
 - A policy's template follows the policy: only its name, note, `remind_days` and whether it is active can change on the reminder; everything else changes on the policy. A policy's reminder is stopped only by lapsing the policy (it cannot be stopped or skipped on the reminder), and a lapsed policy's reminder cannot be restarted.
 - A late payment is dated the occurrence it settles, not the day it is entered, so the month it belongs to stays right.
 
@@ -193,6 +195,67 @@ Each paid renewal is a policy period linked to its payment transaction. A period
 ### Funding estimate
 
 A policy can name an RD that is set aside to pay it. The estimate is the RD's maturity value (see RD interest above), shown with the maturity date. Once the maturity date is before today the server marks it `matured`, and the line says "matured" instead of "matures". It **covers** the premium when the estimate is at least the premium, and otherwise shows the shortfall. When the card bill falls due before the RD matures, the policy is flagged. The estimate is never added to a balance or to net worth, and insurance has no value in net worth.
+
+## Goals
+
+**Built on branch `goals`.** See the [design](../superpowers/specs/2026-11-11-goals-design.md). A goal is a label on money the owner already has. It never moves money, creates a transaction or holds an account, and the figures below are worked out when asked for.
+
+### Goals never touch net worth
+
+Net worth, `total_have` and `total_owe` are unchanged by goals. Money set aside for a goal is still in its bank, and a holding in a goal is still in the investments totals. Archiving or deleting a goal changes no balance.
+
+### Saved and progress
+
+```
+saved    = earmarked money + holdings' current value
+progress = saved ÷ target, rounded half up to a whole percent (it can pass 100%)
+reached  = saved ≥ target
+```
+
+- **Earmarked money.** A goal's earmark in an account is the sum of its signed entries there (set aside is +, release is −). Only active bank, cash and wallet accounts can be used. A release can't take a goal's earmark in an account below zero. Entries are added and deleted, never edited, and deleting one is refused when a later release depends on it. Earmark changes on an archived goal are refused ("Restore this goal first."). Restoring a goal, and deleting a release, is refused while an account it has money set aside in is archived ("{account} is archived. Restore it first.").
+- **Holdings.** A whole instrument (all units, any account) counts at market value from the latest recorded price, or at cost before one exists, as the portfolio shows it. A PPF or RD counts at its balance, never the interest estimate. A holding that is sold out counts as ₹0 and shows "sold"; a closed (archived) PPF or RD counts as ₹0 and shows "closed". A PPF or RD that is also an active policy's `funded_by` carries the note "Also funds the {insurer} premium."
+- **One active goal per holding.** An instrument or account can be in at most one active goal, so the same money never counts twice. Archiving a goal deactivates its holdings; restoring it is refused if one has since joined another active goal.
+
+### Months left and the monthly figure
+
+With a target date, `months left` counts the current month through the target's month, so 30 Nov 2026 is 1 and a date in an earlier month is 0. If the target isn't reached and months left is above 0:
+
+```
+per month = ceil_to_rupee((target − saved) ÷ months left)
+```
+
+Example: Bike, target ₹1,20,000 by June 2027, ₹45,500 saved, viewed in November 2026. That is 38%, 8 months left, and (₹1,20,000 − ₹45,500) ÷ 8 = ₹9,312.50, which rounds up to **₹9,313 a month**. A goal is **overdue** when its date is before today and it isn't reached.
+
+### The emergency fund
+
+```
+target           = ef_months × monthly expenses        (ef_months 1 to 24, default 6)
+monthly expenses = the owner's override, if set
+                 = otherwise the average of the last 6 full calendar months
+```
+
+- A month's expenses are every `expense` (any account, cards included) plus the **full amount of every EMI**, principal and interest. Transfers, investment trades, PPF and RD deposits and income (refunds included) don't count.
+- The window ends before the current month. It starts no earlier than the month after the owner's first transaction, or that month itself only when the first transaction is dated the 1st, so a part-recorded month never pulls the average down. With fewer than 6 usable months the average is over those; with none there is no computed figure and no target until an override is set. A computed monthly figure of 0 (months in the window but no expenses or EMIs in them) counts as not enough history, so it is treated the same way. The average is rounded half up to paise.
+- Example: ₹32,400 a month × 6 = **₹1,94,400**. Only one emergency fund can be active at a time.
+
+### Free balance
+
+`GET /accounts` keeps `balance` as the real balance, and adds two keys:
+
+```
+set_aside    = sum of active (not archived) goals' earmarks in the account
+free_balance = balance − set_aside
+```
+
+A bank with ₹80,000 and ₹50,000 set aside has a free balance of **₹30,000**. Clients show `free_balance` as the headline. It goes negative when more is set aside than the account holds, and each goal with an earmark there shows a warning ("₹X more is set aside than {account} holds."). Nothing is released automatically. A PPF or RD in a goal also carries an `in_goal` tag.
+
+Archiving an account that has money set aside is refused ("₹X of {account} is set aside for {goals}. Release it first."). Account archiving locks the account and its PPFs in id order, rereads the PPF ids under the lock and retries up to 3 times if they changed.
+
+### Monthly reminder
+
+A goal with a `monthly_amount` and a `reminder_day` (1 to 31, clamped to the month's length) is **due** from that day of the month until the positive set-aside entries dated in the current month add up to the amount. The amount asked for is the part still to set aside. It starts in the month the reminder was turned on, and it stops once the goal is reached or archived. Only the current month is ever due: a missed month doesn't pile up, and there is no Skip. Clearing `monthly_amount` turns the reminder off. Releases do not reduce what was set aside this month.
+
+Goal reminders come under their own key, `goals_due` in `GET /recurring/due`, and never inside `items`, which older app versions read as templates.
 
 ## Dates
 

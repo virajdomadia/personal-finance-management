@@ -16,6 +16,7 @@ import {
 } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { GoalTagChip } from "@/components/goal-tag";
 import { Signed, signedLabel } from "@/components/signed";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
@@ -260,6 +261,7 @@ export default function StockScreen() {
           <Text variant="bodyLarge" style={{ color: colors.onSurfaceVariant }}>
             {stock.name}
           </Text>
+          <GoalTagChip tag={holdings.find((h) => h.in_goal)?.in_goal} />
 
           {notice ? (
             <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>

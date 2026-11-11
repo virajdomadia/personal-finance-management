@@ -70,6 +70,7 @@ def test_holding_figures(headers: Headers) -> None:
             "at_cost": False,
             "unrealised": "580.00",
             "unrealised_percent": "28.71",
+            "in_goal": None,
         }
     ]
     assert body["totals"] == {
@@ -620,3 +621,34 @@ def test_archive_broker_with_coins_is_409(headers: Headers) -> None:
     assert response.json()["detail"] == "Sell the coins held in CoinDCX before archiving it."
     assert sell_coin(headers, coin_id=btc, account_id=account).status_code == 201
     assert client.post(url, headers=headers).status_code == 200
+
+
+def test_holdings_in_a_goal_are_tagged(headers: Headers) -> None:
+    """Stock, fund and coin rows name the active goal an instrument is in, else null."""
+    zerodha, infy, tcs = broker(headers), stock(headers), stock(headers, "TCS")
+    made(headers, stock_id=infy, account_id=zerodha, quantity=1, price="100.00")
+    made(headers, stock_id=tcs, account_id=zerodha, quantity=1, price="100.00")
+    sbi, ppfcf = bank(headers), fund(headers)
+    opening(headers, ppfcf, sbi, "10.000", "1000.00")
+    coindcx, btc = owner_coins(headers)[:2]
+    bike = client.post(
+        "/api/goals",
+        json={"name": "Bike", "kind": "custom", "target_amount": "120000.00"},
+        headers=headers,
+    ).json()["id"]
+    for target in ({"instrument_id": infy}, {"instrument_id": ppfcf}, {"instrument_id": btc}):
+        added = client.post(f"/api/goals/{bike}/holdings", json=target, headers=headers)
+        assert added.status_code == 201, added.json()
+
+    body = portfolio(headers)
+    tag = {"id": bike, "name": "Bike"}
+    assert {h["symbol"]: h["in_goal"] for h in body["holdings"]} == {"INFY": tag, "TCS": None}
+    assert [h["in_goal"] for h in body["funds"]["holdings"]] == [tag]
+    assert {h["symbol"]: h["in_goal"] for h in body["crypto"]["holdings"]} == {
+        "BTC": tag,
+        "ETH": None,
+    }
+
+    # An archived goal frees its holdings, so the tag goes.
+    client.post(f"/api/goals/{bike}/archive", headers=headers)
+    assert [h["in_goal"] for h in portfolio(headers)["funds"]["holdings"]] == [None]
