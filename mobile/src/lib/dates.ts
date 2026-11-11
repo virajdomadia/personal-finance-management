@@ -3,6 +3,36 @@
 
 const ISO = /^(\d{4})-(\d{2})-(\d{2})$/;
 
+// This module imports nothing, so any lib file can use these helpers without a require cycle.
+export const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+// "2026-11-09" → "9 Nov 2026". Read from the text, not a Date, so no timezone can shift the day.
+export function formatDate(iso: string): string {
+  const [year, month, day] = iso.split("-");
+  return `${Number(day)} ${MONTHS[Number(month) - 1].slice(0, 3)} ${year}`;
+}
+
+// Whether `text` is a real calendar date in "YYYY-MM-DD" form (rejects 2026-02-30).
+export function realDate(text: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const [year, month, day] = text.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
 export function dateToIso(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");

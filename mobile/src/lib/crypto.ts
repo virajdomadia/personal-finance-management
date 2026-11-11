@@ -1,6 +1,5 @@
 import { type GoalTag, cleanMoney, formatRupees } from "./accounts.ts";
-import { realDate } from "./investments.ts";
-import { formatDate } from "./transactions.ts";
+import { formatDate, realDate } from "./dates.ts";
 
 // These mirror the response models in backend/app/api/routes/{coins,crypto_trades,portfolio}.py.
 export type Coin = {
