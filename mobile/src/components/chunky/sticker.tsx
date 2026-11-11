@@ -17,12 +17,12 @@ export function Sticker({ text }: { text: string }) {
 const styles = StyleSheet.create({
   sticker: {
     position: "absolute",
-    top: -16,
-    right: 14,
+    top: -14,
+    right: 8,
     zIndex: 1,
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     borderWidth: 2.5,
     borderColor: BRAND.ink,
     backgroundColor: BRAND.yellow,

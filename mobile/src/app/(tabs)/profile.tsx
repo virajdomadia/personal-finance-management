@@ -1,43 +1,42 @@
-import { router } from "expo-router";
-import { View } from "react-native";
-import { List } from "react-native-paper";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useRef, useState } from "react";
+import { ScrollView } from "react-native";
 
+import { ProfileView } from "@/components/profile-view";
+import { type Streak } from "@/lib/accounts";
+import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
 
 export default function ProfileScreen() {
-  const { logOut } = useSession();
-  const { top } = useSafeAreaInsets();
+  const { token, logOut } = useSession();
+  const [streak, setStreak] = useState<number | null>(null);
+  const latest = useRef(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      const mine = ++latest.current;
+      apiFetch<Streak>("/streak", { token: token ?? undefined }).then(
+        (s) => {
+          if (mine === latest.current) setStreak(s.days);
+        },
+        (err: unknown) => {
+          if (mine !== latest.current) return;
+          if (err instanceof ApiError && err.status === 401) void logOut();
+        },
+      );
+    }, [token, logOut]),
+  );
 
   return (
-    <View style={{ paddingTop: top }}>
-      <List.Item
-        title="Recurring"
-        description="Rent, salary and other regular payments"
-        left={(props) => <List.Icon {...props} icon="calendar-sync-outline" />}
-        onPress={() => router.push("/recurring")}
-        accessibilityRole="button"
+    <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
+      <ProfileView
+        streak={streak}
+        onGoals={() => router.push("/goals")}
+        onRecurring={() => router.push("/recurring")}
+        onInsurance={() => router.push("/insurance")}
+        onArchived={() => router.push("/archived-accounts")}
+        onLogOut={() => void logOut()}
       />
-      <List.Item
-        title="Insurance"
-        description="Health policies and renewals"
-        left={(props) => <List.Icon {...props} icon="shield-check-outline" />}
-        onPress={() => router.push("/insurance")}
-        accessibilityRole="button"
-      />
-      <List.Item
-        title="Goals"
-        description="Money set aside and holdings for what you're saving for"
-        left={(props) => <List.Icon {...props} icon="flag-outline" />}
-        onPress={() => router.push("/goals")}
-        accessibilityRole="button"
-      />
-      <List.Item
-        title="Log out"
-        left={(props) => <List.Icon {...props} icon="logout" />}
-        onPress={logOut}
-        accessibilityRole="button"
-      />
-    </View>
+    </ScrollView>
   );
 }

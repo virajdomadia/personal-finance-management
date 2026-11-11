@@ -70,6 +70,6 @@ const styles = StyleSheet.create({
   value: { fontVariant: ["tabular-nums"], marginTop: 2, flexShrink: 1 },
   md: { fontSize: 22, lineHeight: 28 },
   huge: { fontSize: 34, lineHeight: 40 },
-  stickerGap: { paddingRight: 56 },
+  stickerGap: { paddingRight: 40 },
   valueNode: { marginTop: 2 },
 });
