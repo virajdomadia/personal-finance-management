@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import { StockView } from "@/components/investments/stock-view";
 
 export const metadata: Metadata = {
-  title: "Stock | Personal Finance Manager",
+  title: "Stock",
 };
 
 type Params = Promise<{ stockId: string }>;

@@ -128,13 +128,13 @@ export function EarmarkDialog({ goal, action, earmarks = [], initialAmount = "",
 
   const field = (key: Key, label: string, input: React.ReactNode, hint?: string) => (
     <div>
-      <label htmlFor={`e-${key}`} className="mb-1 block text-sm font-medium">
+      <label htmlFor={`e-${key}`} className="mb-1 block text-xs font-black tracking-wide uppercase">
         {label}
       </label>
       {input}
-      {hint ? <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{hint}</p> : null}
+      {hint ? <p className="mt-1 text-xs font-bold text-zinc-600">{hint}</p> : null}
       {errors[key] ? (
-        <p id={`ee-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+        <p id={`ee-${key}`} className="mt-1 text-xs font-extrabold text-loss">
           {errors[key]}
         </p>
       ) : null}
@@ -172,11 +172,11 @@ export function EarmarkDialog({ goal, action, earmarks = [], initialAmount = "",
       className={`${DIALOG} w-[min(28rem,calc(100vw-2rem))]`}
     >
       <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
-        <h2 id="earmark-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold [overflow-wrap:anywhere] dark:border-zinc-800">
+        <h2 id="earmark-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black [overflow-wrap:anywhere]">
           {title}
         </h2>
         <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm font-bold text-zinc-700">
             {releasing
               ? "The money stays in the account and is free to spend again. To record what you spent it on, release and record an expense."
               : "No money moves. The account keeps its balance and shows this much less as free."}
@@ -202,12 +202,12 @@ export function EarmarkDialog({ goal, action, earmarks = [], initialAmount = "",
           {field("note", "Note (optional)", <input {...props("note")} type="text" autoComplete="off" maxLength={200} />)}
 
           {formError ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            <p role="alert" className="text-sm font-extrabold text-loss">
               {formError}
             </p>
           ) : null}
         </div>
-        <div className="flex flex-wrap justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+        <div className="flex flex-wrap justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
           <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
             Cancel
           </button>

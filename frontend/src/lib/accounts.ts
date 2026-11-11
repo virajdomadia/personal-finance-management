@@ -74,6 +74,8 @@ export type Dashboard = {
   recurring: DueItem[]; // reminders due or coming up
   goals_due: GoalDue[];
   goals: GoalCard[];
+  // What is held in each group. The values need not add up to total_have: a group at or below zero is left out of the bar.
+  asset_split: { group: "bank_cash" | "deposits" | "stocks" | "funds" | "crypto"; value: string }[];
 };
 
 export type AccountForm = {

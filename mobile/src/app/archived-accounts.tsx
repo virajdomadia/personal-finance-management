@@ -1,14 +1,16 @@
-import { router, useFocusEffect } from "expo-router";
+import { useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from "react-native";
-import { Appbar, Button, Divider, Text, useTheme } from "react-native-paper";
+import { Text, useTheme } from "react-native-paper";
 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AccountRow } from "@/components/account-row";
+import { ChunkyButton, ScreenHeader } from "@/components/chunky";
 import { type Account, type AccountList, errorMessage } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 
 export default function ArchivedAccountsScreen() {
   const { token, logOut } = useSession();
@@ -74,10 +76,7 @@ export default function ArchivedAccountsScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Archived accounts" />
-      </Appbar.Header>
+      <ScreenHeader title="Archived accounts" back />
 
       {accounts === null && error === null ? (
         <View style={styles.center}>
@@ -88,23 +87,20 @@ export default function ArchivedAccountsScreen() {
           <Text variant="bodyLarge" style={styles.centerText}>
             {error}
           </Text>
-          <Button mode="contained" onPress={() => void refresh()} loading={refreshing} disabled={refreshing}>
-            Try again
-          </Button>
+          <ChunkyButton label="Try again" onPress={() => void refresh()} loading={refreshing} />
         </View>
       ) : (
         <FlatList
           data={accounts}
           keyExtractor={(account) => String(account.id)}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
-          ItemSeparatorComponent={Divider}
           contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
           ListHeaderComponent={
             error || restoreError ? (
               <Text
                 variant="bodyMedium"
                 accessibilityRole="alert"
-                style={{ color: colors.error, padding: 16 }}
+                style={styles.error}
               >
                 {restoreError ?? `${error} Pull down to try again.`}
               </Text>
@@ -115,23 +111,23 @@ export default function ArchivedAccountsScreen() {
               account={item}
               showType
               action={
-                <Button
-                  mode="text"
+                <ChunkyButton
+                  compact
+                  variant="alt"
                   icon="archive-arrow-up-outline"
+                  label="Restore"
                   loading={restoring === item.id}
-                  disabled={restoring !== null}
+                  disabled={restoring !== null && restoring !== item.id}
                   onPress={() => void restore(item)}
                   accessibilityLabel={`Restore ${item.name}`}
-                >
-                  Restore
-                </Button>
+                />
               }
             />
           )}
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text variant="titleMedium">No archived accounts</Text>
-              <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant, textAlign: "center" }}>
+              <Text variant="bodyMedium" style={styles.emptyText}>
                 Accounts you archive appear here, and can be restored.
               </Text>
             </View>
@@ -147,4 +143,6 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
   empty: { alignItems: "center", gap: 8, padding: 32 },
+  emptyText: { color: BRAND.zinc600, textAlign: "center" },
+  error: { color: BRAND.loss, padding: 16 },
 });

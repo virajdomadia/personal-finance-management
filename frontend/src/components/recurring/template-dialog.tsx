@@ -19,6 +19,9 @@ import {
 } from "@/lib/recurring";
 import { type CategoryList, isDeposit } from "@/lib/transactions";
 
+const PILL =
+  "flex cursor-pointer items-center justify-center rounded-[14px] border-[2.5px] border-ink px-3 py-2 text-center text-sm font-black shadow-chunky-sm peer-focus-visible:ring-[3px] peer-focus-visible:ring-ink peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-bg peer-disabled:opacity-60";
+
 type Key = Exclude<keyof TemplateForm, "type" | "active">;
 
 const TYPES: { value: TemplateType; label: string }[] = [
@@ -164,12 +167,12 @@ export function TemplateDialog({ template, frequency, onClose, onSaved, onConfli
   const locked = (key: Key) => saving || (fromPolicy && !POLICY_FIELDS.includes(key));
   const field = (key: Key, label: string, input: React.ReactNode) => (
     <div>
-      <label htmlFor={`rt-${key}`} className="mb-1 block text-sm font-medium">
+      <label htmlFor={`rt-${key}`} className="mb-1 block text-xs font-black tracking-wide uppercase">
         {label}
       </label>
       {input}
       {errors[key] ? (
-        <p id={`rte-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+        <p id={`rte-${key}`} className="mt-1 text-xs font-extrabold text-loss">
           {errors[key]}
         </p>
       ) : null}
@@ -217,14 +220,14 @@ export function TemplateDialog({ template, frequency, onClose, onSaved, onConfli
       className={`${DIALOG} w-[min(32rem,calc(100vw-2rem))]`}
     >
       <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
-        <h2 id="template-dialog-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+        <h2 id="template-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black [overflow-wrap:anywhere]">
           {editing ? "Edit reminder" : "Add reminder"}
         </h2>
         <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
           {fromPolicy && (
-            <p className="rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
+            <p className="rounded-[14px] border-[2.5px] border-ink bg-due px-3 py-2 text-sm font-bold text-ink">
               This reminder belongs to an insurance policy. Change its amount, account and dates from{" "}
-              <Link href="/insurance" className="underline">
+              <Link href="/insurance" className="rounded underline focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:outline-none">
                 the policy
               </Link>
               ; here you can edit only its name, note and reminder window.
@@ -233,17 +236,26 @@ export function TemplateDialog({ template, frequency, onClose, onSaved, onConfli
 
           {editing ? (
             <div>
-              <span className="mb-1 block text-sm font-medium">Type</span>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">{TYPES.find((t) => t.value === form.type)?.label}</p>
+              <span className="mb-1 block text-xs font-black tracking-wide uppercase">Type</span>
+              <p className="text-sm font-bold text-zinc-700">{TYPES.find((t) => t.value === form.type)?.label}</p>
             </div>
           ) : (
             <fieldset disabled={saving}>
-              <legend className="mb-1 block text-sm font-medium">Type</legend>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <legend className="mb-1 block text-xs font-black tracking-wide uppercase">Type</legend>
+              <div className="grid grid-cols-3 gap-2.5">
                 {TYPES.map((t) => (
-                  <label key={t.value} className="flex items-center gap-1.5 text-sm">
-                    <input type="radio" name="type" value={t.value} checked={form.type === t.value} onChange={() => changeType(t.value)} />
-                    {t.label}
+                  <label key={t.value} className="relative block min-w-0">
+                    <input
+                      type="radio"
+                      name="type"
+                      value={t.value}
+                      checked={form.type === t.value}
+                      onChange={() => changeType(t.value)}
+                      className="peer sr-only"
+                    />
+                    <span className={`${PILL} ${form.type === t.value ? "bg-yellow text-ink" : "bg-card text-ink hover:bg-due"}`}>
+                      {t.label}
+                    </span>
                   </label>
                 ))}
               </div>
@@ -276,7 +288,7 @@ export function TemplateDialog({ template, frequency, onClose, onSaved, onConfli
           </div>
           {form.frequency === "yearly" && field("month", "Month", <Select {...picker("month")} placeholder="Choose a month" options={MONTHS} />)}
           {form.day !== "" && Number(form.day) > 28 && (
-            <p className="-mt-2 text-xs text-zinc-500 dark:text-zinc-400">In shorter months it falls on the last day.</p>
+            <p className="-mt-2 text-xs font-bold text-zinc-600">In shorter months it falls on the last day.</p>
           )}
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -290,12 +302,12 @@ export function TemplateDialog({ template, frequency, onClose, onSaved, onConfli
           )}
 
           {formError ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            <p role="alert" className="text-sm font-extrabold text-loss">
               {formError}
             </p>
           ) : null}
         </div>
-        <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+        <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
           <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
             Cancel
           </button>

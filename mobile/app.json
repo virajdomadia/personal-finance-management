@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Personal Finance",
+    "name": "Gullak",
     "slug": "personal-finance",
     "scheme": "personalfinance",
     "version": "1.0.0",
@@ -9,11 +9,11 @@
     ],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "android": {
       "package": "com.virajdomadia.personalfinance",
       "adaptiveIcon": {
-        "backgroundColor": "#0F5C6E",
+        "backgroundColor": "#FFC800",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -35,7 +35,15 @@
           "iosUrlScheme": "com.googleusercontent.apps.unused-android-only"
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "backgroundColor": "#FFC800",
+          "imageWidth": 200
+        }
+      ]
     ],
     "extra": {
       "router": {

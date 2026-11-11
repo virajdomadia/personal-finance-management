@@ -16,6 +16,7 @@ from app.api.routes import (
     recurring,
     sips,
     stocks,
+    streak,
     trades,
     transactions,
 )
@@ -26,6 +27,7 @@ api_router.include_router(auth.router)
 api_router.include_router(accounts.router)
 api_router.include_router(deposits.router)
 api_router.include_router(dashboard.router)
+api_router.include_router(streak.router)
 api_router.include_router(transactions.router)
 api_router.include_router(funds.router)
 api_router.include_router(fund_trades.router)

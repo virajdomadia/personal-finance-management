@@ -35,7 +35,8 @@ import { expenseFormFromRelease, todayIndia } from "@/lib/transactions";
 
 import { EarmarkDialog } from "./earmark-dialog";
 import { GoalDialog } from "./goal-dialog";
-import { EmergencyBadge, ProgressBar, Warnings } from "./goals-view";
+import { EmojiSquare, Ring, buttonClass } from "@/components/ui/chunky";
+import { EmergencyBadge, Warnings, goalEmoji } from "./goals-view";
 import { HoldingDialog } from "./holding-dialog";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "missing" } | { status: "ready"; goal: GoalDetail };
@@ -49,6 +50,8 @@ type Dialog =
   | { kind: "delete-entry"; entry: HistoryLine }
   | { kind: "archive" }
   | { kind: "delete" };
+
+const HOLDING_EMOJI: Record<HoldingLine["kind"], string> = { stock: "📈", mutual_fund: "🥧", crypto: "🪙", ppf: "🏛️", rd: "🏦" };
 
 const HOLDING_KIND: Record<HoldingLine["kind"], string> = {
   stock: "Stock",
@@ -131,33 +134,30 @@ export function GoalView({ goalId }: { goalId: number }) {
   const goal = load.status === "ready" ? load.goal : null;
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <Link
-        href="/goals"
-        className="mb-3 inline-block rounded text-sm text-zinc-600 hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400"
-      >
+    <div className="mx-auto max-w-4xl">
+      <Link href="/goals" className={`${buttonClass("alt")} mb-4 !px-3 !py-1.5 uppercase`}>
         ‹ Goals
       </Link>
 
       {load.status === "loading" && (
-        <p role="status" className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p role="status" className="text-sm font-bold text-zinc-600">
           Loading the goal...
         </p>
       )}
 
       {load.status === "missing" && (
-        <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700">
-          <p className="font-medium">Goal not found</p>
-          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">It may have been deleted.</p>
+        <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-12 text-center">
+          <p className="font-black">Goal not found</p>
+          <p className="mt-1 text-sm font-bold text-zinc-600">It may have been deleted.</p>
         </div>
       )}
 
       {load.status === "error" && (
-        <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
+        <div role="alert" className="rounded-[18px] border-[2.5px] border-ink bg-card p-4 text-sm font-extrabold shadow-chunky">
           <p>We couldn&apos;t load this goal.</p>
           <button
             type="button"
-            className={`${QUIET} mt-2 -ml-3`}
+            className={`${QUIET} mt-2`}
             onClick={() => {
               setLoad({ status: "loading" });
               fetchGoal();
@@ -170,17 +170,20 @@ export function GoalView({ goalId }: { goalId: number }) {
 
       {goal && (
         <>
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
             <div className="min-w-0">
               {/* The badges sit beside the heading, not in it, so its name is just the goal's. */}
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-semibold [overflow-wrap:anywhere]">{goal.name}</h1>
+                <h1 className="text-2xl font-black [overflow-wrap:anywhere]">
+                  <span aria-hidden="true">{goalEmoji(goal)} </span>
+                  {goal.name}
+                </h1>
                 {goal.kind === "emergency" && <EmergencyBadge />}
                 {goal.archived && (
-                  <span className="rounded-full border border-zinc-300 px-2 py-0.5 text-xs font-medium dark:border-zinc-700">Archived</span>
+                  <span className="rounded-full border-2 border-ink bg-card px-2 py-0.5 text-xs font-black">Archived</span>
                 )}
               </div>
-              <p className="text-sm text-zinc-600 tabular-nums dark:text-zinc-400">{progressText(goal)}</p>
+              <p className="text-sm font-bold text-zinc-600 tabular-nums">{progressText(goal)}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               {goal.archived ? (
@@ -207,17 +210,17 @@ export function GoalView({ goalId }: { goalId: number }) {
 
           <Notice message={notice} />
 
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-8">
             <Summary goal={goal} />
 
             {goal.archived ? (
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              <p className="text-sm font-bold text-zinc-600">
                 This goal is archived. Its set-aside money and holdings count for nothing until you restore it.
               </p>
             ) : (
               <div className="flex flex-wrap gap-2">
                 <button type="button" className={PRIMARY} onClick={() => setDialog({ kind: "earmark", action: "set_aside" })}>
-                  Set aside
+                  + Set aside
                 </button>
                 {goal.earmarks.length > 0 && (
                   <button type="button" className={SECONDARY} onClick={() => setDialog({ kind: "earmark", action: "release" })}>
@@ -225,7 +228,7 @@ export function GoalView({ goalId }: { goalId: number }) {
                   </button>
                 )}
                 <button type="button" className={SECONDARY} onClick={() => setDialog({ kind: "holding" })}>
-                  Add holding
+                  + Add holding
                 </button>
               </div>
             )}
@@ -315,16 +318,18 @@ export function GoalView({ goalId }: { goalId: number }) {
 function Summary({ goal }: { goal: GoalDetail }) {
   const pace = paceText(goal);
   return (
-    <section aria-label="Progress" className="flex flex-col gap-3 rounded-lg border border-zinc-200 px-5 py-4 dark:border-zinc-800">
-      {goal.target !== null && <ProgressBar percent={goal.percent} reached={goal.reached} label={`${goal.name} progress`} />}
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
-        <Fact label="Saved" value={whole(goal.saved)} />
-        <Fact label="Target" value={goal.target === null ? "—" : whole(goal.target)} />
-        <Fact label="Set aside" value={whole(goal.earmarked)} />
-        <Fact label="Holdings" value={whole(goal.holdings_value)} />
-      </dl>
+    <section aria-label="Progress" className="flex flex-col gap-4">
+      <div className="flex flex-col items-center gap-5 rounded-[18px] border-[2.5px] border-ink bg-purple-strong p-5 text-white shadow-chunky sm:flex-row">
+        <Ring percent={goal.percent} reached={goal.reached} label={`${goal.name} progress`} size={140} />
+        <dl className="grid w-full min-w-0 grid-cols-2 gap-3">
+          <Fact label="Saved" value={whole(goal.saved)} />
+          <Fact label="Target" value={goal.target === null ? "—" : whole(goal.target)} />
+          <Fact label="Set aside" value={whole(goal.earmarked)} />
+          <Fact label="Holdings" value={whole(goal.holdings_value)} />
+        </dl>
+      </div>
       {(goal.kind === "emergency" || pace || goal.target_date || goal.monthly_amount) && (
-        <div className="flex flex-col gap-1 text-sm text-zinc-600 dark:text-zinc-400">
+        <div className="flex flex-col gap-1 text-sm font-bold text-zinc-700">
           {goal.kind === "emergency" && <p>{efText(goal)}</p>}
           {goal.target_date && !goal.reached && (
             <p>
@@ -334,7 +339,7 @@ function Summary({ goal }: { goal: GoalDetail }) {
                 : ""}
             </p>
           )}
-          {pace && <p className={goal.overdue ? "text-amber-800 dark:text-amber-300" : ""}>{pace}</p>}
+          {pace && <p className={goal.overdue ? "font-black text-ink" : ""}>{pace}</p>}
           {goal.monthly_amount && goal.reminder_day !== null && (
             <p>
               Reminder to set aside {whole(goal.monthly_amount)} on day {goal.reminder_day} of each month
@@ -342,7 +347,7 @@ function Summary({ goal }: { goal: GoalDetail }) {
           )}
         </div>
       )}
-      {goal.note && <p className="text-sm whitespace-pre-line [overflow-wrap:anywhere]">{goal.note}</p>}
+      {goal.note && <p className="text-sm font-bold whitespace-pre-line [overflow-wrap:anywhere]">{goal.note}</p>}
       <Warnings warnings={goal.warnings} />
     </section>
   );
@@ -350,9 +355,9 @@ function Summary({ goal }: { goal: GoalDetail }) {
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0">
-      <dt className="text-xs text-zinc-500 dark:text-zinc-400">{label}</dt>
-      <dd className="mt-0.5 text-sm font-medium tabular-nums [overflow-wrap:anywhere]">{value}</dd>
+    <div className="min-w-0 rounded-[14px] border-[2.5px] border-ink bg-card p-2.5 text-ink">
+      <dt className="text-xs font-extrabold text-zinc-600">{label}</dt>
+      <dd className="mt-0.5 text-lg leading-tight font-black tabular-nums [overflow-wrap:anywhere]">{value}</dd>
     </div>
   );
 }
@@ -360,9 +365,9 @@ function Fact({ label, value }: { label: string; value: string }) {
 function Basket({ goal, onRemove }: { goal: GoalDetail; onRemove: (holding: HoldingLine) => void }) {
   if (goal.earmarks.length === 0 && goal.holdings.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-10 text-center dark:border-zinc-700">
-        <p className="font-medium">The basket is empty</p>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+      <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-10 text-center">
+        <p className="font-black">The basket is empty</p>
+        <p className="mx-auto mt-1 max-w-md text-sm font-bold text-zinc-600">
           Set money aside in a bank, cash or wallet account, or add a fund, stock, coin, PPF or RD you hold.
         </p>
       </div>
@@ -378,8 +383,11 @@ function Basket({ goal, onRemove }: { goal: GoalDetail; onRemove: (holding: Hold
           <ul className={LIST}>
             {goal.earmarks.map((e) => (
               <li key={e.account_id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3">
-                <span className="text-sm [overflow-wrap:anywhere]">{e.account_name}</span>
-                <span className="text-sm font-medium tabular-nums">{whole(e.amount)}</span>
+                <span className="min-w-0 text-sm font-extrabold [overflow-wrap:anywhere]">
+                  <EmojiSquare emoji="🏦" tone="blue" />
+                  {e.account_name}
+                </span>
+                <span className="text-sm font-black tabular-nums">{whole(e.amount)}</span>
               </li>
             ))}
           </ul>
@@ -395,14 +403,15 @@ function Basket({ goal, onRemove }: { goal: GoalDetail; onRemove: (holding: Hold
             {goal.holdings.map((h) => (
               <li key={h.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
                 <div className="min-w-40 flex-1">
-                  <p className={`text-sm font-medium [overflow-wrap:anywhere] ${h.status === "held" ? "" : "text-zinc-500 dark:text-zinc-400"}`}>
+                  <p className={`text-sm font-extrabold [overflow-wrap:anywhere] ${h.status === "held" ? "" : "text-zinc-600"}`}>
+                    <EmojiSquare emoji={HOLDING_EMOJI[h.kind]} tone="purple" />
                     {holdingName(h)}
                   </p>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">
+                  <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">
                     {[HOLDING_KIND[h.kind], h.note].filter(Boolean).join(" · ")}
                   </p>
                 </div>
-                <p className="text-right text-sm font-medium tabular-nums">{whole(h.value)}</p>
+                <p className="text-right text-sm font-black tabular-nums">{whole(h.value)}</p>
                 <div className="flex shrink-0 justify-end gap-1">
                   <button type="button" className={ROW_ACTION} aria-label={`Remove ${h.name} from ${goal.name}`} onClick={() => onRemove(h)}>
                     Remove
@@ -431,8 +440,8 @@ function History({ goal, onDelete }: { goal: GoalDetail; onDelete: (entry: Histo
           return (
             <li key={entry.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
               <div className="min-w-40 flex-1">
-                <p className="text-sm font-medium tabular-nums [overflow-wrap:anywhere]">{title}</p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{details.join(" · ")}</p>
+                <p className="text-sm font-extrabold tabular-nums [overflow-wrap:anywhere]">{title}</p>
+                <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">{details.join(" · ")}</p>
               </div>
               {!goal.archived && (
                 <div className="flex shrink-0 justify-end gap-1">
@@ -451,7 +460,7 @@ function History({ goal, onDelete }: { goal: GoalDetail; onDelete: (entry: Histo
         })}
       </ul>
       {!goal.archived && (
-        <p className="mt-1 px-1 text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="mt-2 px-1 text-xs font-bold text-zinc-600">
           Entries aren&apos;t edited. To correct one, delete it and set aside or release again.
         </p>
       )}
@@ -495,16 +504,16 @@ function ArchiveDialog({ goal, onClose, onDone }: { goal: GoalDetail; onClose: (
       onClose={onClose}
       className={`${DIALOG} w-[min(26rem,calc(100vw-2rem))]`}
     >
+      <h2 id="archive-goal-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black [overflow-wrap:anywhere]">
+        Archive {goal.name}?
+      </h2>
       <div className="px-5 py-4">
-        <h2 id="archive-goal-title" className="text-base font-semibold [overflow-wrap:anywhere]">
-          Archive {goal.name}?
-        </h2>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm font-bold text-zinc-700">
           Its history stays, but the money set aside stops counting against your accounts and its holdings are free to join another goal.
           You can restore it later.
         </p>
       </div>
-      <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+      <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
         <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
           Cancel
         </button>

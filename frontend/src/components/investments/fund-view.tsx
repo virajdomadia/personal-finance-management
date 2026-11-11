@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -27,16 +26,24 @@ import { formatDate, todayIndia } from "@/lib/transactions";
 import { FundDialog } from "./fund-dialog";
 import { FundTradeDialog } from "./fund-trade-dialog";
 import { NavDialog } from "./nav-dialog";
+import { Tile } from "@/components/ui/chunky";
+import { investmentSticker } from "@/lib/fun";
 import {
   ConfirmDelete,
   LIST,
   Notice,
-  PRIMARY,
   QUIET,
   ROW_ACTION,
   SECONDARY,
   SECTION_TITLE,
   Signed,
+  BUY,
+  SELL,
+  PlainSigned,
+  PriceCard,
+  TradeTr,
+  TradesTable,
+  BackLink,
   archivedIds,
   isUnauthorized,
   GoalTagLink,
@@ -97,9 +104,9 @@ export function DueSips({ sips, onRecord }: { sips: Sip[]; onRecord: (sip: Sip) 
       {sips.map((sip) => (
         <li
           key={sip.id}
-          className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900 dark:bg-amber-950/40"
+          className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-[14px] border-[2.5px] border-ink bg-due px-4 py-2 shadow-chunky-sm"
         >
-          <p className="min-w-0 flex-1 text-sm text-amber-950 dark:text-amber-100 [overflow-wrap:anywhere]">{dueText(sip)}</p>
+          <p className="min-w-0 flex-1 text-sm font-extrabold [overflow-wrap:anywhere]">{dueText(sip)}</p>
           <button type="button" className={SECONDARY} onClick={() => onRecord(sip)}>
             Record SIP
           </button>
@@ -128,47 +135,24 @@ function FundTradeRow({
   onDelete: () => void;
 }) {
   const title = fundTradeTitle(trade);
-  const details = [
-    formatDate(trade.date),
-    trade.account_name,
-    trade.opening ? `avg NAV ${formatNav(trade.nav)}` : `NAV ${formatNav(trade.nav)}`,
-    trade.charges !== "0.00" ? `${formatRupees(trade.charges)} ${trade.side === "buy" ? "stamp duty" : "charges"}` : null,
-    trade.note,
-  ].filter(Boolean);
   const cash = trade.opening ? "Cost" : trade.side === "buy" ? "Paid" : "Received";
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-      <div className="min-w-32 flex-1">
-        <p className="text-sm font-medium tabular-nums [overflow-wrap:anywhere]">{title}</p>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{details.join(" · ")}</p>
-      </div>
-      <div className="min-w-0 max-w-full text-right tabular-nums [overflow-wrap:anywhere]">
-        <p className="text-sm font-medium">
-          <span className="mr-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400">{cash}</span>
-          {formatRupees(trade.amount)}
-        </p>
-        {trade.realised !== null && (
-          <p className="text-xs">
-            <span className="text-zinc-500 dark:text-zinc-400">P&amp;L </span>
-            <Signed value={trade.realised} />
-          </p>
-        )}
-      </div>
-      <div className="flex w-24 shrink-0 justify-end gap-1">
-        {archived ? (
-          <span className="px-2 py-1 text-xs text-zinc-500 dark:text-zinc-400">Archived</span>
-        ) : (
-          <>
-            <button type="button" className={ROW_ACTION} aria-label={`Edit ${title}, ${trade.date}`} onClick={onEdit}>
-              Edit
-            </button>
-            <button type="button" className={ROW_ACTION} aria-label={`Delete ${title}, ${trade.date}`} onClick={onDelete}>
-              Delete
-            </button>
-          </>
-        )}
-      </div>
-    </li>
+    <TradeTr
+      title={title}
+      date={trade.date}
+      details={[
+        trade.account_name,
+        trade.opening ? `avg NAV ${formatNav(trade.nav)}` : `NAV ${formatNav(trade.nav)}`,
+        trade.charges !== "0.00" ? `${formatRupees(trade.charges)} ${trade.side === "buy" ? "stamp duty" : "charges"}` : null,
+        trade.note,
+      ]}
+      cashLabel={cash}
+      amount={trade.amount}
+      realised={trade.realised}
+      archived={archived}
+      onEdit={onEdit}
+      onDelete={onDelete}
+    />
   );
 }
 
@@ -241,18 +225,13 @@ export function FundView({ fundId }: { fundId: number }) {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <Link
-        href="/investments"
-        className="mb-3 inline-block rounded text-sm text-zinc-600 hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400"
-      >
-        ‹ Investments
-      </Link>
+      <BackLink />
 
       {data && (
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
           <div className="min-w-0">
-            <h1 className="text-xl font-semibold [overflow-wrap:anywhere]">{data.fund.name}</h1>
-            <p className="text-sm text-zinc-600 dark:text-zinc-400 [overflow-wrap:anywhere]">{data.fund.symbol} · mutual fund</p>
+            <h1 className="text-2xl font-black [overflow-wrap:anywhere]"><span aria-hidden="true">🥧 </span>{data.fund.name}</h1>
+            <p className="text-sm font-bold text-zinc-700 [overflow-wrap:anywhere]">{data.fund.symbol} · mutual fund</p>
             <GoalTagLink tag={holdings.find((h) => h.in_goal)?.in_goal} />
           </div>
           <div className="flex flex-wrap gap-2">
@@ -266,11 +245,11 @@ export function FundView({ fundId }: { fundId: number }) {
               Update NAV
             </button>
             {holdings.length > 0 && (
-              <button type="button" className={SECONDARY} onClick={() => openTrade("sell", holdings.length === 1 ? holdings[0].account_id : null)}>
+              <button type="button" className={SELL} onClick={() => openTrade("sell", holdings.length === 1 ? holdings[0].account_id : null)}>
                 Redeem
               </button>
             )}
-            <button type="button" className={PRIMARY} onClick={() => openTrade("buy")}>
+            <button type="button" className={BUY} onClick={() => openTrade("buy")}>
               Buy
             </button>
           </div>
@@ -280,24 +259,24 @@ export function FundView({ fundId }: { fundId: number }) {
       <Notice message={notice} />
 
       {load.status === "loading" && (
-        <p role="status" className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p role="status" className="text-sm font-bold text-zinc-600">
           Loading this fund...
         </p>
       )}
 
       {load.status === "missing" && (
-        <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
-          <h1 className="font-medium">Fund not found</h1>
-          <p className="mt-1 text-zinc-600 dark:text-zinc-400">It may have been deleted.</p>
+        <div role="alert" className="rounded-[18px] border-[2.5px] border-ink bg-card p-4 text-sm font-extrabold shadow-chunky">
+          <h1 className="font-extrabold">Fund not found</h1>
+          <p className="mt-1 font-bold text-zinc-600">It may have been deleted.</p>
         </div>
       )}
 
       {load.status === "error" && (
-        <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
+        <div role="alert" className="rounded-[18px] border-[2.5px] border-ink bg-card p-4 text-sm font-extrabold shadow-chunky">
           <p>We couldn&apos;t load this fund.</p>
           <button
             type="button"
-            className={`${QUIET} mt-2 -ml-3`}
+            className={`${QUIET} mt-2`}
             onClick={() => {
               setLoad({ status: "loading" });
               reload();
@@ -419,29 +398,37 @@ function FundSummary({ data }: { data: Data }) {
   const total = data.portfolio.funds.by_fund.find((f) => f.fund_id === data.fund.id);
   const { fund } = data;
   return (
-    <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <Figure label="Current NAV" sub={fund.nav_date ? `as of ${formatDate(fund.nav_date)}` : "No NAV recorded yet"}>
-        {fund.nav !== null ? formatNav(fund.nav) : "—"}
-      </Figure>
-      <Figure label="Units held" sub={total ? `avg NAV ${formatNav(total.average_nav)}` : undefined}>
-        {total ? formatUnits(total.units) : "0.000"}
-      </Figure>
-      <Figure label="Current value" sub={total ? `${formatRupees(total.invested)} invested${total.at_cost ? " · at cost" : ""}` : undefined}>
-        {formatRupees(total?.value ?? "0.00")}
-      </Figure>
-      <Figure label="Unrealised P&L" sub={total ? <Signed value={total.unrealised_percent} percentOnly /> : undefined}>
-        <Signed value={total?.unrealised ?? "0.00"} />
-      </Figure>
-    </dl>
-  );
-}
-
-function Figure({ label, sub, children }: { label: string; sub?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="min-w-0 rounded-lg border border-zinc-200 px-4 py-3 dark:border-zinc-800">
-      <dt className="text-sm text-zinc-600 dark:text-zinc-400">{label}</dt>
-      <dd className="mt-1 text-xl font-semibold tabular-nums [overflow-wrap:anywhere]">{children}</dd>
-      {sub ? <dd className="text-sm text-zinc-500 tabular-nums dark:text-zinc-400">{sub}</dd> : null}
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="sm:col-span-2">
+          <Tile
+            tone="blue"
+            size="huge"
+            emoji="🥧"
+            label="Worth today"
+            value={formatRupees(total?.value ?? "0.00")}
+            sticker={investmentSticker(total?.unrealised_percent ?? null)}
+          >
+            {total ? (
+              <span className="mt-0.5 block text-xs font-extrabold break-words">
+                <PlainSigned value={total.unrealised} percent={total.unrealised_percent} />
+                {total.at_cost ? " · at cost" : ""}
+              </span>
+            ) : null}
+          </Tile>
+        </div>
+        <Tile tone="yellow" emoji="💰" label="You put in" value={formatRupees(total?.invested ?? "0.00")} />
+        <Tile label="Units held" value={total ? formatUnits(total.units) : "0.000"}>
+          {total ? <span className="mt-0.5 block text-xs font-bold text-zinc-600">avg NAV {formatNav(total.average_nav)}</span> : null}
+        </Tile>
+      </div>
+      <PriceCard
+        label="Current NAV"
+        value={fund.nav !== null ? formatNav(fund.nav) : "—"}
+        sub={fund.nav_date ? `as of ${formatDate(fund.nav_date)}` : "No NAV recorded yet"}
+        points={data.navs.map((n) => ({ date: n.date, value: Number(n.nav) }))}
+        lineLabel="NAV history"
+      />
     </div>
   );
 }
@@ -457,14 +444,14 @@ function BankHoldings({ holdings, onRedeem }: { holdings: FundHolding[]; onRedee
         {holdings.map((h) => (
           <li key={h.account_id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
             <div className="min-w-32 flex-1">
-              <p className="text-sm font-medium [overflow-wrap:anywhere]">{h.account_name}</p>
-              <p className="text-xs text-zinc-500 tabular-nums dark:text-zinc-400">
+              <p className="text-sm font-extrabold [overflow-wrap:anywhere]">{h.account_name}</p>
+              <p className="text-xs font-bold text-zinc-600 tabular-nums">
                 {formatUnits(h.units)} units · avg NAV {formatNav(h.average_nav)} · {formatRupees(h.invested)} invested
               </p>
             </div>
             <div className="text-right text-sm tabular-nums">
-              <p className="font-medium">
-                {h.at_cost && <span className="mr-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400">at cost</span>}
+              <p className="font-extrabold">
+                {h.at_cost && <span className="mr-1.5 text-xs font-bold text-zinc-600">at cost</span>}
                 {formatRupees(h.value)}
               </p>
               <p className="text-xs">
@@ -501,7 +488,7 @@ function Sips({
   return (
     <section aria-labelledby="sips-title">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2 px-1">
-        <h2 id="sips-title" className="text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
+        <h2 id="sips-title" className="text-xs font-black tracking-wider uppercase">
           SIPs
         </h2>
         {sips.length > 0 && (
@@ -511,7 +498,7 @@ function Sips({
         )}
       </div>
       {sips.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+        <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-4 py-6 text-center text-sm font-extrabold text-zinc-700">
           <p>No SIP in this fund. A SIP reminds you each month, and you record it with that day&apos;s NAV.</p>
           <button type="button" className={`${QUIET} mt-2`} onClick={onAdd}>
             Add SIP
@@ -534,21 +521,21 @@ function Sips({
             return (
               <li key={sip.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
                 <div className="min-w-32 flex-1">
-                  <p className="text-sm font-medium [overflow-wrap:anywhere]">
+                  <p className="text-sm font-extrabold [overflow-wrap:anywhere]">
                     {label}
                     <span
-                      className={`ml-2 text-xs font-normal ${
+                      className={`ml-2 text-xs font-bold ${
                         !sip.active
-                          ? "text-zinc-500 dark:text-zinc-400"
+                          ? "text-zinc-600"
                           : sip.due_date !== null
-                            ? "text-amber-700 dark:text-amber-400"
-                            : "text-zinc-500 dark:text-zinc-400"
+                            ? "text-orange-700"
+                            : "text-zinc-600"
                       }`}
                     >
                       {status}
                     </span>
                   </p>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{details.join(" · ")}</p>
+                  <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">{details.join(" · ")}</p>
                 </div>
                 <div className="flex shrink-0 justify-end gap-1">
                   <button type="button" className={ROW_ACTION} aria-label={`Edit the ${label}`} disabled={busy !== null} onClick={() => onEdit(sip)}>
@@ -599,7 +586,7 @@ function Transactions({
   return (
     <section aria-labelledby="fund-trades-title">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2 px-1">
-        <h2 id="fund-trades-title" className="text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
+        <h2 id="fund-trades-title" className="text-xs font-black tracking-wider uppercase">
           Transactions
         </h2>
         {data.trades.length > 0 && (
@@ -609,14 +596,14 @@ function Transactions({
         )}
       </div>
       {data.trades.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+        <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-4 py-6 text-center text-sm font-extrabold text-zinc-700">
           <p>No transactions yet.</p>
           <button type="button" className={`${QUIET} mt-2`} onClick={onAdd}>
             Add existing units
           </button>
         </div>
       ) : (
-        <ul className={LIST}>
+        <TradesTable caption="Transactions">
           {data.trades.map((trade) => (
             <FundTradeRow
               key={trade.id}
@@ -626,7 +613,7 @@ function Transactions({
               onDelete={() => onDelete(trade)}
             />
           ))}
-        </ul>
+        </TradesTable>
       )}
     </section>
   );
@@ -640,7 +627,7 @@ function NavHistory({ navs, trades, onDelete }: { navs: Nav[]; trades: FundTrade
         NAV history
       </h2>
       {navs.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-zinc-300 px-4 py-6 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+        <p className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-4 py-6 text-center text-sm font-extrabold text-zinc-700">
           No NAV recorded. Until you add one, holdings are valued at cost.
         </p>
       ) : (
@@ -649,14 +636,14 @@ function NavHistory({ navs, trades, onDelete }: { navs: Nav[]; trades: FundTrade
             <li key={nav.id} className="flex items-center gap-x-4 px-4 py-2">
               <p className="flex-1 text-sm">
                 {formatDate(nav.date)}
-                {index === 0 && <span className="ml-2 text-xs text-zinc-500 dark:text-zinc-400">current</span>}
+                {index === 0 && <span className="ml-2 text-xs font-bold text-zinc-600">current</span>}
                 {nav.trade_id !== null && (
-                  <span className="ml-2 text-xs text-zinc-500 dark:text-zinc-400">
+                  <span className="ml-2 text-xs font-bold text-zinc-600">
                     {sides.get(nav.trade_id) === "sell" ? "from a redemption" : "from a purchase"}
                   </span>
                 )}
               </p>
-              <p className="text-sm font-medium tabular-nums">{formatNav(nav.nav)}</p>
+              <p className="text-sm font-extrabold tabular-nums">{formatNav(nav.nav)}</p>
               <div className="flex w-24 shrink-0 justify-end">
                 <button
                   type="button"

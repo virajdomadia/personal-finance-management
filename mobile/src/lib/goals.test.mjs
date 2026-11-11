@@ -18,6 +18,7 @@ import {
   paceText,
   progressText,
   statusLabel,
+  tileGoal,
 } from "./goals.ts";
 
 const custom = (o = {}) => ({
@@ -213,4 +214,23 @@ test("changedGoal sends only what differs", () => {
   const e = ef();
   assert.deepEqual(changedGoal(goalFormFrom(e), e), {});
   assert.deepEqual(changedGoal({ ...goalFormFrom(e), ef_months: "9" }, e), { ef_months: 9 });
+});
+
+const card = (o) => ({ id: 1, name: "G", kind: "custom", saved: "0", target: "100", percent: 0, reached: false, ...o });
+
+test("tileGoal picks the open goal closest to done, then the earliest", () => {
+  const a = card({ id: 1, percent: 40 });
+  const b = card({ id: 2, percent: 70 });
+  const c = card({ id: 3, percent: 70 });
+  assert.deepEqual(tileGoal([a, c, b]), { goal: b, done: false });
+  assert.equal(tileGoal([a, b]).goal.id, 2);
+});
+
+test("tileGoal skips goals without a target and falls back to the latest reached", () => {
+  const none = card({ id: 1, target: null, percent: null });
+  const r1 = card({ id: 2, reached: true, percent: 100 });
+  const r2 = card({ id: 3, reached: true, percent: 100 });
+  assert.deepEqual(tileGoal([none, r1, r2]), { goal: r2, done: true });
+  assert.equal(tileGoal([none]), null);
+  assert.equal(tileGoal([]), null);
 });

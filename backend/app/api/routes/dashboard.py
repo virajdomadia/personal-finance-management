@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -13,6 +14,7 @@ from app.api.goals import GoalDue, goals_due, load_goal_book
 from app.api.loans import linked_owed, load_book
 from app.api.portfolio import (
     latest_prices,
+    load_kinds,
     load_trade_rows,
     replay,
     summarise,
@@ -63,6 +65,14 @@ class GoalCard(BaseModel):
     reached: bool
 
 
+AssetGroup = Literal["bank_cash", "deposits", "stocks", "funds", "crypto"]
+
+
+class AssetSlice(BaseModel):
+    group: AssetGroup
+    value: str
+
+
 class DashboardResponse(BaseModel):
     has_accounts: bool
     net_worth: str
@@ -74,6 +84,7 @@ class DashboardResponse(BaseModel):
     recurring: list[DueItem]
     goals_due: list[GoalDue]
     goals: list[GoalCard]
+    asset_split: list[AssetSlice]
 
 
 @router.get("")
@@ -87,7 +98,8 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
     flows = book.flows
     have, owe = totals(active, flows)
     result = replay(load_trade_rows(db, user.id))
-    market = summarise(result, latest_prices(db, user.id))
+    prices = latest_prices(db, user.id)
+    market = summarise(result, prices)
     has_holdings = any(pos.quantity > 0 for pos in result.positions.values())
     have += market.value  # deposits are already in `have` as accounts
     today = today_india()
@@ -119,6 +131,25 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
             unrealised_percent=fmt(unrealised_percent(overall.unrealised, overall.invested)),
         )
 
+    kinds = load_kinds(db, user.id)
+
+    def held(kind: str) -> Decimal:
+        ids = {i for i, k in kinds.items() if k == kind}
+        return summarise(result, prices, only=ids).value
+
+    deposits_value = sum((r.balance for r in deposits), Decimal(0))
+    stocks, funds, crypto = held("stock"), held("mutual_fund"), held("crypto")
+    # Whatever isn't a deposit or a market holding is money in bank, cash, wallet and card
+    # accounts, so the slices always add up to `total_have`.
+    bank_cash = have - deposits_value - stocks - funds - crypto
+    split = [
+        ("bank_cash", bank_cash),
+        ("deposits", deposits_value),
+        ("stocks", stocks),
+        ("funds", funds),
+        ("crypto", crypto),
+    ]
+
     goal_book = load_goal_book(db, user.id, today)
     return DashboardResponse(
         has_accounts=bool(active),
@@ -131,6 +162,7 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
         credit_used=credit_used,
         investments=investments,
         recurring=due_items(db, user.id, today),
+        asset_split=[AssetSlice(group=g, value=fmt(v)) for g, v in split if v > 0],
         goals_due=goals_due(db, user.id, today, goal_book),
         goals=[
             GoalCard(

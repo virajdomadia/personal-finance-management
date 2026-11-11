@@ -8,47 +8,17 @@ import { errorMessage } from "@/lib/accounts";
 import { apiFetch } from "@/lib/api";
 import { ConfirmDelete, LIST, Notice, PRIMARY, QUIET, ROW_ACTION, SECTION_TITLE, isUnauthorized } from "@/components/investments/shared";
 import { type Goal, type GoalList, efText, paceText, progressText } from "@/lib/goals";
+import { whole } from "@/lib/recurring";
+import { FOCUS, PageHeader, Ring, Sticker } from "@/components/ui/chunky";
 
 import { GoalDialog } from "./goal-dialog";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; active: Goal[]; archived: Goal[] };
 type Dialog = { kind: "none" } | { kind: "form" } | { kind: "delete"; goal: Goal };
 
-// Saved against the target. The bar stops at full; the text beside it says when a goal is past 100%.
-export function ProgressBar({
-  percent,
-  reached,
-  label,
-  className = "",
-}: {
-  percent: number | null;
-  reached: boolean;
-  label: string;
-  className?: string;
-}) {
-  const value = percent ?? 0;
-  const width = Math.max(0, Math.min(value, 100));
-  return (
-    <div
-      role="progressbar"
-      aria-label={label}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={width}
-      aria-valuetext={reached ? `${value}%, reached` : `${value}%`}
-      className={`h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800 ${className}`}
-    >
-      <div
-        className={`h-full rounded-full ${reached ? "bg-green-600 dark:bg-green-500" : "bg-zinc-900 dark:bg-zinc-100"}`}
-        style={{ width: `${width}%` }}
-      />
-    </div>
-  );
-}
-
 export function EmergencyBadge() {
   return (
-    <span className="rounded-full border border-zinc-300 px-2 py-0.5 text-xs font-medium whitespace-nowrap dark:border-zinc-700">
+    <span className="rounded-full border-2 border-ink bg-yellow px-2 py-0.5 text-xs font-black whitespace-nowrap text-ink">
       Emergency fund
     </span>
   );
@@ -63,9 +33,9 @@ export function Warnings({ warnings }: { warnings: string[] }) {
         <p
           key={w}
           role="note"
-          className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 [overflow-wrap:anywhere] dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+          className="rounded-[14px] border-[2.5px] border-ink bg-due px-3 py-2 text-sm font-bold text-ink shadow-chunky-sm [overflow-wrap:anywhere]"
         >
-          <span className="font-medium">Heads up. </span>
+          <span className="font-black">Heads up. </span>
           {w}
         </p>
       ))}
@@ -124,28 +94,30 @@ export function GoalsView() {
   const hasEmergency = load.status === "ready" && load.active.some((g) => g.kind === "emergency");
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h1 className="text-xl font-semibold">Goals</h1>
-        <button type="button" className={PRIMARY} onClick={() => setDialog({ kind: "form" })}>
-          Add goal
-        </button>
-      </div>
+    <div className="mx-auto max-w-4xl">
+      <PageHeader
+        title="Goals"
+        action={
+          <button type="button" className={PRIMARY} onClick={() => setDialog({ kind: "form" })}>
+            + Add goal
+          </button>
+        }
+      />
 
       <Notice message={notice} />
 
       {load.status === "loading" && (
-        <p role="status" className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p role="status" className="text-sm font-bold text-zinc-600">
           Loading your goals...
         </p>
       )}
 
       {load.status === "error" && (
-        <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
+        <div role="alert" className="rounded-[18px] border-[2.5px] border-ink bg-card p-4 text-sm font-extrabold shadow-chunky">
           <p>We couldn&apos;t load your goals.</p>
           <button
             type="button"
-            className={`${QUIET} mt-2 -ml-3`}
+            className={`${QUIET} mt-2`}
             onClick={() => {
               setLoad({ status: "loading" });
               fetchGoals();
@@ -157,21 +129,25 @@ export function GoalsView() {
       )}
 
       {load.status === "ready" && (
-        <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-10">
           {load.active.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700">
-              <p className="font-medium">No goals yet</p>
-              <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+            <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-12 text-center">
+              <p className="font-black">
+                <span aria-hidden="true">🎯 </span>No goals yet
+              </p>
+              <p className="mx-auto mt-1 max-w-md text-sm font-bold text-zinc-600">
                 Start an emergency fund or save toward something. A goal labels money you already have: set some aside in a bank account,
                 or put a fund, stock, coin, PPF or RD in its basket. Nothing moves.
               </p>
             </div>
           ) : (
-            <div className="flex flex-col gap-4">
-              {load.active.map((goal) => (
-                <GoalCard key={goal.id} goal={goal} />
+            <ul className="grid grid-cols-1 items-start gap-5 sm:grid-cols-2 xl:grid-cols-3">
+              {load.active.map((goal, i) => (
+                <li key={goal.id} className="min-w-0">
+                  <GoalCard goal={goal} tone={TONES[i % TONES.length]} />
+                </li>
               ))}
-            </div>
+            </ul>
           )}
 
           {load.archived.length > 0 && (
@@ -183,12 +159,12 @@ export function GoalsView() {
                 {load.archived.map((goal) => (
                   <li key={goal.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
                     <div className="min-w-40 flex-1">
-                      <p className="text-sm font-medium [overflow-wrap:anywhere]">
-                        <Link href={`/goals/${goal.id}`} className="hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none">
+                      <p className="text-sm font-extrabold [overflow-wrap:anywhere]">
+                        <Link href={`/goals/${goal.id}`} className={`rounded hover:underline ${FOCUS}`}>
                           {goal.name}
                         </Link>
                       </p>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400">{progressText(goal)}</p>
+                      <p className="text-xs font-bold text-zinc-600 tabular-nums">{progressText(goal)}</p>
                     </div>
                     <div className="flex shrink-0 justify-end gap-1">
                       <button
@@ -229,29 +205,56 @@ export function GoalsView() {
   );
 }
 
-function GoalCard({ goal }: { goal: Goal }) {
+const TONES = ["purple", "blue", "green", "orange"] as const;
+const TILE: Record<(typeof TONES)[number] | "yellow", string> = {
+  purple: "bg-purple-strong text-white",
+  blue: "bg-blue-strong text-white",
+  green: "bg-green-strong text-white",
+  orange: "bg-orange-strong text-white",
+  yellow: "bg-yellow text-ink",
+};
+
+export const goalEmoji = (goal: Pick<Goal, "kind">) => (goal.kind === "emergency" ? "🛟" : "🎯");
+
+function GoalCard({ goal, tone }: { goal: Goal; tone: (typeof TONES)[number] }) {
   const pace = paceText(goal);
+  const amounts = goal.target === null ? `${whole(goal.saved)} saved` : `${whole(goal.saved)} of ${whole(goal.target)}`;
   return (
-    <section aria-label={goal.name} className="rounded-lg border border-zinc-200 dark:border-zinc-800">
-      <div className="flex flex-col gap-3 px-5 py-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h2 className="flex flex-wrap items-center gap-2 text-base font-semibold [overflow-wrap:anywhere]">
-            <Link href={`/goals/${goal.id}`} className="rounded hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none">
-              {goal.name}
-            </Link>
-            {goal.kind === "emergency" && <EmergencyBadge />}
-          </h2>
-          <p className="text-sm tabular-nums">{progressText(goal)}</p>
-        </div>
-        {goal.target !== null && <ProgressBar percent={goal.percent} reached={goal.reached} label={`${goal.name} progress`} />}
-        {(goal.kind === "emergency" || pace) && (
-          <div className="flex flex-col gap-1 text-sm text-zinc-600 dark:text-zinc-400">
-            {goal.kind === "emergency" && <p>{efText(goal)}</p>}
-            {pace && <p className={goal.overdue ? "text-amber-800 dark:text-amber-300" : ""}>{pace}</p>}
+    <div className="flex flex-col gap-3">
+      <section
+        aria-label={goal.name}
+        className={`relative flex flex-col items-center gap-2.5 rounded-[18px] border-[2.5px] border-ink px-3.5 pt-5 pb-4 text-center shadow-chunky ${goal.reached ? TILE.yellow : TILE[tone]}`}
+      >
+        {goal.reached && <Sticker text="DONE!" />}
+        <Ring percent={goal.percent} reached={goal.reached} label={`${goal.name} progress`} size={96} />
+        <h2 className="max-w-full text-lg leading-tight font-black [overflow-wrap:anywhere]">
+          <Link
+            href={`/goals/${goal.id}`}
+            className="rounded-[18px] outline-none after:absolute after:inset-0 after:rounded-[18px] hover:underline focus-visible:after:ring-[3px] focus-visible:after:ring-ink focus-visible:after:ring-offset-2 focus-visible:after:ring-offset-bg"
+          >
+            <span aria-hidden="true">{goalEmoji(goal)} </span>
+            {goal.name}
+          </Link>
+        </h2>
+        <p className="text-sm font-extrabold tabular-nums [overflow-wrap:anywhere]">
+          {amounts}
+          {goal.reached ? " · Reached" : ""}
+        </p>
+        {goal.kind === "emergency" && (
+          <div className="flex flex-col items-center gap-1 text-xs font-bold [overflow-wrap:anywhere]">
+            <EmergencyBadge />
+            <p>{efText(goal)}</p>
           </div>
         )}
-        <Warnings warnings={goal.warnings} />
-      </div>
-    </section>
+        {pace && (
+          <p
+            className={`text-xs font-bold [overflow-wrap:anywhere] ${goal.overdue ? "rounded-full border-2 border-ink bg-due px-2.5 py-0.5 font-black text-ink" : ""}`}
+          >
+            {pace}
+          </p>
+        )}
+      </section>
+      <Warnings warnings={goal.warnings} />
+    </div>
   );
 }

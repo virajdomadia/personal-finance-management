@@ -1,7 +1,10 @@
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { AppState, StyleSheet, View } from "react-native";
-import { Button, Card, Dialog, Portal, Text, useTheme } from "react-native-paper";
+import { Button, Dialog, Portal, Text, useTheme } from "react-native-paper";
+
+import { Row } from "@/components/chunky";
+import { BRAND } from "@/lib/theme";
 
 import { errorMessage } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
@@ -88,28 +91,27 @@ export function DueList({ items, goals = [], onChanged }: Props) {
   const group = (title: string, rows: DueItem[]) =>
     rows.length === 0 ? null : (
       <View style={styles.group}>
-        <Text variant="titleSmall" accessibilityRole="header" style={{ color: colors.primary }}>
+        <Text variant="titleSmall" accessibilityRole="header" style={styles.groupTitle}>
           {title}
         </Text>
         {rows.map((item) => {
           const skippable = canSkip(item);
           return (
-            <Card
+            <Row
               key={itemKey(item)}
-              mode="outlined"
+              emoji={item.template.policy_id !== null ? "🛡️" : "🔔"}
+              tone="due"
+              title={dueText(item)}
+              highlight={item.state === "due"}
               onPress={() => openRecord(item)}
               onLongPress={skippable ? () => setAsking(item) : undefined}
-              accessibilityRole="button"
+              accessibilityLabel={dueText(item)}
               accessibilityHint={skippable ? "Records it. Hold to skip." : "Renews it."}
               accessibilityActions={skippable ? [{ name: "skip", label: "Skip this one" }] : undefined}
               onAccessibilityAction={(event) => {
                 if (skippable && event.nativeEvent.actionName === "skip") setAsking(item);
               }}
-            >
-              <Card.Content>
-                <Text variant="bodyLarge">{dueText(item)}</Text>
-              </Card.Content>
-            </Card>
+            />
           );
         })}
       </View>
@@ -129,21 +131,20 @@ export function DueList({ items, goals = [], onChanged }: Props) {
       ) : null}
       {goals.length > 0 ? (
         <View style={styles.group}>
-          <Text variant="titleSmall" accessibilityRole="header" style={{ color: colors.primary }}>
+          <Text variant="titleSmall" accessibilityRole="header" style={styles.groupTitle}>
             Set aside for goals
           </Text>
           {goals.map((d) => (
-            <Card
+            <Row
               key={`goal-${d.goal_id}`}
-              mode="outlined"
+              emoji="🎯"
+              tone="due"
+              title={goalDueText(d)}
+              highlight
               onPress={() => openSetAside(d)}
-              accessibilityRole="button"
+              accessibilityLabel={goalDueText(d)}
               accessibilityHint="Opens set aside for this goal."
-            >
-              <Card.Content>
-                <Text variant="bodyLarge">{goalDueText(d)}</Text>
-              </Card.Content>
-            </Card>
+            />
           ))}
         </View>
       ) : null}
@@ -173,4 +174,5 @@ export function DueList({ items, goals = [], onChanged }: Props) {
 const styles = StyleSheet.create({
   list: { gap: 12 },
   group: { gap: 8 },
+  groupTitle: { color: BRAND.ink },
 });

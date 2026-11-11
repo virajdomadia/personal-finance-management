@@ -6,7 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { errorMessage, formatDueDate, formatFullDate } from "@/lib/accounts";
 import { apiFetch } from "@/lib/api";
-import { ConfirmDelete, LIST, Notice, PRIMARY, QUIET, ROW_ACTION, isUnauthorized } from "@/components/investments/shared";
+import { ConfirmDelete, Notice, PRIMARY, QUIET, ROW_ACTION, SECTION_TITLE, isUnauthorized } from "@/components/investments/shared";
+import { FOCUS, PageHeader, TABLE, TD, TD_NUM, TH } from "@/components/ui/chunky";
 import { type Template, scheduleText, toggleLabel, whole } from "@/lib/recurring";
 
 import { DueSection } from "./due-list";
@@ -97,29 +98,31 @@ export function RecurringView() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h1 className="text-xl font-semibold">Recurring</h1>
-        <button type="button" className={PRIMARY} onClick={() => setDialog({ kind: "form", template: null })}>
-          Add reminder
-        </button>
-      </div>
+    <div className="mx-auto max-w-4xl">
+      <PageHeader
+        title="Recurring"
+        action={
+          <button type="button" className={PRIMARY} onClick={() => setDialog({ kind: "form", template: null })}>
+            + Add reminder
+          </button>
+        }
+      />
 
       <Notice message={notice} />
       <DueSection refreshKey={dueKey} onChanged={reload} />
 
       {load.status === "loading" && (
-        <p role="status" className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p role="status" className="text-sm font-bold text-zinc-600">
           Loading your reminders...
         </p>
       )}
 
       {load.status === "error" && (
-        <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
+        <div role="alert" className="rounded-[18px] border-[2.5px] border-ink bg-card p-4 text-sm font-extrabold shadow-chunky">
           <p>We couldn&apos;t load your reminders.</p>
           <button
             type="button"
-            className={`${QUIET} mt-2 -ml-3`}
+            className={`${QUIET} mt-2`}
             onClick={() => {
               setLoad({ status: "loading" });
               fetchTemplates();
@@ -132,27 +135,52 @@ export function RecurringView() {
 
       {load.status === "ready" &&
         (load.templates.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700">
-            <p className="font-medium">No reminders yet</p>
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-12 text-center">
+            <p className="font-black">
+              <span aria-hidden="true">🔁 </span>No reminders yet
+            </p>
+            <p className="mx-auto mt-1 max-w-md text-sm font-bold text-zinc-600">
               Add rent, a salary or any regular payment, and it will show up here when it&apos;s due. Nothing is recorded until you do it.
             </p>
           </div>
         ) : (
-          <ul className={LIST}>
-            {load.templates.map((t) => (
-              <TemplateRow
-                key={t.id}
-                template={t}
-                toggling={toggling === t.id}
-                undoing={undoing}
-                onUndoSkip={(occurrence) => undoSkip(t, occurrence)}
-                onEdit={() => setDialog({ kind: "form", template: t })}
-                onToggle={() => toggle(t)}
-                onDelete={() => setDialog({ kind: "delete", template: t })}
-              />
-            ))}
-          </ul>
+          <section aria-labelledby="reminders-title">
+            <h2 id="reminders-title" className={SECTION_TITLE}>
+              Your reminders
+            </h2>
+            <div className="overflow-x-auto pb-1">
+              <table className={`${TABLE} max-lg:[&_td]:px-2 max-lg:[&_th]:px-2`}>
+                <caption className="sr-only">Your recurring reminders</caption>
+                <thead>
+                  <tr>
+                    <th scope="col" className={TH}>
+                      Reminder
+                    </th>
+                    <th scope="col" className={`${TH} text-right`}>
+                      Amount
+                    </th>
+                    <th scope="col" className={`${TH} w-px`}>
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {load.templates.map((t) => (
+                    <TemplateRow
+                      key={t.id}
+                      template={t}
+                      toggling={toggling === t.id}
+                      undoing={undoing}
+                      onUndoSkip={(occurrence) => undoSkip(t, occurrence)}
+                      onEdit={() => setDialog({ kind: "form", template: t })}
+                      onToggle={() => toggle(t)}
+                      onDelete={() => setDialog({ kind: "delete", template: t })}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         ))}
 
       {dialog.kind === "form" && (
@@ -212,26 +240,26 @@ function TemplateRow({
   const details = [TYPE_LABEL[t.type], scheduleText(t), accounts, t.category];
   const toggleText = toggleLabel(t);
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-      <div className="min-w-40 flex-1">
-        <p className="text-sm font-medium [overflow-wrap:anywhere]">
+    <tr>
+      <td className={`${TD} min-w-40 [overflow-wrap:anywhere]`}>
+        <span className="block">
           {t.name}
           {t.policy_id !== null && (
             <>
               {" "}
-              <Link href="/insurance" className="text-xs font-normal text-zinc-500 underline dark:text-zinc-400">
+              <Link href="/insurance" className={`rounded text-xs font-bold text-zinc-600 underline ${FOCUS}`}>
                 insurance policy
               </Link>
             </>
           )}
-        </p>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{details.filter(Boolean).join(" · ")}</p>
-        <p className={`text-xs ${t.active ? "" : "text-zinc-500 dark:text-zinc-400"}`}>{nextText(t)}</p>
+        </span>
+        <span className="block text-xs font-bold text-zinc-600">{details.filter(Boolean).join(" · ")}</span>
+        <span className={`block text-xs font-extrabold ${t.active ? "" : "text-zinc-600"}`}>{nextText(t)}</span>
         {t.skipped.length > 0 && (
-          <ul aria-label={`Skipped dates for ${t.name}`} className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+          <ul aria-label={`Skipped dates for ${t.name}`} className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-zinc-600">
             <li>Skipped:</li>
             {t.skipped.map((occurrence) => (
-              <li key={occurrence} className="flex items-center gap-0.5">
+              <li key={occurrence} className="flex items-center gap-1">
                 {formatFullDate(occurrence)}
                 <button
                   type="button"
@@ -246,23 +274,25 @@ function TemplateRow({
             ))}
           </ul>
         )}
-      </div>
-      <p className="min-w-0 max-w-full text-right text-sm font-medium tabular-nums [overflow-wrap:anywhere]">{whole(t.amount)}</p>
-      <div className="flex shrink-0 justify-end gap-1">
-        <button type="button" className={ROW_ACTION} aria-label={`Edit ${t.name}`} onClick={onEdit}>
-          Edit
-        </button>
-        {toggleText && (
-          <button type="button" className={ROW_ACTION} aria-label={`${toggleText} ${t.name}`} disabled={toggling} onClick={onToggle}>
-            {toggleText}
+      </td>
+      <td className={`${TD_NUM} whitespace-nowrap`}>{whole(t.amount)}</td>
+      <td className={`${TD} w-px`}>
+        <div className="flex min-w-[8.5rem] flex-wrap justify-end gap-1.5">
+          <button type="button" className={ROW_ACTION} aria-label={`Edit ${t.name}`} onClick={onEdit}>
+            Edit
           </button>
-        )}
-        {t.policy_id === null && (
-          <button type="button" className={ROW_ACTION} aria-label={`Delete ${t.name}`} onClick={onDelete}>
-            Delete
-          </button>
-        )}
-      </div>
-    </li>
+          {toggleText && (
+            <button type="button" className={ROW_ACTION} aria-label={`${toggleText} ${t.name}`} disabled={toggling} onClick={onToggle}>
+              {toggleText}
+            </button>
+          )}
+          {t.policy_id === null && (
+            <button type="button" className={ROW_ACTION} aria-label={`Delete ${t.name}`} onClick={onDelete}>
+              Delete
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
   );
 }

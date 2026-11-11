@@ -142,15 +142,15 @@ export function HoldingDialog({ goal, onClose, onSaved, onConflict }: Props) {
       className={`${DIALOG} w-[min(30rem,calc(100vw-2rem))]`}
     >
       <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
-        <h2 id="holding-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold [overflow-wrap:anywhere] dark:border-zinc-800">
+        <h2 id="holding-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black [overflow-wrap:anywhere]">
           Add a holding to {goal.name}
         </h2>
         <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm font-bold text-zinc-700">
             The whole holding goes in, across every account it&apos;s held in, and counts at its current value. A holding can be in one goal at a time.
           </p>
           <div>
-            <label htmlFor="h-holding" className="mb-1 block text-sm font-medium">
+            <label htmlFor="h-holding" className="mb-1 block text-xs font-black tracking-wide uppercase">
               Holding
             </label>
             <Select
@@ -164,24 +164,24 @@ export function HoldingDialog({ goal, onClose, onSaved, onConflict }: Props) {
               onChange={setChoice}
             />
             {error ? (
-              <p id="he-holding" className="mt-1 text-xs text-red-700 dark:text-red-400">
+              <p id="he-holding" className="mt-1 text-xs font-extrabold text-loss">
                 {error}
               </p>
             ) : null}
             {load.status === "ready" && options.length === 0 && (
-              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+              <p className="mt-1 text-xs font-bold text-zinc-600">
                 Every stock, fund, coin, PPF and RD you hold is already in a goal, or you don&apos;t hold any yet.
               </p>
             )}
           </div>
 
           {formError ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            <p role="alert" className="text-sm font-extrabold text-loss">
               {formError}
             </p>
           ) : null}
         </div>
-        <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+        <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
           <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
             Cancel
           </button>

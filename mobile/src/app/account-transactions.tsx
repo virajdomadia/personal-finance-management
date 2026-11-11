@@ -1,14 +1,16 @@
-import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { Appbar, Surface, Text, useTheme } from "react-native-paper";
+import { Text, useTheme } from "react-native-paper";
 
+import { ScreenHeader, Tile } from "@/components/chunky";
 import { GoalTagChip } from "@/components/goal-tag";
 import { TransactionsList } from "@/components/transactions-list";
 import { type Account, type AccountList, OWED_TYPES, formatRupees, headlineBalance } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { freeBalanceText, overSetAsideText } from "@/lib/goals";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 
 export default function AccountTransactionsScreen() {
   const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
@@ -39,32 +41,27 @@ export default function AccountTransactionsScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title={name ?? account?.name ?? "Transactions"} />
-      </Appbar.Header>
+      <ScreenHeader title={name ?? account?.name ?? "Transactions"} back />
       {account !== null ? (
-        <Surface elevation={1} style={styles.summary}>
-          <View style={styles.line}>
-            <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
-              {owed ? "Owed" : free ? "Free to spend" : "Balance"}
-            </Text>
-            <Text variant="titleLarge" style={styles.amount}>
-              {formatRupees(headlineBalance(account))}
-            </Text>
-          </View>
-          {free ? (
-            <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-              {free}
-            </Text>
-          ) : null}
-          {over ? (
-            <Text variant="bodySmall" accessibilityRole="alert" style={{ color: colors.error }}>
-              {over}
-            </Text>
-          ) : null}
-          <GoalTagChip tag={account.in_goal} />
-        </Surface>
+        <View style={styles.summary}>
+          <Tile
+            tone="yellow"
+            label={owed ? "Owed" : free ? "Free to spend" : "Balance"}
+            value={formatRupees(headlineBalance(account))}
+          >
+            {free ? (
+              <Text variant="bodySmall" style={styles.note}>
+                {free}
+              </Text>
+            ) : null}
+            {over ? (
+              <Text variant="bodySmall" accessibilityRole="alert" style={styles.over}>
+                {over}
+              </Text>
+            ) : null}
+            <GoalTagChip tag={account.in_goal} />
+          </Tile>
+        </View>
       ) : null}
       <TransactionsList fixedAccountId={Number(id)} />
     </View>
@@ -73,7 +70,7 @@ export default function AccountTransactionsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  summary: { borderRadius: 12, padding: 12, gap: 4, marginHorizontal: 16, marginTop: 8 },
-  line: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
-  amount: { flexShrink: 1, textAlign: "right", fontWeight: "600" },
+  summary: { marginHorizontal: 16, marginTop: 8 },
+  note: { color: BRAND.ink, marginTop: 2 },
+  over: { color: BRAND.ink, fontFamily: "Nunito_900Black", marginTop: 2 },
 });

@@ -5,15 +5,18 @@ import { usePathname } from "next/navigation";
 import { Suspense } from "react";
 
 import { logout } from "@/app/login/actions";
+import { FOCUS } from "@/components/ui/chunky";
+import { Logo } from "@/components/ui/logo";
+import { StreakBox } from "@/components/streak-box";
 
 const LINKS = [
-  { href: "/", label: "Dashboard" },
-  { href: "/accounts", label: "Accounts" },
-  { href: "/transactions", label: "Transactions" },
-  { href: "/investments", label: "Investments" },
-  { href: "/recurring", label: "Recurring" },
-  { href: "/insurance", label: "Insurance" },
-  { href: "/goals", label: "Goals" },
+  { href: "/", emoji: "🏠", label: "Dashboard" },
+  { href: "/accounts", emoji: "👛", label: "Accounts" },
+  { href: "/transactions", emoji: "💸", label: "Transactions" },
+  { href: "/investments", emoji: "📈", label: "Investments" },
+  { href: "/recurring", emoji: "🔁", label: "Recurring" },
+  { href: "/insurance", emoji: "🛡️", label: "Insurance" },
+  { href: "/goals", emoji: "🎯", label: "Goals" },
 ] as const;
 
 // The pathname of a page under a dynamic segment (a stock's page) is only known at request time,
@@ -25,19 +28,18 @@ function CurrentLinks() {
 function Links({ pathname }: { pathname: string | null }) {
   return (
     <nav aria-label="Main" className="flex flex-col gap-1">
-      {LINKS.map(({ href, label }) => {
+      {LINKS.map(({ href, emoji, label }) => {
         const current = pathname !== null && (pathname === href || (href !== "/" && pathname.startsWith(`${href}/`)));
         return (
           <Link
             key={href}
             href={href}
             aria-current={current ? "page" : undefined}
-            className={`rounded-md px-3 py-2 text-sm ${
-              current
-                ? "bg-zinc-100 font-medium dark:bg-zinc-800"
-                : "text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-900"
-            }`}
+            className={`flex items-center gap-2 rounded-xl border-[2.5px] px-2.5 py-2 text-sm font-extrabold ${
+              current ? "border-ink bg-yellow shadow-chunky-sm" : "border-transparent hover:bg-due"
+            } ${FOCUS}`}
           >
+            <span aria-hidden="true">{emoji}</span>
             {label}
           </Link>
         );
@@ -48,18 +50,28 @@ function Links({ pathname }: { pathname: string | null }) {
 
 export function Sidebar() {
   return (
-    <aside className="sticky top-0 flex h-screen w-36 shrink-0 flex-col border-r border-zinc-200 p-3 sm:w-52 dark:border-zinc-800">
+    <aside className="sticky top-0 flex h-screen w-36 shrink-0 flex-col gap-1 overflow-y-auto border-r-[2.5px] border-ink bg-card p-3 sm:w-52">
+      <div className="mx-1 mb-3 flex items-center gap-2 text-lg font-black">
+        <Logo size={32} decorative />
+        Gullak
+      </div>
       <Suspense fallback={<Links pathname={null} />}>
         <CurrentLinks />
       </Suspense>
-      <form action={logout} className="mt-auto">
-        <button
-          type="submit"
-          className="w-full rounded-md px-3 py-2 text-left text-sm text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-900"
-        >
-          Log out
-        </button>
-      </form>
+      <div className="mt-auto pt-3">
+        <Suspense fallback={null}>
+          <StreakBox />
+        </Suspense>
+        <form action={logout}>
+          <button
+            type="submit"
+            className={`flex w-full items-center gap-2 rounded-xl border-[2.5px] border-transparent px-2.5 py-2 text-left text-sm font-extrabold hover:bg-due ${FOCUS}`}
+          >
+            <span aria-hidden="true">👋</span>
+            Log out
+          </button>
+        </form>
+      </div>
     </aside>
   );
 }

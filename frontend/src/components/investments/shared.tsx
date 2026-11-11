@@ -8,20 +8,19 @@ import { type Account, type GoalTag, errorMessage, formatRupees } from "@/lib/ac
 import { ApiError, apiFetch } from "@/lib/api";
 import { type Trade, formatPercent, formatSigned, tone } from "@/lib/investments";
 import { formatDate } from "@/lib/transactions";
+import { FOCUS, TABLE, TD, TD_NUM, TH, buttonClass } from "@/components/ui/chunky";
 
-const BUTTON_BASE =
-  "rounded-md px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none disabled:opacity-60";
-export const PRIMARY = `${BUTTON_BASE} bg-zinc-900 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300`;
-export const SECONDARY = `${BUTTON_BASE} border border-zinc-300 font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`;
-export const QUIET = `${BUTTON_BASE} text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800`;
-export const ROW_ACTION =
-  "rounded px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none disabled:opacity-60 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100";
-export const INPUT =
-  "w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 disabled:opacity-60 aria-[invalid=true]:border-red-600 dark:border-zinc-700";
+export const PRIMARY = `${buttonClass("primary")} uppercase`;
+export const SECONDARY = `${buttonClass("alt")} uppercase`;
+export const QUIET = `${buttonClass("alt")} uppercase`;
+export const BUY = `${buttonClass("green")} uppercase`;
+export const SELL = `${buttonClass("pink")} uppercase`;
+export const ROW_ACTION = `${buttonClass("alt")} !px-2.5 !py-1 uppercase`;
+export const INPUT = `w-full rounded-[14px] border-[2.5px] border-ink bg-card px-3 py-2 text-sm font-extrabold outline-none disabled:opacity-60 aria-[invalid=true]:border-loss aria-[invalid=true]:bg-pink/10 ${FOCUS}`;
 export const DIALOG =
-  "m-auto rounded-lg border border-zinc-200 bg-white p-0 text-zinc-900 shadow-xl backdrop:bg-black/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100";
-export const SECTION_TITLE = "mb-1 px-1 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400";
-export const LIST = "divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800";
+  "m-auto overflow-hidden rounded-[18px] border-[2.5px] border-ink bg-card p-0 text-ink shadow-chunky backdrop:bg-ink/60";
+export const SECTION_TITLE = "mb-2 px-1 text-xs font-black tracking-wider uppercase";
+export const LIST = "overflow-hidden rounded-[18px] border-[2.5px] border-ink bg-card shadow-chunky [&>li]:border-b-[1.5px] [&>li]:border-zinc-200 [&>li:last-child]:border-b-0";
 
 // The active goal each instrument is in, from the per-account holdings (all of an instrument's rows
 // carry the same tag, since a whole instrument goes in a goal).
@@ -39,7 +38,7 @@ export function GoalTagLink({ tag, className = "" }: { tag: GoalTag | null | und
   return (
     <Link
       href={`/goals/${tag.id}`}
-      className={`text-xs text-zinc-500 underline hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400 dark:hover:text-zinc-100 ${className}`}
+      className={`text-xs font-extrabold text-zinc-700 underline hover:text-ink ${FOCUS} rounded ${className}`}
     >
       For: {tag.name}
     </Link>
@@ -51,8 +50,8 @@ export function isUnauthorized(err: unknown): boolean {
 }
 
 const TONE_CLASS = {
-  gain: "text-green-700 dark:text-green-400",
-  loss: "text-red-700 dark:text-red-400",
+  gain: "text-gain font-black",
+  loss: "text-loss font-black",
   flat: "",
 } as const;
 const TONE_WORD = { gain: "gain", loss: "loss", flat: "no change" } as const;
@@ -70,12 +69,24 @@ export function Signed({ value, percentOnly = false }: { value: string; percentO
   );
 }
 
+// A gain or loss written plainly, for coloured tiles where the green and red text tokens would not read.
+export function PlainSigned({ value, percent }: { value: string; percent?: string }) {
+  const t = tone(value);
+  return (
+    <>
+      {formatSigned(value)}
+      {percent !== undefined ? ` (${formatPercent(percent)})` : ""}
+      <span className="sr-only"> {TONE_WORD[t]}</span>
+    </>
+  );
+}
+
 export function Notice({ message }: { message: string | null }) {
   if (!message) return null;
   return (
     <p
       role="alert"
-      className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
+      className="mb-4 rounded-[14px] border-[2.5px] border-ink bg-pink/20 px-3 py-2 text-sm font-extrabold shadow-chunky-sm"
     >
       {message}
     </p>
@@ -91,7 +102,65 @@ export function sideLabel(trade: { side: "buy" | "sell"; opening: boolean }): st
   return trade.opening ? "Add existing shares" : trade.side === "buy" ? "Buy" : "Sell";
 }
 
-// One trade in a list. Trades in an archived broker are locked until it's restored.
+// One trade as a table row. Trades in an archived broker are locked until it's restored.
+export function TradeTr({
+  title,
+  date,
+  details,
+  cashLabel,
+  amount,
+  realised,
+  archived,
+  onEdit,
+  onDelete,
+}: {
+  title: string;
+  date: string;
+  details: (string | null)[];
+  cashLabel: string;
+  amount: string;
+  realised: string | null;
+  archived: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <tr>
+      <td className={`${TD} whitespace-nowrap`}>{formatDate(date)}</td>
+      <td className={`${TD} min-w-32 [overflow-wrap:anywhere]`}>
+        <span className="block tabular-nums">{title}</span>
+        <span className="block text-xs font-bold text-zinc-600">{details.filter(Boolean).join(" · ")}</span>
+      </td>
+      <td className={TD_NUM}>
+        <span className="mr-1.5 text-xs font-bold text-zinc-600">{cashLabel}</span>
+        <span className="whitespace-nowrap">{formatRupees(amount)}</span>
+        {realised !== null && (
+          <span className="block text-xs">
+            <span className="font-bold text-zinc-600">P&amp;L </span>
+            <Signed value={realised} />
+          </span>
+        )}
+      </td>
+      <td className={`${TD} w-px`}>
+        <div className="flex justify-end gap-1.5">
+          {archived ? (
+            <span className="px-2 py-1 text-xs font-bold text-zinc-600">Archived</span>
+          ) : (
+            <>
+              <button type="button" className={ROW_ACTION} aria-label={`Edit ${title}, ${date}`} onClick={onEdit}>
+                Edit
+              </button>
+              <button type="button" className={ROW_ACTION} aria-label={`Delete ${title}, ${date}`} onClick={onDelete}>
+                Delete
+              </button>
+            </>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 export function TradeRow({
   trade,
   archived,
@@ -105,48 +174,112 @@ export function TradeRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const title = tradeTitle(trade);
-  const details = [
-    formatDate(trade.date),
-    showAccount ? trade.account_name : null,
-    `${trade.quantity} × ${formatRupees(trade.price)}`,
-    trade.charges !== "0.00" ? `${formatRupees(trade.charges)} charges` : null,
-    trade.note,
-  ].filter(Boolean);
-  const cash = trade.opening ? "Cost" : trade.side === "buy" ? "Paid" : "Received";
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-      <div className="min-w-32 flex-1">
-        <p className="text-sm font-medium [overflow-wrap:anywhere]">{title}</p>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">{details.join(" · ")}</p>
+    <TradeTr
+      title={tradeTitle(trade)}
+      date={trade.date}
+      details={[
+        showAccount ? trade.account_name : null,
+        `${trade.quantity} × ${formatRupees(trade.price)}`,
+        trade.charges !== "0.00" ? `${formatRupees(trade.charges)} charges` : null,
+        trade.note,
+      ]}
+      cashLabel={trade.opening ? "Cost" : trade.side === "buy" ? "Paid" : "Received"}
+      amount={trade.amount}
+      realised={trade.realised}
+      archived={archived}
+      onEdit={onEdit}
+      onDelete={onDelete}
+    />
+  );
+}
+
+// A trades table; the rows are TradeTr.
+export function TradesTable({ caption, children }: { caption: string; children: React.ReactNode }) {
+  return (
+    <div className="overflow-x-auto pb-1">
+      <table className={`${TABLE} max-lg:[&_td]:px-2 max-lg:[&_th]:px-2`}>
+        <caption className="sr-only">{caption}</caption>
+        <thead>
+          <tr>
+            <th scope="col" className={TH}>
+              Date
+            </th>
+            <th scope="col" className={TH}>
+              Trade
+            </th>
+            <th scope="col" className={`${TH} text-right`}>
+              Amount
+            </th>
+            <th scope="col" className={`${TH} w-px`}>
+              <span className="sr-only">Actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+export function BackLink() {
+  return (
+    <Link href="/investments" className={`${buttonClass("alt")} mb-4 !px-3 !py-1.5 uppercase`}>
+      ‹ Investments
+    </Link>
+  );
+}
+
+// A small line of the price over time, only worth drawing from two points. Points are newest first
+// (as the API returns them); the line runs oldest to newest.
+export function PriceLine({ points, label }: { points: { date: string; value: number }[]; label: string }) {
+  if (points.length < 2) return null;
+  const pts = [...points].reverse();
+  const values = pts.map((p) => p.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const w = 600;
+  const h = 120;
+  const pad = 10;
+  const xy = pts.map((p, i) => [pad + (i * (w - 2 * pad)) / (pts.length - 1), h - pad - ((p.value - min) / span) * (h - 2 * pad)]);
+  const up = values[values.length - 1] >= values[0];
+  const last = xy[xy.length - 1];
+  const first = pts[0];
+  const end = pts[pts.length - 1];
+  return (
+    <figure className="mt-2">
+      <div className="relative">
+        <svg
+          role="img"
+          aria-label={`${label}, ${formatDate(first.date)} to ${formatDate(end.date)}`}
+          viewBox={`0 0 ${w} ${h}`}
+          preserveAspectRatio="none"
+          className="h-28 w-full"
+        >
+          <polyline
+            points={xy.map((p) => p.join(",")).join(" ")}
+            fill="none"
+            stroke="#1a1a1a"
+            strokeWidth="3.5"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+        <span
+          aria-hidden="true"
+          className={`absolute size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[2.5px] border-ink ${up ? "bg-green" : "bg-pink"}`}
+          style={{ left: `${(last[0] / w) * 100}%`, top: `${(last[1] / h) * 100}%` }}
+        />
       </div>
-      <div className="min-w-0 max-w-full text-right tabular-nums [overflow-wrap:anywhere]">
-        <p className="text-sm font-medium">
-          <span className="mr-1.5 text-xs font-normal text-zinc-500 dark:text-zinc-400">{cash}</span>
-          {formatRupees(trade.amount)}
-        </p>
-        {trade.realised !== null && (
-          <p className="text-xs">
-            <span className="text-zinc-500 dark:text-zinc-400">P&amp;L </span>
-            <Signed value={trade.realised} />
-          </p>
-        )}
-      </div>
-      <div className="flex w-24 shrink-0 justify-end gap-1">
-        {archived ? (
-          <span className="px-2 py-1 text-xs text-zinc-500 dark:text-zinc-400">Archived</span>
-        ) : (
-          <>
-            <button type="button" className={ROW_ACTION} aria-label={`Edit ${title}, ${trade.date}`} onClick={onEdit}>
-              Edit
-            </button>
-            <button type="button" className={ROW_ACTION} aria-label={`Delete ${title}, ${trade.date}`} onClick={onDelete}>
-              Delete
-            </button>
-          </>
-        )}
-      </div>
-    </li>
+      <figcaption className="mt-1 flex flex-wrap justify-between gap-x-3 text-xs font-extrabold text-zinc-700">
+        <span>{label}</span>
+        <span>
+          {formatDate(first.date)} – {formatDate(end.date)}
+        </span>
+      </figcaption>
+    </figure>
   );
 }
 
@@ -203,17 +336,15 @@ export function ConfirmDelete({
       onClose={onClose}
       className={`${DIALOG} w-[min(26rem,calc(100vw-2rem))]`}
     >
-      <div className="px-5 py-4">
-        <h2 id="delete-title" className="text-base font-semibold">
-          {title}
-        </h2>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{body}</p>
-      </div>
-      <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+      <h2 id="delete-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black [overflow-wrap:anywhere]">
+        {title}
+      </h2>
+      <p className="px-5 py-4 text-sm font-bold text-zinc-700">{body}</p>
+      <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
         <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
           Cancel
         </button>
-        <button type="button" className={PRIMARY} disabled={saving} onClick={confirm}>
+        <button type="button" className={SELL} disabled={saving} onClick={confirm}>
           {saving ? "Deleting..." : "Delete"}
         </button>
       </div>
@@ -228,4 +359,28 @@ export function tradeDeleteText(trade: Trade): { title: string; body: string } {
       ? "It's removed for good, and the holding shrinks. This can't be undone."
       : `It's removed for good, and ${trade.account_name}'s cash moves back. This can't be undone.`,
   };
+}
+
+// The current price (or NAV) with its line, when there are enough points to draw one.
+export function PriceCard({
+  label,
+  value,
+  sub,
+  points,
+  lineLabel,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  points: { date: string; value: number }[];
+  lineLabel: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-[18px] border-[2.5px] border-ink bg-card p-3.5 shadow-chunky">
+      <p className="text-xs font-extrabold">{label}</p>
+      <p className="mt-0.5 text-[22px] leading-tight font-black tabular-nums [overflow-wrap:anywhere]">{value}</p>
+      <p className="text-xs font-bold text-zinc-600">{sub}</p>
+      <PriceLine points={points} label={lineLabel} />
+    </div>
+  );
 }

@@ -1,9 +1,21 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, AppState, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { Appbar, Button, Dialog, Divider, IconButton, Portal, ProgressBar, Surface, Text, useTheme } from "react-native-paper";
+import { ActivityIndicator, AppState, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Button, Dialog, Icon, Portal, Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import {
+  ChunkyBox,
+  ChunkyButton,
+  HeaderAction,
+  Ring,
+  Row,
+  ScreenHeader,
+  Sticker,
+  TONE_SQUARE,
+  Tile,
+  type Tone,
+} from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
 import { errorMessage } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
@@ -13,12 +25,14 @@ import {
   type HistoryLine,
   type HoldingLine,
   efText,
+  goalEmoji,
   holdingName,
   paceText,
   progressText,
 } from "@/lib/goals";
 import { whole } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
+import { BRAND, INPUT_RADIUS, SHADOW_OFFSET_SM } from "@/lib/theme";
 import { formatDate } from "@/lib/transactions";
 
 const FAILED = "We couldn't load this goal.";
@@ -30,6 +44,20 @@ const HOLDING_KIND: Record<HoldingLine["kind"], string> = {
   crypto: "Coin",
   ppf: "PPF",
   rd: "RD",
+};
+const HOLDING_EMOJI: Record<HoldingLine["kind"], string> = {
+  stock: "📈",
+  mutual_fund: "🥧",
+  crypto: "🪙",
+  ppf: "🐷",
+  rd: "🪙",
+};
+const HOLDING_TONE: Record<HoldingLine["kind"], Tone> = {
+  stock: "blue",
+  mutual_fund: "orange",
+  crypto: "yellow",
+  ppf: "pink",
+  rd: "green",
 };
 
 // A history line's amount is negative for a release.
@@ -45,26 +73,74 @@ type Asking =
 
 type Load = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; goal: GoalDetail };
 
-function Fact({ label, value }: { label: string; value: string }) {
-  const { colors } = useTheme();
+function SectionTitle({ label }: { label: string }) {
   return (
-    <View style={styles.fact}>
-      <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-        {label}
-      </Text>
-      <Text variant="bodyLarge" style={styles.factValue}>
-        {value}
-      </Text>
-    </View>
+    <Text variant="titleSmall" accessibilityRole="header" style={styles.sectionTitle}>
+      {label.toUpperCase()}
+    </Text>
   );
 }
 
-function SectionTitle({ label }: { label: string }) {
-  const { colors } = useTheme();
+// A basket line with a small button at its end: a holding with its remove, or a history entry with its delete.
+function BasketRow({
+  emoji,
+  tone,
+  title,
+  meta,
+  amount,
+  muted,
+  actionIcon,
+  actionLabel,
+  disabled,
+  onAction,
+}: {
+  emoji: string;
+  tone: Tone;
+  title: string;
+  meta?: string;
+  amount?: string;
+  muted?: boolean;
+  actionIcon: string;
+  actionLabel: string;
+  disabled?: boolean;
+  onAction?: () => void;
+}) {
   return (
-    <Text variant="titleSmall" accessibilityRole="header" style={[styles.sectionTitle, { color: colors.primary }]}>
-      {label}
-    </Text>
+    <ChunkyBox radius={INPUT_RADIUS} offset={SHADOW_OFFSET_SM} style={[styles.basket, onAction ? null : styles.basketEnd]}>
+      <View style={[styles.square, { backgroundColor: TONE_SQUARE[tone] }]}>
+        <Text style={styles.emoji} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          {emoji}
+        </Text>
+      </View>
+      <View style={styles.basketMain}>
+        <Text variant="titleMedium" style={[styles.basketTitle, muted ? { color: BRAND.zinc600 } : null]}>
+          {title}
+        </Text>
+        {meta ? (
+          <Text variant="bodySmall" style={styles.meta}>
+            {meta}
+          </Text>
+        ) : null}
+      </View>
+      {amount !== undefined ? (
+        <Text variant="titleMedium" style={styles.basketAmount}>
+          {amount}
+        </Text>
+      ) : null}
+      {onAction ? (
+        <Pressable
+          onPress={onAction}
+          disabled={disabled}
+          accessibilityRole="button"
+          accessibilityLabel={actionLabel}
+          accessibilityState={{ disabled: !!disabled }}
+          hitSlop={4}
+          style={[styles.remove, { opacity: disabled ? 0.6 : 1 }]}
+        >
+          <Icon source={actionIcon} size={22} color={BRAND.ink} />
+        </Pressable>
+      ) : null}
+    </ChunkyBox>
   );
 }
 
@@ -218,10 +294,7 @@ export default function GoalScreen() {
   if (goal === null) {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
-        <Appbar.Header>
-          <Appbar.BackAction onPress={() => router.back()} />
-          <Appbar.Content title={title} />
-        </Appbar.Header>
+        <ScreenHeader title={title} back />
         <View style={styles.center}>
           {load.status === "loading" ? (
             <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading the goal" />
@@ -231,19 +304,15 @@ export default function GoalScreen() {
                 {load.status === "error" ? load.message : FAILED}
               </Text>
               {load.status === "error" && load.message === MISSING ? (
-                <Button mode="contained" onPress={() => router.back()}>
-                  Go back
-                </Button>
+                <ChunkyButton label="Go back" onPress={() => router.back()} />
               ) : (
-                <Button
-                  mode="contained"
+                <ChunkyButton
+                  label="Try again"
                   onPress={() => {
                     setLoad({ status: "loading" });
                     void fetchGoal();
                   }}
-                >
-                  Try again
-                </Button>
+                />
               )}
             </>
           )}
@@ -259,34 +328,38 @@ export default function GoalScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title={goal.name} />
-        {!goal.archived ? (
-          <Appbar.Action
-            icon="pencil-outline"
-            accessibilityLabel="Edit goal"
-            disabled={working}
-            onPress={() => go({ pathname: "/goal-form", params: { id: String(goal.id) } })}
-          />
-        ) : null}
-        {!goal.archived ? (
-          <Appbar.Action
-            icon="archive-outline"
-            accessibilityLabel="Archive goal"
-            disabled={working}
-            onPress={() => setAsking({ kind: "archive" })}
-          />
-        ) : null}
-        {canDelete ? (
-          <Appbar.Action
-            icon="delete-outline"
-            accessibilityLabel="Delete goal"
-            disabled={working}
-            onPress={() => setAsking({ kind: "delete" })}
-          />
-        ) : null}
-      </Appbar.Header>
+      <ScreenHeader
+        title={goal.name}
+        back
+        right={
+          <>
+            {!goal.archived ? (
+              <HeaderAction
+                icon="pencil-outline"
+                label="Edit goal"
+                disabled={working}
+                onPress={() => go({ pathname: "/goal-form", params: { id: String(goal.id) } })}
+              />
+            ) : null}
+            {!goal.archived ? (
+              <HeaderAction
+                icon="archive-outline"
+                label="Archive goal"
+                disabled={working}
+                onPress={() => setAsking({ kind: "archive" })}
+              />
+            ) : null}
+            {canDelete ? (
+              <HeaderAction
+                icon="delete-outline"
+                label="Delete goal"
+                disabled={working}
+                onPress={() => setAsking({ kind: "delete" })}
+              />
+            ) : null}
+          </>
+        }
+      />
 
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
@@ -295,48 +368,40 @@ export default function GoalScreen() {
         {notice !== null ? <Banner messages={[notice]} /> : null}
 
         {goal.archived ? (
-          <View style={[styles.archived, { backgroundColor: colors.secondaryContainer }]}>
-            <Text variant="bodyMedium" style={{ color: colors.onSecondaryContainer }}>
+          <ChunkyBox radius={INPUT_RADIUS} offset={SHADOW_OFFSET_SM} style={styles.archived}>
+            <Text variant="bodyMedium" style={{ color: BRAND.ink }}>
               This goal is archived. Its set-aside money and holdings count for nothing until you restore it.
             </Text>
-            <Button
-              mode="contained"
+            <ChunkyButton
+              label="Restore"
               loading={working}
-              disabled={working}
               onPress={() =>
                 void run(() => apiFetch(`/goals/${goal.id}/restore`, { method: "POST", token: token ?? undefined }))
               }
-            >
-              Restore
-            </Button>
-          </View>
+            />
+          </ChunkyBox>
         ) : null}
 
-        <Surface elevation={1} style={styles.summary}>
-          {goal.kind === "emergency" ? (
-            <Text variant="labelMedium" style={{ color: colors.primary }}>
-              Emergency fund
-            </Text>
-          ) : null}
-          <Text variant="titleLarge" style={styles.progress}>
-            {progressText(goal)}
-          </Text>
-          {goal.target !== null ? (
-            <ProgressBar
-              progress={goal.reached ? 1 : (goal.percent ?? 0) / 100}
-              color={goal.reached ? colors.tertiary : colors.primary}
-              style={styles.bar}
-              accessibilityLabel={`${goal.percent ?? 0}% of the target`}
+        <ChunkyBox style={styles.summary}>
+          {goal.reached ? <Sticker text="DONE!" /> : null}
+          <View style={styles.summaryTop}>
+            <Ring
+              percent={goal.target !== null ? goal.percent : null}
+              reached={goal.reached}
+              label={goal.target !== null ? `${goal.percent ?? 0}% of the target` : "No target set"}
             />
-          ) : null}
-          <View style={styles.facts}>
-            <Fact label="Set aside" value={whole(goal.earmarked)} />
-            <Fact label="Holdings" value={whole(goal.holdings_value)} />
-            {goal.target !== null ? <Fact label="Target" value={whole(goal.target)} /> : null}
+            <View style={[styles.summaryText, goal.reached ? styles.stickerGap : null]}>
+              <Text variant="labelMedium" style={styles.kicker}>
+                {goalEmoji(goal)} {goal.kind === "emergency" ? "Emergency fund" : "Goal"}
+              </Text>
+              <Text variant="titleMedium" style={styles.progress}>
+                {progressText(goal)}
+              </Text>
+            </View>
           </View>
           {goal.kind === "emergency" ? <Text variant="bodyMedium">{efText(goal)}</Text> : null}
           {goal.target_date && !goal.reached ? (
-            <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
+            <Text variant="bodyMedium" style={{ color: BRAND.zinc600 }}>
               Reach it by {formatDate(goal.target_date)}
               {goal.months_left !== null && goal.months_left > 0
                 ? ` · ${goal.months_left} ${goal.months_left === 1 ? "month" : "months"} left`
@@ -344,135 +409,122 @@ export default function GoalScreen() {
             </Text>
           ) : null}
           {pace ? (
-            <Text variant="bodyMedium" style={{ color: goal.overdue ? colors.error : colors.onSurface }}>
+            <Text variant="bodyMedium" style={{ color: goal.overdue ? BRAND.loss : BRAND.ink }}>
               {pace}
             </Text>
           ) : null}
           {goal.monthly_amount && goal.reminder_day !== null ? (
-            <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+            <Text variant="bodySmall" style={{ color: BRAND.zinc600 }}>
               Reminder to set aside {whole(goal.monthly_amount)} on day {goal.reminder_day} of each month
             </Text>
           ) : null}
           {goal.note ? <Text variant="bodyMedium">{goal.note}</Text> : null}
-        </Surface>
+        </ChunkyBox>
+
+        <View style={styles.facts}>
+          <View style={styles.fact}>
+            <Tile tone="green" label="Set aside" value={whole(goal.earmarked)} />
+          </View>
+          <View style={styles.fact}>
+            <Tile tone="blue" label="Holdings" value={whole(goal.holdings_value)} />
+          </View>
+          {goal.target !== null ? (
+            <View style={styles.fact}>
+              <Tile tone="yellow" label="Target" value={whole(goal.target)} />
+            </View>
+          ) : null}
+        </View>
 
         {goal.warnings.length > 0 ? <Banner messages={goal.warnings} /> : null}
 
         {!goal.archived ? (
           <View style={styles.actions}>
-            <Button mode="contained" icon="plus" disabled={working} onPress={() => earmark("set_aside")}>
-              Set aside
-            </Button>
+            <ChunkyButton
+              variant="green"
+              icon="plus"
+              label="Set aside"
+              disabled={working}
+              onPress={() => earmark("set_aside")}
+            />
             {goal.earmarks.length > 0 ? (
-              <Button mode="outlined" icon="minus" disabled={working} onPress={() => earmark("release")}>
-                Release
-              </Button>
+              <ChunkyButton
+                variant="alt"
+                icon="minus"
+                label="Release"
+                disabled={working}
+                onPress={() => earmark("release")}
+              />
             ) : null}
-            <Button
-              mode="outlined"
+            <ChunkyButton
+              variant="alt"
               icon="chart-line"
+              label="Add holding"
               disabled={working}
               onPress={() => go({ pathname: "/goal-holding-form", params: { goalId: String(goal.id) } })}
-            >
-              Add holding
-            </Button>
+            />
           </View>
         ) : null}
 
         {empty ? (
           <View style={styles.empty}>
             <Text variant="titleMedium">The basket is empty</Text>
-            <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
+            <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
               Set money aside in a bank, cash or wallet account, or add a fund, stock, coin, PPF or RD you hold.
             </Text>
           </View>
         ) : null}
 
         {goal.earmarks.length > 0 ? (
-          <View>
+          <View style={styles.list}>
             <SectionTitle label="Set aside by account" />
-            {goal.earmarks.map((e, index) => (
-              <View key={e.account_id}>
-                {index > 0 ? <Divider /> : null}
-                <View style={styles.row}>
-                  <Text variant="bodyLarge" style={styles.rowMain}>
-                    {e.account_name}
-                  </Text>
-                  <Text variant="bodyLarge" style={styles.rowAmount}>
-                    {whole(e.amount)}
-                  </Text>
-                </View>
-              </View>
+            {goal.earmarks.map((e) => (
+              <Row key={e.account_id} emoji="🏦" tone="blue" title={e.account_name} amount={whole(e.amount)} />
             ))}
           </View>
         ) : null}
 
         {goal.holdings.length > 0 ? (
-          <View>
+          <View style={styles.list}>
             <SectionTitle label="Holdings" />
-            {goal.holdings.map((h, index) => (
-              <View key={h.id}>
-                {index > 0 ? <Divider /> : null}
-                <View style={styles.row}>
-                  <View style={styles.rowMain}>
-                    <Text
-                      variant="bodyLarge"
-                      style={{ color: h.status === "held" ? colors.onSurface : colors.onSurfaceVariant }}
-                    >
-                      {holdingName(h)}
-                    </Text>
-                    <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                      {[HOLDING_KIND[h.kind], h.note].filter(Boolean).join(" · ")}
-                    </Text>
-                  </View>
-                  <Text variant="bodyLarge" style={styles.rowAmount}>
-                    {whole(h.value)}
-                  </Text>
-                  {!goal.archived ? (
-                    <IconButton
-                      icon="close"
-                      size={20}
-                      disabled={working}
-                      accessibilityLabel={`Take ${h.name} out of ${goal.name}`}
-                      onPress={() => setAsking({ kind: "remove-holding", holding: h })}
-                    />
-                  ) : null}
-                </View>
-              </View>
+            {goal.holdings.map((h) => (
+              <BasketRow
+                key={h.id}
+                emoji={HOLDING_EMOJI[h.kind]}
+                tone={HOLDING_TONE[h.kind]}
+                title={holdingName(h)}
+                muted={h.status !== "held"}
+                meta={[HOLDING_KIND[h.kind], h.note].filter(Boolean).join(" · ")}
+                amount={whole(h.value)}
+                actionIcon="close"
+                actionLabel={`Take ${h.name} out of ${goal.name}`}
+                disabled={working}
+                onAction={goal.archived ? undefined : () => setAsking({ kind: "remove-holding", holding: h })}
+              />
             ))}
           </View>
         ) : null}
 
         {goal.history.length > 0 ? (
-          <View>
+          <View style={styles.list}>
             <SectionTitle label="History" />
-            {goal.history.map((entry, index) => {
+            {goal.history.map((entry) => {
               const titleText = entryTitle(entry);
               return (
-                <View key={entry.id}>
-                  {index > 0 ? <Divider /> : null}
-                  <View style={styles.row}>
-                    <View style={styles.rowMain}>
-                      <Text variant="bodyLarge">{titleText}</Text>
-                      <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                        {[formatDate(entry.date), entry.account_name, entry.note].filter(Boolean).join(" · ")}
-                      </Text>
-                    </View>
-                    {!goal.archived ? (
-                      <IconButton
-                        icon="delete-outline"
-                        size={20}
-                        disabled={working}
-                        accessibilityLabel={`Delete ${titleText} on ${formatDate(entry.date)}`}
-                        onPress={() => setAsking({ kind: "delete-entry", entry })}
-                      />
-                    ) : null}
-                  </View>
-                </View>
+                <BasketRow
+                  key={entry.id}
+                  emoji={released(entry) ? "↩️" : "💰"}
+                  tone={released(entry) ? "pink" : "green"}
+                  title={titleText}
+                  meta={[formatDate(entry.date), entry.account_name, entry.note].filter(Boolean).join(" · ")}
+                  actionIcon="delete-outline"
+                  actionLabel={`Delete ${titleText} on ${formatDate(entry.date)}`}
+                  disabled={working}
+                  onAction={goal.archived ? undefined : () => setAsking({ kind: "delete-entry", entry })}
+                />
               );
             })}
             {!goal.archived ? (
-              <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+              <Text variant="bodySmall" style={{ color: BRAND.zinc600 }}>
                 Entries aren&apos;t edited. To correct one, delete it and set aside or release again.
               </Text>
             ) : null}
@@ -504,18 +556,35 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
-  content: { padding: 16, gap: 16 },
-  archived: { borderRadius: 12, padding: 12, gap: 8 },
-  summary: { borderRadius: 12, padding: 16, gap: 10 },
-  progress: { fontWeight: "600" },
-  bar: { height: 8, borderRadius: 4 },
-  facts: { flexDirection: "row", flexWrap: "wrap", columnGap: 16, rowGap: 8 },
-  fact: { minWidth: "28%", flexGrow: 1 },
-  factValue: { fontWeight: "600" },
-  actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  content: { padding: 16, paddingTop: 12, gap: 16 },
+  archived: { backgroundColor: BRAND.due, padding: 12, gap: 10 },
+  summary: { padding: 16, gap: 10 },
+  summaryTop: { flexDirection: "row", alignItems: "center", gap: 16 },
+  summaryText: { flex: 1, minWidth: 0, gap: 4 },
+  stickerGap: { paddingTop: 20 },
+  kicker: { color: BRAND.zinc600 },
+  progress: { color: BRAND.ink, fontSize: 18, lineHeight: 24 },
+  facts: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  fact: { flexGrow: 1, flexBasis: "45%", minWidth: 130 },
+  actions: { gap: 8 },
   empty: { alignItems: "center", gap: 8, paddingVertical: 24 },
-  sectionTitle: { paddingBottom: 4 },
-  row: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 56, paddingVertical: 6 },
-  rowMain: { flex: 1, gap: 2 },
-  rowAmount: { flexShrink: 1, maxWidth: "45%", textAlign: "right", fontWeight: "600" },
+  list: { gap: 8 },
+  sectionTitle: { color: BRAND.ink, letterSpacing: 0.6, paddingTop: 4 },
+  basket: { flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 12, paddingRight: 4, paddingVertical: 6 },
+  basketEnd: { paddingRight: 12, paddingVertical: 10 },
+  square: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    borderWidth: 2.5,
+    borderColor: BRAND.ink,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emoji: { fontSize: 18, lineHeight: 24 },
+  basketMain: { flex: 1, minWidth: 0 },
+  basketTitle: { color: BRAND.ink, fontSize: 16, lineHeight: 22 },
+  meta: { color: BRAND.zinc600, fontSize: 12, lineHeight: 16 },
+  basketAmount: { color: BRAND.ink, flexShrink: 0, maxWidth: "45%", textAlign: "right", fontVariant: ["tabular-nums"] },
+  remove: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
 });

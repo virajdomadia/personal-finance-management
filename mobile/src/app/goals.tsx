@@ -1,27 +1,41 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { Appbar, Button, Card, ProgressBar, SegmentedButtons, Text, useTheme } from "react-native-paper";
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import {
+  ChunkyBox,
+  ChunkyButton,
+  HeaderAction,
+  ProgressBar,
+  ScreenHeader,
+  Segmented,
+  Sticker,
+  TONE_BG,
+  TONE_FG,
+  type Tone,
+} from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
 import { openGoal } from "@/components/goal-tag";
 import { ApiError, apiFetch } from "@/lib/api";
-import { type Goal, type GoalList, paceText, progressText } from "@/lib/goals";
+import { type Goal, type GoalList, goalEmoji, paceText, progressText } from "@/lib/goals";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 
 type Shown = "active" | "archived";
 const FAILED = "We couldn't load your goals.";
 
+const TONES: Tone[] = ["purple", "blue", "orange", "pink", "green"];
+
 // One goal on the list: its progress, how it is pacing and anything that needs a look.
-function GoalSummary({ goal, onPress }: { goal: Goal; onPress: () => void }) {
-  const { colors } = useTheme();
+function GoalSummary({ goal, tone, onPress }: { goal: Goal; tone: Tone; onPress: () => void }) {
   const progress = progressText(goal);
   const pace = paceText(goal);
   const emergency = goal.kind === "emergency";
+  const fg = TONE_FG[tone];
   return (
-    <Card
-      mode="outlined"
+    <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={[goal.name, emergency ? "emergency fund" : null, progress, pace, ...goal.warnings]
@@ -29,37 +43,51 @@ function GoalSummary({ goal, onPress }: { goal: Goal; onPress: () => void }) {
         .join(". ")}
       accessibilityHint="Opens the goal"
     >
-      <Card.Content style={styles.card}>
-        <View style={styles.cardTop}>
-          <Text variant="titleMedium" style={styles.cardName}>
-            {goal.name}
-          </Text>
-          {emergency ? (
-            <Text variant="labelMedium" style={{ color: colors.primary }}>
-              Emergency fund
+      {({ pressed }) => (
+        <ChunkyBox pressed={pressed} style={[styles.card, { backgroundColor: TONE_BG[tone] }]}>
+          {goal.reached ? <Sticker text="DONE!" /> : null}
+          <View style={[styles.head, goal.reached ? styles.stickerGap : null]}>
+            <Text variant="titleMedium" style={[styles.cardName, { color: fg }]}>
+              {goalEmoji(goal)} {goal.name}
             </Text>
+            {emergency ? (
+              <Text variant="labelMedium" style={{ color: fg }}>
+                Emergency fund
+              </Text>
+            ) : null}
+          </View>
+          <Text variant="bodyMedium" style={{ color: fg }}>
+            {progress}
+          </Text>
+          {goal.target !== null ? (
+            <ProgressBar percent={goal.percent} reached={goal.reached} label={`${goal.name} progress`} />
           ) : null}
-        </View>
-        <Text variant="bodyMedium">{progress}</Text>
-        {goal.target !== null ? (
-          <ProgressBar
-            progress={goal.reached ? 1 : (goal.percent ?? 0) / 100}
-            color={goal.reached ? colors.tertiary : colors.primary}
-            style={styles.bar}
-          />
-        ) : null}
-        {pace ? (
-          <Text variant="bodySmall" style={{ color: goal.overdue ? colors.error : colors.onSurfaceVariant }}>
-            {pace}
-          </Text>
-        ) : null}
-        {goal.warnings.map((warning) => (
-          <Text key={warning} variant="bodySmall" style={{ color: colors.error }}>
-            {warning}
-          </Text>
-        ))}
-      </Card.Content>
-    </Card>
+          {pace ? (
+            goal.overdue ? (
+              <Note text={pace} />
+            ) : (
+              <Text variant="bodySmall" style={{ color: fg }}>
+                {pace}
+              </Text>
+            )
+          ) : null}
+          {goal.warnings.map((warning) => (
+            <Note key={warning} text={warning} />
+          ))}
+        </ChunkyBox>
+      )}
+    </Pressable>
+  );
+}
+
+// A warning on a coloured tile sits on a white label so it stays readable.
+function Note({ text }: { text: string }) {
+  return (
+    <View style={styles.note}>
+      <Text variant="bodySmall" style={styles.noteText}>
+        {text}
+      </Text>
+    </View>
   );
 }
 
@@ -124,11 +152,7 @@ export default function GoalsScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Goals" />
-        <Appbar.Action icon="plus" accessibilityLabel="Add goal" onPress={add} />
-      </Appbar.Header>
+      <ScreenHeader title="Goals" back right={<HeaderAction icon="plus" label="Add goal" onPress={add} />} />
 
       {goals.active === null && !failed ? (
         <View style={styles.center}>
@@ -139,9 +163,7 @@ export default function GoalsScreen() {
           <Text variant="bodyLarge" style={styles.centerText}>
             {FAILED}
           </Text>
-          <Button mode="contained" onPress={() => void refresh()} loading={refreshing} disabled={refreshing}>
-            Try again
-          </Button>
+          <ChunkyButton label="Try again" onPress={() => void refresh()} loading={refreshing} />
         </View>
       ) : (
         <ScrollView
@@ -150,10 +172,11 @@ export default function GoalsScreen() {
         >
           {failed ? <Banner messages={[`${FAILED} Pull down to try again.`]} /> : null}
           {archivedCount > 0 || shown === "archived" ? (
-            <SegmentedButtons
+            <Segmented
+              label="Show goals"
               value={shown}
-              onValueChange={(value) => setShown(value as Shown)}
-              buttons={[
+              onChange={setShown}
+              options={[
                 { value: "active", label: "Active" },
                 { value: "archived", label: `Archived (${archivedCount})` },
               ]}
@@ -168,20 +191,20 @@ export default function GoalsScreen() {
             ) : (
               <View style={styles.empty}>
                 <Text variant="titleMedium">No goals yet</Text>
-                <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
+                <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
                   Name what you&apos;re saving for, then set money aside in your bank or cash, or count a fund, stock, coin,
                   PPF or RD toward it. Nothing moves: your balances stay as they are.
                 </Text>
-                <Button mode="contained" onPress={add}>
-                  Add goal
-                </Button>
+                <ChunkyButton label="Add goal" onPress={add} />
               </View>
             )
           ) : (
-            list.map((goal) => <GoalSummary key={goal.id} goal={goal} onPress={() => go(() => openGoal(goal.id))} />)
+            list.map((goal, index) => (
+              <GoalSummary key={goal.id} goal={goal} tone={TONES[index % TONES.length]} onPress={() => go(() => openGoal(goal.id))} />
+            ))
           )}
           {shown === "archived" && list !== null && list.length > 0 ? (
-            <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+            <Text variant="bodySmall" style={{ color: BRAND.zinc600 }}>
               Archived goals keep their history, but their set-aside money and holdings count for nothing until restored.
             </Text>
           ) : null}
@@ -197,8 +220,18 @@ const styles = StyleSheet.create({
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
   empty: { alignItems: "center", gap: 12, paddingVertical: 32 },
-  card: { gap: 6 },
-  cardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", gap: 12 },
-  cardName: { flexShrink: 1 },
-  bar: { height: 6, borderRadius: 3 },
+  card: { padding: 14, gap: 8 },
+  head: { gap: 2 },
+  stickerGap: { paddingRight: 52 },
+  cardName: { flexShrink: 1, fontSize: 18, lineHeight: 24 },
+  note: {
+    alignSelf: "flex-start",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 2,
+    borderColor: BRAND.ink,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  noteText: { color: BRAND.loss },
 });

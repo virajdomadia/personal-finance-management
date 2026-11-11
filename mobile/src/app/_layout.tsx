@@ -1,13 +1,19 @@
+import { Nunito_700Bold, Nunito_800ExtraBold, Nunito_900Black, useFonts } from "@expo-google-fonts/nunito";
 import { Stack } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { StyleSheet, useColorScheme, View } from "react-native";
+import { useEffect } from "react";
+import { StyleSheet, View } from "react-native";
 import { PaperProvider, useTheme } from "react-native-paper";
 
 import { LockScreen } from "@/components/lock-screen";
 
 import { SessionProvider, useSession } from "@/lib/session";
 import { useAppLock } from "@/lib/use-app-lock";
-import { darkTheme, lightTheme } from "@/lib/theme";
+import { lightTheme } from "@/lib/theme";
+
+// Keep the splash up until Nunito is ready, so no screen flashes in the system font.
+void SplashScreen.preventAutoHideAsync();
 
 function Screens() {
   const { token } = useSession();
@@ -71,12 +77,20 @@ function Screens() {
 }
 
 export default function RootLayout() {
-  const theme = useColorScheme() === "dark" ? darkTheme : lightTheme;
+  const [fontsLoaded, fontError] = useFonts({ Nunito_700Bold, Nunito_800ExtraBold, Nunito_900Black });
+  const ready = fontsLoaded || fontError !== null;
+
+  useEffect(() => {
+    if (ready) void SplashScreen.hideAsync();
+  }, [ready]);
+
+  // A failed font load still opens the app, in the system font.
+  if (!ready) return null;
 
   return (
-    <PaperProvider theme={theme}>
+    <PaperProvider theme={lightTheme}>
       <SessionProvider>
-        <StatusBar style="auto" />
+        <StatusBar style="dark" />
         <Screens />
       </SessionProvider>
     </PaperProvider>

@@ -25,6 +25,7 @@ export type TransactionList = {
   has_more: boolean;
   total_income: string;
   total_expense: string;
+  expense_by_category: { category: string; amount: string }[];
 };
 
 export type CategoryList = { income: string[]; expense: string[] };
@@ -202,6 +203,13 @@ export function formatMonth(month: string): string {
 export function formatDate(iso: string): string {
   const [year, month, day] = iso.split("-");
   return `${Number(day)} ${MONTHS[Number(month) - 1].slice(0, 3)} ${year}`;
+}
+
+// The day header in the list: "Today", "Yesterday", then the date.
+export function dayLabel(iso: string, today: string): string {
+  if (iso === today) return "Today";
+  if (iso === previousDay(today)) return "Yesterday";
+  return formatDate(iso);
 }
 
 export function groupByDate(transactions: Transaction[]): { date: string; transactions: Transaction[] }[] {

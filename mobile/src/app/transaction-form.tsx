@@ -12,14 +12,19 @@ import {
   type ScrollViewInstance,
   type TextInputInstance,
 } from "react-native";
-import { Appbar, Button, Chip, Dialog, HelperText, Portal, Text, TextInput, useTheme } from "react-native-paper";
+import { Button, Dialog, HelperText, Portal, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { type Account, type AccountList, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { instalmentForm, interestForm, ppfDepositForm } from "@/lib/deposits";
 import { type Template, transactionFormFromTemplate } from "@/lib/recurring";
+import { ChunkyBox, ChunkyButton, Chip, HeaderAction, ScreenHeader } from "@/components/chunky";
 import { DateField } from "@/components/date-field";
+import { Banner } from "@/components/form-parts";
+import { TransactionTypePicker } from "@/components/transaction-type-picker";
+import { categoryEmoji } from "@/lib/fun";
+import { BRAND, FONT } from "@/lib/theme";
 import { useSession } from "@/lib/session";
 import {
   type CategoryList,
@@ -129,10 +134,7 @@ export default function TransactionFormScreen() {
   if (loaded === null) {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
-        <Appbar.Header>
-          <Appbar.BackAction onPress={() => router.back()} />
-          <Appbar.Content title={editing ? "Edit transaction" : "Add transaction"} />
-        </Appbar.Header>
+        <ScreenHeader title={editing ? "Edit transaction" : "Add transaction"} back />
         <View style={styles.center}>
           {loadError === null ? (
             <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading" />
@@ -141,15 +143,13 @@ export default function TransactionFormScreen() {
               <Text variant="bodyLarge" style={styles.centerText}>
                 {loadError}
               </Text>
-              <Button
-                mode="contained"
+              <ChunkyButton
+                label="Try again"
                 onPress={() => {
                   setLoadError(null);
                   setAttempt((n) => n + 1);
                 }}
-              >
-                Try again
-              </Button>
+              />
             </>
           )}
         </View>
@@ -476,22 +476,21 @@ function FormBody({
     />
   );
 
-  const choice = (label: string, selected: boolean, onPress: () => void, key = label) => (
+  // The visible label may carry an emoji; a screen reader hears the plain name.
+  const choice = (label: string, selected: boolean, onPress: () => void, key = label, emoji?: string) => (
     <Chip
       key={key}
+      label={emoji ? `${emoji} ${label}` : label}
+      accessibilityLabel={label}
       selected={selected}
-      showSelectedCheck
       disabled={busy}
       onPress={onPress}
       accessibilityRole="radio"
-      accessibilityState={{ selected, disabled: busy }}
-    >
-      {label}
-    </Chip>
+    />
   );
 
   const heading = (label: string) => (
-    <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
+    <Text variant="labelLarge" style={{ color: BRAND.ink }}>
       {label}
     </Text>
   );
@@ -510,13 +509,16 @@ function FormBody({
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} disabled={saving || deleting} />
-        <Appbar.Content title={editing ? "Edit transaction" : "Add transaction"} />
-        {editing ? (
-          <Appbar.Action icon="delete-outline" accessibilityLabel="Delete transaction" disabled={busy} onPress={() => setConfirming(true)} />
-        ) : null}
-      </Appbar.Header>
+      <ScreenHeader
+        title={editing ? "Edit transaction" : "Add transaction"}
+        back
+        backDisabled={saving || deleting}
+        right={
+          editing ? (
+            <HeaderAction icon="delete-outline" label="Delete transaction" disabled={busy} onPress={() => setConfirming(true)} />
+          ) : undefined
+        }
+      />
 
       <KeyboardAvoidingView style={styles.screen} behavior="padding">
         <ScrollView
@@ -526,37 +528,25 @@ function FormBody({
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         >
           {conflict !== null ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
+            <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
               <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
                 {conflict}
               </Text>
-              <Button mode="contained" onPress={() => router.back()}>
-                Back to transactions
-              </Button>
-            </View>
+              <ChunkyButton label="Back to transactions" onPress={() => router.back()} />
+            </ChunkyBox>
           ) : null}
-          {general.length > 0 ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
-              {general.map((message) => (
-                <Text key={message} variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
-                  {message}
-                </Text>
-              ))}
-            </View>
-          ) : null}
+          <Banner messages={general} />
 
           <View>
             {heading("Type")}
             {editing ? (
               <Text variant="bodyLarge">{typeLabel}</Text>
             ) : (
-              <View style={styles.chips}>
-                {types.map((option) => choice(option.label, type === option.value, () => changeType(option.value)))}
-              </View>
+              <TransactionTypePicker options={types} value={type} onChange={changeType} disabled={busy} />
             )}
           </View>
 
-          {field("amount", input("amount", "Amount (₹)", { keyboardType: "numeric", maxLength: MONEY_MAX_LENGTH }))}
+          {field("amount", input("amount", "Amount (₹)", { keyboardType: "numeric", maxLength: MONEY_MAX_LENGTH, contentStyle: styles.amountText }))}
 
           {field(
             "date",
@@ -627,7 +617,7 @@ function FormBody({
                   {interestOnly ? heading("Category") : input("category", "Category", { maxLength: 40 })}
                   <View style={styles.chips}>
                     {categoryChoices.map((name) =>
-                      choice(name, form.category.trim().toLowerCase() === name.toLowerCase(), () => set("category", name)),
+                      choice(name, form.category.trim().toLowerCase() === name.toLowerCase(), () => set("category", name), name, categoryEmoji(name)),
                     )}
                   </View>
                 </>,
@@ -635,16 +625,15 @@ function FormBody({
 
           {field("note", input("note", "Note (optional)", { maxLength: 200 }))}
 
-          <Button
-            mode="contained"
+          <ChunkyButton
+            variant="green"
+            label={saving ? "Saving..." : editing ? "Save \u2713" : "Add \u2713"}
+            accessibilityLabel={saving ? "Saving" : editing ? "Save changes" : "Add transaction"}
             onPress={() => void save()}
             loading={saving}
-            disabled={busy}
-            contentStyle={styles.saveContent}
+            disabled={busy && !saving}
             style={styles.save}
-          >
-            {saving ? "Saving..." : editing ? "Save changes" : "Add transaction"}
-          </Button>
+          />
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -678,8 +667,8 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
-  banner: { borderRadius: 12, padding: 12, gap: 8 },
+  banner: { padding: 12, gap: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
   save: { marginTop: 8 },
-  saveContent: { height: 48 },
+  amountText: { fontFamily: FONT.black, fontSize: 32, lineHeight: 40, textAlign: "center" },
 });

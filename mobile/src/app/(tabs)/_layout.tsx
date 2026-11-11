@@ -1,43 +1,11 @@
 import { Tabs } from "expo-router";
-import type { BottomTabBarProps } from "expo-router/tabs";
 import { useEffect } from "react";
-import { BottomNavigation, useTheme } from "react-native-paper";
+import { useTheme } from "react-native-paper";
+
+import { ChunkyTabBar } from "@/components/chunky-tab-bar";
 
 import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
-
-const TAB_ICONS: Record<string, { focusedIcon: string; unfocusedIcon: string }> = {
-  index: { focusedIcon: "view-dashboard", unfocusedIcon: "view-dashboard-outline" },
-  accounts: { focusedIcon: "wallet", unfocusedIcon: "wallet-outline" },
-  transactions: { focusedIcon: "swap-horizontal-bold", unfocusedIcon: "swap-horizontal" },
-  investments: { focusedIcon: "chart-line", unfocusedIcon: "chart-line-variant" },
-  profile: { focusedIcon: "account", unfocusedIcon: "account-outline" },
-};
-
-function MaterialTabBar({ state, descriptors, emitter, navigateToTab, insets }: BottomTabBarProps) {
-  return (
-    <BottomNavigation.Bar
-      navigationState={{
-        index: state.index,
-        routes: state.routes.map((route) => ({
-          key: route.key,
-          title: descriptors[route.key].options.title,
-          ...TAB_ICONS[route.name],
-        })),
-      }}
-      safeAreaInsets={insets}
-      onTabPress={({ route }) => {
-        const event = emitter.emit({
-          type: "tabPress",
-          target: route.key,
-          canPreventDefault: true,
-        });
-        const focused = state.routes[state.index].key === route.key;
-        if (!focused && !event.defaultPrevented) navigateToTab(route.key);
-      }}
-    />
-  );
-}
 
 export default function TabsLayout() {
   const { token, logOut } = useSession();
@@ -52,7 +20,7 @@ export default function TabsLayout() {
 
   return (
     <Tabs
-      tabBar={(props) => <MaterialTabBar {...props} />}
+      tabBar={(props) => <ChunkyTabBar {...props} />}
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: colors.background },

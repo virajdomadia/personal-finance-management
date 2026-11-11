@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import { CoinView } from "@/components/investments/coin-view";
 
 export const metadata: Metadata = {
-  title: "Coin | Personal Finance Manager",
+  title: "Coin",
 };
 
 type Params = Promise<{ coinId: string }>;

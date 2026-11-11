@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { logout } from "@/app/login/actions";
+import { FOCUS, buttonClass } from "@/components/ui/chunky";
 import {
   type Account,
   type AccountForm,
@@ -43,8 +44,7 @@ const INSTITUTION_LABELS: Record<AccountType, string> = {
 const CASH_NAME = "Cash in hand";
 const DAY_MESSAGE = "Enter a day from 1 to 31.";
 
-const INPUT =
-  "w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 disabled:opacity-60 aria-[invalid=true]:border-red-600 dark:border-zinc-700";
+const INPUT = `w-full rounded-[14px] border-[2.5px] border-ink bg-card px-3 py-2 text-sm font-extrabold outline-none disabled:opacity-60 aria-[invalid=true]:border-loss aria-[invalid=true]:bg-pink/10 ${FOCUS}`;
 
 function blankForm(type: AccountType): AccountForm {
   return {
@@ -210,17 +210,17 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict 
   ]);
   const field = (key: keyof AccountForm, label: string, input: React.ReactNode, hint?: string) => (
     <div>
-      <label htmlFor={`f-${key}`} className="mb-1 block text-sm font-medium">
+      <label htmlFor={`f-${key}`} className="mb-1 block text-xs font-black tracking-wide uppercase">
         {label}
       </label>
       {input}
       {hint ? (
-        <p id={`h-${key}`} className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+        <p id={`h-${key}`} className="mt-1 text-xs font-bold text-zinc-600">
           {hint}
         </p>
       ) : null}
       {errors[key] ? (
-        <p id={`e-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+        <p id={`e-${key}`} className="mt-1 text-xs font-extrabold text-loss">
           {errors[key]}
         </p>
       ) : null}
@@ -254,17 +254,17 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict 
         if (saving) e.preventDefault();
       }}
       onClose={onClose}
-      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-zinc-200 bg-white p-0 text-zinc-900 shadow-xl backdrop:bg-black/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-[18px] border-[2.5px] border-ink bg-card p-0 text-ink shadow-chunky backdrop:bg-ink/60"
     >
       <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
-        <h2 id="account-dialog-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+        <h2 id="account-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
           {editing ? "Edit account" : "Add account"}
         </h2>
         <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
           {editing ? (
             <div>
-              <span className="mb-1 block text-sm font-medium">Type</span>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">{TYPE_LABELS[type]}</p>
+              <span className="mb-1 block text-xs font-black tracking-wide uppercase">Type</span>
+              <p className="text-sm font-extrabold">{TYPE_LABELS[type]}</p>
             </div>
           ) : (
             field(
@@ -348,10 +348,10 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict 
               )}
               {!editing && payFromCard && (
                 <div>
-                  <label className="flex items-start gap-2 text-sm">
+                  <label className="flex items-start gap-2 text-sm font-extrabold">
                     <input
                       type="checkbox"
-                      className="mt-0.5"
+                      className="mt-0.5 size-4 accent-ink"
                       checked={form.moved_from_card === "yes"}
                       disabled={saving}
                       aria-invalid={errors.moved_from_card ? true : undefined}
@@ -364,7 +364,7 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict 
                     </span>
                   </label>
                   {errors.moved_from_card ? (
-                    <p id="e-moved_from_card" className="mt-1 text-xs text-red-700 dark:text-red-400">
+                    <p id="e-moved_from_card" className="mt-1 text-xs font-extrabold text-loss">
                       {errors.moved_from_card}
                     </p>
                   ) : null}
@@ -415,17 +415,17 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict 
           )}
 
           {formError ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            <p role="alert" className="text-sm font-extrabold text-loss">
               {formError}
             </p>
           ) : null}
         </div>
-        <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+        <div className="flex justify-end gap-2 border-t-[2.5px] border-ink px-5 py-3">
           <button
             type="button"
             disabled={saving}
             onClick={() => ref.current?.close()}
-            className="rounded-md px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none disabled:opacity-60 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className={`${buttonClass("alt")} uppercase`}
           >
             Cancel
           </button>
@@ -433,7 +433,7 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict 
             ref={submitRef}
             type="submit"
             disabled={saving}
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300 dark:focus-visible:ring-offset-zinc-900"
+            className={`${buttonClass("primary")} uppercase`}
           >
             {saving ? "Saving..." : editing ? "Save changes" : "Add account"}
           </button>

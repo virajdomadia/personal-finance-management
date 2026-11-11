@@ -1,9 +1,10 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, RefreshControl, SectionList, StyleSheet, View } from "react-native";
-import { Appbar, Button, Divider, FAB, Surface, Text, TouchableRipple, useTheme } from "react-native-paper";
+import { ActivityIndicator, Pressable, RefreshControl, SectionList, StyleSheet, View } from "react-native";
+import { Text, useTheme } from "react-native-paper";
 
 import { AccountRow } from "@/components/account-row";
+import { ChunkyBox, ChunkyButton, HeaderAction, ScreenHeader, Tile } from "@/components/chunky";
 import {
   type Account,
   type AccountList,
@@ -13,7 +14,9 @@ import {
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { accountSections, ppfInterestText, rdDueText } from "@/lib/deposits";
+import { whole } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
+import { BRAND, INPUT_RADIUS, SHADOW_OFFSET_SM } from "@/lib/theme";
 
 export default function AccountsScreen() {
   const { token, logOut } = useSession();
@@ -99,19 +102,32 @@ export default function AccountsScreen() {
   const investments = list ? investmentsIn(list) : null;
 
   return (
-    <View style={styles.screen}>
-      <Appbar.Header>
-        <Appbar.Content title="Accounts" />
-        <Appbar.Action
-          icon="archive-outline"
-          accessibilityLabel="Archived accounts"
-          onPress={() => {
-            if (navigating.current) return;
-            navigating.current = true;
-            router.push("/archived-accounts");
-          }}
-        />
-      </Appbar.Header>
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <ScreenHeader
+        title="Accounts"
+        right={
+          <>
+            <HeaderAction
+              icon="archive-outline"
+              label="Archived accounts"
+              onPress={() => {
+                if (navigating.current) return;
+                navigating.current = true;
+                router.push("/archived-accounts");
+              }}
+            />
+            <Pressable onPress={() => open()} accessibilityRole="button" accessibilityLabel="Add account" hitSlop={4}>
+              {({ pressed }) => (
+                <ChunkyBox pressed={pressed} radius={999} offset={SHADOW_OFFSET_SM} style={styles.add}>
+                  <Text variant="labelLarge" style={styles.addText}>
+                    + ADD
+                  </Text>
+                </ChunkyBox>
+              )}
+            </Pressable>
+          </>
+        }
+      />
 
       {list === null && error === null ? (
         <View style={styles.center}>
@@ -122,9 +138,7 @@ export default function AccountsScreen() {
           <Text variant="bodyLarge" style={styles.centerText}>
             {error}
           </Text>
-          <Button mode="contained" onPress={() => void refresh()} loading={refreshing} disabled={refreshing}>
-            Try again
-          </Button>
+          <ChunkyButton label="Try again" onPress={() => void refresh()} loading={refreshing} />
         </View>
       ) : (
         <SectionList
@@ -132,60 +146,55 @@ export default function AccountsScreen() {
           keyExtractor={(account) => String(account.id)}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
           contentContainerStyle={styles.content}
-          ItemSeparatorComponent={Divider}
           stickySectionHeadersEnabled={false}
           ListHeaderComponent={
             <View style={styles.header}>
               {error ? (
-                <Text
-                  variant="bodyMedium"
-                  accessibilityRole="alert"
-                  style={{ color: colors.error, marginBottom: 12 }}
-                >
+                <Text variant="bodyMedium" accessibilityRole="alert" style={styles.error}>
                   {error} Pull down to try again.
                 </Text>
               ) : null}
               {dueCards.map((card) => (
-                <Surface key={card.key} elevation={2} style={[styles.due, { backgroundColor: colors.secondaryContainer }]}>
-                  <TouchableRipple
-                    onPress={() => openTransaction(card.params)}
-                    accessibilityRole="button"
-                    accessibilityLabel={card.text}
-                    style={styles.dueTouch}
-                  >
-                    <Text variant="bodyMedium" style={{ color: colors.onSecondaryContainer }}>
-                      {card.text}
-                    </Text>
-                  </TouchableRipple>
-                </Surface>
+                <Pressable
+                  key={card.key}
+                  onPress={() => openTransaction(card.params)}
+                  accessibilityRole="button"
+                  accessibilityLabel={card.text}
+                >
+                  {({ pressed }) => (
+                    <ChunkyBox pressed={pressed} radius={INPUT_RADIUS} offset={SHADOW_OFFSET_SM} style={styles.due}>
+                      <Text variant="bodyMedium" style={styles.dueText}>
+                        {card.text}
+                      </Text>
+                    </ChunkyBox>
+                  )}
+                </Pressable>
               ))}
-              <Surface elevation={1} style={styles.totals}>
-                <View style={styles.total}>
-                  <Text variant="labelLarge">You have</Text>
-                  <Text variant="titleLarge" style={styles.totalAmount}>
-                    {formatRupees(list.total_have)}
+              <Tile tone="yellow" label="Total balance" value={whole(list.total_have)} size="huge">
+                {investments !== null ? (
+                  <Text variant="bodySmall" style={styles.note}>
+                    Includes investments {formatRupees(investments)}
                   </Text>
-                  {investments !== null ? (
-                    <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                      Includes investments {formatRupees(investments)}
-                    </Text>
-                  ) : null}
-                </View>
-                <View style={styles.total}>
-                  <Text variant="labelLarge">You owe</Text>
-                  <Text variant="titleLarge" style={styles.totalAmount}>
+                ) : null}
+                <View style={styles.owe}>
+                  <Text variant="labelLarge" style={styles.note}>
+                    You owe
+                  </Text>
+                  <Text
+                    variant="titleMedium"
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.6}
+                    style={styles.oweAmount}
+                  >
                     {formatRupees(list.total_owe)}
                   </Text>
                 </View>
-              </Surface>
+              </Tile>
             </View>
           }
           renderSectionHeader={({ section }) => (
-            <Text
-              variant="titleSmall"
-              accessibilityRole="header"
-              style={[styles.sectionHeader, { color: colors.primary }]}
-            >
+            <Text variant="titleSmall" accessibilityRole="header" style={styles.sectionHeader}>
               {section.title}
             </Text>
           )}
@@ -195,55 +204,55 @@ export default function AccountsScreen() {
               onPress={() => open({ id: String(item.id) })}
               action={
                 item.type === "loan" && item.balance !== "0.00" ? (
-                  <Button
+                  <ChunkyButton
                     compact
+                    variant="alt"
                     icon="cash-check"
+                    label="Record EMI"
                     accessibilityLabel={`Record an EMI for ${item.name}`}
                     onPress={() => recordEmi(item)}
-                  >
-                    Record EMI
-                  </Button>
+                  />
                 ) : item.type === "ppf" ? (
                   <>
-                    <Button
+                    <ChunkyButton
                       compact
+                      variant="alt"
                       icon="bank-transfer-in"
+                      label="Deposit"
                       accessibilityLabel={`Deposit to ${item.name}`}
                       onPress={() => openTransaction({ ppf: String(item.id) })}
-                    >
-                      Deposit
-                    </Button>
+                    />
                     {item.deposit?.kind === "ppf" && item.deposit.interest_due !== null ? (
-                      <Button
+                      <ChunkyButton
                         compact
+                        variant="alt"
                         icon="percent"
+                        label="Record interest"
                         accessibilityLabel={`Record interest for ${item.name}`}
                         onPress={() => openTransaction({ interest: String(item.id) })}
-                      >
-                        Record interest
-                      </Button>
+                      />
                     ) : null}
                   </>
                 ) : item.type === "rd" ? (
                   <>
                     {item.deposit?.kind === "rd" && item.deposit.due.length > 0 ? (
-                      <Button
+                      <ChunkyButton
                         compact
+                        variant="alt"
                         icon="cash-check"
+                        label="Record instalment"
                         accessibilityLabel={`Record an instalment for ${item.name}`}
                         onPress={() => openTransaction({ rd: String(item.id) })}
-                      >
-                        Record instalment
-                      </Button>
+                      />
                     ) : null}
-                    <Button
+                    <ChunkyButton
                       compact
+                      variant="alt"
                       icon="close-circle-outline"
+                      label="Close RD"
                       accessibilityLabel={`Close ${item.name}`}
                       onPress={() => closeRd(item)}
-                    >
-                      Close RD
-                    </Button>
+                    />
                   </>
                 ) : undefined
               }
@@ -252,20 +261,13 @@ export default function AccountsScreen() {
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text variant="titleMedium">Add your first account</Text>
-              <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant, textAlign: "center" }}>
-                Bank accounts, cards, cash, loans and more. Tap Add account to start.
+              <Text variant="bodyMedium" style={styles.emptyText}>
+                Bank accounts, cards, cash, loans and more. Tap + ADD to start.
               </Text>
             </View>
           }
         />
       )}
-
-      <FAB
-        icon="plus"
-        label="Add account"
-        style={styles.fab}
-        onPress={() => open()}
-      />
     </View>
   );
 }
@@ -274,14 +276,17 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
-  content: { paddingBottom: 96 },
-  header: { padding: 16 },
-  due: { borderRadius: 12, marginBottom: 12, overflow: "hidden" },
-  dueTouch: { padding: 16 },
-  totals: { borderRadius: 12, padding: 16, gap: 12 },
-  total: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
-  totalAmount: { flexShrink: 1, textAlign: "right" },
-  sectionHeader: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
+  content: { paddingBottom: 32 },
+  header: { paddingHorizontal: 16, paddingTop: 8, gap: 12 },
+  error: { color: BRAND.loss },
+  add: { paddingHorizontal: 14, paddingVertical: 9, minHeight: 44, justifyContent: "center", backgroundColor: BRAND.ink },
+  addText: { color: "#FFFFFF", fontSize: 13, lineHeight: 18, letterSpacing: 0.6 },
+  due: { backgroundColor: BRAND.due, padding: 14 },
+  dueText: { color: BRAND.ink },
+  note: { color: BRAND.ink, marginTop: 2 },
+  owe: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginTop: 8 },
+  oweAmount: { flexShrink: 1, color: BRAND.ink, textAlign: "right", fontVariant: ["tabular-nums"] },
+  sectionHeader: { color: BRAND.ink, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
   empty: { alignItems: "center", gap: 8, padding: 32 },
-  fab: { position: "absolute", right: 16, bottom: 16 },
+  emptyText: { color: BRAND.zinc600, textAlign: "center" },
 });

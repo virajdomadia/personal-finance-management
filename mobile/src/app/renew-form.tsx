@@ -1,15 +1,17 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KeyboardAvoidingView, ScrollView, StyleSheet, View } from "react-native";
-import { Appbar, Button, Text, TextInput, useTheme } from "react-native-paper";
+import { Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ChunkyBox, ChunkyButton, ScreenHeader } from "@/components/chunky";
 import { DateField } from "@/components/date-field";
 import { Banner, Choice, Heading, LoadingScreen, useBlockBack, useFieldScroll } from "@/components/form-parts";
 import { type Account, type AccountList, errorMessage, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type Policy, type RenewForm, cardBillText, renewErrors, renewFormFrom, renewPayload } from "@/lib/insurance";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 import { isDeposit, previousDay, todayIndia } from "@/lib/transactions";
 
 const MONEY_MAX_LENGTH = 24;
@@ -163,10 +165,7 @@ function FormBody({ accounts, policy }: Loaded) {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} disabled={saving} />
-        <Appbar.Content title="Renew policy" />
-      </Appbar.Header>
+      <ScreenHeader title="Renew policy" back backDisabled={saving} />
 
       <KeyboardAvoidingView style={styles.screen} behavior="padding">
         <ScrollView
@@ -176,21 +175,19 @@ function FormBody({ accounts, policy }: Loaded) {
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         >
           {conflict !== null ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
+            <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
               <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
                 {conflict}
               </Text>
-              <Button mode="contained" onPress={() => router.back()}>
-                Go back
-              </Button>
-            </View>
+              <ChunkyButton label="Go back" onPress={() => router.back()} />
+            </ChunkyBox>
           ) : null}
           <Banner messages={general} />
 
           <Text variant="titleMedium">
             {policy.insurer}, {policy.plan}
           </Text>
-          <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
+          <Text variant="bodyMedium" style={{ color: BRAND.zinc600 }}>
             Records this year&apos;s premium as a payment and moves the policy on to its next year.
           </Text>
           {cardBill ? <Banner tone="info" messages={[`Heads up. ${cardBill}`]} /> : null}
@@ -256,16 +253,14 @@ function FormBody({ accounts, policy }: Loaded) {
           )}
           {field("sum_insured", input("sum_insured", "Sum insured (₹)"), errors.sum_insured)}
 
-          <Button
-            mode="contained"
+          <ChunkyButton
+            variant="green"
+            label={saving ? "Renewing..." : "Renew"}
             onPress={() => void save()}
             loading={saving}
-            disabled={busy}
-            contentStyle={styles.saveContent}
+            disabled={busy && !saving}
             style={styles.save}
-          >
-            {saving ? "Renewing..." : "Renew"}
-          </Button>
+          />
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -275,8 +270,7 @@ function FormBody({ accounts, policy }: Loaded) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { padding: 16, gap: 12 },
-  banner: { borderRadius: 12, padding: 12, gap: 8 },
+  banner: { padding: 12, gap: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
   save: { marginTop: 8 },
-  saveContent: { height: 48 },
 });

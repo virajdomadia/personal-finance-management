@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { InvestmentsView } from "@/components/investments/investments-view";
 
 export const metadata: Metadata = {
-  title: "Investments | Personal Finance Manager",
+  title: "Investments",
 };
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;

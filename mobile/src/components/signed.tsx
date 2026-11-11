@@ -1,5 +1,5 @@
 import { type StyleProp, type TextStyle } from "react-native";
-import { Text, useTheme } from "react-native-paper";
+import { Text } from "react-native-paper";
 
 import { formatPercent, formatSigned, tone } from "@/lib/investments";
 import { TONE_COLORS } from "@/lib/theme";
@@ -22,12 +22,11 @@ export function signedLabel(value: string, percent = false): string {
 // A profit or loss: always signed, green or red, and named for screen readers, so colour is
 // never the only signal.
 export function Signed({ value, percent = false, variant = "bodyMedium", style }: Props) {
-  const { dark } = useTheme();
   const t = tone(value);
   const text = percent ? formatPercent(value) : formatSigned(value);
-  const color = t === "flat" ? undefined : TONE_COLORS[dark ? "dark" : "light"][t];
+  const color = t === "flat" ? undefined : TONE_COLORS[t];
   return (
-    <Text variant={variant} accessibilityLabel={signedLabel(value, percent)} style={[color ? { color } : null, style]}>
+    <Text variant={variant} accessibilityLabel={signedLabel(value, percent)} style={[{ fontVariant: ["tabular-nums"] }, color ? { color } : null, style]}>
       {text}
     </Text>
   );

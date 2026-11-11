@@ -1,14 +1,15 @@
-import { router } from "expo-router";
 import { type ReactNode, useCallback, useEffect, useRef } from "react";
 import { ActivityIndicator, BackHandler, StyleSheet, View, type ScrollViewInstance } from "react-native";
-import { Appbar, Button, Chip, HelperText, Text, useTheme } from "react-native-paper";
+import { HelperText, Text, useTheme } from "react-native-paper";
+
+import { ChunkyBox, ChunkyButton, Chip, ScreenHeader } from "@/components/chunky";
+import { BRAND } from "@/lib/theme";
 
 // Small pieces the recurring and insurance screens share.
 
 export function Heading({ label }: { label: string }) {
-  const { colors } = useTheme();
   return (
-    <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
+    <Text variant="labelLarge" style={{ color: BRAND.ink }}>
       {label}
     </Text>
   );
@@ -25,33 +26,22 @@ export function Choice({
   disabled?: boolean;
   onPress: () => void;
 }) {
-  return (
-    <Chip
-      selected={selected}
-      showSelectedCheck
-      disabled={disabled}
-      onPress={onPress}
-      accessibilityRole="radio"
-      accessibilityState={{ selected, disabled: Boolean(disabled) }}
-    >
-      {label}
-    </Chip>
-  );
+  return <Chip label={label} selected={selected} disabled={disabled} onPress={onPress} accessibilityRole="radio" />;
 }
 
 export function Banner({ messages, tone = "error" }: { messages: string[]; tone?: "error" | "info" }) {
   const { colors } = useTheme();
   if (messages.length === 0) return null;
-  const background = tone === "error" ? colors.errorContainer : colors.secondaryContainer;
-  const color = tone === "error" ? colors.onErrorContainer : colors.onSecondaryContainer;
+  const background = tone === "error" ? colors.errorContainer : BRAND.due;
+  const color = tone === "error" ? colors.onErrorContainer : BRAND.ink;
   return (
-    <View style={[styles.banner, { backgroundColor: background }]}>
+    <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: background }]}>
       {messages.map((message) => (
         <Text key={message} variant="bodyMedium" accessibilityRole={tone === "error" ? "alert" : undefined} style={{ color }}>
           {message}
         </Text>
       ))}
-    </View>
+    </ChunkyBox>
   );
 }
 
@@ -68,10 +58,7 @@ export function LoadingScreen({
   const { colors } = useTheme();
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title={title} />
-      </Appbar.Header>
+      <ScreenHeader title={title} back />
       <View style={styles.center}>
         {error === null ? (
           <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading" />
@@ -80,9 +67,7 @@ export function LoadingScreen({
             <Text variant="bodyLarge" style={styles.centerText}>
               {error}
             </Text>
-            <Button mode="contained" onPress={onRetry}>
-              Try again
-            </Button>
+            <ChunkyButton label="Try again" onPress={onRetry} />
           </>
         )}
       </View>
@@ -133,5 +118,5 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
-  banner: { borderRadius: 12, padding: 12, gap: 8 },
+  banner: { padding: 12, gap: 8 },
 });

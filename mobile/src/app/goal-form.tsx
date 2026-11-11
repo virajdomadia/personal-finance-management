@@ -1,9 +1,10 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KeyboardAvoidingView, ScrollView, StyleSheet, View } from "react-native";
-import { Appbar, Button, Text, TextInput, useTheme } from "react-native-paper";
+import { Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ChunkyBox, ChunkyButton, ScreenHeader } from "@/components/chunky";
 import { DateField } from "@/components/date-field";
 import { Banner, Choice, Heading, LoadingScreen, useBlockBack, useFieldScroll } from "@/components/form-parts";
 import { errorMessage, splitErrors } from "@/lib/accounts";
@@ -23,6 +24,7 @@ import {
 } from "@/lib/goals";
 import { whole } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 
 const MONEY_MAX_LENGTH = 24;
 const KINDS: { value: GoalKind; label: string }[] = [
@@ -230,17 +232,14 @@ function FormBody({ goal, hasEmergency }: Loaded) {
         : "Leave it blank to use the average of your recorded spending over the last 6 full months."
       : `Leave it blank to use your recorded average, ${whole(computed)} a month.`;
   const hint = (text: string) => (
-    <Text variant="bodySmall" style={[styles.hint, { color: colors.onSurfaceVariant }]}>
+    <Text variant="bodySmall" style={[styles.hint, { color: BRAND.zinc600 }]}>
       {text}
     </Text>
   );
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} disabled={saving} />
-        <Appbar.Content title={editing ? "Edit goal" : "Add goal"} />
-      </Appbar.Header>
+      <ScreenHeader title={editing ? "Edit goal" : "Add goal"} back backDisabled={saving} />
 
       <KeyboardAvoidingView style={styles.screen} behavior="padding">
         <ScrollView
@@ -250,14 +249,12 @@ function FormBody({ goal, hasEmergency }: Loaded) {
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         >
           {conflict !== null ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
+            <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
               <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
                 {conflict}
               </Text>
-              <Button mode="contained" onPress={() => router.back()}>
-                Go back
-              </Button>
-            </View>
+              <ChunkyButton label="Go back" onPress={() => router.back()} />
+            </ChunkyBox>
           ) : null}
           <Banner messages={general} />
 
@@ -347,16 +344,14 @@ function FormBody({ goal, hasEmergency }: Loaded) {
 
           {field("note", input("note", "Note (optional)", { maxLength: 200, multiline: true }), errors.note)}
 
-          <Button
-            mode="contained"
+          <ChunkyButton
+            variant="green"
+            label={saving ? "Saving..." : editing ? "Save changes" : "Add goal"}
             onPress={() => void save()}
             loading={saving}
-            disabled={busy}
-            contentStyle={styles.saveContent}
+            disabled={busy && !saving}
             style={styles.save}
-          >
-            {saving ? "Saving..." : editing ? "Save changes" : "Add goal"}
-          </Button>
+          />
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -366,9 +361,8 @@ function FormBody({ goal, hasEmergency }: Loaded) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { padding: 16, gap: 12 },
-  banner: { borderRadius: 12, padding: 12, gap: 8 },
+  banner: { padding: 12, gap: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
   hint: { marginTop: 4, paddingHorizontal: 4 },
   save: { marginTop: 8 },
-  saveContent: { height: 48 },
 });

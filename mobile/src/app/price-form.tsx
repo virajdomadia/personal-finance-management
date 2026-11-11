@@ -10,13 +10,16 @@ import {
   View,
   type TextInputInstance,
 } from "react-native";
-import { Appbar, Button, HelperText, Text, TextInput, useTheme } from "react-native-paper";
+import { HelperText, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import type { Price, Stock } from "@/lib/investments";
+import { ChunkyBox, ChunkyButton, ScreenHeader } from "@/components/chunky";
+import { Banner } from "@/components/form-parts";
 import { DateField } from "@/components/date-field";
+import { BRAND } from "@/lib/theme";
 import { useSession } from "@/lib/session";
 import { formatDate, previousDay, todayIndia } from "@/lib/transactions";
 
@@ -155,10 +158,7 @@ export default function PriceFormScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} disabled={saving} />
-        <Appbar.Content title={title} />
-      </Appbar.Header>
+      <ScreenHeader title={title} back backDisabled={saving} />
 
       {stock === null ? (
         <View style={styles.center}>
@@ -169,15 +169,10 @@ export default function PriceFormScreen() {
               <Text variant="bodyLarge" style={styles.centerText}>
                 {loadError}
               </Text>
-              <Button
-                mode="contained"
-                onPress={() => {
+              <ChunkyButton label="Try again" onPress={() => {
                   setLoadError(null);
                   setAttempt((n) => n + 1);
-                }}
-              >
-                Try again
-              </Button>
+                }} />
             </>
           )}
         </View>
@@ -188,26 +183,16 @@ export default function PriceFormScreen() {
             contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
           >
             {missing !== null ? (
-              <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
+              <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
                 <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
                   {missing}
                 </Text>
-                <Button mode="contained" onPress={() => router.back()}>
-                  Go back
-                </Button>
-              </View>
+                <ChunkyButton label="Go back" onPress={() => router.back()} />
+              </ChunkyBox>
             ) : null}
-            {general.length > 0 ? (
-              <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
-                {general.map((message) => (
-                  <Text key={message} variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
-                    {message}
-                  </Text>
-                ))}
-              </View>
-            ) : null}
+            <Banner messages={general} />
 
-            <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
+            <Text variant="bodyMedium" style={{ color: BRAND.zinc600 }}>
               {stock.price !== null && stock.price_date !== null
                 ? `Last recorded ${formatRupees(stock.price)} on ${formatDate(stock.price_date)}.`
                 : "No price recorded yet, so holdings are valued at cost."}
@@ -228,16 +213,14 @@ export default function PriceFormScreen() {
               ]}
             />
 
-            <Button
-              mode="contained"
-              onPress={() => void save()}
-              loading={saving}
-              disabled={busy}
-              contentStyle={styles.saveContent}
-              style={styles.save}
-            >
-              {saving ? "Saving..." : "Save price"}
-            </Button>
+            <ChunkyButton
+            variant="green"
+            label={saving ? "Saving..." : "Save price"}
+            onPress={() => void save()}
+            loading={saving}
+            disabled={busy && !saving}
+            style={styles.save}
+          />
           </ScrollView>
         </KeyboardAvoidingView>
       )}
@@ -250,8 +233,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
-  banner: { borderRadius: 12, padding: 12, gap: 8 },
+  banner: { padding: 12, gap: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
   save: { marginTop: 8 },
-  saveContent: { height: 48 },
 });

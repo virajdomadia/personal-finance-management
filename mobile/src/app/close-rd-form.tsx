@@ -8,14 +8,17 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { Appbar, Button, Chip, HelperText, Text, TextInput, useTheme } from "react-native-paper";
+import { HelperText, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ChunkyButton, ScreenHeader } from "@/components/chunky";
 import { DateField } from "@/components/date-field";
+import { Banner, Choice } from "@/components/form-parts";
 import { type Account, type AccountList, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type CloseRdForm, closeRdForm, closeRdPayload } from "@/lib/deposits";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 import { previousDay, savedMonth, todayIndia } from "@/lib/transactions";
 
 const FIELDS = ["amount", "date", "account_id"] as const;
@@ -74,12 +77,7 @@ export default function CloseRdScreen() {
   const banks = (accounts ?? []).filter((a) => a.type === "bank");
   const busy = saving;
 
-  const header = (
-    <Appbar.Header>
-      <Appbar.BackAction onPress={() => router.back()} disabled={saving} />
-      <Appbar.Content title="Close RD" />
-    </Appbar.Header>
-  );
+  const header = <ScreenHeader title="Close RD" back backDisabled={saving} />;
 
   if (accounts === null || rd === null || form === null) {
     return (
@@ -93,24 +91,20 @@ export default function CloseRdScreen() {
               <Text variant="bodyLarge" style={styles.centerText}>
                 {loadError}
               </Text>
-              <Button
-                mode="contained"
+              <ChunkyButton
+                label="Try again"
                 onPress={() => {
                   setLoadError(null);
                   setAttempt((n) => n + 1);
                 }}
-              >
-                Try again
-              </Button>
+              />
             </>
           ) : (
             <>
               <Text variant="bodyLarge" style={styles.centerText}>
                 This RD was not found. It may already be closed.
               </Text>
-              <Button mode="contained" onPress={() => router.back()}>
-                Back to accounts
-              </Button>
+              <ChunkyButton label="Back to accounts" onPress={() => router.back()} />
             </>
           )}
         </View>
@@ -167,15 +161,7 @@ export default function CloseRdScreen() {
           keyboardDismissMode="on-drag"
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         >
-          {general.length > 0 ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
-              {general.map((message) => (
-                <Text key={message} variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
-                  {message}
-                </Text>
-              ))}
-            </View>
-          ) : null}
+          <Banner messages={general} />
 
           <Text variant="titleMedium">{rd.name}</Text>
 
@@ -214,22 +200,12 @@ export default function CloseRdScreen() {
           />
 
           <View>
-            <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
+            <Text variant="labelLarge" style={{ color: BRAND.zinc600 }}>
               Received in
             </Text>
             <View style={styles.chips}>
               {banks.map((a) => (
-                <Chip
-                  key={a.id}
-                  selected={form.account_id === String(a.id)}
-                  showSelectedCheck
-                  disabled={busy}
-                  onPress={() => set("account_id", String(a.id))}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: form.account_id === String(a.id), disabled: busy }}
-                >
-                  {a.name}
-                </Chip>
+                <Choice key={a.id} label={a.name} selected={form.account_id === String(a.id)} disabled={busy} onPress={() => set("account_id", String(a.id))} />
               ))}
             </View>
             {errors.account_id ? (
@@ -239,21 +215,17 @@ export default function CloseRdScreen() {
             ) : null}
           </View>
 
-          <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
+          <Text variant="bodyMedium" style={{ color: BRAND.zinc600 }}>
             Balance {formatRupees(rd.balance)}. The difference is recorded as interest, or as a fee if you received
             less. The RD is then archived.
           </Text>
 
-          <Button
-            mode="contained"
+          <ChunkyButton
+            label={saving ? "Closing..." : "Close RD"}
             onPress={() => void save()}
             loading={saving}
-            disabled={busy}
-            contentStyle={styles.saveContent}
             style={styles.save}
-          >
-            {saving ? "Closing..." : "Close RD"}
-          </Button>
+          />
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -265,8 +237,6 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
-  banner: { borderRadius: 12, padding: 12, gap: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
   save: { marginTop: 8 },
-  saveContent: { height: 48 },
 });

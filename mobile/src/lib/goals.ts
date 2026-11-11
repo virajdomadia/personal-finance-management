@@ -301,3 +301,20 @@ export function changedGoal(form: GoalForm, original: Goal): Record<string, unkn
   }
   return changed;
 }
+
+// The goal the dashboard tile shows: the unreached goal with a target that is closest to done (the
+// lowest id wins a tie, as it was created first); otherwise the latest reached one; otherwise none.
+export function tileGoal(goals: GoalCard[]): { goal: GoalCard; done: boolean } | null {
+  const withTarget = goals.filter((g) => g.target !== null);
+  const open = withTarget.filter((g) => !g.reached);
+  if (open.length > 0) {
+    const best = open.reduce((a, b) => ((b.percent ?? 0) > (a.percent ?? 0) || ((b.percent ?? 0) === (a.percent ?? 0) && b.id < a.id) ? b : a));
+    return { goal: best, done: false };
+  }
+  const reached = withTarget.filter((g) => g.reached);
+  if (reached.length > 0) return { goal: reached.reduce((a, b) => (b.id > a.id ? b : a)), done: true };
+  return null;
+}
+
+// The emoji on a goal: a lifebuoy for the emergency fund, a target for everything else.
+export const goalEmoji = (g: Pick<Goal, "kind">): string => (g.kind === "emergency" ? "🛟" : "🎯");

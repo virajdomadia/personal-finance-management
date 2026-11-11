@@ -92,7 +92,7 @@ export function NavDialog({
   });
   const error = (key: Key) =>
     errors[key] ? (
-      <p id={`ne-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+      <p id={`ne-${key}`} className="mt-1 text-xs font-extrabold text-loss">
         {errors[key]}
       </p>
     ) : null;
@@ -108,25 +108,25 @@ export function NavDialog({
       className={`${DIALOG} w-[min(26rem,calc(100vw-2rem))]`}
     >
       <form onSubmit={submit} noValidate>
-        <h2 id="nav-dialog-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+        <h2 id="nav-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
           Update NAV of {fund.name}
         </h2>
         <div className="flex flex-col gap-4 px-5 py-4">
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-zinc-600">
             {fund.nav !== null && fund.nav_date !== null
               ? `Last recorded ${formatNav(fund.nav)} on ${formatDate(fund.nav_date)}.`
               : "No NAV recorded yet, so holdings are valued at cost."}
           </p>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="n-nav" className="mb-1 block text-sm font-medium">
+              <label htmlFor="n-nav" className="mb-1 block text-xs font-black tracking-wide uppercase">
                 NAV (₹)
               </label>
               <input {...input("nav")} type="text" inputMode="decimal" autoComplete="off" placeholder="84.3793" required />
               {error("nav")}
             </div>
             <div>
-              <label htmlFor="n-date" className="mb-1 block text-sm font-medium">
+              <label htmlFor="n-date" className="mb-1 block text-xs font-black tracking-wide uppercase">
                 As of
               </label>
               <input {...input("date")} type="date" max={todayIndia()} required />
@@ -134,12 +134,12 @@ export function NavDialog({
             </div>
           </div>
           {formError ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            <p role="alert" className="text-sm font-extrabold text-loss">
               {formError}
             </p>
           ) : null}
         </div>
-        <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+        <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
           <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
             Cancel
           </button>

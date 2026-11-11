@@ -1,28 +1,20 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from "react-native";
-import {
-  Appbar,
-  Button,
-  Divider,
-  FAB,
-  Icon,
-  List,
-  SegmentedButtons,
-  Surface,
-  Text,
-  TouchableRipple,
-  useTheme,
-} from "react-native-paper";
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
+import { FAB, Icon, Text, useTheme } from "react-native-paper";
 
+import { ChunkyBox, ChunkyButton, Chip, Row, ScreenHeader, Segmented } from "@/components/chunky";
 import { GoalTagLine } from "@/components/goal-tag";
+import { GainPill, TileLine, WorthTile } from "@/components/investment-parts";
 import { Signed, signedLabel } from "@/components/signed";
 import { type GoalTag, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type CoinTotal, type CryptoTradeMode, formatCoinAverage, formatCoinPrice, formatCoinQty } from "@/lib/crypto";
 import { type FundTotal, type FundTradeMode, type Sip, dueText, formatNav, formatUnits } from "@/lib/funds";
-import type { DepositRow, DepositsPortfolio, Portfolio, StockTotal, Totals } from "@/lib/investments";
+import { type DepositRow, type DepositsPortfolio, type Portfolio, type StockTotal, type Totals, formatSigned, tone } from "@/lib/investments";
+import { accountEmoji, investmentEmoji, investmentSticker } from "@/lib/fun";
 import { useSession } from "@/lib/session";
+import { BRAND, INPUT_RADIUS, SHADOW_OFFSET_SM } from "@/lib/theme";
 import { formatDate } from "@/lib/transactions";
 
 type Kind = "buy" | "sell" | "opening";
@@ -127,7 +119,7 @@ export default function InvestmentsScreen() {
     ) : null;
 
   const errorLine = error ? (
-    <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.error }}>
+    <Text variant="bodyMedium" accessibilityRole="alert" style={styles.error}>
       {error} Pull down to try again.
     </Text>
   ) : null;
@@ -147,9 +139,7 @@ export default function InvestmentsScreen() {
         <Text variant="bodyLarge" style={styles.centerText}>
           {error}
         </Text>
-        <Button mode="contained" onPress={() => void refresh()} loading={refreshing} disabled={refreshing}>
-          Try again
-        </Button>
+        <ChunkyButton label="Try again" onPress={() => void refresh()} loading={refreshing} />
       </View>
     );
   } else if (segment === "stocks") {
@@ -161,37 +151,29 @@ export default function InvestmentsScreen() {
         keyExtractor={(row) => String(row.stock_id)}
         refreshControl={refreshControl}
         contentContainerStyle={styles.content}
-        ItemSeparatorComponent={Divider}
         ListHeaderComponent={
           <View style={styles.header}>
             {errorLine}
             {dueCards}
-            {empty ? null : <SummaryCard totals={portfolio.totals} />}
+            {empty ? null : <SummaryTile totals={portfolio.totals} kind="stock" />}
             {portfolio.by_stock.length > 0 ? <SectionTitle label="Holdings" /> : null}
           </View>
         }
         ListFooterComponent={
           portfolio.closed.length > 0 ? (
-            <View style={styles.footer}>
-              <Divider />
-              <List.Accordion
-                title={`Sold (${portfolio.closed.length})`}
-                expanded={soldOpen}
-                onPress={() => setSoldOpen((open) => !open)}
-                titleStyle={{ color: colors.primary }}
-              >
-                {portfolio.closed.map((c) => (
-                  <ClosedRow
-                    key={`${c.stock_id}-${c.account_id}`}
-                    title={c.symbol}
-                    detail={`${c.name} · ${c.account_name}`}
-                    realised={c.realised}
-                    hint="Opens the stock"
-                    onPress={() => openStock(c)}
-                  />
-                ))}
-              </List.Accordion>
-            </View>
+            <ClosedSection title={`Sold (${portfolio.closed.length})`} expanded={soldOpen} onToggle={() => setSoldOpen((open) => !open)}>
+              {portfolio.closed.map((c) => (
+                <ClosedRow
+                  key={`${c.stock_id}-${c.account_id}`}
+                  kind="stock"
+                  title={c.symbol}
+                  detail={`${c.name} · ${c.account_name}`}
+                  realised={c.realised}
+                  hint="Opens the stock"
+                  onPress={() => openStock(c)}
+                />
+              ))}
+            </ClosedSection>
           ) : undefined
         }
         renderItem={({ item }) => (
@@ -201,12 +183,10 @@ export default function InvestmentsScreen() {
           empty ? (
             <View style={styles.empty}>
               <Text variant="titleMedium">Add your shares</Text>
-              <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant, textAlign: "center" }}>
+              <Text variant="bodyMedium" style={styles.emptyText}>
                 Enter shares you already own, or record a buy. Buys and sells move your broker account&apos;s cash.
               </Text>
-              <Button mode="outlined" onPress={() => addTrade("opening")}>
-                Add existing shares
-              </Button>
+              <ChunkyButton variant="alt" label="Add existing shares" onPress={() => addTrade("opening")} />
             </View>
           ) : undefined
         }
@@ -228,18 +208,15 @@ export default function InvestmentsScreen() {
             {rows.length > 0 ? <SectionTitle label="Deposits" /> : null}
           </View>
         }
-        ItemSeparatorComponent={DepositGap}
         renderItem={({ item }) => <DepositCard row={item} onPress={() => openAccounts()} />}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text variant="titleMedium">No PPF or RD yet</Text>
-            <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant, textAlign: "center" }}>
+            <Text variant="bodyMedium" style={styles.emptyText}>
               Add a PPF or recurring deposit as an account. It shows here with its balance and the interest it has
               earned so far.
             </Text>
-            <Button mode="outlined" onPress={() => openAccounts()}>
-              Go to Accounts
-            </Button>
+            <ChunkyButton variant="alt" label="Go to Accounts" onPress={() => openAccounts()} />
           </View>
         }
       />
@@ -254,36 +231,32 @@ export default function InvestmentsScreen() {
         keyExtractor={(row) => String(row.coin_id)}
         refreshControl={refreshControl}
         contentContainerStyle={styles.content}
-        ItemSeparatorComponent={Divider}
         ListHeaderComponent={
           <View style={styles.header}>
             {errorLine}
-            {empty ? null : <SummaryCard totals={crypto.totals} />}
+            {empty ? null : <SummaryTile totals={crypto.totals} kind="crypto" />}
             {crypto.by_coin.length > 0 ? <SectionTitle label="Coins" /> : null}
           </View>
         }
         ListFooterComponent={
           crypto.closed.length > 0 ? (
-            <View style={styles.footer}>
-              <Divider />
-              <List.Accordion
-                title={`Sold (${crypto.closed.length})`}
-                expanded={coinsSoldOpen}
-                onPress={() => setCoinsSoldOpen((open) => !open)}
-                titleStyle={{ color: colors.primary }}
-              >
-                {crypto.closed.map((c) => (
-                  <ClosedRow
-                    key={`${c.coin_id}-${c.account_id}`}
-                    title={c.name}
-                    detail={`${c.symbol} · ${c.account_name}`}
-                    realised={c.realised}
-                    hint="Opens the coin"
-                    onPress={() => openCoin(c)}
-                  />
-                ))}
-              </List.Accordion>
-            </View>
+            <ClosedSection
+              title={`Sold (${crypto.closed.length})`}
+              expanded={coinsSoldOpen}
+              onToggle={() => setCoinsSoldOpen((open) => !open)}
+            >
+              {crypto.closed.map((c) => (
+                <ClosedRow
+                  key={`${c.coin_id}-${c.account_id}`}
+                  kind="crypto"
+                  title={c.name}
+                  detail={`${c.symbol} · ${c.account_name}`}
+                  realised={c.realised}
+                  hint="Opens the coin"
+                  onPress={() => openCoin(c)}
+                />
+              ))}
+            </ClosedSection>
           ) : undefined
         }
         renderItem={({ item }) => (
@@ -293,13 +266,11 @@ export default function InvestmentsScreen() {
           empty ? (
             <View style={styles.empty}>
               <Text variant="titleMedium">Add your crypto</Text>
-              <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant, textAlign: "center" }}>
+              <Text variant="bodyMedium" style={styles.emptyText}>
                 Enter coins you already hold, or record a buy. Prices are typed in by hand, so until you add one coins are
                 valued at cost.
               </Text>
-              <Button mode="outlined" onPress={() => addCoinTrade("opening")}>
-                Add existing coins
-              </Button>
+              <ChunkyButton variant="alt" label="Add existing coins" onPress={() => addCoinTrade("opening")} />
             </View>
           ) : undefined
         }
@@ -315,37 +286,33 @@ export default function InvestmentsScreen() {
         keyExtractor={(row) => String(row.fund_id)}
         refreshControl={refreshControl}
         contentContainerStyle={styles.content}
-        ItemSeparatorComponent={Divider}
         ListHeaderComponent={
           <View style={styles.header}>
             {errorLine}
             {dueCards}
-            {empty ? null : <SummaryCard totals={funds.totals} />}
+            {empty ? null : <SummaryTile totals={funds.totals} kind="mutual_fund" />}
             {funds.by_fund.length > 0 ? <SectionTitle label="Funds" /> : null}
           </View>
         }
         ListFooterComponent={
           funds.closed.length > 0 ? (
-            <View style={styles.footer}>
-              <Divider />
-              <List.Accordion
-                title={`Redeemed (${funds.closed.length})`}
-                expanded={redeemedOpen}
-                onPress={() => setRedeemedOpen((open) => !open)}
-                titleStyle={{ color: colors.primary }}
-              >
-                {funds.closed.map((c) => (
-                  <ClosedRow
-                    key={`${c.fund_id}-${c.account_id}`}
-                    title={c.name}
-                    detail={`${c.symbol} · ${c.account_name}`}
-                    realised={c.realised}
-                    hint="Opens the fund"
-                    onPress={() => openFund(c)}
-                  />
-                ))}
-              </List.Accordion>
-            </View>
+            <ClosedSection
+              title={`Redeemed (${funds.closed.length})`}
+              expanded={redeemedOpen}
+              onToggle={() => setRedeemedOpen((open) => !open)}
+            >
+              {funds.closed.map((c) => (
+                <ClosedRow
+                  key={`${c.fund_id}-${c.account_id}`}
+                  kind="mutual_fund"
+                  title={c.name}
+                  detail={`${c.symbol} · ${c.account_name}`}
+                  realised={c.realised}
+                  hint="Opens the fund"
+                  onPress={() => openFund(c)}
+                />
+              ))}
+            </ClosedSection>
           ) : undefined
         }
         renderItem={({ item }) => (
@@ -355,16 +322,12 @@ export default function InvestmentsScreen() {
           empty ? (
             <View style={styles.empty}>
               <Text variant="titleMedium">Add your mutual funds</Text>
-              <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant, textAlign: "center" }}>
+              <Text variant="bodyMedium" style={styles.emptyText}>
                 Enter units you already hold, or add a SIP. Each month a SIP shows here as due until you record it with
                 that day&apos;s NAV.
               </Text>
-              <Button mode="outlined" onPress={() => addFundTrade("opening")}>
-                Add existing units
-              </Button>
-              <Button mode="text" onPress={() => go({ pathname: "/sip-form" })}>
-                Add SIP
-              </Button>
+              <ChunkyButton variant="alt" label="Add existing units" onPress={() => addFundTrade("opening")} />
+              <ChunkyButton variant="alt" label="Add SIP" onPress={() => go({ pathname: "/sip-form" })} />
             </View>
           ) : undefined
         }
@@ -379,25 +342,25 @@ export default function InvestmentsScreen() {
   const onlyDue = dueSips.length === 1 ? dueSips[0] : null;
 
   return (
-    <View style={styles.screen}>
-      <Appbar.Header>
-        <Appbar.Content title="Investments" />
-      </Appbar.Header>
+    <View style={[styles.screen, { backgroundColor: colors.background }]}>
+      <ScreenHeader title="Investments" />
 
-      <SegmentedButtons
-        value={segment}
-        onValueChange={(value) => {
-          setFabOpen(false);
-          setSegment(value as Segment);
-        }}
-        style={styles.segments}
-        buttons={[
-          { value: "stocks", label: "Stocks" },
-          { value: "funds", label: "Funds" },
-          { value: "deposits", label: "Deposits" },
-          { value: "crypto", label: "Crypto" },
-        ]}
-      />
+      <View style={styles.segments}>
+        <Segmented<Segment>
+          label="Investment type"
+          value={segment}
+          onChange={(value) => {
+            setFabOpen(false);
+            setSegment(value);
+          }}
+          options={[
+            { value: "stocks", label: "Stocks" },
+            { value: "funds", label: "Funds" },
+            { value: "deposits", label: "Deposits" },
+            { value: "crypto", label: "Crypto" },
+          ]}
+        />
+      </View>
 
       {body}
 
@@ -408,11 +371,12 @@ export default function InvestmentsScreen() {
           icon={fabOpen ? "close" : "plus"}
           label={fabOpen ? undefined : "Add trade"}
           accessibilityLabel={fabOpen ? "Close trade options" : "Add a trade"}
+          fabStyle={styles.fab}
           onStateChange={({ open }) => setFabOpen(open)}
           actions={[
-            { icon: "archive-arrow-down-outline", label: "Add existing shares", onPress: () => addTrade("opening") },
-            ...(hasHoldings ? [{ icon: "minus", label: "Sell", onPress: () => addTrade("sell") }] : []),
-            { icon: "plus", label: "Buy", onPress: () => addTrade("buy") },
+            { ...look, icon: "archive-arrow-down-outline", label: "Add existing shares", onPress: () => addTrade("opening") },
+            ...(hasHoldings ? [{ ...look, icon: "minus", label: "Sell", onPress: () => addTrade("sell") }] : []),
+            { ...look, icon: "plus", label: "Buy", onPress: () => addTrade("buy") },
           ]}
         />
       ) : segment === "crypto" ? (
@@ -422,11 +386,12 @@ export default function InvestmentsScreen() {
           icon={fabOpen ? "close" : "plus"}
           label={fabOpen ? undefined : "Add"}
           accessibilityLabel={fabOpen ? "Close crypto options" : "Add a crypto transaction"}
+          fabStyle={styles.fab}
           onStateChange={({ open }) => setFabOpen(open)}
           actions={[
-            { icon: "archive-arrow-down-outline", label: "Add existing coins", onPress: () => addCoinTrade("opening") },
-            ...(hasCoinHoldings ? [{ icon: "minus", label: "Sell", onPress: () => addCoinTrade("sell") }] : []),
-            { icon: "plus", label: "Buy", onPress: () => addCoinTrade("buy") },
+            { ...look, icon: "archive-arrow-down-outline", label: "Add existing coins", onPress: () => addCoinTrade("opening") },
+            ...(hasCoinHoldings ? [{ ...look, icon: "minus", label: "Sell", onPress: () => addCoinTrade("sell") }] : []),
+            { ...look, icon: "plus", label: "Buy", onPress: () => addCoinTrade("buy") },
           ]}
         />
       ) : (
@@ -436,13 +401,15 @@ export default function InvestmentsScreen() {
           icon={fabOpen ? "close" : "plus"}
           label={fabOpen ? undefined : "Add"}
           accessibilityLabel={fabOpen ? "Close fund options" : "Add a fund transaction or SIP"}
+          fabStyle={styles.fab}
           onStateChange={({ open }) => setFabOpen(open)}
           actions={[
-            { icon: "calendar-sync-outline", label: "Add SIP", onPress: () => go({ pathname: "/sip-form" }) },
-            { icon: "archive-arrow-down-outline", label: "Add existing units", onPress: () => addFundTrade("opening") },
-            ...(hasFundHoldings ? [{ icon: "minus", label: "Redeem", onPress: () => addFundTrade("sell") }] : []),
-            { icon: "plus", label: "Buy", onPress: () => addFundTrade("buy") },
+            { ...look, icon: "calendar-sync-outline", label: "Add SIP", onPress: () => go({ pathname: "/sip-form" }) },
+            { ...look, icon: "archive-arrow-down-outline", label: "Add existing units", onPress: () => addFundTrade("opening") },
+            ...(hasFundHoldings ? [{ ...look, icon: "minus", label: "Redeem", onPress: () => addFundTrade("sell") }] : []),
+            { ...look, icon: "plus", label: "Buy", onPress: () => addFundTrade("buy") },
             {
+              ...look,
               icon: "calendar-check-outline",
               label: "Record SIP",
               onPress: () => (onlyDue ? recordSip(onlyDue) : addFundTrade("sip")),
@@ -456,288 +423,242 @@ export default function InvestmentsScreen() {
 
 // One SIP that is due. The whole card is the button: it opens Record SIP with only the NAV left to type.
 function DueCard({ sip, onPress }: { sip: Sip; onPress: () => void }) {
-  const { colors } = useTheme();
   const text = dueText(sip);
   return (
-    <Surface elevation={0} style={[styles.due, { backgroundColor: colors.tertiaryContainer }]}>
-      <TouchableRipple
-        onPress={onPress}
-        borderless
-        style={styles.dueRipple}
-        accessibilityRole="button"
-        accessibilityLabel={text}
-        accessibilityHint="Opens Record SIP with the NAV to type"
-      >
-        <View style={styles.dueInner}>
-          <Icon source="calendar-clock" size={24} color={colors.onTertiaryContainer} />
-          <Text variant="bodyMedium" style={[styles.grow, { color: colors.onTertiaryContainer }]}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={text}
+      accessibilityHint="Opens Record SIP with the NAV to type"
+    >
+      {({ pressed }) => (
+        <ChunkyBox pressed={pressed} radius={INPUT_RADIUS} offset={SHADOW_OFFSET_SM} style={styles.due}>
+          <Icon source="calendar-clock" size={24} color={BRAND.ink} />
+          <Text variant="bodyMedium" style={styles.dueText}>
             {text}
           </Text>
-          <Icon source="chevron-right" size={24} color={colors.onTertiaryContainer} />
-        </View>
-      </TouchableRipple>
-    </Surface>
+          <Icon source="chevron-right" size={24} color={BRAND.ink} />
+        </ChunkyBox>
+      )}
+    </Pressable>
   );
 }
 
-function SummaryCard({ totals }: { totals: Totals }) {
-  const { colors } = useTheme();
+// The worth of the segment: a blue tile with the sticker, the gain on a pill, and invested and realised.
+function SummaryTile({ totals, kind }: { totals: Totals; kind: "stock" | "mutual_fund" | "crypto" }) {
   return (
-    <Surface elevation={1} style={styles.summary}>
-      <View>
-        <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
-          Current value
-        </Text>
-        <Text variant="headlineMedium" adjustsFontSizeToFit numberOfLines={1} style={styles.value}>
-          {formatRupees(totals.value)}
-        </Text>
-      </View>
-      <Line label="Invested">
-        <Text variant="titleMedium" style={styles.right}>
-          {formatRupees(totals.invested)}
-        </Text>
-      </Line>
-      <Line label="Unrealised P&L">
-        <View style={styles.pnl}>
-          <Signed value={totals.unrealised} variant="titleMedium" style={styles.right} />
-          <Signed value={totals.unrealised_percent} percent variant="bodySmall" style={styles.right} />
-        </View>
-      </Line>
-      <Line label="Realised P&L">
-        <Signed value={totals.realised} variant="titleMedium" style={styles.right} />
-      </Line>
-    </Surface>
+    <WorthTile
+      label={`${investmentEmoji(kind)} Current value`}
+      value={formatRupees(totals.value)}
+      sticker={investmentSticker(totals.unrealised_percent)}
+    >
+      <GainPill unrealised={totals.unrealised} percent={totals.unrealised_percent} label="Unrealised P&L" />
+      <TileLine label="Invested" value={formatRupees(totals.invested)} />
+      <TileLine
+        label="Realised P&L"
+        value={formatSigned(totals.realised)}
+        accessibilityLabel={`Realised P&L ${signedLabel(totals.realised)}`}
+      />
+    </WorthTile>
   );
 }
 
 function DepositsSummary({ deposits }: { deposits: DepositsPortfolio }) {
-  const { colors } = useTheme();
   return (
-    <Surface elevation={1} style={styles.summary}>
-      <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
-        In deposits
-      </Text>
-      <Text variant="headlineMedium" adjustsFontSizeToFit numberOfLines={1} style={styles.value}>
-        {formatRupees(deposits.value)}
-      </Text>
-      <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
+    <WorthTile tone="orange" label="🐷 In deposits" value={formatRupees(deposits.value)}>
+      <Text variant="bodyMedium" style={styles.onTile}>
         ≈ {formatRupees(deposits.interest_estimate)} interest (estimate)
       </Text>
-    </Surface>
+    </WorthTile>
   );
-}
-
-function DepositGap() {
-  return <View style={styles.gap} />;
 }
 
 // One PPF or RD. The whole card opens the Accounts tab, where its actions are.
 function DepositCard({ row, onPress }: { row: DepositRow; onPress: () => void }) {
-  const { colors } = useTheme();
   const kindLabel = row.type === "ppf" ? "PPF" : "RD";
   const maturity = row.maturity_date ? `Matures ${formatDate(row.maturity_date)}` : null;
   return (
-    <Surface elevation={1} style={styles.depositCard}>
-      <TouchableRipple
+    <View style={styles.rowWrap}>
+      <Row
+        emoji={accountEmoji(row.type)}
+        tone="orange"
+        title={row.name}
+        meta={`${kindLabel}${maturity ? ` · ${maturity}` : ""}`}
+        amount={formatRupees(row.balance)}
+        sub={`≈ ${formatRupees(row.interest_estimate)} interest (estimate)`}
         onPress={onPress}
-        borderless
-        style={styles.dueRipple}
-        accessibilityRole="button"
         accessibilityLabel={`${row.name}, ${kindLabel}, balance ${formatRupees(row.balance)}, about ${formatRupees(row.interest_estimate)} interest estimated${maturity ? `, ${maturity.toLowerCase()}` : ""}`}
         accessibilityHint="Opens Accounts"
-      >
-        <View style={styles.row}>
-          <View style={styles.main}>
-            <Text variant="titleMedium">{row.name}</Text>
-            <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-              {kindLabel}
-              {maturity ? ` · ${maturity}` : ""}
-            </Text>
-          </View>
-          <View style={styles.amounts}>
-            <Text variant="titleMedium" style={styles.right}>
-              {formatRupees(row.balance)}
-            </Text>
-            <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
-              ≈ {formatRupees(row.interest_estimate)} interest (estimate)
-            </Text>
-          </View>
-        </View>
-      </TouchableRipple>
-    </Surface>
-  );
-}
-
-function SectionTitle({ label }: { label: string }) {
-  const { colors } = useTheme();
-  return (
-    <Text variant="titleSmall" accessibilityRole="header" style={[styles.sectionHeader, { color: colors.primary }]}>
-      {label}
-    </Text>
-  );
-}
-
-function Line({ label, children }: { label: string; children: React.ReactNode }) {
-  const { colors } = useTheme();
-  return (
-    <View style={styles.line}>
-      <Text variant="labelLarge" style={{ color: colors.onSurfaceVariant }}>
-        {label}
-      </Text>
-      {children}
+      />
     </View>
   );
 }
 
+// "Sold (3)": a button that shows or hides the closed positions under it.
+function ClosedSection({
+  title,
+  expanded,
+  onToggle,
+  children,
+}: {
+  title: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.footer}>
+      <View style={styles.footerHead}>
+        <Chip icon={expanded ? "chevron-up" : "chevron-down"} label={title} selected={expanded} onPress={onToggle} />
+      </View>
+      {expanded ? children : null}
+    </View>
+  );
+}
+
+function SectionTitle({ label }: { label: string }) {
+  return (
+    <Text variant="titleSmall" accessibilityRole="header" style={styles.sectionHeader}>
+      {label.toUpperCase()}
+    </Text>
+  );
+}
+
 function ClosedRow({
+  kind,
   title,
   detail,
   realised,
   hint,
   onPress,
 }: {
+  kind: "stock" | "mutual_fund" | "crypto";
   title: string;
   detail: string;
   realised: string;
   hint: string;
   onPress: () => void;
 }) {
-  const { colors } = useTheme();
   return (
-    <TouchableRipple onPress={onPress} accessibilityRole="button" accessibilityHint={hint}>
-      <View style={styles.row}>
-        <View style={styles.main}>
-          <Text variant="titleMedium">{title}</Text>
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            {detail}
-          </Text>
-        </View>
-        <View style={styles.amounts}>
-          <Text variant="labelSmall" style={{ color: colors.onSurfaceVariant }}>
-            Realised
-          </Text>
-          <Signed value={realised} variant="titleMedium" style={styles.right} />
-        </View>
-      </View>
-    </TouchableRipple>
+    <View style={styles.rowWrap}>
+      <Row
+        emoji={investmentEmoji(kind)}
+        tone="card"
+        title={title}
+        meta={detail}
+        caption="Realised"
+        amount={formatSigned(realised)}
+        amountTone={tone(realised) === "flat" ? undefined : (tone(realised) as "gain" | "loss")}
+        onPress={onPress}
+        accessibilityLabel={`${title}, ${detail}, realised ${signedLabel(realised)}`}
+        accessibilityHint={hint}
+      />
+    </View>
   );
 }
 
-// Amounts sit in a column of up to 55% of the row and wrap, so a long figure never runs under the name.
+// The row's lines go in a column that keeps its natural width (up to 65%), so a long figure shrinks to fit.
+function rowLines(sub: string | null, row: { unrealised: string; unrealised_percent: string }) {
+  return (
+    <>
+      {sub ? (
+        <Text variant="bodySmall" style={styles.rowSub}>
+          {sub}
+        </Text>
+      ) : null}
+      <Signed value={row.unrealised} variant="bodySmall" style={styles.signed} />
+      <Signed value={row.unrealised_percent} percent variant="bodySmall" style={styles.signed} />
+    </>
+  );
+}
+
 function HoldingRow({ row, goal, onPress }: { row: StockTotal; goal?: GoalTag; onPress: () => void }) {
-  const { colors } = useTheme();
   const priced = row.at_cost ? "at cost" : row.price !== null ? `@ ${formatRupees(row.price)}` : null;
   return (
-    <TouchableRipple
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`${row.symbol}, ${row.name}, ${row.shares} shares, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}${goal ? `, for ${goal.name}` : ""}`}
-      accessibilityHint="Opens its trades and prices"
-    >
-      <View style={styles.row}>
-        <View style={styles.main}>
-          <Text variant="titleMedium">{row.symbol}</Text>
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            {row.name}
-          </Text>
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            {row.shares} shares · avg {formatRupees(row.average_cost)}
-          </Text>
-          <GoalTagLine tag={goal} />
-        </View>
-        <View style={styles.amounts}>
-          <Text variant="titleMedium" style={styles.right}>
-            {formatRupees(row.value)}
-          </Text>
-          {priced ? (
-            <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
-              {priced}
+    <View style={styles.rowWrap}>
+      <Row
+        emoji={investmentEmoji("stock")}
+        tone="blue"
+        title={row.symbol}
+        meta={
+          <>
+            <Text variant="bodySmall" style={styles.meta}>
+              {row.name}
             </Text>
-          ) : null}
-          <Signed value={row.unrealised} variant="bodySmall" style={styles.right} />
-          <Signed value={row.unrealised_percent} percent variant="bodySmall" style={styles.right} />
-        </View>
-      </View>
-    </TouchableRipple>
+            <Text variant="bodySmall" style={styles.meta}>
+              {row.shares} shares · avg {formatRupees(row.average_cost)}
+            </Text>
+            <GoalTagLine tag={goal} />
+          </>
+        }
+        amount={formatRupees(row.value)}
+        sub={rowLines(priced, row)}
+        onPress={onPress}
+        accessibilityLabel={`${row.symbol}, ${row.name}, ${row.shares} shares, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}${goal ? `, for ${goal.name}` : ""}`}
+        accessibilityHint="Opens its trades and prices"
+      />
+    </View>
   );
 }
 
 // Fund names are long, so the name leads and the short symbol sits with the units underneath.
 function FundRow({ row, goal, onPress }: { row: FundTotal; goal?: GoalTag; onPress: () => void }) {
-  const { colors } = useTheme();
   const priced = row.at_cost ? "at cost" : row.nav !== null ? `NAV ${formatNav(row.nav)}` : null;
   return (
-    <TouchableRipple
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`${row.name}, ${formatUnits(row.units)} units, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}${goal ? `, for ${goal.name}` : ""}`}
-      accessibilityHint="Opens its transactions, NAVs and SIPs"
-    >
-      <View style={styles.row}>
-        <View style={styles.main}>
-          <Text variant="titleMedium">{row.name}</Text>
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            {row.symbol} · {formatUnits(row.units)} units
-          </Text>
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            avg NAV {formatNav(row.average_nav)}
-          </Text>
-          <GoalTagLine tag={goal} />
-        </View>
-        <View style={styles.amounts}>
-          <Text variant="titleMedium" style={styles.right}>
-            {formatRupees(row.value)}
-          </Text>
-          {priced ? (
-            <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
-              {priced}
+    <View style={styles.rowWrap}>
+      <Row
+        emoji={investmentEmoji("mutual_fund")}
+        tone="green"
+        title={row.name}
+        meta={
+          <>
+            <Text variant="bodySmall" style={styles.meta}>
+              {row.symbol} · {formatUnits(row.units)} units
             </Text>
-          ) : null}
-          <Signed value={row.unrealised} variant="bodySmall" style={styles.right} />
-          <Signed value={row.unrealised_percent} percent variant="bodySmall" style={styles.right} />
-        </View>
-      </View>
-    </TouchableRipple>
+            <Text variant="bodySmall" style={styles.meta}>
+              avg NAV {formatNav(row.average_nav)}
+            </Text>
+            <GoalTagLine tag={goal} />
+          </>
+        }
+        amount={formatRupees(row.value)}
+        sub={rowLines(priced, row)}
+        onPress={onPress}
+        accessibilityLabel={`${row.name}, ${formatUnits(row.units)} units, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}${goal ? `, for ${goal.name}` : ""}`}
+        accessibilityHint="Opens its transactions, NAVs and SIPs"
+      />
+    </View>
   );
 }
 
 // Coin names lead, with the quantity and ticker underneath. Prices go through formatCoinPrice,
 // averages through formatCoinAverage.
 function CoinRow({ row, goal, onPress }: { row: CoinTotal; goal?: GoalTag; onPress: () => void }) {
-  const { colors } = useTheme();
   const priced = row.at_cost ? "at cost" : row.price !== null ? `@ ${formatCoinPrice(row.price)}` : null;
   return (
-    <TouchableRipple
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`${row.name}, ${formatCoinQty(row.quantity)} ${row.symbol}, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}${goal ? `, for ${goal.name}` : ""}`}
-      accessibilityHint="Opens its transactions and prices"
-    >
-      <View style={styles.row}>
-        <View style={styles.main}>
-          <Text variant="titleMedium">{row.name}</Text>
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            {formatCoinQty(row.quantity)} {row.symbol}
-          </Text>
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            avg {formatCoinAverage(row.average_price)}
-          </Text>
-          <GoalTagLine tag={goal} />
-        </View>
-        <View style={styles.amounts}>
-          <Text variant="titleMedium" style={styles.right}>
-            {formatRupees(row.value)}
-          </Text>
-          {priced ? (
-            <Text variant="bodySmall" style={[styles.right, { color: colors.onSurfaceVariant }]}>
-              {priced}
+    <View style={styles.rowWrap}>
+      <Row
+        emoji={investmentEmoji("crypto")}
+        tone="orange"
+        title={row.name}
+        meta={
+          <>
+            <Text variant="bodySmall" style={styles.meta}>
+              {formatCoinQty(row.quantity)} {row.symbol}
             </Text>
-          ) : null}
-          <Signed value={row.unrealised} variant="bodySmall" style={styles.right} />
-          <Signed value={row.unrealised_percent} percent variant="bodySmall" style={styles.right} />
-        </View>
-      </View>
-    </TouchableRipple>
+            <Text variant="bodySmall" style={styles.meta}>
+              avg {formatCoinAverage(row.average_price)}
+            </Text>
+            <GoalTagLine tag={goal} />
+          </>
+        }
+        amount={formatRupees(row.value)}
+        sub={rowLines(priced, row)}
+        onPress={onPress}
+        accessibilityLabel={`${row.name}, ${formatCoinQty(row.quantity)} ${row.symbol}, worth ${formatRupees(row.value)}${row.at_cost ? " at cost" : ""}, unrealised ${signedLabel(row.unrealised)}, ${signedLabel(row.unrealised_percent, true)}${goal ? `, for ${goal.name}` : ""}`}
+        accessibilityHint="Opens its transactions and prices"
+      />
+    </View>
   );
 }
 
@@ -745,25 +666,27 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
-  segments: { marginHorizontal: 16, marginTop: 4, marginBottom: 4 },
+  segments: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 },
   content: { paddingBottom: 112 },
-  header: { padding: 16, paddingBottom: 0, gap: 12 },
-  dueList: { gap: 8 },
-  due: { borderRadius: 12 },
-  dueRipple: { borderRadius: 12 },
-  dueInner: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, minHeight: 56 },
-  grow: { flex: 1 },
-  summary: { borderRadius: 12, padding: 16, gap: 10 },
-  value: { fontWeight: "600" },
-  line: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
-  pnl: { alignItems: "flex-end", flexShrink: 1 },
-  right: { textAlign: "right" },
-  sectionHeader: { paddingTop: 8, paddingBottom: 4 },
-  row: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-  main: { flex: 1, gap: 2 },
-  amounts: { flexShrink: 1, maxWidth: "55%", alignItems: "flex-end" },
-  gap: { height: 8 },
-  depositCard: { borderRadius: 12, marginHorizontal: 16 },
+  header: { paddingHorizontal: 16, paddingTop: 8, gap: 12 },
+  error: { color: BRAND.loss },
+  dueList: { gap: 12 },
+  due: { backgroundColor: BRAND.due, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, minHeight: 56 },
+  dueText: { flex: 1, color: BRAND.ink },
+  onTile: { color: "#FFFFFF", marginTop: 6 },
+  sectionHeader: { color: BRAND.ink, letterSpacing: 0.6, paddingTop: 8 },
+  rowWrap: { paddingHorizontal: 16, paddingVertical: 4 },
+  meta: { color: BRAND.zinc600, fontSize: 12, lineHeight: 16 },
+  rowSub: { color: BRAND.zinc600, fontSize: 12, lineHeight: 16, textAlign: "right" },
+  signed: { fontSize: 12, lineHeight: 16, textAlign: "right" },
   footer: { marginTop: 8 },
+  footerHead: { alignItems: "flex-start", paddingHorizontal: 16, paddingBottom: 8 },
   empty: { alignItems: "center", gap: 12, padding: 32 },
+  emptyText: { color: BRAND.zinc600, textAlign: "center" },
+  fab: { backgroundColor: BRAND.yellow, borderWidth: 2.5, borderColor: BRAND.ink, borderRadius: 16 },
+  fabAction: { backgroundColor: BRAND.card, borderWidth: 2.5, borderColor: BRAND.ink },
+  fabLabel: { color: BRAND.ink },
 });
+
+// The chunky look for each speed-dial action: a white chip with an ink border.
+const look = { style: styles.fabAction, labelStyle: styles.fabLabel };
