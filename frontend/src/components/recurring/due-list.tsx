@@ -7,12 +7,18 @@ import { type Account, type AccountList, errorMessage } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { EarmarkDialog } from "@/components/goals/earmark-dialog";
 import { RenewDialog } from "@/components/insurance/renew-dialog";
-import { LIST, Notice, PRIMARY, QUIET, ROW_ACTION, SECTION_TITLE, isUnauthorized } from "@/components/investments/shared";
+import { Notice, QUIET, isUnauthorized } from "@/components/investments/shared";
+import { buttonClass } from "@/components/ui/chunky";
 import { TransactionDialog } from "@/components/transactions/transaction-dialog";
 import { type GoalDue, goalDueText } from "@/lib/goals";
 import { type DueItem, type DueList as DueListData, canSkip, dueText, transactionFormFromTemplate } from "@/lib/recurring";
 import type { Policy } from "@/lib/insurance";
 import { todayIndia } from "@/lib/transactions";
+
+const GROUP_TITLE = "mb-0.5 text-xs font-black tracking-wide uppercase";
+const ROW = "flex flex-wrap items-center gap-x-4 gap-y-2 border-b-[1.5px] border-dashed border-zinc-300 py-2 last:border-b-0";
+const SMALL_GREEN = `${buttonClass("green")} !px-3 !py-1`;
+const SMALL_ALT = `${buttonClass("alt")} !px-2.5 !py-1`;
 
 const itemKey = (item: DueItem) => `${item.template.id}-${item.occurrence}`;
 
@@ -60,25 +66,25 @@ export function DueList({ items, onRecord, onSkipped, onError, onClearError }: L
   const group = (title: string, id: string, rows: DueItem[]) =>
     rows.length === 0 ? null : (
       <section aria-labelledby={id}>
-        <h2 id={id} className={SECTION_TITLE}>
+        <h2 id={id} className={GROUP_TITLE}>
           {title}
         </h2>
-        <ul className={LIST}>
+        <ul>
           {rows.map((item) => {
             const key = itemKey(item);
             const isPolicy = item.template.policy_id !== null;
             const asking = confirming === key;
             return (
-              <li key={key} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-                <p className="min-w-32 flex-1 text-sm [overflow-wrap:anywhere]">{dueText(item)}</p>
+              <li key={key} className={ROW}>
+                <p className="min-w-32 flex-1 text-sm font-extrabold [overflow-wrap:anywhere]">{dueText(item)}</p>
                 <div className="flex shrink-0 items-center justify-end gap-1">
                   {asking ? (
                     <>
-                      <span className="px-1 text-xs text-zinc-600 dark:text-zinc-400">Skip this one?</span>
-                      <button type="button" className={ROW_ACTION} disabled={skipping === key} onClick={() => skip(item)}>
+                      <span className="px-1 text-xs font-bold">Skip this one?</span>
+                      <button type="button" className={SMALL_ALT} disabled={skipping === key} onClick={() => skip(item)}>
                         {skipping === key ? "Skipping..." : "Yes, skip"}
                       </button>
-                      <button type="button" className={ROW_ACTION} disabled={skipping === key} onClick={() => setConfirming(null)}>
+                      <button type="button" className={SMALL_ALT} disabled={skipping === key} onClick={() => setConfirming(null)}>
                         Keep
                       </button>
                     </>
@@ -86,16 +92,16 @@ export function DueList({ items, onRecord, onSkipped, onError, onClearError }: L
                     <>
                       <button
                         type="button"
-                        className={`${PRIMARY} !px-3 !py-1 !text-xs`}
+                        className={SMALL_GREEN}
                         aria-label={`${isPolicy ? "Renew" : "Record"} ${item.template.name}`}
                         onClick={() => onRecord(item)}
                       >
-                        {isPolicy ? "Renew" : "Record"}
+                        {isPolicy ? "RENEW" : "✓ PAID"}
                       </button>
                       {canSkip(item) && (
                         <button
                           type="button"
-                          className={ROW_ACTION}
+                          className={SMALL_ALT}
                           aria-label={`Skip ${item.template.name}`}
                           onClick={() => setConfirming(key)}
                         >
@@ -114,7 +120,7 @@ export function DueList({ items, onRecord, onSkipped, onError, onClearError }: L
 
   if (items.length === 0) return null;
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       {group("Due", "due-title", due)}
       {group("Coming up", "coming-up-title", comingUp)}
     </div>
@@ -192,21 +198,21 @@ function GoalsDue({ goals, onRecord }: { goals: GoalDue[]; onRecord: (due: GoalD
   if (goals.length === 0) return null;
   return (
     <section aria-labelledby="goals-due-title">
-      <h2 id="goals-due-title" className={SECTION_TITLE}>
+      <h2 id="goals-due-title" className={GROUP_TITLE}>
         Set aside
       </h2>
-      <ul className={LIST}>
+      <ul>
         {goals.map((due) => (
-          <li key={due.goal_id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-            <p className="min-w-32 flex-1 text-sm [overflow-wrap:anywhere]">{goalDueText(due)}</p>
+          <li key={due.goal_id} className={ROW}>
+            <p className="min-w-32 flex-1 text-sm font-extrabold [overflow-wrap:anywhere]">{goalDueText(due)}</p>
             <div className="flex shrink-0 items-center justify-end gap-1">
               <button
                 type="button"
-                className={`${PRIMARY} !px-3 !py-1 !text-xs`}
+                className={SMALL_GREEN}
                 aria-label={`Record setting aside for ${due.name}`}
                 onClick={() => onRecord(due)}
               >
-                Record
+                ✓ DONE
               </button>
             </div>
           </li>
@@ -225,10 +231,12 @@ type SectionProps = {
   // Called after something was recorded or skipped, so the page can reload what it shows. A recorded
   // transaction passes its date.
   onChanged?: (recordedDate?: string) => void;
+  // Draw the rows bare, for a card the page already provides; otherwise they sit in their own card.
+  embedded?: boolean;
 };
 
 // The due and coming-up lists with their Record and Skip, ready to drop into a page.
-export function DueSection({ items: given, goals: givenGoals, refreshKey = 0, onChanged }: SectionProps) {
+export function DueSection({ items: given, goals: givenGoals, refreshKey = 0, onChanged, embedded = false }: SectionProps) {
   const [fetched, setFetched] = useState<DueItem[]>([]);
   const [fetchedGoals, setFetchedGoals] = useState<GoalDue[]>([]);
   const [recordGoal, setRecordGoal] = useState<GoalDue | null>(null);
@@ -274,7 +282,7 @@ export function DueSection({ items: given, goals: givenGoals, refreshKey = 0, on
     <>
       <Notice message={notice} />
       {own && failed && (
-        <p role="alert" className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+        <p role="alert" className="mb-4 text-sm font-bold">
           We couldn&apos;t load your reminders.{" "}
           <button type="button" className={QUIET} onClick={load}>
             Try again
@@ -282,7 +290,13 @@ export function DueSection({ items: given, goals: givenGoals, refreshKey = 0, on
         </p>
       )}
       {(items.length > 0 || goals.length > 0) && (
-        <div className="mb-6 flex flex-col gap-4">
+        <div
+          className={
+            embedded
+              ? "flex flex-col gap-3"
+              : "mb-6 flex flex-col gap-3 rounded-[18px] border-[2.5px] border-ink bg-due p-3.5 shadow-chunky"
+          }
+        >
           <DueList items={items} onRecord={setRecord} onSkipped={() => changed()} onError={setNotice} onClearError={() => setNotice(null)} />
           <GoalsDue goals={goals} onRecord={setRecordGoal} />
         </div>

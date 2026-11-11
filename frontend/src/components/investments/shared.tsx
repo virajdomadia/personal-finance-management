@@ -51,8 +51,8 @@ export function isUnauthorized(err: unknown): boolean {
 }
 
 const TONE_CLASS = {
-  gain: "text-green-700 dark:text-green-400",
-  loss: "text-red-700 dark:text-red-400",
+  gain: "text-gain",
+  loss: "text-loss",
   flat: "",
 } as const;
 const TONE_WORD = { gain: "gain", loss: "loss", flat: "no change" } as const;

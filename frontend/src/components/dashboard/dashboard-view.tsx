@@ -9,14 +9,21 @@ import { ApiError, apiFetch } from "@/lib/api";
 import { Signed } from "@/components/investments/shared";
 import { ProgressBar } from "@/components/goals/goals-view";
 import { DueSection } from "@/components/recurring/due-list";
+import { FOCUS, PageHeader, StackedBar, Tile, buttonClass } from "@/components/ui/chunky";
+import { investmentSticker } from "@/lib/fun";
 import { progressText } from "@/lib/goals";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: Dashboard };
 
-const FOCUS = "focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none";
-const CARD = `block min-w-0 rounded-lg border border-zinc-200 px-4 py-3 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900 ${FOCUS}`;
-const LABEL = "text-sm text-zinc-600 dark:text-zinc-400";
-const AMOUNT = "mt-1 text-2xl font-semibold tabular-nums [overflow-wrap:anywhere]";
+const GROUP_LABELS: Record<Dashboard["asset_split"][number]["group"], string> = {
+  bank_cash: "Bank & cash",
+  deposits: "Deposits",
+  stocks: "Stocks",
+  funds: "Funds",
+  crypto: "Crypto",
+};
+
+const ITEM = `block border-b-[1.5px] border-dashed border-zinc-300 py-2 text-sm font-extrabold [overflow-wrap:anywhere] ${FOCUS}`;
 
 export function DashboardView() {
   const [load, setLoad] = useState<Load>({ status: "loading" });
@@ -39,25 +46,37 @@ export function DashboardView() {
   }, [fetchDashboard]);
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="mx-auto max-w-5xl">
+      <PageHeader
+        title="Hey there! 👋"
+        action={
+          <Link href="/transactions" className={buttonClass("primary")}>
+            + ADD TRANSACTION
+          </Link>
+        }
+      />
+
       {load.status === "loading" && (
-        <p role="status" className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p role="status" className="text-sm font-bold text-zinc-600">
           Loading your dashboard...
         </p>
       )}
 
       {load.status === "error" && (
-        <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
-          <p>We couldn&apos;t load your dashboard.</p>
+        <div role="alert" className="rounded-[18px] border-[2.5px] border-ink bg-card p-5 shadow-chunky">
+          <p className="text-4xl" aria-hidden="true">
+            🙈
+          </p>
+          <p className="mt-1 font-extrabold">We couldn&apos;t load your dashboard.</p>
           <button
             type="button"
-            className={`mt-2 -ml-1 rounded-md px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 ${FOCUS}`}
+            className={`mt-3 ${buttonClass("alt")}`}
             onClick={() => {
               setLoad({ status: "loading" });
               fetchDashboard();
             }}
           >
-            Try again
+            TRY AGAIN
           </button>
         </div>
       )}
@@ -71,102 +90,107 @@ function Content({ data, onChanged }: { data: Dashboard; onChanged: () => void }
   const due = data.next_card_due;
   const used = data.credit_used;
   const investments = data.investments;
+  const goals = data.goals ?? [];
+  const goalsDue = data.goals_due ?? [];
+  // The groups need not add up to total_have, so the bar works from its own parts.
+  const split = (data.asset_split ?? []).map((item) => ({ label: GROUP_LABELS[item.group], value: Number(item.value) }));
+  const hasSplit = split.some((item) => item.value > 0);
+  const negative = Number(data.net_worth) < 0;
+
+  if (!data.has_accounts) {
+    return (
+      <div className="flex flex-col items-start gap-3 rounded-[18px] border-[2.5px] border-ink bg-card p-6 shadow-chunky">
+        <p className="text-6xl" aria-hidden="true">
+          🐷
+        </p>
+        <h2 className="text-xl font-black">Nothing here yet</h2>
+        <p className="text-sm font-bold text-zinc-600">Add your first account and your net worth shows up here.</p>
+        <Link href="/accounts" className={buttonClass("primary")}>
+          ADD YOUR FIRST ACCOUNT
+        </Link>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-6">
-      <section aria-labelledby="net-worth-label" className="rounded-lg border border-zinc-200 px-5 py-6 dark:border-zinc-800">
-        <p id="net-worth-label" className={LABEL}>
-          Net worth
-        </p>
-        <p className="mt-1 text-lg font-semibold tabular-nums [overflow-wrap:anywhere] min-[480px]:text-3xl sm:text-5xl">
-          {formatRupees(data.net_worth)}
-        </p>
-        {data.investments && (
-          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Includes investments at their latest price (or cost if no price yet)</p>
-        )}
-        {!data.has_accounts && (
-          <Link
-            href="/accounts"
-            className={`mt-4 inline-block rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300 ${FOCUS}`}
-          >
-            Add your first account
-          </Link>
-        )}
-      </section>
-
-      {data.has_accounts && (
-        <div className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-[1fr_auto_1fr]">
-          <Link href="/accounts" className={CARD}>
-            <p className={LABEL}>You have</p>
-            <p className={AMOUNT}>{formatRupees(data.total_have)}</p>
-          </Link>
-          <span aria-hidden="true" className="self-center text-center text-xl text-zinc-400">
-            &minus;
-          </span>
-          <Link href="/accounts" className={CARD}>
-            <p className={LABEL}>You owe</p>
-            <p className={AMOUNT}>{formatRupees(data.total_owe)}</p>
-          </Link>
+    <div className="flex flex-col gap-3.5">
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-[2fr_1fr_1fr]">
+        <div className="sm:col-span-2 xl:col-span-1 xl:row-span-2 [&>*]:h-full">
+          <Tile tone={negative ? "pink" : "green"} label="Net worth" value={formatRupees(data.net_worth)} size="huge">
+            {investments && (
+              <span className="mt-2 block text-xs font-extrabold">
+                Includes investments at their latest price (or cost if no price yet)
+              </span>
+            )}
+          </Tile>
         </div>
-      )}
+        <Tile tone="yellow" emoji="🏦" label="You have" value={formatRupees(data.total_have)} href="/accounts" />
+        <Tile tone="pink" emoji="💳" label="You owe" value={formatRupees(data.total_owe)} href="/accounts" />
+        {investments && (
+          <Tile
+            tone="blue"
+            emoji="📈"
+            label="Investments"
+            value={formatRupees(investments.value)}
+            sticker={investmentSticker(investments.unrealised_percent)}
+            href="/investments"
+          >
+            <span className="mt-1.5 inline-block rounded-full border-2 border-ink bg-card px-2 py-0.5 text-xs font-extrabold text-ink">
+              Unrealised <Signed value={investments.unrealised} /> <Signed value={investments.unrealised_percent} percentOnly />
+            </span>
+          </Tile>
+        )}
+        {hasSplit && (
+          <Tile label="Where it is" emoji="🧭">
+            <StackedBar items={split} label="Where your money is" />
+          </Tile>
+        )}
+      </div>
 
-      {investments && (
-        <Link href="/investments" className={CARD}>
-          <p className={LABEL}>Investments</p>
-          <p className={AMOUNT}>{formatRupees(investments.value)}</p>
-          <p className="mt-1 text-sm">
-            <span className="text-zinc-500 dark:text-zinc-400">Unrealised </span>
-            <Signed value={investments.unrealised} /> <Signed value={investments.unrealised_percent} percentOnly />
-          </p>
-        </Link>
-      )}
-
-      <DueSection items={data.recurring} goals={data.goals_due ?? []} onChanged={onChanged} />
-
-      {data.goals && data.goals.length > 0 && (
-        <section aria-labelledby="goals-title">
-          <h2 id="goals-title" className="mb-1 px-1 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
-            Goals
+      <div className={`grid grid-cols-1 items-start gap-3.5 ${goals.length > 0 ? "sm:grid-cols-2" : ""}`}>
+        <section aria-labelledby="attention-title" className="min-w-0 rounded-[18px] border-[2.5px] border-ink bg-due p-3.5 shadow-chunky">
+          <h2 id="attention-title" className="mb-1 text-xs font-extrabold">
+            <span aria-hidden="true">⏰ </span>Needs attention
           </h2>
-          <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-            {data.goals.map((g) => (
-              <li key={g.id}>
-                <Link href={`/goals/${g.id}`} className={`block px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${FOCUS}`}>
-                  <span className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                    <span className="text-sm font-medium [overflow-wrap:anywhere]">{g.name}</span>
-                    <span className="text-xs text-zinc-600 tabular-nums dark:text-zinc-400">{progressText(g)}</span>
-                  </span>
-                  {g.target !== null && <ProgressBar percent={g.percent} reached={g.reached} label={`${g.name} progress`} className="mt-2" />}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          {due && (
+            <Link href="/accounts" className={ITEM}>
+              {due.name} due {formatDueDate(due.due_date)}
+            </Link>
+          )}
+          {used && (
+            <Link href="/accounts" className={ITEM}>
+              {used.percent}% of credit limit used
+            </Link>
+          )}
+          <DueSection items={data.recurring} goals={goalsDue} onChanged={onChanged} embedded />
+          {!due && !used && data.recurring.length === 0 && goalsDue.length === 0 && (
+            <p className="py-2 text-sm font-extrabold">
+              <span aria-hidden="true">🎉 </span>All caught up. Nothing needs you right now.
+            </p>
+          )}
         </section>
-      )}
 
-      {(due || used) && (
-        <section aria-labelledby="attention-title">
-          <h2 id="attention-title" className="mb-1 px-1 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
-            Needs attention
-          </h2>
-          <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-            {due && (
-              <li>
-                <Link href="/accounts" className={`block px-4 py-3 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-900 [overflow-wrap:anywhere] ${FOCUS}`}>
-                  {due.name} due {formatDueDate(due.due_date)}
-                </Link>
-              </li>
-            )}
-            {used && (
-              <li>
-                <Link href="/accounts" className={`block px-4 py-3 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-900 ${FOCUS}`}>
-                  {used.percent}% of credit limit used
-                </Link>
-              </li>
-            )}
-          </ul>
-        </section>
-      )}
+        {goals.length > 0 && (
+          <section aria-labelledby="goals-title" className="min-w-0 rounded-[18px] border-[2.5px] border-ink bg-card p-3.5 shadow-chunky">
+            <h2 id="goals-title" className="mb-1 text-xs font-extrabold">
+              <span aria-hidden="true">🎯 </span>Goals
+            </h2>
+            <ul>
+              {goals.map((g) => (
+                <li key={g.id} className="border-b-[1.5px] border-dashed border-zinc-300 last:border-b-0">
+                  <Link href={`/goals/${g.id}`} className={`block py-2 ${FOCUS}`}>
+                    <span className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                      <span className="text-sm font-extrabold [overflow-wrap:anywhere]">{g.name}</span>
+                      <span className="text-xs font-bold tabular-nums">{progressText(g)}</span>
+                    </span>
+                    {g.target !== null && <ProgressBar percent={g.percent} reached={g.reached} label={`${g.name} progress`} className="mt-2" />}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
     </div>
   );
 }
