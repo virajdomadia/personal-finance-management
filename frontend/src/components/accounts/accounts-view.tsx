@@ -541,7 +541,7 @@ function AccountRow({
               <button
                 type="button"
                 className={ROW_ACTION}
-                aria-label={`Record an EMI for ${account.name}`}
+                aria-label={`Record EMI for ${account.name}`}
                 onClick={() => onRecordEmi(account)}
               >
                 Record EMI
@@ -558,12 +558,12 @@ function AccountRow({
               </button>
             )}
             {figures?.kind === "rd" && figures.due.length > 0 && (
-              <button type="button" className={ROW_ACTION} aria-label={`Record an instalment for ${account.name}`} onClick={() => onDeposit(account, "instalment")}>
+              <button type="button" className={ROW_ACTION} aria-label={`Record instalment for ${account.name}`} onClick={() => onDeposit(account, "instalment")}>
                 Record instalment
               </button>
             )}
             {account.type === "rd" && (
-              <button type="button" className={ROW_ACTION} aria-label={`Close ${account.name}`} onClick={() => onCloseRd(account)}>
+              <button type="button" className={ROW_ACTION} aria-label={`Close RD ${account.name}`} onClick={() => onCloseRd(account)}>
                 Close RD
               </button>
             )}

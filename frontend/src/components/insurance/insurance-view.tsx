@@ -373,7 +373,7 @@ function PolicyRows({
                 Edit
               </button>
               {policy.active && (
-                <button type="button" className={ROW_ACTION} onClick={onLapse} aria-label={`Mark ${name} lapsed`}>
+                <button type="button" className={ROW_ACTION} onClick={onLapse} aria-label={`Mark lapsed ${name}`}>
                   Mark lapsed
                 </button>
               )}
