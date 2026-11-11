@@ -1,12 +1,15 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl, ScrollView, SectionList, StyleSheet, View } from "react-native";
-import { Button, Chip, Divider, FAB, IconButton, Surface, Text, TouchableRipple, useTheme } from "react-native-paper";
+import { Button, FAB, IconButton, Surface, Text, useTheme } from "react-native-paper";
+
+import { Chip, Row } from "@/components/chunky";
 
 import { DueList } from "@/components/due-list";
 import type { GoalDue } from "@/lib/goals";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { categoryEmoji, investmentEmoji } from "@/lib/fun";
 import type { DueItem } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
 import {
@@ -38,6 +41,8 @@ function query(filters: Filters, offset: number): string {
   return `/transactions?${params.join("&")}`;
 }
 
+const amountTone = (amount: string) => (amount.startsWith("+") ? "gain" : amount.startsWith("-") ? "loss" : undefined);
+
 function TransactionRow({
   transaction: tx,
   viewedAccountId,
@@ -47,7 +52,6 @@ function TransactionRow({
   viewedAccountId: number | null;
   onPress: () => void;
 }) {
-  const { colors } = useTheme();
   const title = tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? `EMI · ${tx.to_account_name}` : tx.category;
   const accounts =
     tx.type === "transfer"
@@ -57,60 +61,40 @@ function TransactionRow({
         : tx.account_name;
   const amount = signedAmount(tx, viewedAccountId);
   return (
-    <TouchableRipple
-      onPress={onPress}
-      disabled={!tx.editable}
-      accessibilityRole={tx.editable ? "button" : undefined}
-      accessibilityLabel={`${title}, ${amount}, ${accounts}`}
-    >
-      <View style={styles.row}>
-        <View style={styles.rowMain}>
-          <Text variant="titleMedium">{title}</Text>
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            {tx.note ? `${accounts} · ${tx.note}` : accounts}
-          </Text>
-        </View>
-        <View style={styles.rowAmount}>
-          <Text variant="titleMedium" style={styles.amountText}>
-            {amount}
-          </Text>
-          {tx.editable ? null : (
-            <Text variant="labelSmall" style={{ color: colors.onSurfaceVariant }}>
-              Archived
-            </Text>
-          )}
-        </View>
-      </View>
-    </TouchableRipple>
+    <View style={styles.rowWrap}>
+      <Row
+        emoji={tx.type === "transfer" ? "🔄" : tx.type === "emi" ? "🏧" : categoryEmoji(tx.category)}
+        tone={tx.type === "income" ? "green" : tx.type === "expense" ? "pink" : tx.type === "emi" ? "orange" : "blue"}
+        title={title ?? ""}
+        meta={tx.note ? `${accounts} · ${tx.note}` : accounts}
+        amount={amount}
+        amountTone={amountTone(amount)}
+        sub={tx.editable ? undefined : "Archived"}
+        onPress={tx.editable ? onPress : undefined}
+        accessibilityLabel={`${title}, ${amount}, ${accounts}`}
+      />
+    </View>
   );
 }
 
 // One buy or sell in an investment account. Read-only: tapping opens the stock, fund or coin.
 function ActivityRow({ activity, onPress }: { activity: Activity; onPress: () => void }) {
-  const { colors } = useTheme();
   const label = activityLabel(activity);
   const amount = activityAmount(activity.signed_amount);
   return (
-    <TouchableRipple
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`${label}, ${amount}, ${formatDate(activity.date)}`}
-      accessibilityHint="Opens it"
-    >
-      <View style={styles.row}>
-        <View style={styles.rowMain}>
-          <Text variant="titleMedium">{label}</Text>
-          <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-            {formatDate(activity.date)}
-          </Text>
-        </View>
-        <View style={styles.rowAmount}>
-          <Text variant="titleMedium" style={styles.amountText}>
-            {amount}
-          </Text>
-        </View>
-      </View>
-    </TouchableRipple>
+    <View style={styles.rowWrap}>
+      <Row
+        emoji={investmentEmoji(activity.kind)}
+        tone="purple"
+        title={label}
+        meta={formatDate(activity.date)}
+        amount={amount}
+        amountTone={amountTone(amount)}
+        onPress={onPress}
+        accessibilityLabel={`${label}, ${amount}, ${formatDate(activity.date)}`}
+        accessibilityHint="Opens it"
+      />
+    </View>
   );
 }
 
@@ -286,34 +270,26 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
         />
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-        <Chip selected={filters.type === null} showSelectedCheck onPress={() => applyFilters({ type: null })}>
-          All types
-        </Chip>
+        <Chip label="All types" selected={filters.type === null} onPress={() => applyFilters({ type: null })} />
         {TRANSACTION_TYPES.map((option) => (
           <Chip
             key={option.value}
+            label={option.label}
             selected={filters.type === option.value}
-            showSelectedCheck
             onPress={() => applyFilters({ type: option.value })}
-          >
-            {option.label}
-          </Chip>
+          />
         ))}
       </ScrollView>
       {fixedAccountId === null && accounts !== null && !noAccounts ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-          <Chip selected={filters.accountId === null} showSelectedCheck onPress={() => applyFilters({ accountId: null })}>
-            All accounts
-          </Chip>
+          <Chip label="All accounts" selected={filters.accountId === null} onPress={() => applyFilters({ accountId: null })} />
           {[...accounts.active, ...accounts.archived].map((account) => (
             <Chip
               key={account.id}
+              label={account.archived ? `${account.name} (archived)` : account.name}
               selected={filters.accountId === account.id}
-              showSelectedCheck
               onPress={() => applyFilters({ accountId: account.id })}
-            >
-              {account.archived ? `${account.name} (archived)` : account.name}
-            </Chip>
+            />
           ))}
         </ScrollView>
       ) : null}
@@ -347,7 +323,6 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
           keyExtractor={(tx) => String(tx.id)}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
           contentContainerStyle={styles.content}
-          ItemSeparatorComponent={Divider}
           stickySectionHeadersEnabled={false}
           ListHeaderComponent={
             <View>
@@ -426,9 +401,8 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
                     <Text variant="titleSmall" accessibilityRole="header" style={[styles.sectionHeader, { color: colors.primary }]}>
                       Investment activity
                     </Text>
-                    {activity.map((row, index) => (
+                    {activity.map((row) => (
                       <View key={`${row.kind}-${row.trade_id}`}>
-                        {index > 0 ? <Divider /> : null}
                         <ActivityRow activity={row} onPress={() => openInstrument(row)} />
                       </View>
                     ))}
@@ -465,7 +439,7 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 96 },
   filters: { gap: 8, paddingBottom: 8 },
   monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
-  chipRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16 },
+  chipRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 4 },
   header: { paddingHorizontal: 16, paddingTop: 8 },
   due: { paddingHorizontal: 16, paddingTop: 8 },
   dueEmpty: { paddingHorizontal: 16 },
@@ -473,10 +447,7 @@ const styles = StyleSheet.create({
   total: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
   totalAmount: { flexShrink: 1, textAlign: "right" },
   sectionHeader: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
-  row: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
-  rowMain: { flex: 1, gap: 2 },
-  rowAmount: { flexShrink: 1, maxWidth: "55%", alignItems: "flex-end" },
-  amountText: { textAlign: "right" },
+  rowWrap: { paddingHorizontal: 16, paddingVertical: 4 },
   empty: { alignItems: "center", gap: 8, padding: 32 },
   more: { marginTop: 8 },
   activityNote: { paddingHorizontal: 16, paddingTop: 16 },
