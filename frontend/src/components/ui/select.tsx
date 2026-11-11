@@ -7,7 +7,7 @@ import { type SelectOption, filterOptions, moveActive, popupPosition, typeaheadM
 export type { SelectOption };
 
 const FIELD =
-  "w-full rounded-md border border-zinc-300 bg-transparent py-2 pr-9 pl-3 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 disabled:opacity-60 aria-[invalid=true]:border-red-600 dark:border-zinc-700";
+  "w-full rounded-[14px] border-[2.5px] border-ink bg-card py-2 pr-9 pl-3 text-left text-sm font-extrabold outline-none focus-visible:ring-[3px] focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:opacity-60 aria-[invalid=true]:border-loss aria-[invalid=true]:bg-pink/10";
 
 const TYPEAHEAD_RESET_MS = 500;
 
@@ -17,7 +17,7 @@ function Chevron() {
       aria-hidden="true"
       viewBox="0 0 20 20"
       fill="currentColor"
-      className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-zinc-500 dark:text-zinc-400"
+      className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-ink"
     >
       <path d="M5.2 7.2a.75.75 0 0 1 1.06 0L10 10.94l3.74-3.74a.75.75 0 1 1 1.06 1.06l-4.27 4.27a.75.75 0 0 1-1.06 0L5.2 8.26a.75.75 0 0 1 0-1.06Z" />
     </svg>
@@ -56,7 +56,7 @@ function OptionList({ id, anchor, options, active, selected, onPick, onActive, o
       if (!list || !trigger) return;
       const position = popupPosition({
         trigger,
-        popupHeight: list.scrollHeight + 2, // the list's 1px borders
+        popupHeight: list.scrollHeight + 5, // the list's 2.5px borders
         viewport: { width: window.innerWidth, height: window.innerHeight },
       });
       list.style.top = `${position.top}px`;
@@ -94,7 +94,7 @@ function OptionList({ id, anchor, options, active, selected, onPick, onActive, o
       popover="manual"
       // Keeps focus on the field, which is what handles the keyboard.
       onPointerDown={(event) => event.preventDefault()}
-      className="fixed inset-auto m-0 overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-sm text-zinc-900 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+      className="fixed inset-auto m-0 overflow-y-auto rounded-[14px] border-[2.5px] border-ink bg-card p-1 text-sm font-extrabold text-ink shadow-chunky"
     >
       {options.map((option, index) => {
         const isSelected = option.value === selected;
@@ -107,9 +107,9 @@ function OptionList({ id, anchor, options, active, selected, onPick, onActive, o
             aria-selected={isSelected}
             onClick={() => onPick(option)}
             onPointerMove={() => onActive(index)}
-            className={`flex cursor-pointer items-center justify-between gap-2 rounded px-2.5 py-2 [overflow-wrap:anywhere] ${
-              index === active ? "bg-zinc-100 dark:bg-zinc-800" : ""
-            } ${isSelected ? "font-medium" : ""}`}
+            className={`flex cursor-pointer items-center justify-between gap-2 rounded-[9px] px-2.5 py-2 [overflow-wrap:anywhere] ${
+              index === active ? "bg-yellow" : ""
+            } ${isSelected ? "font-black" : ""}`}
           >
             {option.label}
             {isSelected ? (
@@ -231,7 +231,7 @@ export function Select({
         {selectedIndex >= 0 ? (
           options[selectedIndex].label
         ) : (
-          <span className="text-zinc-500 dark:text-zinc-400">{placeholder ?? " "}</span>
+          <span className="text-zinc-600">{placeholder ?? " "}</span>
         )}
       </button>
       <Chevron />

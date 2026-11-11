@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type Account, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { FOCUS, buttonClass } from "@/components/ui/chunky";
 import { ComboBox, Select } from "@/components/ui/select";
 import {
   type CategoryList,
@@ -27,8 +28,18 @@ import {
   todayIndia,
 } from "@/lib/transactions";
 
-const INPUT =
-  "w-full rounded-md border border-zinc-300 bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 disabled:opacity-60 aria-[invalid=true]:border-red-600 dark:border-zinc-700";
+const INPUT = `w-full rounded-[14px] border-[2.5px] border-ink bg-card px-3 py-2 text-sm font-extrabold outline-none disabled:opacity-60 aria-[invalid=true]:border-loss aria-[invalid=true]:bg-pink/10 ${FOCUS}`;
+const LABEL = "mb-1 block text-xs font-black tracking-wide uppercase";
+const HINT = "mt-1 text-xs font-bold text-zinc-600";
+const ERROR = "mt-1 text-xs font-extrabold text-loss";
+
+const TYPE_ICON: Record<TransactionType, string> = { expense: "💸", income: "💰", transfer: "🔁", emi: "🏧" };
+const TYPE_ON: Record<TransactionType, string> = {
+  expense: "bg-pink-strong text-white",
+  income: "bg-green-strong text-white",
+  transfer: "bg-blue-strong text-white",
+  emi: "bg-purple-strong text-white",
+};
 
 const FROM_LABELS: Record<TransactionType, string> = {
   expense: "Paid from",
@@ -165,12 +176,12 @@ export function TransactionDialog({
   const type = form.type;
   const field = (key: FieldKey, label: string, input: React.ReactNode) => (
     <div>
-      <label htmlFor={`t-${key}`} className="mb-1 block text-sm font-medium">
+      <label htmlFor={`t-${key}`} className={LABEL}>
         {label}
       </label>
       {input}
       {errors[key] ? (
-        <p id={`te-${key}`} className="mt-1 text-xs text-red-700 dark:text-red-400">
+        <p id={`te-${key}`} className={ERROR}>
           {errors[key]}
         </p>
       ) : null}
@@ -207,44 +218,63 @@ export function TransactionDialog({
         if (saving) e.preventDefault();
       }}
       onClose={onClose}
-      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-lg border border-zinc-200 bg-white p-0 text-zinc-900 shadow-xl backdrop:bg-black/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+      className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-[18px] border-[2.5px] border-ink bg-card p-0 text-ink shadow-chunky backdrop:bg-ink/60"
     >
       <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
-        <h2 id="transaction-dialog-title" className="border-b border-zinc-200 px-5 py-4 text-base font-semibold dark:border-zinc-800">
+        <h2 id="transaction-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
           {editing ? "Edit transaction" : "Add transaction"}
         </h2>
         <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
           {editing ? (
             <div>
-              <span className="mb-1 block text-sm font-medium">Type</span>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              <span className={LABEL}>Type</span>
+              <p className="text-sm font-extrabold">
                 {TRANSACTION_TYPES.find((t) => t.value === type)?.label}
               </p>
             </div>
           ) : (
-            <fieldset disabled={saving}>
-              <legend className="mb-1 block text-sm font-medium">Type</legend>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <fieldset disabled={saving} className="min-w-0">
+              <legend className={LABEL}>Type</legend>
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                 {types.map((option) => (
-                  <label key={option.value} className="flex items-center gap-1.5 text-sm">
+                  <label key={option.value} className="relative block min-w-0">
                     <input
                       type="radio"
                       name="type"
                       value={option.value}
                       checked={type === option.value}
                       onChange={() => changeType(option.value)}
+                      className="peer sr-only"
                     />
-                    {option.label}
+                    <span
+                      className={`flex cursor-pointer flex-col items-center gap-0.5 rounded-[14px] border-[2.5px] border-ink px-2 py-2.5 text-center text-sm font-black shadow-chunky-sm peer-focus-visible:ring-[3px] peer-focus-visible:ring-ink peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-bg peer-disabled:opacity-60 ${
+                        type === option.value ? TYPE_ON[option.value] : "bg-card text-ink hover:bg-yellow"
+                      }`}
+                    >
+                      <span aria-hidden="true" className="text-xl leading-none">
+                        {TYPE_ICON[option.value]}
+                      </span>
+                      <span className="break-words">{option.label}</span>
+                    </span>
                   </label>
                 ))}
               </div>
             </fieldset>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            {field("amount", "Amount (₹)", <input {...props("amount")} type="text" inputMode="decimal" autoComplete="off" required />)}
-            {field("date", "Date", <input {...props("date")} type="date" max={todayIndia()} required />)}
-          </div>
+          {field(
+            "amount",
+            "Amount (₹)",
+            <input
+              {...props("amount")}
+              className={`${INPUT} !py-3 text-center !text-3xl !font-black`}
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              required
+            />,
+          )}
+          {field("date", "Date", <input {...props("date")} type="date" max={todayIndia()} required />)}
 
           {field(
             "account_id",
@@ -269,7 +299,7 @@ export function TransactionDialog({
                 />,
               )}
               <div>
-                <label htmlFor="t-interest" className="mb-1 block text-sm font-medium">
+                <label htmlFor="t-interest" className={LABEL}>
                   Interest and charges (₹)
                 </label>
                 <input
@@ -279,13 +309,13 @@ export function TransactionDialog({
                   inputMode="decimal"
                   autoComplete="off"
                 />
-                <p id="th-interest" className="mt-1 text-xs text-zinc-500 dark:text-zinc-400" aria-live="polite">
+                <p id="th-interest" className={HINT} aria-live="polite">
                   {principal && !principal.startsWith("-")
                     ? `${formatRupees(principal)} repays the loan. The interest counts as spending. Use your statement's figures if they differ.`
                     : "Interest, fees and GST in this EMI. The rest repays the loan."}
                 </p>
                 {errors.interest ? (
-                  <p id="te-interest" className="mt-1 text-xs text-red-700 dark:text-red-400">
+                  <p id="te-interest" className={ERROR}>
                     {errors.interest}
                   </p>
                 ) : null}
@@ -304,8 +334,8 @@ export function TransactionDialog({
             : type === "income" && isDeposit(accounts.find((a) => String(a.id) === form.account_id))
             ? (
                 // Income into a PPF or RD can only be interest, so there is nothing to choose.
-                <p className="text-sm font-medium">
-                  Category: <span className="font-normal">Interest</span>
+                <p className="text-sm font-black">
+                  Category: <span className="font-extrabold">Interest</span>
                 </p>
               )
             : field(
@@ -321,27 +351,17 @@ export function TransactionDialog({
           {field("note", "Note (optional)", <input {...props("note")} type="text" autoComplete="off" maxLength={200} />)}
 
           {formError ? (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+            <p role="alert" className="text-sm font-extrabold text-loss">
               {formError}
             </p>
           ) : null}
         </div>
-        <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => ref.current?.close()}
-            className="rounded-md px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none disabled:opacity-60 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            Cancel
+        <div className="flex justify-end gap-2 border-t-[2.5px] border-ink px-5 py-3">
+          <button type="button" disabled={saving} onClick={() => ref.current?.close()} className={buttonClass("alt")}>
+            CANCEL
           </button>
-          <button
-            ref={submitRef}
-            type="submit"
-            disabled={saving}
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300 dark:focus-visible:ring-offset-zinc-900"
-          >
-            {saving ? "Saving..." : editing ? "Save changes" : "Add transaction"}
+          <button ref={submitRef} type="submit" disabled={saving} className={buttonClass("primary")}>
+            {saving ? "SAVING..." : editing ? "SAVE CHANGES" : "ADD TRANSACTION"}
           </button>
         </div>
       </form>

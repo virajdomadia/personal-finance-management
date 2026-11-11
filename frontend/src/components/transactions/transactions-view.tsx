@@ -7,6 +7,21 @@ import { logout } from "@/app/login/actions";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Select } from "@/components/ui/select";
+import {
+  Chip,
+  EmojiSquare,
+  FOCUS,
+  PageHeader,
+  StackedBar,
+  TABLE,
+  TD,
+  TD_NUM,
+  TH,
+  Tile,
+  buttonClass,
+  type Tone,
+} from "@/components/ui/chunky";
+import { categoryEmoji } from "@/lib/fun";
 import { DueSection } from "@/components/recurring/due-list";
 import {
   type Activity,
@@ -17,7 +32,6 @@ import {
   activityLabel,
   formatDate,
   formatMonth,
-  groupByDate,
   shiftMonth,
   showsActivity,
   signedAmount,
@@ -31,12 +45,12 @@ type Load = { status: "loading" } | { status: "error" } | { status: "ready"; dat
 type Dialog = { kind: "none" } | { kind: "form"; transaction: Transaction | null } | { kind: "delete"; transaction: Transaction };
 type Accounts = { active: Account[]; archived: Account[] };
 
-const BUTTON =
-  "rounded-md px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none disabled:opacity-60";
-const PRIMARY = `${BUTTON} bg-zinc-900 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300`;
-const QUIET = `${BUTTON} text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800`;
-const ROW_ACTION =
-  "rounded px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100";
+const PRIMARY = buttonClass("primary");
+const QUIET = buttonClass("alt");
+const ROW_ACTION = `${buttonClass("alt")} !px-2.5 !py-1`;
+const CARD = "rounded-[18px] border-[2.5px] border-ink bg-card p-5 shadow-chunky";
+const SECTION_TITLE = "mb-2 text-xs font-black tracking-wide uppercase";
+const TYPE_TONE: Record<TransactionType, Tone> = { expense: "pink", income: "green", transfer: "blue", emi: "purple" };
 
 const PAGE_SIZE = 50;
 
@@ -147,6 +161,15 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
     }
   }
 
+  const monthWord = (() => {
+    const short = formatMonth(filters.month).slice(0, 3);
+    return filters.month.slice(0, 4) === thisMonth.slice(0, 4) ? short : `${short} ${filters.month.slice(0, 4)}`;
+  })();
+  const byCategory =
+    load.status === "ready"
+      ? load.data.expense_by_category.map((c) => ({ label: c.category, value: Number(c.amount) }))
+      : [];
+
   const canAdd = accounts !== null && accounts.active.length > 0;
   const noAccounts = accounts !== null && accounts.active.length === 0 && accounts.archived.length === 0;
   const openAdd = () => setDialog({ kind: "form", transaction: null });
@@ -154,38 +177,34 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
     accounts?.active.find((a) => a.id === filters.accountId)?.id ?? accounts?.active[0]?.id ?? null;
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h1 className="text-xl font-semibold">Transactions</h1>
-        {canAdd && (
-          <button type="button" className={PRIMARY} onClick={openAdd}>
-            Add transaction
-          </button>
-        )}
-      </div>
+    <div className="mx-auto max-w-5xl">
+      <PageHeader
+        title="Transactions"
+        action={
+          canAdd ? (
+            <button type="button" className={PRIMARY} onClick={openAdd}>
+              + ADD TRANSACTION
+            </button>
+          ) : null
+        }
+      />
 
-      <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            className={QUIET}
-            aria-label="Previous month"
-            onClick={() => applyFilters({ month: shiftMonth(filters.month, -1) })}
-          >
+      <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
+        <div className="flex items-center gap-2">
+          <Chip selected={false} aria-label="Previous month" onClick={() => applyFilters({ month: shiftMonth(filters.month, -1) })}>
             ‹
-          </button>
-          <span className="w-36 text-center text-sm font-medium" aria-live="polite">
+          </Chip>
+          <span className="min-w-32 text-center text-sm font-black" aria-live="polite">
             {formatMonth(filters.month)}
           </span>
-          <button
-            type="button"
-            className={QUIET}
+          <Chip
+            selected={false}
             aria-label="Next month"
             disabled={filters.month >= thisMonth}
             onClick={() => applyFilters({ month: shiftMonth(filters.month, 1) })}
           >
             ›
-          </button>
+          </Chip>
         </div>
         <Select
           ariaLabel="Filter by account"
@@ -199,19 +218,22 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
           ]}
           onChange={(value) => applyFilters({ accountId: value === "" ? null : Number(value) })}
         />
-        <Select
-          ariaLabel="Filter by type"
-          className="w-36"
-          value={filters.type ?? ""}
-          options={[{ value: "", label: "All types" }, ...TRANSACTION_TYPES]}
-          onChange={(value) => applyFilters({ type: value === "" ? null : (value as TransactionType) })}
-        />
+        <div role="group" aria-label="Filter by type" className="flex flex-wrap gap-2">
+          <Chip selected={filters.type === null} onClick={() => applyFilters({ type: null })}>
+            All types
+          </Chip>
+          {TRANSACTION_TYPES.map((t) => (
+            <Chip key={t.value} selected={filters.type === t.value} onClick={() => applyFilters({ type: t.value })}>
+              {t.label}
+            </Chip>
+          ))}
+        </div>
       </div>
 
       {notice ? (
         <p
           role="alert"
-          className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
+          className="mb-4 rounded-[14px] border-[2.5px] border-ink bg-pink/15 px-3 py-2 text-sm font-extrabold text-ink"
         >
           {notice}
         </p>
@@ -227,50 +249,83 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
       />
 
       {load.status === "loading" && (
-        <p role="status" className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p role="status" className="text-sm font-bold text-zinc-600">
           Loading transactions...
         </p>
       )}
 
       {load.status === "error" && (
-        <div role="alert" className="rounded-md border border-zinc-200 p-4 text-sm dark:border-zinc-800">
-          <p>We couldn&apos;t load your transactions.</p>
-          <button type="button" className={`${QUIET} mt-2 -ml-3`} onClick={() => applyFilters({})}>
-            Try again
+        <div role="alert" className={CARD}>
+          <p className="text-4xl" aria-hidden="true">
+            🙈
+          </p>
+          <p className="mt-1 font-extrabold">We couldn&apos;t load your transactions.</p>
+          <button type="button" className={`${QUIET} mt-3`} onClick={() => applyFilters({})}>
+            TRY AGAIN
           </button>
         </div>
       )}
 
       {load.status === "ready" && (
         <>
-          <dl className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Total label="Income" value={load.data.total_income} />
-            <Total label="Spent" value={load.data.total_expense} />
-          </dl>
+          <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_2fr]">
+            <Tile tone="pink" emoji="💸" label={`Spent in ${monthWord}`} value={formatRupees(load.data.total_expense)} />
+            <Tile tone="green" emoji="💰" label={`Got in ${monthWord}`} value={formatRupees(load.data.total_income)} />
+            {byCategory.length > 0 ? (
+              <div className="sm:col-span-2 lg:col-span-1">
+                <Tile label="Where it went" emoji="🍕">
+                  <StackedBar items={byCategory} label="Where it went" />
+                </Tile>
+              </div>
+            ) : null}
+          </div>
 
           {load.data.transactions.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-zinc-300 px-6 py-12 text-center dark:border-zinc-700">
+            <div className={`${CARD} px-6 py-10 text-center`}>
+              <p className="text-4xl" aria-hidden="true">
+                {noAccounts ? "👛" : "🫥"}
+              </p>
               {noAccounts ? (
                 <>
-                  <p className="font-medium">Add an account first</p>
-                  <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Every transaction belongs to an account.</p>
+                  <p className="mt-2 font-black">Add an account first</p>
+                  <p className="mt-1 text-sm font-bold text-zinc-600">Every transaction belongs to an account.</p>
                   <Link href="/accounts" className={`${PRIMARY} mt-4 inline-block`}>
-                    Go to accounts
+                    GO TO ACCOUNTS
                   </Link>
                 </>
               ) : (
-                <p className="text-sm text-zinc-600 dark:text-zinc-400">No transactions match in {formatMonth(filters.month)}.</p>
+                <p className="mt-2 text-sm font-extrabold">No transactions match in {formatMonth(filters.month)}.</p>
               )}
             </div>
           ) : (
-            <div className="flex flex-col gap-6">
-              {groupByDate(load.data.transactions).map((group) => (
-                <section key={group.date} aria-label={formatDate(group.date)}>
-                  <h2 className="mb-1 px-1 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
-                    {formatDate(group.date)}
-                  </h2>
-                  <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-                    {group.transactions.map((tx) => (
+            <div className="flex flex-col gap-5">
+              <div className="relative overflow-x-auto pb-1">
+                <table className={`${TABLE} min-w-[56rem]`}>
+                  <caption className="sr-only">Transactions in {formatMonth(filters.month)}</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col" className={TH}>
+                        Date
+                      </th>
+                      <th scope="col" className={TH}>
+                        What
+                      </th>
+                      <th scope="col" className={TH}>
+                        Category
+                      </th>
+                      <th scope="col" className={TH}>
+                        Account
+                      </th>
+                      <th scope="col" className={`${TH} text-right`}>
+                        Amount
+                      </th>
+                      <th scope="col" className={`${TH} w-px`}>
+                        <span className="sr-only">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {load.data.transactions.map((tx) => (
                       <TransactionRow
                         key={tx.id}
                         transaction={tx}
@@ -279,12 +334,12 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
                         onDelete={() => setDialog({ kind: "delete", transaction: tx })}
                       />
                     ))}
-                  </ul>
-                </section>
-              ))}
+                  </tbody>
+                </table>
+              </div>
               {load.data.has_more && (
                 <button type="button" className={`${QUIET} self-center`} disabled={loadingMore} onClick={loadMore}>
-                  {loadingMore ? "Loading..." : "Load more"}
+                  {loadingMore ? "LOADING..." : "LOAD MORE"}
                 </button>
               )}
             </div>
@@ -347,39 +402,30 @@ function activityHref(item: Activity): string {
 function InvestmentActivity({ items }: { items: Activity[] }) {
   return (
     <section aria-labelledby="investment-activity-title" className="mt-8">
-      <h2 id="investment-activity-title" className="mb-1 px-1 text-xs font-medium tracking-wide text-zinc-500 uppercase dark:text-zinc-400">
+      <h2 id="investment-activity-title" className={SECTION_TITLE}>
         Investment activity
       </h2>
-      <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+      <ul className={`${CARD} !py-2`}>
         {items.map((item) => (
-          <li key={`${item.kind}-${item.trade_id}`} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+          <li
+            key={`${item.kind}-${item.trade_id}`}
+            className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b-[1.5px] border-dashed border-zinc-300 py-2 last:border-b-0"
+          >
             <div className="min-w-32 flex-1">
-              <Link
-                href={activityHref(item)}
-                className="rounded text-sm font-medium [overflow-wrap:anywhere] hover:underline focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none"
-              >
+              <Link href={activityHref(item)} className={`rounded text-sm font-extrabold [overflow-wrap:anywhere] hover:underline ${FOCUS}`}>
                 {activityLabel(item)}
               </Link>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">
+              <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">
                 {formatDate(item.date)} · {item.name}
               </p>
             </div>
-            <p className="min-w-0 max-w-full text-right text-sm font-medium tabular-nums [overflow-wrap:anywhere]">
+            <p className="min-w-0 max-w-full text-right text-sm font-black tabular-nums [overflow-wrap:anywhere]">
               {activityAmount(item.signed_amount)}
             </p>
           </li>
         ))}
       </ul>
     </section>
-  );
-}
-
-function Total({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 rounded-lg border border-zinc-200 px-4 py-3 dark:border-zinc-800">
-      <dt className="text-sm text-zinc-600 dark:text-zinc-400">{label}</dt>
-      <dd className="mt-1 text-2xl font-semibold tabular-nums [overflow-wrap:anywhere]">{formatRupees(value)}</dd>
-    </div>
   );
 }
 
@@ -401,32 +447,45 @@ function TransactionRow({
       : tx.type === "emi" && tx.interest !== null
         ? `${tx.account_name} · ${formatRupees(tx.interest)} interest`
         : tx.account_name;
+  const emoji = tx.type === "transfer" ? "🔁" : tx.type === "emi" ? "🏧" : categoryEmoji(tx.category);
+  const amount = signedAmount(tx, viewedAccountId);
+  const colour = amount.startsWith("+") ? "text-gain" : amount.startsWith("-") ? "text-loss" : "";
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-      <div className="min-w-32 flex-1">
-        <p className="text-sm font-medium [overflow-wrap:anywhere]">{title}</p>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400 [overflow-wrap:anywhere]">
-          {tx.note ? `${accountText} · ${tx.note}` : accountText}
-        </p>
-      </div>
-      <p className="min-w-0 max-w-full text-right text-sm font-medium tabular-nums [overflow-wrap:anywhere]">
-        {signedAmount(tx, viewedAccountId)}
-      </p>
-      <div className="flex w-24 shrink-0 justify-end gap-1">
-        {tx.editable ? (
-          <>
-            <button type="button" className={ROW_ACTION} aria-label={`Edit ${title}, ${tx.date}`} onClick={onEdit}>
-              Edit
-            </button>
-            <button type="button" className={ROW_ACTION} aria-label={`Delete ${title}, ${tx.date}`} onClick={onDelete}>
-              Delete
-            </button>
-          </>
-        ) : (
-          <span className="px-2 py-1 text-xs text-zinc-500 dark:text-zinc-400">Archived</span>
-        )}
-      </div>
-    </li>
+    <tr>
+      <td className={`${TD} whitespace-nowrap`}>{formatDate(tx.date)}</td>
+      <td className={`${TD} max-w-72 min-w-40`}>
+        <div className="flex items-center">
+          <EmojiSquare emoji={emoji} tone={TYPE_TONE[tx.type]} />
+          <div className="min-w-0">
+            <p className="font-extrabold [overflow-wrap:anywhere]">{title}</p>
+            {tx.note ? <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">{tx.note}</p> : null}
+          </div>
+        </div>
+      </td>
+      <td className={`${TD} [overflow-wrap:anywhere]`}>
+        {tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? "EMI" : tx.category}
+      </td>
+      <td className={`${TD} max-w-56 [overflow-wrap:anywhere]`}>{accountText}</td>
+      <td className={`${TD_NUM} whitespace-nowrap font-black ${colour}`}>
+        {amount}
+      </td>
+      <td className={`${TD} whitespace-nowrap`}>
+        <div className="flex justify-end gap-1.5">
+          {tx.editable ? (
+            <>
+              <button type="button" className={ROW_ACTION} aria-label={`Edit ${title}, ${tx.date}`} onClick={onEdit}>
+                Edit
+              </button>
+              <button type="button" className={ROW_ACTION} aria-label={`Delete ${title}, ${tx.date}`} onClick={onDelete}>
+                Delete
+              </button>
+            </>
+          ) : (
+            <span className="px-2 py-1 text-xs font-bold text-zinc-600">Archived</span>
+          )}
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -472,23 +531,23 @@ function DeleteDialog({
         if (saving) e.preventDefault();
       }}
       onClose={onClose}
-      className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-lg border border-zinc-200 bg-white p-0 text-zinc-900 shadow-xl backdrop:bg-black/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+      className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-[18px] border-[2.5px] border-ink bg-card p-0 text-ink shadow-chunky backdrop:bg-ink/60"
     >
       <div className="px-5 py-4">
-        <h2 id="delete-title" className="text-base font-semibold">
+        <h2 id="delete-title" className="text-base font-black">
           Delete this {TRANSACTION_TYPES.find((t) => t.value === tx.type)?.label.toLowerCase()} of{" "}
           {formatRupees(tx.amount)}?
         </h2>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-2 text-sm font-bold text-zinc-600">
           It&apos;s removed for good, and the account balance moves back. This can&apos;t be undone.
         </p>
       </div>
-      <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+      <div className="flex justify-end gap-2 border-t-[2.5px] border-ink px-5 py-3">
         <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
-          Cancel
+          CANCEL
         </button>
         <button type="button" className={PRIMARY} disabled={saving} onClick={confirm}>
-          {saving ? "Deleting..." : "Delete"}
+          {saving ? "DELETING..." : "DELETE"}
         </button>
       </div>
     </dialog>
