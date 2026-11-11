@@ -1,9 +1,10 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View, type ScrollViewInstance } from "react-native";
-import { Appbar, Button, HelperText, RadioButton, Text, useTheme } from "react-native-paper";
+import { HelperText, RadioButton, Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ChunkyBox, ChunkyButton, ScreenHeader } from "@/components/chunky";
 import { Banner, LoadingScreen, useBlockBack } from "@/components/form-parts";
 import { type AccountList, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
@@ -12,6 +13,7 @@ import { formatUnits } from "@/lib/funds";
 import type { GoalDetail } from "@/lib/goals";
 import type { Portfolio } from "@/lib/investments";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 
 // An option's value is "i:<instrument id>" or "a:<account id>".
 type Option = { value: string; title: string; detail: string };
@@ -171,26 +173,21 @@ function FormBody({ goal, groups }: Loaded) {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} disabled={saving} />
-        <Appbar.Content title="Add holding" />
-      </Appbar.Header>
+      <ScreenHeader title="Add holding" back backDisabled={saving} />
 
       <ScrollView ref={scrollRef} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}>
         {conflict !== null ? (
-          <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
+          <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
             <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
               {conflict}
             </Text>
-            <Button mode="contained" onPress={() => router.back()}>
-              Go back
-            </Button>
-          </View>
+            <ChunkyButton label="Go back" onPress={() => router.back()} />
+          </ChunkyBox>
         ) : null}
         <Banner messages={general} />
 
         <Text variant="titleMedium">{goal.name}</Text>
-        <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
+        <Text variant="bodyMedium" style={{ color: BRAND.zinc600 }}>
           The whole holding counts toward the goal at its current value, as your portfolio shows it. It can be in one goal at a
           time.
         </Text>
@@ -198,7 +195,7 @@ function FormBody({ goal, groups }: Loaded) {
         {groups.length === 0 ? (
           <View style={styles.empty}>
             <Text variant="titleMedium">Nothing left to add</Text>
-            <Text variant="bodyMedium" style={[styles.centerText, { color: colors.onSurfaceVariant }]}>
+            <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
               Everything you hold is already in a goal, or you don&apos;t hold any stocks, funds, coins, PPF or RD yet.
             </Text>
           </View>
@@ -212,20 +209,27 @@ function FormBody({ goal, groups }: Loaded) {
           >
             {groups.map((group) => (
               <View key={group.label} style={styles.group}>
-                <Text variant="titleSmall" accessibilityRole="header" style={{ color: colors.primary }}>
-                  {group.label}
+                <Text variant="titleSmall" accessibilityRole="header" style={{ color: BRAND.ink }}>
+                  {group.label.toUpperCase()}
                 </Text>
                 {group.options.map((o) => (
-                  <RadioButton.Item
+                  <ChunkyBox
                     key={o.value}
-                    value={o.value}
-                    label={`${o.title}\n${o.detail}`}
-                    accessibilityLabel={`${o.title}, ${o.detail}`}
-                    disabled={busy}
-                    mode="android"
-                    labelVariant="bodyLarge"
-                    style={styles.option}
-                  />
+                    radius={14}
+                    offset={3}
+                    style={choice === o.value ? { backgroundColor: BRAND.yellow } : undefined}
+                  >
+                    <RadioButton.Item
+                      value={o.value}
+                      label={`${o.title}
+${o.detail}`}
+                      accessibilityLabel={`${o.title}, ${o.detail}`}
+                      disabled={busy}
+                      mode="android"
+                      labelVariant="bodyLarge"
+                      style={styles.option}
+                    />
+                  </ChunkyBox>
                 ))}
               </View>
             ))}
@@ -237,16 +241,14 @@ function FormBody({ goal, groups }: Loaded) {
           </HelperText>
         ) : null}
 
-        <Button
-          mode="contained"
+        <ChunkyButton
+          variant="green"
+          label={saving ? "Adding..." : "Add to goal"}
           onPress={() => void save()}
           loading={saving}
-          disabled={busy || groups.length === 0}
-          contentStyle={styles.saveContent}
+          disabled={busy && !saving || groups.length === 0}
           style={styles.save}
-        >
-          {saving ? "Adding..." : "Add to goal"}
-        </Button>
+        />
       </ScrollView>
     </View>
   );
@@ -256,10 +258,9 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
-  banner: { borderRadius: 12, padding: 12, gap: 8 },
+  banner: { padding: 12, gap: 8 },
   empty: { alignItems: "center", gap: 8, paddingVertical: 24 },
-  group: { gap: 2, marginBottom: 8 },
+  group: { gap: 8, marginBottom: 8 },
   option: { paddingHorizontal: 4, borderRadius: 12 },
   save: { marginTop: 8 },
-  saveContent: { height: 48 },
 });

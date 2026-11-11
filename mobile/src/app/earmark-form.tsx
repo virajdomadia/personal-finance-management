@@ -1,9 +1,10 @@
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { KeyboardAvoidingView, ScrollView, StyleSheet, View } from "react-native";
-import { Appbar, Button, Switch, Text, TextInput, useTheme } from "react-native-paper";
+import { Switch, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { ChunkyBox, ChunkyButton, ScreenHeader } from "@/components/chunky";
 import { DateField } from "@/components/date-field";
 import { Banner, Choice, Heading, LoadingScreen, useBlockBack, useFieldScroll } from "@/components/form-parts";
 import { type Account, type AccountList, cleanMoney, errorMessage, formatRupees, headlineBalance, splitErrors } from "@/lib/accounts";
@@ -18,6 +19,7 @@ import {
 } from "@/lib/goals";
 import { whole } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 import { previousDay, todayIndia } from "@/lib/transactions";
 
 const MONEY_MAX_LENGTH = 24;
@@ -180,10 +182,7 @@ function FormBody({ goal, sources, start, amount }: Loaded & { start: EarmarkAct
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} disabled={saving} />
-        <Appbar.Content title={releasing ? "Release" : "Set aside"} />
-      </Appbar.Header>
+      <ScreenHeader title={releasing ? "Release" : "Set aside"} back backDisabled={saving} />
 
       <KeyboardAvoidingView style={styles.screen} behavior="padding">
         <ScrollView
@@ -193,19 +192,17 @@ function FormBody({ goal, sources, start, amount }: Loaded & { start: EarmarkAct
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         >
           {conflict !== null ? (
-            <View style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
+            <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
               <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
                 {conflict}
               </Text>
-              <Button mode="contained" onPress={() => router.back()}>
-                Go back
-              </Button>
-            </View>
+              <ChunkyButton label="Go back" onPress={() => router.back()} />
+            </ChunkyBox>
           ) : null}
           <Banner messages={general} />
 
           <Text variant="titleMedium">{goal.name}</Text>
-          <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
+          <Text variant="bodyMedium" style={{ color: BRAND.zinc600 }}>
             {releasing
               ? "The money stays in the account and is free to spend again."
               : "Nothing moves: the money stays in the account, marked for this goal."}
@@ -227,7 +224,7 @@ function FormBody({ goal, sources, start, amount }: Loaded & { start: EarmarkAct
             <>
               <Heading label={releasing ? "Release from" : "Set aside in"} />
               {options.length === 0 ? (
-                <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
+                <Text variant="bodyMedium" style={{ color: BRAND.zinc600 }}>
                   Add a bank, cash or wallet account first.
                 </Text>
               ) : (
@@ -299,7 +296,7 @@ function FormBody({ goal, sources, start, amount }: Loaded & { start: EarmarkAct
             <View style={styles.switchRow}>
               <View style={styles.switchLabel}>
                 <Text variant="bodyLarge">Record an expense too</Text>
-                <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+                <Text variant="bodySmall" style={{ color: BRAND.zinc600 }}>
                   After releasing, opens a new expense from the same account for the same amount.
                 </Text>
               </View>
@@ -312,16 +309,14 @@ function FormBody({ goal, sources, start, amount }: Loaded & { start: EarmarkAct
             </View>
           ) : null}
 
-          <Button
-            mode="contained"
+          <ChunkyButton
+            variant="green"
+            label={saving ? "Saving..." : releasing ? (recordExpense ? "Release and add expense" : "Release") : "Set aside"}
             onPress={() => void save()}
             loading={saving}
-            disabled={busy}
-            contentStyle={styles.saveContent}
+            disabled={busy && !saving}
             style={styles.save}
-          >
-            {saving ? "Saving..." : releasing ? (recordExpense ? "Release and add expense" : "Release") : "Set aside"}
-          </Button>
+          />
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -331,10 +326,9 @@ function FormBody({ goal, sources, start, amount }: Loaded & { start: EarmarkAct
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { padding: 16, gap: 12 },
-  banner: { borderRadius: 12, padding: 12, gap: 8 },
+  banner: { padding: 12, gap: 8 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
   switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   switchLabel: { flexShrink: 1, gap: 2 },
   save: { marginTop: 8 },
-  saveContent: { height: 48 },
 });

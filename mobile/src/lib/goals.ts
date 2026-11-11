@@ -315,3 +315,6 @@ export function tileGoal(goals: GoalCard[]): { goal: GoalCard; done: boolean } |
   if (reached.length > 0) return { goal: reached.reduce((a, b) => (b.id > a.id ? b : a)), done: true };
   return null;
 }
+
+// The emoji on a goal: a lifebuoy for the emergency fund, a target for everything else.
+export const goalEmoji = (g: Pick<Goal, "kind">): string => (g.kind === "emergency" ? "🛟" : "🎯");
