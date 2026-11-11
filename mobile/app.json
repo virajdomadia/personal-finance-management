@@ -35,7 +35,8 @@
           "iosUrlScheme": "com.googleusercontent.apps.unused-android-only"
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-splash-screen"
     ],
     "extra": {
       "router": {

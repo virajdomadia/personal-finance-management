@@ -74,7 +74,13 @@ export type Dashboard = {
   recurring: DueItem[];
   goals_due: GoalDue[];
   goals: GoalCard[];
+  // Total have by kind of holding. The values may not add up to total_have.
+  asset_split: AssetSplit[];
 };
+
+export type AssetSplit = { group: string; value: string };
+
+export type Streak = { days: number; logged_today: boolean };
 
 export type AccountForm = {
   type: AccountType;

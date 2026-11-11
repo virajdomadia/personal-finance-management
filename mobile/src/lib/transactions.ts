@@ -25,6 +25,7 @@ export type TransactionList = {
   has_more: boolean;
   total_income: string;
   total_expense: string;
+  expense_by_category: { category: string; amount: string }[];
 };
 
 export type CategoryList = { income: string[]; expense: string[] };
