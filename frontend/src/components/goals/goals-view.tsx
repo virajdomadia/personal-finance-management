@@ -8,43 +8,12 @@ import { errorMessage } from "@/lib/accounts";
 import { apiFetch } from "@/lib/api";
 import { ConfirmDelete, LIST, Notice, PRIMARY, QUIET, ROW_ACTION, SECTION_TITLE, isUnauthorized } from "@/components/investments/shared";
 import { type Goal, type GoalList, efText, paceText, progressText } from "@/lib/goals";
+import { ProgressBar } from "@/components/ui/chunky";
 
 import { GoalDialog } from "./goal-dialog";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; active: Goal[]; archived: Goal[] };
 type Dialog = { kind: "none" } | { kind: "form" } | { kind: "delete"; goal: Goal };
-
-// Saved against the target. The bar stops at full; the text beside it says when a goal is past 100%.
-export function ProgressBar({
-  percent,
-  reached,
-  label,
-  className = "",
-}: {
-  percent: number | null;
-  reached: boolean;
-  label: string;
-  className?: string;
-}) {
-  const value = Math.round(percent ?? 0);
-  const width = Math.max(0, Math.min(value, 100));
-  return (
-    <div
-      role="progressbar"
-      aria-label={label}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={width}
-      aria-valuetext={reached ? `${value}%, reached` : `${value}%`}
-      className={`h-4 w-full overflow-hidden rounded-full border-[2.5px] border-ink bg-zinc-200 ${className}`}
-    >
-      <div
-        className={`h-full ${width > 0 && width < 100 ? "border-r-2 border-ink" : ""} ${reached ? "bg-green-strong" : "bg-green"}`}
-        style={{ width: `${width}%` }}
-      />
-    </div>
-  );
-}
 
 export function EmergencyBadge() {
   return (

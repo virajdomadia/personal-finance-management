@@ -357,11 +357,11 @@ export function TransactionDialog({
           ) : null}
         </div>
         <div className="flex justify-end gap-2 border-t-[2.5px] border-ink px-5 py-3">
-          <button type="button" disabled={saving} onClick={() => ref.current?.close()} className={buttonClass("alt")}>
-            CANCEL
+          <button type="button" disabled={saving} onClick={() => ref.current?.close()} className={`${buttonClass("alt")} uppercase`}>
+            Cancel
           </button>
-          <button ref={submitRef} type="submit" disabled={saving} className={buttonClass("primary")}>
-            {saving ? "SAVING..." : editing ? "SAVE CHANGES" : "ADD TRANSACTION"}
+          <button ref={submitRef} type="submit" disabled={saving} className={`${buttonClass("primary")} uppercase`}>
+            {saving ? "Saving..." : editing ? "Save changes" : "Add transaction"}
           </button>
         </div>
       </form>

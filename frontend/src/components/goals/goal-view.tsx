@@ -35,7 +35,8 @@ import { expenseFormFromRelease, todayIndia } from "@/lib/transactions";
 
 import { EarmarkDialog } from "./earmark-dialog";
 import { GoalDialog } from "./goal-dialog";
-import { EmergencyBadge, ProgressBar, Warnings } from "./goals-view";
+import { ProgressBar } from "@/components/ui/chunky";
+import { EmergencyBadge, Warnings } from "./goals-view";
 import { HoldingDialog } from "./holding-dialog";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "missing" } | { status: "ready"; goal: GoalDetail };

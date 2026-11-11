@@ -45,8 +45,9 @@ type Load = { status: "loading" } | { status: "error" } | { status: "ready"; dat
 type Dialog = { kind: "none" } | { kind: "form"; transaction: Transaction | null } | { kind: "delete"; transaction: Transaction };
 type Accounts = { active: Account[]; archived: Account[] };
 
-const PRIMARY = buttonClass("primary");
-const QUIET = buttonClass("alt");
+const PRIMARY = `${buttonClass("primary")} uppercase`;
+const QUIET = `${buttonClass("alt")} uppercase`;
+const MONTH_BUTTON = `${buttonClass("alt")} !rounded-full !px-3 !py-1.5 !text-xs !font-extrabold !shadow-chunky-sm`;
 const ROW_ACTION = `${buttonClass("alt")} !px-2.5 !py-1`;
 const CARD = "rounded-[18px] border-[2.5px] border-ink bg-card p-5 shadow-chunky";
 const SECTION_TITLE = "mb-2 text-xs font-black tracking-wide uppercase";
@@ -183,7 +184,7 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
         action={
           canAdd ? (
             <button type="button" className={PRIMARY} onClick={openAdd}>
-              + ADD TRANSACTION
+              + Add transaction
             </button>
           ) : null
         }
@@ -191,20 +192,26 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
 
       <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
         <div className="flex items-center gap-2">
-          <Chip selected={false} aria-label="Previous month" onClick={() => applyFilters({ month: shiftMonth(filters.month, -1) })}>
+          <button
+            type="button"
+            className={MONTH_BUTTON}
+            aria-label="Previous month"
+            onClick={() => applyFilters({ month: shiftMonth(filters.month, -1) })}
+          >
             ‹
-          </Chip>
+          </button>
           <span className="min-w-32 text-center text-sm font-black" aria-live="polite">
             {formatMonth(filters.month)}
           </span>
-          <Chip
-            selected={false}
+          <button
+            type="button"
+            className={MONTH_BUTTON}
             aria-label="Next month"
             disabled={filters.month >= thisMonth}
             onClick={() => applyFilters({ month: shiftMonth(filters.month, 1) })}
           >
             ›
-          </Chip>
+          </button>
         </div>
         <Select
           ariaLabel="Filter by account"
@@ -261,7 +268,7 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
           </p>
           <p className="mt-1 font-extrabold">We couldn&apos;t load your transactions.</p>
           <button type="button" className={`${QUIET} mt-3`} onClick={() => applyFilters({})}>
-            TRY AGAIN
+            Try again
           </button>
         </div>
       )}
@@ -290,7 +297,7 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
                   <p className="mt-2 font-black">Add an account first</p>
                   <p className="mt-1 text-sm font-bold text-zinc-600">Every transaction belongs to an account.</p>
                   <Link href="/accounts" className={`${PRIMARY} mt-4 inline-block`}>
-                    GO TO ACCOUNTS
+                    Go to accounts
                   </Link>
                 </>
               ) : (
@@ -300,7 +307,7 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
           ) : (
             <div className="flex flex-col gap-5">
               <div className="relative overflow-x-auto pb-1">
-                <table className={`${TABLE} min-w-[56rem]`}>
+                <table className={`${TABLE} max-lg:[&_td]:px-2 max-lg:[&_th]:px-2`}>
                   <caption className="sr-only">Transactions in {formatMonth(filters.month)}</caption>
                   <thead>
                     <tr>
@@ -310,10 +317,10 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
                       <th scope="col" className={TH}>
                         What
                       </th>
-                      <th scope="col" className={TH}>
+                      <th scope="col" className={`${TH} hidden lg:table-cell`}>
                         Category
                       </th>
-                      <th scope="col" className={TH}>
+                      <th scope="col" className={`${TH} hidden lg:table-cell`}>
                         Account
                       </th>
                       <th scope="col" className={`${TH} text-right`}>
@@ -339,7 +346,7 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
               </div>
               {load.data.has_more && (
                 <button type="button" className={`${QUIET} self-center`} disabled={loadingMore} onClick={loadMore}>
-                  {loadingMore ? "LOADING..." : "LOAD MORE"}
+                  {loadingMore ? "Loading..." : "Load more"}
                 </button>
               )}
             </div>
@@ -452,25 +459,29 @@ function TransactionRow({
   const colour = amount.startsWith("+") ? "text-gain" : amount.startsWith("-") ? "text-loss" : "";
   return (
     <tr>
-      <td className={`${TD} whitespace-nowrap`}>{formatDate(tx.date)}</td>
-      <td className={`${TD} max-w-72 min-w-40`}>
+      <td className={`${TD} whitespace-nowrap`}>
+        <span className="lg:hidden">{formatDate(tx.date).slice(0, -5)}</span>
+        <span className="hidden lg:inline">{formatDate(tx.date)}</span>
+      </td>
+      <td className={`${TD} w-full min-w-32`}>
         <div className="flex items-center">
           <EmojiSquare emoji={emoji} tone={TYPE_TONE[tx.type]} />
           <div className="min-w-0">
             <p className="font-extrabold [overflow-wrap:anywhere]">{title}</p>
+            <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere] lg:hidden">{accountText}</p>
             {tx.note ? <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">{tx.note}</p> : null}
           </div>
         </div>
       </td>
-      <td className={`${TD} [overflow-wrap:anywhere]`}>
+      <td className={`${TD} hidden [overflow-wrap:anywhere] lg:table-cell`}>
         {tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? "EMI" : tx.category}
       </td>
-      <td className={`${TD} max-w-56 [overflow-wrap:anywhere]`}>{accountText}</td>
-      <td className={`${TD_NUM} whitespace-nowrap font-black ${colour}`}>
+      <td className={`${TD} hidden max-w-56 [overflow-wrap:anywhere] lg:table-cell`}>{accountText}</td>
+      <td className={`${TD_NUM} min-w-28 font-black [overflow-wrap:anywhere] ${colour}`}>
         {amount}
       </td>
       <td className={`${TD} whitespace-nowrap`}>
-        <div className="flex justify-end gap-1.5">
+        <div className="flex flex-col items-stretch justify-end gap-1.5 lg:flex-row">
           {tx.editable ? (
             <>
               <button type="button" className={ROW_ACTION} aria-label={`Edit ${title}, ${tx.date}`} onClick={onEdit}>
@@ -544,10 +555,10 @@ function DeleteDialog({
       </div>
       <div className="flex justify-end gap-2 border-t-[2.5px] border-ink px-5 py-3">
         <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
-          CANCEL
+          Cancel
         </button>
         <button type="button" className={PRIMARY} disabled={saving} onClick={confirm}>
-          {saving ? "DELETING..." : "DELETE"}
+          {saving ? "Deleting..." : "Delete"}
         </button>
       </div>
     </dialog>

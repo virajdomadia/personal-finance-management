@@ -23,8 +23,7 @@ import { freeBalanceText, overSetAsideText } from "@/lib/goals";
 import { emiForm, todayIndia } from "@/lib/transactions";
 import { depositLines, instalmentForm, interestForm, ppfDepositForm, ppfInterestText, rdDueText } from "@/lib/deposits";
 import { TransactionDialog } from "@/components/transactions/transaction-dialog";
-import { ProgressBar } from "@/components/goals/goals-view";
-import { FOCUS, PageHeader, Tile, buttonClass } from "@/components/ui/chunky";
+import { FOCUS, PageHeader, ProgressBar, Tile, buttonClass } from "@/components/ui/chunky";
 import { accountEmoji } from "@/lib/fun";
 
 import { AccountDialog } from "./account-dialog";
@@ -41,8 +40,8 @@ type Dialog =
   | { kind: "ppf-interest"; account: Account }
   | { kind: "close-rd"; account: Account };
 
-const PRIMARY = buttonClass("primary");
-const QUIET = buttonClass("alt");
+const PRIMARY = `${buttonClass("primary")} uppercase`;
+const QUIET = `${buttonClass("alt")} uppercase`;
 const ROW_ACTION = `${buttonClass("alt")} !px-2.5 !py-1`;
 const CARD = "rounded-[18px] border-[2.5px] border-ink bg-card p-5 shadow-chunky";
 const SOON_DAYS = 5; // a card due within this many days gets the "due" tone
@@ -106,11 +105,11 @@ export function AccountsView() {
         action={
           <>
             <button type="button" className={QUIET} onClick={() => switchView(!archived)}>
-              {archived ? "BACK TO ACCOUNTS" : "VIEW ARCHIVED"}
+              {archived ? "Back to accounts" : "View archived"}
             </button>
             {!archived && (
               <button type="button" className={PRIMARY} onClick={() => setDialog({ kind: "form", account: null })}>
-                + ADD ACCOUNT
+                + Add account
               </button>
             )}
           </>
@@ -136,7 +135,7 @@ export function AccountsView() {
           </p>
           <p className="mt-1 font-extrabold">We couldn&apos;t load your accounts.</p>
           <button type="button" className={`${QUIET} mt-3`} onClick={() => switchView(archived)}>
-            TRY AGAIN
+            Try again
           </button>
         </div>
       )}
@@ -310,7 +309,8 @@ function Content({
   // Credit used across the cards that have a limit. Available credit already counts loans paid from a card.
   const limited = archived ? [] : data.accounts.filter((a) => a.type === "credit_card" && a.credit_limit !== null && a.available_credit !== null);
   const limit = limited.reduce((sum, a) => sum + Number(a.credit_limit), 0);
-  const used = Math.max(0, limited.reduce((sum, a) => sum + (Number(a.credit_limit) - Number(a.available_credit)), 0));
+  // Each card is clamped at 0, so an overpaid card doesn't cancel another's usage.
+  const used = limited.reduce((sum, a) => sum + Math.max(0, Number(a.credit_limit) - Number(a.available_credit)), 0);
   const usedPercent = limit > 0 ? Math.max(0, Math.round((used * 100) / limit)) : null;
 
   return (
@@ -324,7 +324,7 @@ function Content({
           {usedPercent !== null ? (
             <div className="sm:col-span-2 lg:col-span-1">
               <Tile label="Credit used" emoji="💳" value={`${usedPercent}%`}>
-                <ProgressBar percent={usedPercent} reached={false} label="Credit used" className="mt-2" />
+                <ProgressBar percent={usedPercent} reached={false} warn={usedPercent >= 80} label="Credit used" className="mt-2" />
                 <span className="mt-1.5 block text-xs font-extrabold break-words">
                   {formatRupees(used.toFixed(2))} of {formatRupees(limit.toFixed(2))}
                 </span>
@@ -367,7 +367,7 @@ function Content({
                 Bank accounts, credit cards, cash, broker balances, wallets and loans all live here.
               </p>
               <button type="button" className={`${PRIMARY} mt-4`} onClick={onAdd}>
-                + ADD ACCOUNT
+                + Add account
               </button>
             </>
           )}
@@ -449,7 +449,7 @@ function AccountRow({
   ].filter(Boolean);
 
   const dueSoon =
-    card && account.due_day !== null && daysUntil(nextDueDate(account.due_day, today), today) <= SOON_DAYS;
+    card && Number(account.balance) > 0 && account.due_day !== null && daysUntil(nextDueDate(account.due_day, today), today) <= SOON_DAYS;
   const freeText = freeBalanceText(account);
   const overText = overSetAsideText(account);
 
@@ -634,10 +634,10 @@ function ArchiveDialog({
       </div>
       <div className="flex justify-end gap-2 border-t-[2.5px] border-ink px-5 py-3">
         <button type="button" className={QUIET} disabled={saving} onClick={() => ref.current?.close()}>
-          CANCEL
+          Cancel
         </button>
         <button type="button" className={PRIMARY} disabled={saving} onClick={confirm}>
-          {saving ? "ARCHIVING..." : "ARCHIVE"}
+          {saving ? "Archiving..." : "Archive"}
         </button>
       </div>
     </dialog>

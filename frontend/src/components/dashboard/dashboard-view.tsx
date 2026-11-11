@@ -7,9 +7,8 @@ import { logout } from "@/app/login/actions";
 import { type Dashboard, formatDueDate, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Signed } from "@/components/investments/shared";
-import { ProgressBar } from "@/components/goals/goals-view";
 import { DueSection } from "@/components/recurring/due-list";
-import { FOCUS, PageHeader, StackedBar, Tile, buttonClass } from "@/components/ui/chunky";
+import { FOCUS, PageHeader, ProgressBar, StackedBar, Tile, buttonClass } from "@/components/ui/chunky";
 import { investmentSticker } from "@/lib/fun";
 import { progressText } from "@/lib/goals";
 

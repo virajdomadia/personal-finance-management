@@ -25,7 +25,7 @@
   --color-due: #fff1c2;
   /* Gain is a touch deeper than the brand green so it stays 4.5:1 on the cream page. */
   --color-gain: #2c8000;
-  --color-loss: #d7263d;
+  --color-loss: #c41e34;
 
   /* The old grey scale, warmed up, so screens not yet restyled already read as on-brand. */
   --color-zinc-50: #fbf9f2;

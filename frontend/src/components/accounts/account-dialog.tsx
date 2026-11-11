@@ -425,17 +425,17 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict 
             type="button"
             disabled={saving}
             onClick={() => ref.current?.close()}
-            className={buttonClass("alt")}
+            className={`${buttonClass("alt")} uppercase`}
           >
-            CANCEL
+            Cancel
           </button>
           <button
             ref={submitRef}
             type="submit"
             disabled={saving}
-            className={buttonClass("primary")}
+            className={`${buttonClass("primary")} uppercase`}
           >
-            {saving ? "SAVING..." : editing ? "SAVE CHANGES" : "ADD ACCOUNT"}
+            {saving ? "Saving..." : editing ? "Save changes" : "Add account"}
           </button>
         </div>
       </form>

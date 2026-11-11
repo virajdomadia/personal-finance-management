@@ -210,6 +210,40 @@ export function StackedBar({ items, label }: { items: { label: string; value: nu
   );
 }
 
+// Saved against the target. The bar stops at full; the text beside it says when a goal is past 100%.
+export function ProgressBar({
+  percent,
+  reached,
+  label,
+  className = "",
+  warn = false,
+}: {
+  percent: number | null;
+  reached: boolean;
+  label: string;
+  className?: string;
+  warn?: boolean; // a pink fill, for a bar that is filling up in a bad way
+}) {
+  const value = Math.round(percent ?? 0);
+  const width = Math.max(0, Math.min(value, 100));
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={width}
+      aria-valuetext={reached ? `${value}%, reached` : `${value}%`}
+      className={`h-4 w-full overflow-hidden rounded-full border-[2.5px] border-ink bg-zinc-200 ${className}`}
+    >
+      <div
+        className={`h-full ${width > 0 && width < 100 ? "border-r-2 border-ink" : ""} ${warn ? "bg-pink-strong" : reached ? "bg-green-strong" : "bg-green"}`}
+        style={{ width: `${width}%` }}
+      />
+    </div>
+  );
+}
+
 // A round progress dial, like ProgressBar but for the goal tiles.
 export function Ring({
   percent,
