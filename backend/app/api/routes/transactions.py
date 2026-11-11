@@ -143,6 +143,11 @@ class TransactionResponse(BaseModel):
     editable: bool
 
 
+class CategorySpend(BaseModel):
+    category: str
+    amount: str
+
+
 class TransactionList(BaseModel):
     transactions: list[TransactionResponse]
     has_more: bool
@@ -150,6 +155,8 @@ class TransactionList(BaseModel):
     # an EMI's interest counts as spending.
     total_income: str
     total_expense: str
+    # The same spending as total_expense, split by category: at most 5 entries, biggest first.
+    expense_by_category: list["CategorySpend"]
 
 
 class CategoryList(BaseModel):
@@ -489,6 +496,28 @@ def _spent(tx: Transaction) -> Decimal:
     return Decimal(0)
 
 
+TOP_CATEGORIES = 4
+
+
+def expense_breakdown(matches: list[Transaction]) -> list[CategorySpend]:
+    """Spending (see `_spent`) by category: the top four, then the rest merged into "Other"."""
+    totals: dict[str, Decimal] = {}
+    for tx in matches:
+        spent = _spent(tx)
+        if spent == 0:
+            continue
+        name = "EMI interest" if tx.type == "emi" else tx.category or "Other"
+        totals[name] = totals.get(name, Decimal(0)) + spent
+    ranked = sorted(totals.items(), key=lambda item: (-item[1], item[0]))
+    if len(ranked) > TOP_CATEGORIES + 1:
+        # Merge into an existing "Other" rather than adding a second one; it goes last.
+        head = [(name, v) for name, v in ranked[:TOP_CATEGORIES] if name != "Other"]
+        kept = {name for name, _ in head}
+        merged = sum((v for name, v in ranked if name not in kept), Decimal(0))
+        ranked = [*head, ("Other", merged)]
+    return [CategorySpend(category=name, amount=fmt(value)) for name, value in ranked]
+
+
 @router.get("/categories")
 def list_categories(user: CurrentUser, db: DbSession) -> CategoryList:
     def merged(type_: str) -> list[str]:
@@ -532,6 +561,7 @@ def list_transactions(
         has_more=offset + limit < len(matches),
         total_income=fmt(sum((t.amount for t in matches if t.type == "income"), Decimal(0))),
         total_expense=fmt(sum((_spent(t) for t in matches), Decimal(0))),
+        expense_by_category=expense_breakdown(matches),
     )
 
 

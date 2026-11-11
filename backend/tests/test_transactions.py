@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -6,9 +7,12 @@ from fastapi.testclient import TestClient
 from httpx import Response
 from sqlalchemy.orm import Session
 
+from app.api.routes.accounts import fmt
 from app.api.routes.dashboard import today_india
 from app.main import app
+from app.models.transaction import Transaction
 from tests.test_accounts import Headers, auth, locs, make
+from tests.test_loans import bank, emi, loan
 
 client = TestClient(app)
 
@@ -631,3 +635,114 @@ def test_out_of_range_account_id_is_a_field_error(headers: Headers) -> None:
     response = expense(headers, 2147483648)
     assert response.status_code == 422
     assert locs(response) == [["body", "account_id"]]
+
+
+# Spending by category
+
+
+def breakdown(headers: Headers, **params: Any) -> list[dict[str, str]]:
+    response = client.get(URL, params=params, headers=headers)
+    assert response.status_code == 200
+    return response.json()["expense_by_category"]
+
+
+def spend(category: str, amount: str) -> dict[str, str]:
+    return {"category": category, "amount": amount}
+
+
+def test_breakdown_groups_and_sorts(headers: Headers) -> None:
+    a = account(headers)
+    expense(headers, a, "100.00", category="Groceries")
+    expense(headers, a, "50.00", category="Transport")
+    expense(headers, a, "75.50", category="Groceries")
+    expense(headers, a, "50.00", category="Bills")
+
+    assert breakdown(headers) == [
+        spend("Groceries", "175.50"),
+        spend("Bills", "50.00"),
+        spend("Transport", "50.00"),
+    ]
+
+
+def test_breakdown_uncategorised_is_other(headers: Headers, db_session: Session) -> None:
+    a = account(headers)
+    expense(headers, a, "100.00", category="Groceries")
+    id = expense(headers, a, "30.00").json()["id"]
+    tx = db_session.get(Transaction, id)
+    assert tx is not None
+    tx.category = None
+    db_session.commit()
+
+    assert breakdown(headers) == [spend("Groceries", "100.00"), spend("Other", "30.00")]
+
+
+def test_breakdown_emi_interest_only(headers: Headers) -> None:
+    pay = bank(headers, balance="50000.00")
+    loan_id = loan(
+        headers, balance="21632.00", pay_from_id=pay, emi_amount="10000.00", emis_left=3
+    )["id"]
+    assert emi(headers, pay, loan_id, "10000.00", "1200.00").status_code == 201
+
+    assert breakdown(headers) == [spend("EMI interest", "1200.00")]
+
+
+def test_breakdown_top_four_plus_other(headers: Headers) -> None:
+    a = account(headers, balance="100000.00")
+    for category, amount in [
+        ("Groceries", "600.00"),
+        ("Bills", "500.00"),
+        ("Transport", "400.00"),
+        ("Dining", "300.00"),
+        ("Fun", "200.00"),
+        ("Gifts", "100.00"),
+    ]:
+        expense(headers, a, amount, category=category)
+
+    assert breakdown(headers) == [
+        spend("Groceries", "600.00"),
+        spend("Bills", "500.00"),
+        spend("Transport", "400.00"),
+        spend("Dining", "300.00"),
+        spend("Other", "300.00"),
+    ]
+
+
+def test_breakdown_merges_into_existing_other(headers: Headers) -> None:
+    a = account(headers, balance="100000.00")
+    for category, amount in [
+        ("Groceries", "600.00"),
+        ("Bills", "500.00"),
+        ("Transport", "400.00"),
+        ("Dining", "300.00"),
+        ("Fun", "200.00"),
+        ("Other", "250.00"),
+    ]:
+        expense(headers, a, amount, category=category)
+
+    assert breakdown(headers)[-1] == spend("Other", "450.00")
+    assert len(breakdown(headers)) == 5
+
+
+def test_breakdown_sums_to_total_expense(headers: Headers) -> None:
+    a = account(headers, balance="100000.00")
+    for i, category in enumerate(["A", "B", "C", "D", "E", "F", "G"]):
+        expense(headers, a, f"{10 + i}.33", category=category)
+    body = client.get(URL, headers=headers).json()
+
+    total = sum((Decimal(s["amount"]) for s in body["expense_by_category"]), Decimal(0))
+    assert fmt(total) == body["total_expense"]
+    assert len(body["expense_by_category"]) == 5
+
+
+def test_breakdown_empty_month(headers: Headers) -> None:
+    expense(headers, account(headers))
+    assert breakdown(headers, month="2025-03") == []
+
+
+def test_breakdown_ignores_transfers_and_income(headers: Headers) -> None:
+    a, b = account(headers), account(headers)
+    income(headers, a, "500.00")
+    transfer(headers, a, b, "100.00")
+    expense(headers, a, "20.00", category="Groceries")
+
+    assert breakdown(headers) == [spend("Groceries", "20.00")]
