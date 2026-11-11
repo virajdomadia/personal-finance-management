@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Personal Finance Manager",
-  description: "Track and manage your personal finances",
+  title: { default: "Gullak", template: "%s · Gullak" },
+  description: "Your money, but fun.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

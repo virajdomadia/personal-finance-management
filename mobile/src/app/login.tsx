@@ -49,7 +49,7 @@ export default function LoginScreen() {
       ]}
     >
       <Text variant="displaySmall" style={[styles.title, { color: colors.primary }]}>
-        Personal Finance
+        Gullak
       </Text>
       <View>
         <HelperText type="error" visible={error !== null}>

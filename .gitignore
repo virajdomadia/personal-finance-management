@@ -32,3 +32,6 @@ Thumbs.db
 # Brainstorm mockups / design tooling
 .superpowers/
 .impeccable/
+
+# Brand render output
+branding/out/

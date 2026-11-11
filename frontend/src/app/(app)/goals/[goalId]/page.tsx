@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import { GoalView } from "@/components/goals/goal-view";
 
 export const metadata: Metadata = {
-  title: "Goal | Personal Finance Manager",
+  title: "Goal",
 };
 
 type Params = Promise<{ goalId: string }>;

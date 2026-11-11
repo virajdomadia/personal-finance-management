@@ -5,7 +5,7 @@ import { Suspense } from "react";
 import { FundView } from "@/components/investments/fund-view";
 
 export const metadata: Metadata = {
-  title: "Mutual fund | Personal Finance Manager",
+  title: "Mutual fund",
 };
 
 type Params = Promise<{ fundId: string }>;

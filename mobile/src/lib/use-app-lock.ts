@@ -42,7 +42,7 @@ export function useAppLock(enabled: boolean): {
         return;
       }
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: "Unlock Personal Finance",
+        promptMessage: "Unlock Gullak",
       });
       if (generation.current !== started) return;
       if (result.success) {

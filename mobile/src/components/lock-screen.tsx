@@ -28,7 +28,7 @@ export function LockScreen({ onUnlock }: { onUnlock: () => Promise<void> }) {
       <View style={styles.message}>
         <Icon source="lock-outline" size={48} color={colors.primary} />
         <Text variant="headlineSmall" style={{ color: colors.primary }}>
-          Personal Finance is locked
+          Gullak is locked
         </Text>
         <Text variant="bodyMedium" style={{ color: colors.onSurfaceVariant }}>
           Use your fingerprint or device PIN to continue.

@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { TransactionsView } from "@/components/transactions/transactions-view";
 
 export const metadata: Metadata = {
-  title: "Transactions | Personal Finance Manager",
+  title: "Transactions",
 };
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
