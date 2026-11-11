@@ -52,7 +52,7 @@ export function Sidebar() {
   return (
     <aside className="sticky top-0 flex h-screen w-36 shrink-0 flex-col gap-1 overflow-y-auto border-r-[2.5px] border-ink bg-card p-3 sm:w-52">
       <div className="mx-1 mb-3 flex items-center gap-2 text-lg font-black">
-        <Logo size={32} />
+        <Logo size={32} decorative />
         Gullak
       </div>
       <Suspense fallback={<Links pathname={null} />}>

@@ -1,9 +1,9 @@
 // The Gullak mark (branding/gullak-mark.svg) on its yellow tile.
-export function Logo({ size }: { size: number }) {
+// Pass `decorative` when the word "Gullak" is shown beside it, so it is not read twice.
+export function Logo({ size, decorative = false }: { size: number; decorative?: boolean }) {
   return (
     <span
-      role="img"
-      aria-label="Gullak"
+      {...(decorative ? { "aria-hidden": true } : { role: "img", "aria-label": "Gullak" })}
       className="inline-flex shrink-0 items-center justify-center rounded-[22%] border-[2.5px] border-ink bg-yellow"
       style={{ width: size, height: size }}
     >

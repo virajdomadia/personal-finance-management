@@ -4,13 +4,14 @@ import Svg, { Circle, Ellipse, Path, Rect } from "react-native-svg";
 import { BRAND } from "@/lib/theme";
 
 // The Gullak mark on its yellow tile; the same drawing as the website.
-export function Logo({ size }: { size: number }) {
+// Pass `decorative` when the word "Gullak" is shown beside it, so it is not read twice.
+export function Logo({ size, decorative = false }: { size: number; decorative?: boolean }) {
   const mark = size * 0.62;
   return (
     <View
-      accessible
-      accessibilityRole="image"
-      accessibilityLabel="Gullak"
+      {...(decorative
+        ? { accessibilityElementsHidden: true, importantForAccessibility: "no-hide-descendants" as const }
+        : { accessible: true, accessibilityRole: "image" as const, accessibilityLabel: "Gullak" })}
       style={[styles.tile, { width: size, height: size, borderRadius: size * 0.22 }]}
     >
       <Svg viewBox="20 6 80 102" width={mark} height={mark}>

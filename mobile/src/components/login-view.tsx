@@ -11,7 +11,10 @@ export function LoginView({ error, pending, onSubmit }: Props) {
   return (
     <>
       <View style={styles.hero}>
-        <Logo size={96} />
+        <Logo size={96} decorative />
+        <Text variant="headlineMedium" style={styles.wordmark}>
+          Gullak
+        </Text>
         <Text variant="displaySmall" accessibilityRole="header" style={styles.title}>
           Your money, but fun.
         </Text>
@@ -31,6 +34,7 @@ export function LoginView({ error, pending, onSubmit }: Props) {
 
 const styles = StyleSheet.create({
   hero: { alignItems: "center", gap: 12, marginTop: 48 },
+  wordmark: { color: BRAND.ink, fontFamily: "Nunito_900Black", fontSize: 34, lineHeight: 40 },
   title: { color: BRAND.ink, textAlign: "center", fontSize: 30, lineHeight: 34 },
   sub: { color: BRAND.zinc600, textAlign: "center" },
 });

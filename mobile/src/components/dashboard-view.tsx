@@ -4,12 +4,20 @@ import { StyleSheet, View } from "react-native";
 import { Text } from "react-native-paper";
 
 import { ChunkyBox, ChunkyButton, Row, ScreenHeader, StackedBar, Tile } from "@/components/chunky";
-import { type Dashboard, formatDueDate } from "@/lib/accounts";
+import { type AssetSplit, type Dashboard, formatDueDate } from "@/lib/accounts";
 import { investmentSticker, streakLabel } from "@/lib/fun";
 import { tileGoal } from "@/lib/goals";
 import { formatPercent } from "@/lib/investments";
 import { whole } from "@/lib/recurring";
 import { BRAND, INPUT_RADIUS, SHADOW_OFFSET_SM } from "@/lib/theme";
+
+const GROUP_LABELS: Record<AssetSplit["group"], string> = {
+  bank_cash: "Bank & cash",
+  deposits: "Deposits",
+  stocks: "Stocks",
+  funds: "Funds",
+  crypto: "Crypto",
+};
 
 // The streak chip, hidden when there is no streak.
 export function StreakPill({ days }: { days: number | null }) {
@@ -59,7 +67,7 @@ export function DashboardView({ data, streak, failed, onOpenAccounts, dueList }:
   const used = data.credit_used;
   const negative = data.net_worth.startsWith("-");
   const picked = tileGoal(data.goals ?? []);
-  const split = (data.asset_split ?? []).map((s) => ({ label: s.group, value: Number(s.value) }));
+  const split = (data.asset_split ?? []).map((s) => ({ label: GROUP_LABELS[s.group], value: Number(s.value) }));
   const hasSplit = split.some((s) => s.value > 0);
   const inv = data.investments;
 
@@ -70,6 +78,7 @@ export function DashboardView({ data, streak, failed, onOpenAccounts, dueList }:
       label={picked.goal.name}
       value={picked.done ? "100%" : `${picked.goal.percent ?? 0}%`}
       sticker={picked.done ? "DONE!" : null}
+      accessibilityExtra={picked.done ? "done" : undefined}
       onPress={() => router.push("/goals")}
     />
   ) : (
@@ -116,6 +125,9 @@ export function DashboardView({ data, streak, failed, onOpenAccounts, dueList }:
                 label="Investments"
                 value={whole(inv.value)}
                 sticker={investmentSticker(inv.unrealised_percent)}
+                accessibilityExtra={[`unrealised ${formatPercent(inv.unrealised_percent)}`, investmentSticker(inv.unrealised_percent)]
+                  .filter(Boolean)
+                  .join(", ")}
                 onPress={() => router.navigate("/investments")}
               >
                 <Text variant="labelMedium" style={styles.hint}>

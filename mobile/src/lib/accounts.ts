@@ -78,7 +78,7 @@ export type Dashboard = {
   asset_split: AssetSplit[];
 };
 
-export type AssetSplit = { group: string; value: string };
+export type AssetSplit = { group: "bank_cash" | "deposits" | "stocks" | "funds" | "crypto"; value: string };
 
 export type Streak = { days: number; logged_today: boolean };
 

@@ -12,12 +12,13 @@ type Props = {
   value?: ReactNode;
   size?: "md" | "huge";
   sticker?: string | null;
+  accessibilityExtra?: string; // spoken after the label and value, for children and the sticker
   onPress?: () => void;
   children?: ReactNode;
 };
 
 // A stat tile: a label, a big figure, and an optional tilted sticker. With onPress it is a button.
-export function Tile({ tone = "card", emoji, label, value, size = "md", sticker, onPress, children }: Props) {
+export function Tile({ tone = "card", emoji, label, value, size = "md", sticker, accessibilityExtra, onPress, children }: Props) {
   const fg = TONE_FG[tone];
   const hasValue = value !== undefined && value !== null;
   const body = (pressed: boolean) => (
@@ -55,7 +56,9 @@ export function Tile({ tone = "card", emoji, label, value, size = "md", sticker,
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={typeof value === "string" || typeof value === "number" ? `${label}, ${value}` : label}
+      accessibilityLabel={[typeof value === "string" || typeof value === "number" ? `${label}, ${value}` : label, accessibilityExtra]
+        .filter(Boolean)
+        .join(", ")}
       style={styles.wrap}
     >
       {({ pressed }) => body(pressed)}
