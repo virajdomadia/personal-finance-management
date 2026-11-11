@@ -36,10 +36,10 @@ export function ProgressBar({
       aria-valuemax={100}
       aria-valuenow={width}
       aria-valuetext={reached ? `${value}%, reached` : `${value}%`}
-      className={`h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800 ${className}`}
+      className={`h-4 w-full overflow-hidden rounded-full border-2 border-ink bg-zinc-200 ${className}`}
     >
       <div
-        className={`h-full rounded-full ${reached ? "bg-green-600 dark:bg-green-500" : "bg-zinc-900 dark:bg-zinc-100"}`}
+        className={`h-full ${width > 0 && width < 100 ? "border-r-2 border-ink" : ""} ${reached ? "bg-green-strong" : "bg-green"}`}
         style={{ width: `${width}%` }}
       />
     </div>
