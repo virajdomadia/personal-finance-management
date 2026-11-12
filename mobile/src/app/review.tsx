@@ -4,7 +4,7 @@ import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, View } from 
 import { Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ChunkyButton, HeaderAction, Row, ScreenHeader } from "@/components/chunky";
+import { ChunkyButton, EmptyState, HeaderAction, Row, ScreenHeader } from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { REVIEW_EMOJI, type ReviewItem, reviewCountText, reviewDetails, reviewFigure, reviewTitle } from "@/lib/review";
@@ -87,15 +87,12 @@ export default function ReviewScreen() {
         >
           {failed ? <Banner messages={[`${FAILED} Pull down to try again.`]} /> : null}
           {items.length === 0 ? (
-            <View style={styles.empty}>
-              <Text style={styles.big} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-                🎉
-              </Text>
-              <Text variant="titleMedium">All caught up</Text>
-              <Text variant="bodyMedium" style={[styles.centerText, styles.muted]}>
-                Bank messages Gullak isn&apos;t sure about wait here for your answer.
-              </Text>
-            </View>
+            <EmptyState
+              emoji="🎉"
+              title="All caught up"
+              body="When Gullak reads a bank text it can't sort by itself, it waits here for you to check."
+              action={{ label: "Bank SMS settings", variant: "alt", onPress: () => go("/sms-settings") }}
+            />
           ) : (
             <>
               <Text variant="titleSmall" accessibilityRole="header" style={styles.count}>
@@ -135,9 +132,6 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
-  empty: { alignItems: "center", gap: 8, paddingVertical: 48 },
-  big: { fontSize: 44, lineHeight: 52 },
-  muted: { color: BRAND.zinc600 },
   count: { color: BRAND.ink, letterSpacing: 0.6 },
   list: { gap: 4 },
 });

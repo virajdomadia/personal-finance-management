@@ -7,14 +7,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ChunkyBox,
   ChunkyButton,
+  EmptyState,
   HeaderAction,
   ProgressBar,
   ScreenHeader,
   Segmented,
   Sticker,
+  type Tone,
   TONE_BG,
   TONE_FG,
-  type Tone,
 } from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
 import { openGoal } from "@/components/goal-tag";
@@ -185,18 +186,18 @@ export default function GoalsScreen() {
 
           {list === null || list.length === 0 ? (
             shown === "archived" ? (
-              <View style={styles.empty}>
-                <Text variant="titleMedium">No archived goals</Text>
-              </View>
+              <EmptyState
+                emoji="📦"
+                title="No archived goals"
+                body="Goals you finish or set down rest here, with their history kept."
+              />
             ) : (
-              <View style={styles.empty}>
-                <Text variant="titleMedium">No goals yet</Text>
-                <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
-                  Name what you&apos;re saving for, then set money aside in your bank or cash, or count a fund, stock, coin,
-                  PPF or RD toward it. Nothing moves: your balances stay as they are.
-                </Text>
-                <ChunkyButton label="Add goal" onPress={add} />
-              </View>
+              <EmptyState
+                emoji="🎯"
+                title="No goals yet"
+                body="Save for an emergency fund, a trip or a bike, and watch how close you are. A goal only labels money you already have: nothing moves."
+                action={{ label: "Add goal", onPress: add }}
+              />
             )
           ) : (
             list.map((goal, index) => (
@@ -219,7 +220,6 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
-  empty: { alignItems: "center", gap: 12, paddingVertical: 32 },
   card: { padding: 14, gap: 8 },
   head: { gap: 2 },
   stickerGap: { paddingRight: 52 },

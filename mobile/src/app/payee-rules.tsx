@@ -168,7 +168,8 @@ export default function PayeeRulesScreen() {
           </Text>
           {data.rules.length === 0 ? (
             <Text variant="bodyMedium" style={styles.muted}>
-              None yet. When you answer &quot;Always use this&quot; in To review, the payee shows up here.
+              None yet. When you answer a bank text in To review, tick &quot;Always use this&quot;. Next time that payee is
+              sorted for you.
             </Text>
           ) : (
             <View style={styles.list}>
@@ -209,7 +210,7 @@ export default function PayeeRulesScreen() {
           </Text>
           {data.identifiers.length === 0 ? (
             <Text variant="bodyMedium" style={styles.muted}>
-              None yet. When you tell Gullak which account a number belongs to, it shows up here.
+              None yet. When you tell Gullak which account a card or account number belongs to, it shows up here.
             </Text>
           ) : (
             <View style={styles.list}>

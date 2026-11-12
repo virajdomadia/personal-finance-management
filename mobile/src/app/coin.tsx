@@ -308,7 +308,7 @@ export default function CoinScreen() {
 
         <SectionTitle label="Transactions" />
         {data.trades.length === 0 ? (
-          <EmptyBox text="No transactions yet." action={{ label: "Add existing coins", onPress: () => trade({ mode: "opening" }) }} />
+          <EmptyBox text="No buys or sells yet. Start with the coins you already own." action={{ label: "Add existing coins", onPress: () => trade({ mode: "opening" }) }} />
         ) : (
           data.trades.map((t) => {
             const details = [
@@ -339,7 +339,7 @@ export default function CoinScreen() {
 
         <SectionTitle label="Price history" />
         {data.prices.length === 0 ? (
-          <EmptyBox text="No price recorded. Until you add one, holdings are valued at cost." />
+          <EmptyBox text="No price yet. Until there is one, your coins are valued at what you paid." />
         ) : (
           data.prices.map((price, index) => (
             <HistoryRow

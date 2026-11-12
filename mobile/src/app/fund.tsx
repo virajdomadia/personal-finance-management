@@ -376,7 +376,7 @@ export default function FundScreen() {
 
         <SectionTitle label="Transactions" />
         {data.trades.length === 0 ? (
-          <EmptyBox text="No transactions yet." action={{ label: "Add existing units", onPress: () => trade({ mode: "opening" }) }} />
+          <EmptyBox text="No purchases yet. Start with the units you already own." action={{ label: "Add existing units", onPress: () => trade({ mode: "opening" }) }} />
         ) : (
           data.trades.map((t) => {
             const details = [
@@ -408,7 +408,7 @@ export default function FundScreen() {
 
         <SectionTitle label="NAV history" />
         {data.navs.length === 0 ? (
-          <EmptyBox text="No NAV recorded. Until you add one, holdings are valued at cost." />
+          <EmptyBox text="No NAV yet. Until there is one, your units are valued at what you paid." />
         ) : (
           data.navs.map((nav, index) => {
             const source =
