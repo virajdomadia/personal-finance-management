@@ -12,9 +12,10 @@ import {
   type Stock,
   type Trade,
   type TradeForm,
+  type Prefill,
+  applyPick,
   asFirstTrade,
   blankTradeForm,
-  prefillFromMatch,
   tradeFormFrom,
   tradePayload,
   tradeTotal,
@@ -133,12 +134,14 @@ export function TradeDialog(props: Props) {
 
   const kind = kindOf(form);
   const set = (key: Key, value: string) => setForm((f) => ({ ...f, [key]: value }));
-  // A match from the search fills in the symbol and name, unless they were already typed.
+  // A match links live prices and fills in the name (and symbol). What the last pick filled in is
+  // remembered, so a new pick replaces it and clearing removes it; text typed by hand stays.
+  const filled = useRef<Prefill | null>(null);
   const pickSource = (match: MarketMatch | null) => {
     setSource(match);
-    if (!match) return;
-    const fill = prefillFromMatch("stock", match);
-    setForm((f) => ({ ...f, symbol: f.symbol.trim() || fill.symbol, name: f.name.trim() || fill.name }));
+    const next = applyPick("stock", { name: form.name, symbol: form.symbol }, filled.current, match);
+    filled.current = next.filled;
+    setForm((f) => ({ ...f, ...next.fields }));
   };
 
   const changeKind = (next: TradeKind) => {

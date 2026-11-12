@@ -50,13 +50,20 @@ type Props = {
 // dialog for a first purchase, the account dialog for a PPF or RD, or the SIP dialog). Back returns here.
 export function AddInvestmentDialog(props: Props) {
   const [type, setType] = useState<AddType | null>(props.start?.type ?? null);
-  const opening = props.start?.opening ?? false;
+  // "Already hold it" comes only from an empty section's button. Back to step 1 forgets it, so a type
+  // picked there starts as a buy.
+  const [opening, setOpening] = useState(props.start?.opening ?? false);
   const brokers = props.accounts.filter((a) => a.type === "broker");
   const banks = props.accounts.filter((a) => a.type === "bank");
 
   if (type === null) return <TypeStep {...props} onPick={setType} />;
 
-  const flow = { onBack: () => setType(null) };
+  const flow = {
+    onBack: () => {
+      setOpening(false);
+      setType(null);
+    },
+  };
   let step: React.ReactNode = null;
   if (type === "stock" && props.stocks) {
     step = (

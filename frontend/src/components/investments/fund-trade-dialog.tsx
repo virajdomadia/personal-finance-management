@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type Account, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { type MarketMatch, asFirstTrade, prefillFromMatch, withTradePath } from "@/lib/investments";
+import { type MarketMatch, type Prefill, applyPick, asFirstTrade, withTradePath } from "@/lib/investments";
 import {
   type Fund,
   type FundHolding,
@@ -185,12 +185,14 @@ export function FundTradeDialog(props: Props) {
       return next;
     });
   };
-  // A match from the search fills in the name (and a coin's ticker), unless they were already typed.
+  // A match links live prices and fills in the name (and symbol). What the last pick filled in is
+  // remembered, so a new pick replaces it and clearing removes it; text typed by hand stays.
+  const filled = useRef<Prefill | null>(null);
   const pickSource = (match: MarketMatch | null) => {
     setSource(match);
-    if (!match) return;
-    const fill = prefillFromMatch("mutual_fund", match);
-    setForm((f) => ({ ...f, name: f.name.trim() || fill.name, symbol: f.symbol.trim() || fill.symbol }));
+    const next = applyPick("mutual_fund", { name: form.name, symbol: form.symbol }, filled.current, match);
+    filled.current = next.filled;
+    setForm((f) => ({ ...f, ...next.fields }));
   };
   const set = (key: Key, value: string) => {
     if (key === "units") {

@@ -313,3 +313,31 @@ const NOT_IN_FIRST_TRADE = new Set(["stock_id", "fund_id", "coin_id", "side", "s
 export function asFirstTrade(payload: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(payload).filter(([key]) => !NOT_IN_FIRST_TRADE.has(key)));
 }
+
+export type Prefill = { name: string; symbol: string };
+
+// What a new pick (or clearing it, `match` null) does to the typed name and symbol. A field takes the
+// match's value when it is empty or still holds what the last pick filled in; anything typed by hand
+// stays. Clearing empties what the last pick filled in. `filled` is what to remember for the next pick.
+export function applyPick(
+  kind: MarketKind,
+  current: Prefill,
+  previous: Prefill | null,
+  match: MarketMatch | null,
+): { fields: Prefill; filled: Prefill | null } {
+  const auto = (key: keyof Prefill) => current[key].trim() === "" || (previous !== null && current[key] === previous[key]);
+  if (match === null) {
+    return {
+      fields: {
+        name: previous !== null && current.name === previous.name ? "" : current.name,
+        symbol: previous !== null && current.symbol === previous.symbol ? "" : current.symbol,
+      },
+      filled: null,
+    };
+  }
+  const fill = prefillFromMatch(kind, match);
+  return {
+    fields: { name: auto("name") ? fill.name : current.name, symbol: auto("symbol") ? fill.symbol : current.symbol },
+    filled: fill,
+  };
+}

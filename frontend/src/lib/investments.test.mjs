@@ -255,3 +255,31 @@ test("asFirstTrade drops what the first trade of a new holding can't carry", asy
   );
   assert.deepEqual(asFirstTrade({ stock_id: 1, coin_id: 2, quantity: 5 }), { quantity: 5 });
 });
+
+test("applyPick replaces what an earlier pick filled in, and keeps what was typed", async () => {
+  const { applyPick } = await import("./investments.ts");
+  const match = (code, name) => ({ code, name, isin: null, price: null, price_date: null });
+  const infy = applyPick("stock", { name: "", symbol: "" }, null, match("INFY", "Infosys Limited"));
+  assert.deepEqual(infy, {
+    fields: { name: "Infosys Limited", symbol: "INFY" },
+    filled: { name: "Infosys Limited", symbol: "INFY" },
+  });
+  // Picking again moves both fields to the new match, so the link and the symbol always agree.
+  const tcs = applyPick("stock", infy.fields, infy.filled, match("TCS", "Tata Consultancy Services"));
+  assert.deepEqual(tcs.fields, { name: "Tata Consultancy Services", symbol: "TCS" });
+  // A name typed by hand survives a pick; the auto-filled symbol still follows the match.
+  const typed = applyPick("stock", { name: "My TCS", symbol: "TCS" }, tcs.filled, match("WIPRO", "Wipro Limited"));
+  assert.deepEqual(typed.fields, { name: "My TCS", symbol: "WIPRO" });
+  // Clearing empties what the pick filled in and leaves what was typed.
+  assert.deepEqual(applyPick("stock", typed.fields, typed.filled, null), {
+    fields: { name: "My TCS", symbol: "" },
+    filled: null,
+  });
+  assert.deepEqual(applyPick("stock", { name: "Typed", symbol: "T" }, null, null).fields, { name: "Typed", symbol: "T" });
+  // A fund's symbol isn't filled, so one typed by hand stays through a re-pick.
+  const fund = applyPick("mutual_fund", { name: "", symbol: "BANK" }, null, match("1", "Banking Fund"));
+  assert.deepEqual(applyPick("mutual_fund", fund.fields, fund.filled, match("2", "Gilt Fund")).fields, {
+    name: "Gilt Fund",
+    symbol: "BANK",
+  });
+});

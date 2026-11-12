@@ -33,7 +33,7 @@ import {
   formatCoinQty,
   qtyMismatch,
 } from "@/lib/crypto";
-import { type MarketMatch, asFirstTrade, prefillFromMatch, withTradePath } from "@/lib/investments";
+import { type MarketMatch, type Prefill, applyPick, asFirstTrade, withTradePath } from "@/lib/investments";
 import { MarketSearch } from "@/components/market-search";
 import { ChunkyBox, ChunkyButton, Chip, HeaderAction, ScreenHeader } from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
@@ -221,13 +221,15 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
   const insets = useSafeAreaInsets();
   const [form, setForm] = useState<Form>(() => startForm(props));
   const coins = props.coins;
-  // A match from the search links live prices and fills in what it knows, unless it was already typed.
   const [source, setSource] = useState<MarketMatch | null>(null);
+  // A match links live prices and fills in the name (and symbol). What the last pick filled in is
+  // remembered, so a new pick replaces it and clearing removes it; text typed by hand stays.
+  const filled = useRef<Prefill | null>(null);
   const pickSource = (match: MarketMatch | null) => {
     setSource(match);
-    if (!match) return;
-    const fill = prefillFromMatch("crypto", match);
-    setForm((f) => ({ ...f, name: f.name.trim() || fill.name, symbol: f.symbol.trim() || fill.symbol }));
+    const next = applyPick("crypto", { name: form.name, symbol: form.symbol }, filled.current, match);
+    filled.current = next.filled;
+    setForm((f) => ({ ...f, ...next.fields }));
   };
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
