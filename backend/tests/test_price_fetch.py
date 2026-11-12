@@ -173,3 +173,20 @@ def test_fetcher_closes_its_client():
     with fetcher as f:
         assert f is fetcher
     assert fetcher.client.is_closed
+
+
+def test_coindcx_ticker_reads_a_list_and_sends_no_coingecko_key():
+    fetcher, seen = make_fetcher(
+        lambda r: httpx.Response(200, text='[{"market": "BTCINR", "last_price": "7426538.7"}]')
+    )
+    fetcher.coingecko_key = "secret"
+    data = fetcher.coindcx_ticker()
+    assert data == [{"market": "BTCINR", "last_price": "7426538.7"}]
+    assert seen[0].url == "https://api.coindcx.com/exchange/ticker"
+    assert "x-cg-demo-api-key" not in seen[0].headers
+
+
+def test_coindcx_ticker_rejects_an_unexpected_shape():
+    fetcher, _ = make_fetcher(lambda r: httpx.Response(200, text='{"error": "nope"}'))
+    with pytest.raises(SourceError):
+        fetcher.coindcx_ticker()

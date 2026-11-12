@@ -19,6 +19,8 @@ BHAVCOPY_URL = (
 YAHOO_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}.NS"
 COINGECKO_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price"
 COINGECKO_SEARCH_URL = "https://api.coingecko.com/api/v3/search"
+# CoinDCX's public ticker: every market's last traded price, no key needed.
+COINDCX_TICKER_URL = "https://api.coindcx.com/exchange/ticker"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -76,12 +78,15 @@ class Fetcher:
     def _text(self, url: str, timeout: httpx.Timeout | None = None) -> str:
         return self._ok(url, timeout=timeout).content.decode("utf-8-sig", errors="replace")
 
-    def _json(self, url: str, params=None, headers=None) -> dict:
+    def _any_json(self, url: str, params=None, headers=None):
         body = self._ok(url, params, headers).content.decode("utf-8-sig", errors="replace")
         try:
-            data = json.loads(body, parse_float=Decimal)
+            return json.loads(body, parse_float=Decimal)
         except ValueError as exc:
             raise SourceError("response was not valid JSON") from exc
+
+    def _json(self, url: str, params=None, headers=None) -> dict:
+        data = self._any_json(url, params, headers)
         if not isinstance(data, dict):
             raise SourceError("unexpected JSON shape")
         return data
@@ -114,6 +119,12 @@ class Fetcher:
     def simple_price(self, ids: list[str]) -> dict:
         params = {"ids": ",".join(ids), "vs_currencies": "inr"}
         return self._json(COINGECKO_PRICE_URL, params, self._coingecko_headers())
+
+    def coindcx_ticker(self) -> list:
+        data = self._any_json(COINDCX_TICKER_URL)
+        if not isinstance(data, list):
+            raise SourceError("unexpected JSON shape")
+        return data
 
     def coin_search(self, query: str) -> dict:
         return self._json(COINGECKO_SEARCH_URL, {"query": query}, self._coingecko_headers())

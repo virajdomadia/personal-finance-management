@@ -161,3 +161,20 @@ def test_navall_does_not_repeat_plan_text_already_in_the_name() -> None:
     header += "Option;Net Asset Value;Date"
     line = "1;INF000000001;-;Fund - Direct Plan - Growth;Direct Plan;Growth;10.5;11-Nov-2026"
     assert parse_navall(f"{header}\n{line}\n")[0].name == "Fund - Direct Plan - Growth"
+
+
+def test_coindcx_ticker_keeps_inr_markets_with_real_prices() -> None:
+    from app.prices.parse import parse_coindcx_ticker
+
+    data = [
+        {"market": "BTCINR", "last_price": "7426538.7000000000"},
+        {"market": "ethinr", "last_price": "205500.1"},
+        {"market": "BTCUSDT", "last_price": "73316.81"},
+        {"market": "DOGEINR", "last_price": "0"},
+        {"market": "XINR"},
+        "not a row",
+    ]
+    assert parse_coindcx_ticker(data) == {
+        "BTCINR": Decimal("7426538.7000"),
+        "ETHINR": Decimal("205500.1000"),
+    }
