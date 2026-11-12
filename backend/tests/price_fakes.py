@@ -31,12 +31,14 @@ class FakeFetcher(Fetcher):
         holiday: bool = False,
         crash: set[str] | None = None,
         texts: dict[str, str] | None = None,
+        coindcx: list[dict] | None = None,
     ):
         super().__init__(httpx.Client())
         self.fail = fail or set()
         self.holiday = holiday
         self.crash = crash or set()  # methods that raise a non-SourceError
         self.texts = texts or {}  # fixture-file name -> replacement text
+        self.coindcx = coindcx or []  # CoinDCX ticker rows; none by default, so CoinGecko prices
         self.calls: Counter[str] = Counter()
 
     def _hit(self, method: str) -> None:
@@ -65,6 +67,10 @@ class FakeFetcher(Fetcher):
         self._hit("simple_price")
         data = json.loads(read("simple_price.json"), parse_float=Decimal)
         return {k: v for k, v in data.items() if k in ids}
+
+    def coindcx_ticker(self) -> list:
+        self._hit("coindcx_ticker")
+        return self.coindcx
 
     def coin_search(self, query: str) -> dict:
         self._hit("coin_search")

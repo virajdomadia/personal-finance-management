@@ -522,3 +522,48 @@ def test_market_codes_are_written_in_a_few_statements(db_session: Session) -> No
         select(func.count()).select_from(MarketCode).where(MarketCode.kind == "mutual_fund")
     )
     assert stored == 1200
+
+
+DCX = [
+    {"market": "BTCINR", "last_price": "7426538.7000000000"},
+    {"market": "BTCUSDT", "last_price": "73316.81"},
+    {"market": "SOLINR", "last_price": "0"},  # not a real price: ignored
+]
+
+
+def test_crypto_uses_coindcx_inr_price_where_it_lists_the_coin(db_session: Session) -> None:
+    a = user(db_session, "a@example.com")
+    btc = link(db_session, a, "crypto", COIN_ID, symbol="BTC")
+    eth = link(db_session, a, "crypto", "ethereum", symbol="ETH")  # no ETHINR row in DCX
+    fetcher = FakeFetcher(coindcx=DCX)
+
+    report = run_nightly(db_session, fetcher, TODAY)
+
+    assert report.failed == {}
+    # Rounded to the 4 places a price is stored with.
+    assert [r.price for r in rows(db_session, btc)] == [Decimal("7426538.7000")]
+    # Not on CoinDCX: CoinGecko's global price, asked for that coin only.
+    assert [r.price for r in rows(db_session, eth)] == [Decimal("312345.5000")]
+    assert fetcher.calls["simple_price"] == 1
+
+
+def test_crypto_falls_back_to_coingecko_when_coindcx_is_down(db_session: Session) -> None:
+    a = user(db_session, "a@example.com")
+    btc = link(db_session, a, "crypto", COIN_ID, symbol="BTC")
+    fetcher = FakeFetcher(coindcx=DCX, fail={"coindcx_ticker"})
+
+    report = run_nightly(db_session, fetcher, TODAY)
+
+    assert report.failed == {}
+    assert [r.price for r in rows(db_session, btc)] == [COIN_PRICE]
+
+
+def test_crypto_on_coindcx_does_not_ask_coingecko(db_session: Session) -> None:
+    a = user(db_session, "a@example.com")
+    link(db_session, a, "crypto", COIN_ID, symbol="btc")  # ticker case doesn't matter
+    fetcher = FakeFetcher(coindcx=DCX)
+
+    run_nightly(db_session, fetcher, TODAY)
+
+    assert fetcher.calls["simple_price"] == 0
+    assert market(db_session, "crypto", COIN_ID).price == Decimal("7426538.7000")

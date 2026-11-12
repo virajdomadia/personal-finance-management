@@ -151,6 +151,19 @@ def parse_simple_price(data: dict) -> dict[str, Decimal]:
     return prices
 
 
+def parse_coindcx_ticker(data: list) -> dict[str, Decimal]:
+    """CoinDCX's INR markets, like "BTCINR", to their last traded price."""
+    prices: dict[str, Decimal] = {}
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        market = str(item.get("market") or "").upper()
+        price = to_price(item.get("last_price"))
+        if market.endswith("INR") and price is not None:
+            prices[market] = price
+    return prices
+
+
 def parse_coin_search(data: dict) -> list[Quote]:
     quotes: list[Quote] = []
     for coin in (data.get("coins") or [])[:COIN_SEARCH_LIMIT]:

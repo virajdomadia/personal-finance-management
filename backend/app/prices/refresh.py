@@ -26,6 +26,7 @@ from app.prices.parse import (
     IST,
     Quote,
     parse_bhavcopy,
+    parse_coindcx_ticker,
     parse_equity_list,
     parse_navall,
     parse_simple_price,
@@ -267,11 +268,40 @@ def _refresh_stocks(
     return count
 
 
-def _refresh_crypto(db: Session, fetcher: Fetcher, today: date) -> int:
-    ids = _linked_codes(db, "crypto")
+def _crypto_prices(db: Session, fetcher: Fetcher, ids: list[str]) -> dict[str, Decimal]:
+    """Rupee prices for these CoinGecko ids: CoinDCX's last traded INR price where it lists the
+    coin, CoinGecko's global price for the rest (or for all, when CoinDCX is down).
+
+    Indian exchanges trade several percent above the global price (1% TDS, thin INR markets),
+    so CoinDCX's price is what a holder there would actually get.
+    """
     if not ids:
-        return 0
-    prices = parse_simple_price(fetcher.simple_price(ids))
+        return {}
+    tickers = dict(
+        db.execute(
+            select(Instrument.source_code, Instrument.symbol)
+            .where(Instrument.kind == "crypto", Instrument.source_code.in_(ids))
+            .order_by(Instrument.id)
+        ).all()
+    )
+    try:
+        inr = parse_coindcx_ticker(fetcher.coindcx_ticker())
+    except SourceError as exc:
+        log.warning("CoinDCX prices unavailable, using CoinGecko: %s", exc)
+        inr = {}
+    prices: dict[str, Decimal] = {}
+    for coin_id in ids:
+        price = inr.get(f"{(tickers.get(coin_id) or '').upper()}INR")
+        if price is not None:
+            prices[coin_id] = price
+    rest = [c for c in ids if c not in prices]
+    if rest:
+        prices.update(parse_simple_price(fetcher.simple_price(rest)))
+    return prices
+
+
+def _refresh_crypto(db: Session, fetcher: Fetcher, today: date) -> int:
+    prices = _crypto_prices(db, fetcher, _linked_codes(db, "crypto"))
     return _set_prices(db, "crypto", {c: (p, today) for c, p in prices.items()}, True)
 
 
@@ -403,8 +433,7 @@ def _newest_update(db: Session, kind: str, user_id: int) -> datetime | None:
 
 
 def _sync_crypto(db: Session, fetcher: Fetcher, today: date, user_id: int) -> int:
-    ids = _linked_codes(db, "crypto", user_id)
-    prices = parse_simple_price(fetcher.simple_price(ids))
+    prices = _crypto_prices(db, fetcher, _linked_codes(db, "crypto", user_id))
     return _set_prices(db, "crypto", {c: (p, today) for c, p in prices.items()}, True)
 
 
