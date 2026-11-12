@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.routes import fund_trades, funds
 from app.main import app
 from app.models.account import Account
-from app.models.investment import Instrument, InvestmentTrade, Sip
+from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade, Sip
 from tests.test_accounts import Headers, auth, locs, make
 
 client = TestClient(app)
@@ -289,6 +289,39 @@ def test_existing_nav_on_the_date_is_kept(headers: Headers) -> None:
     assert navs(headers, ppfcf) == [manual]
 
 
+def add_auto_nav(db: Session, fund_id: int, day: str, nav: str) -> None:
+    """A NAV the nightly job copied from the market, as it would leave it."""
+    owner = db.get(Instrument, fund_id)
+    assert owner is not None
+    db.add(
+        InstrumentPrice(
+            user_id=owner.user_id,
+            instrument_id=fund_id,
+            date=date.fromisoformat(day),
+            price=Decimal(nav),
+            source="auto",
+        )
+    )
+    db.commit()
+
+
+def test_trade_nav_replaces_an_auto_nav_on_its_date(headers: Headers, db_session: Session) -> None:
+    account, ppfcf = bank(headers), fund(headers)
+    add_auto_nav(db_session, ppfcf, DAY, "83.0000")
+    body = made(headers, fund_id=ppfcf, account_id=account)
+    [row] = navs(headers, ppfcf)
+    assert (row["date"], row["nav"], row["trade_id"]) == (DAY, "84.3793", body["id"])
+    assert row["source"] == "manual"
+    listed = client.get("/api/investments/funds", headers=headers).json()["funds"]
+    assert listed[0]["nav"] == "84.3793"
+
+    # Moving a trade onto a date with an auto NAV: the trade's NAV wins there too.
+    add_auto_nav(db_session, ppfcf, "2026-10-20", "70.0000")
+    assert patch(headers, body["id"], date="2026-10-20").status_code == 200
+    [row] = navs(headers, ppfcf)
+    assert (row["date"], row["nav"], row["trade_id"]) == ("2026-10-20", "84.3793", body["id"])
+
+
 @pytest.mark.parametrize(
     ("fields", "loc", "message"),
     [
@@ -509,9 +542,7 @@ def test_archived_bank_trades_are_locked(headers: Headers, db_session: Session) 
         assert response.json()["detail"] == "Restore SBI before changing this trade."
 
 
-def test_another_kinds_shortfall_never_blocks_a_save(
-    headers: Headers, db_session: Session
-) -> None:
+def test_another_kinds_shortfall_never_blocks_a_save(headers: Headers, db_session: Session) -> None:
     """A stock save only checks stock holdings, and a fund save only fund holdings.
 
     Saves can't leave a shortfall behind, but if one were there (here written straight to the

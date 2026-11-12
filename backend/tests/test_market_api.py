@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -8,7 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.api.routes import market
 from app.main import app
+from app.models.investment import Instrument, InstrumentPrice
 from app.models.market import MarketCode
+from app.models.user import User
+from app.prices import refresh
 from app.prices.refresh import refresh_market
 from tests.price_fakes import (
     COIN_ID,
@@ -393,3 +397,107 @@ def test_delete_still_refuses_manual_prices_on_linked_holdings(
     link(headers, "funds", fund, FUND_CODE)
     assert client.delete(f"{URL}/funds/{fund}", headers=headers).status_code == 409
     assert len(fund_navs(headers, fund)) == 2  # the refusal leaves the auto NAV alone
+
+
+def test_linking_writes_prices_only_for_the_current_user(
+    headers: Headers, db_session: Session, seeded: None
+) -> None:
+    owner = db_session.scalar(select(User).where(User.email == "other@example.com"))
+    if owner is None:
+        owner = User(email="other@example.com")
+        db_session.add(owner)
+        db_session.commit()
+    theirs = Instrument(
+        user_id=owner.id, kind="mutual_fund", symbol="F", name="F", source_code=FUND_CODE
+    )
+    db_session.add(theirs)
+    db_session.commit()
+
+    fund = add_fund(headers).json()["id"]
+    assert link(headers, "funds", fund, FUND_CODE).status_code == 200
+
+    assert len(fund_navs(headers, fund)) == 1
+    their_rows = db_session.scalars(
+        select(InstrumentPrice).where(InstrumentPrice.instrument_id == theirs.id)
+    ).all()
+    assert their_rows == []
+
+
+def test_relinking_to_another_code_drops_the_old_auto_prices(
+    headers: Headers, db_session: Session, seeded: None
+) -> None:
+    db_session.add(
+        MarketCode(kind="stock", code="TCS2", name="TCS two", price=Decimal("50"), price_date=TODAY)
+    )
+    db_session.commit()
+    stock = add_stock(headers).json()["id"]
+    manual = add_price(headers, stock, "2026-11-01", "100").json()
+    link(headers, "stocks", stock, STOCK_CODE)
+
+    assert link(headers, "stocks", stock, "TCS2").status_code == 200
+
+    rows = client.get(f"{URL}/stocks/{stock}/prices", headers=headers).json()["prices"]
+    assert [(p["date"], p["price"], p["source"]) for p in rows] == [
+        (TODAY.isoformat(), "50.00", "auto"),
+        (manual["date"], manual["price"], "manual"),
+    ]
+    # Linking to the same code again, or unlinking, keeps what is there.
+    link(headers, "stocks", stock, "TCS2")
+    link(headers, "stocks", stock, None)
+    after = client.get(f"{URL}/stocks/{stock}/prices", headers=headers).json()["prices"]
+    assert after == rows
+
+
+def test_relinking_a_fund_or_coin_drops_the_old_auto_prices(
+    headers: Headers, db_session: Session, seeded: None, fetcher: FakeFetcher
+) -> None:
+    db_session.add(
+        MarketCode(
+            kind="mutual_fund", code="999999", name="Other", price=Decimal("10"), price_date=TODAY
+        )
+    )
+    db_session.commit()
+    fund = add_fund(headers).json()["id"]
+    link(headers, "funds", fund, FUND_CODE)
+    assert link(headers, "funds", fund, "999999").status_code == 200
+    assert [(n["date"], n["nav"], n["source"]) for n in fund_navs(headers, fund)] == [
+        (TODAY.isoformat(), "10.0000", "auto")
+    ]
+
+    coin = link_bitcoin(headers)
+    client.post(f"{URL}/coins/refresh", headers=headers)
+    assert link(headers, "coins", coin, "bitcoin-cash").status_code == 200
+    assert client.get(f"{URL}/coins/{coin}/prices", headers=headers).json()["prices"] == []
+
+
+def test_concurrent_coin_search_conflict_is_retried(
+    headers: Headers, db_session: Session, fetcher: FakeFetcher, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Another search saved bitcoin a moment ago, after this one looked at what was stored.
+    db_session.add(MarketCode(kind="crypto", code="bitcoin", name="Bitcoin (BTC)"))
+    db_session.commit()
+    real = refresh._existing
+    stale = iter([True])
+
+    def existing(db: Session, kind: str) -> dict[str, MarketCode]:
+        return {} if next(stale, False) else real(db, kind)
+
+    monkeypatch.setattr(refresh, "_existing", existing)
+
+    response = search(headers, "crypto", "bitcoin")
+
+    assert response.status_code == 200
+    assert [r["code"] for r in response.json()["results"]] == ["bitcoin", "bitcoin-cash"]
+    codes = db_session.scalars(select(MarketCode.code).where(MarketCode.kind == "crypto")).all()
+    assert sorted(codes) == ["bitcoin", "bitcoin-cash"]
+
+
+def test_routes_close_the_fetcher(
+    headers: Headers, fetcher: FakeFetcher, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    link_bitcoin(headers)
+    assert fetcher.client.is_closed
+    fresh = FakeFetcher()
+    monkeypatch.setattr(market, "default_fetcher", lambda: fresh)
+    client.post(f"{URL}/coins/refresh", headers=headers)
+    assert fresh.calls["simple_price"] == 1 and fresh.client.is_closed

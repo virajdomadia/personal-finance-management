@@ -13,7 +13,7 @@ from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import fmt_nav, latest_prices
 from app.api.routes.accounts import MAX_ID, clean_text, field_error
-from app.api.routes.market import SourceCode, apply_link, check_source_code
+from app.api.routes.market import SourceCode, apply_link, check_source_code, set_link
 from app.api.routes.stocks import Deleted, check_symbol
 from app.api.routes.transactions import Day
 from app.db.session import DbSession
@@ -205,7 +205,7 @@ def create_fund(body: FundCreate, user: CurrentUser, db: DbSession) -> FundRespo
     db.add(fund)
     try:
         if body.source_code is not None:
-            apply_link(db, MUTUAL_FUND)
+            apply_link(db, MUTUAL_FUND, user.id)
         db.commit()
     except IntegrityError:  # a concurrent request took the symbol first
         db.rollback()
@@ -232,10 +232,10 @@ def update_fund(id: int, body: FundUpdate, user: CurrentUser, db: DbSession) -> 
     if "name" in changes:
         fund.name = changes["name"]
     if "source_code" in changes:
-        fund.source_code = changes["source_code"]
+        set_link(db, fund, changes["source_code"])
     try:
         if changes.get("source_code") is not None:
-            apply_link(db, MUTUAL_FUND)
+            apply_link(db, MUTUAL_FUND, user.id)
         db.commit()
     except IntegrityError:
         db.rollback()

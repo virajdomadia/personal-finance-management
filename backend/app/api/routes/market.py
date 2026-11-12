@@ -8,17 +8,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator
 from pydantic_core import PydanticCustomError
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, delete, func, or_, select
+from sqlalchemy.exc import IntegrityError
 
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import fmt_nav, fmt_price
 from app.api.routes.accounts import field_error
 from app.db.session import DbSession
-from app.models.investment import Instrument
+from app.models.investment import Instrument, InstrumentPrice
 from app.models.market import MarketCode
 from app.prices.fetch import default_fetcher
-from app.prices.parse import parse_coin_search
+from app.prices.parse import Quote, parse_coin_search
 from app.prices.refresh import _upsert_quotes, apply_to_users, refresh_market
 
 router = APIRouter(
@@ -56,10 +57,23 @@ def check_source_code(db: DbSession, kind: str, code: str | None) -> list[dict[s
     return [] if found is not None else [field_error("source_code", PICK_A_MATCH)]
 
 
-def apply_link(db: DbSession, kind: str) -> None:
-    """After a link: give the holding the market price right away. Flushes; caller commits."""
+def set_link(db: DbSession, inst: Instrument, code: str | None) -> None:
+    """Point a holding at `code`. Moving it to a different code drops the old code's auto
+    prices, so the two never mix; unlinking (None) keeps them. Manual prices always stay."""
+    if code is not None and inst.source_code is not None and code != inst.source_code:
+        db.execute(
+            delete(InstrumentPrice).where(
+                InstrumentPrice.instrument_id == inst.id, InstrumentPrice.source == "auto"
+            )
+        )
+    inst.source_code = code
+
+
+def apply_link(db: DbSession, kind: str, user_id: int) -> None:
+    """After a link: give the user's holding the market price right away. Flushes; caller
+    commits. Other users' holdings wait for the nightly job."""
     db.flush()
-    apply_to_users(db, only_kind=kind)
+    apply_to_users(db, only_kind=kind, user_id=user_id)
 
 
 class MarketCodeResponse(BaseModel):
@@ -121,16 +135,29 @@ def _search_table(db: DbSession, kind: str, q: str) -> list[MarketCode]:
     )
 
 
+def save_coin_quotes(db: DbSession, quotes: list[Quote]) -> None:
+    """Remember searched coins. Two searches at once can both add the same new coin; the loser
+    rolls back and tries again, now seeing the other's rows, then settles for what is stored."""
+    for _ in range(2):
+        try:
+            _upsert_quotes(db, "crypto", quotes)
+            db.commit()
+            return
+        except IntegrityError:
+            db.rollback()
+    log.warning("coin search could not save its results; using what is stored")
+
+
 def _search_coins(db: DbSession, q: str) -> list[MarketCode]:
     try:
-        quotes = parse_coin_search(default_fetcher().coin_search(q))
+        with default_fetcher() as fetcher:
+            quotes = parse_coin_search(fetcher.coin_search(q))
     except Exception:  # a source error, or anything the reply throws at the parser
         log.exception("coin search failed")
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Couldn't search coins right now."
         ) from None
-    _upsert_quotes(db, "crypto", quotes)
-    db.commit()
+    save_coin_quotes(db, quotes)
     codes = [quote.code for quote in quotes]
     rows = {
         m.code: m
@@ -199,11 +226,12 @@ def refresh_coins(user: CurrentUser, db: DbSession) -> RefreshedResponse:
     is down just means the last stored price stays."""
     if not _coins_stale(db, user.id):
         return RefreshedResponse(refreshed=False)
-    report = refresh_market(db, default_fetcher(), today_india(), kinds={"crypto"})
+    with default_fetcher() as fetcher:
+        report = refresh_market(db, fetcher, today_india(), kinds={"crypto"})
     if "crypto" in report.failed:
         log.warning("coin refresh failed: %s", report.failed["crypto"])
         db.rollback()
         return RefreshedResponse(refreshed=False)
-    apply_to_users(db, only_kind="crypto")
+    apply_to_users(db, only_kind="crypto", user_id=user.id)
     db.commit()
     return RefreshedResponse(refreshed=True)

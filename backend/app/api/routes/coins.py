@@ -14,7 +14,7 @@ from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import fmt_price, latest_prices
 from app.api.routes.accounts import MAX_ID, clean_text, field_error
 from app.api.routes.funds import decimal_input
-from app.api.routes.market import SourceCode, apply_link, check_source_code
+from app.api.routes.market import SourceCode, apply_link, check_source_code, set_link
 from app.api.routes.stocks import Deleted
 from app.api.routes.transactions import Day
 from app.db.session import DbSession
@@ -173,7 +173,7 @@ def create_coin(body: CoinCreate, user: CurrentUser, db: DbSession) -> CoinRespo
     db.add(coin)
     try:
         if body.source_code is not None:
-            apply_link(db, CRYPTO)
+            apply_link(db, CRYPTO, user.id)
         db.commit()
     except IntegrityError:  # a concurrent request took the symbol first
         db.rollback()
@@ -202,10 +202,10 @@ def update_coin(id: int, body: CoinUpdate, user: CurrentUser, db: DbSession) -> 
     if "name" in changes:
         coin.name = changes["name"]
     if "source_code" in changes:
-        coin.source_code = changes["source_code"]
+        set_link(db, coin, changes["source_code"])
     try:
         if changes.get("source_code") is not None:
-            apply_link(db, CRYPTO)
+            apply_link(db, CRYPTO, user.id)
         db.commit()
     except IntegrityError:
         db.rollback()

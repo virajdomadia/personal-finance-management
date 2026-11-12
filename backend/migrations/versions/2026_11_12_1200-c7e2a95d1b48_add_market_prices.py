@@ -1,8 +1,8 @@
 """add market codes, instrument source codes and price sources
 
 Adds the shared `market_codes` table, `instruments.source_code` and `instrument_prices.source`
-(existing rows become "manual"). Downgrading drops them; linked source codes and auto prices
-are discarded.
+(existing rows become "manual"). Downgrading deletes the "auto" price rows first, so only typed
+prices survive, then drops them; linked source codes are discarded.
 
 Revision ID: c7e2a95d1b48
 Revises: a1d4f7c92b36
@@ -47,6 +47,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("DELETE FROM instrument_prices WHERE source = 'auto'")
     op.drop_column("instrument_prices", "source")
     op.drop_column("instruments", "source_code")
     op.drop_index("ix_market_codes_kind_name", table_name="market_codes")

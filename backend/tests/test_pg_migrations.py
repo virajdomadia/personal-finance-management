@@ -507,3 +507,20 @@ def test_market_migration_round_trip(migrations_db: str) -> None:
 
     command.upgrade(config, "head")
     assert tables(migrations_db) == ALL_TABLES
+
+
+def test_market_downgrade_deletes_auto_prices(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, "head")
+    seed_investments(migrations_db, "5")
+    run_sql(
+        migrations_db,
+        "INSERT INTO instrument_prices (user_id, instrument_id, date, price, source, created_at)"
+        " VALUES (1, 1, '2026-11-01', 10, 'manual', :s), (1, 1, '2026-11-02', 11, 'auto', :s)",
+    )
+
+    command.downgrade(config, GOALS_REVISION)
+
+    assert rows(migrations_db, "SELECT date, price FROM instrument_prices") == [
+        (date(2026, 11, 1), Decimal("10.0000"))
+    ]

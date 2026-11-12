@@ -14,7 +14,7 @@ from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import latest_prices
 from app.api.routes.accounts import MAX_ID, Money, clean_text, field_error, fmt
-from app.api.routes.market import SourceCode, apply_link, check_source_code
+from app.api.routes.market import SourceCode, apply_link, check_source_code, set_link
 from app.api.routes.transactions import Day
 from app.db.session import DbSession
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade
@@ -177,7 +177,7 @@ def create_stock(body: StockCreate, user: CurrentUser, db: DbSession) -> StockRe
     db.add(stock)
     try:
         if body.source_code is not None:
-            apply_link(db, STOCK)
+            apply_link(db, STOCK, user.id)
         db.commit()
     except IntegrityError:  # a concurrent request took the symbol first
         db.rollback()
@@ -206,10 +206,10 @@ def update_stock(id: int, body: StockUpdate, user: CurrentUser, db: DbSession) -
     if "name" in changes:
         stock.name = changes["name"]
     if "source_code" in changes:
-        stock.source_code = changes["source_code"]
+        set_link(db, stock, changes["source_code"])
     try:
         if changes.get("source_code") is not None:
-            apply_link(db, STOCK)
+            apply_link(db, STOCK, user.id)
         db.commit()
     except IntegrityError:
         db.rollback()

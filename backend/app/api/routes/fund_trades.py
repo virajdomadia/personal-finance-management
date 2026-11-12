@@ -141,18 +141,23 @@ class FundTradeList(BaseModel):
 def sync_trade_nav(db: Session, trade: InvestmentTrade) -> None:
     """Keep the NAV a fund trade recorded in step with the trade (see the module docstring).
 
-    If another NAV row exists for the trade's fund and date, the trade's own row goes. Otherwise
-    it is created or updated with the trade's date and NAV. Existing units record no NAV.
+    If another typed NAV row exists for the trade's fund and date, the trade's own row goes.
+    Otherwise it is created or updated with the trade's date and NAV, and an automatic NAV on
+    that date is dropped: the NAV the trade was done at wins. Existing units record no NAV.
     """
     if trade.opening:
         return
     linked = db.scalars(select(InstrumentPrice).where(InstrumentPrice.trade_id == trade.id)).all()
+    same_day = (
+        InstrumentPrice.user_id == trade.user_id,
+        InstrumentPrice.instrument_id == trade.instrument_id,
+        InstrumentPrice.date == trade.date,
+    )
     other = db.scalar(
         select(InstrumentPrice.id)
         .where(
-            InstrumentPrice.user_id == trade.user_id,
-            InstrumentPrice.instrument_id == trade.instrument_id,
-            InstrumentPrice.date == trade.date,
+            *same_day,
+            InstrumentPrice.source != "auto",
             (InstrumentPrice.trade_id.is_(None)) | (InstrumentPrice.trade_id != trade.id),
         )
         .limit(1)
@@ -161,6 +166,7 @@ def sync_trade_nav(db: Session, trade: InvestmentTrade) -> None:
         for row in linked:
             db.delete(row)
         return
+    db.execute(delete(InstrumentPrice).where(*same_day, InstrumentPrice.source == "auto"))
     if not linked:
         db.add(
             InstrumentPrice(
@@ -181,7 +187,7 @@ def sync_trade_nav(db: Session, trade: InvestmentTrade) -> None:
 def hand_over_nav(db: Session, user_id: int, fund_id: int, day: str) -> None:
     """After a trade leaves a date, let the lowest-id other trade there record the date's NAV.
 
-    Only when no NAV is left for the fund and date.
+    Only when no typed NAV is left for the fund and date; an automatic one gives way.
     """
     db.flush()
     has_nav = db.scalar(
@@ -190,6 +196,7 @@ def hand_over_nav(db: Session, user_id: int, fund_id: int, day: str) -> None:
             InstrumentPrice.user_id == user_id,
             InstrumentPrice.instrument_id == fund_id,
             InstrumentPrice.date == day,
+            InstrumentPrice.source != "auto",
         )
         .limit(1)
     )
