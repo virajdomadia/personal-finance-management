@@ -40,9 +40,7 @@ def upgrade() -> None:
         sa.Column(
             "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
         ),
-        sa.CheckConstraint(
-            "amount IS NULL OR amount > 0", name=op.f("ck_budgets_amount_positive")
-        ),
+        sa.CheckConstraint("amount IS NULL OR amount > 0", name=op.f("ck_budgets_amount_positive")),
         sa.CheckConstraint("kind = 'expense'", name=op.f("ck_budgets_kind")),
         sa.ForeignKeyConstraint(
             ["category_id", "user_id", "kind"],
