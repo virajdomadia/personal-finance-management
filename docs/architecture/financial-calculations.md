@@ -281,6 +281,70 @@ A goal with a `monthly_amount` and a `reminder_day` (1 to 31, clamped to the mon
 
 Goal reminders come under their own key, `goals_due` in `GET /recurring/due`, and never inside `items`, which older app versions read as templates.
 
+## Net worth over time
+
+**Built on branch `net-worth`.** See the [design](../superpowers/specs/2026-11-13-net-worth-history-design.md). Net worth itself is never stored: the dashboard works it out on every request. What is stored is a **snapshot**, a copy of the dashboard's figures for one day, so the trend can be drawn later.
+
+### Daily snapshots
+
+A snapshot holds, for one user and one date (India's date):
+
+```
+net_worth, total_have, total_owe              (exactly the dashboard's figures)
+bank_cash, deposits, stocks, funds, crypto    (the dashboard's asset split)
+estimated                                     (false for a real snapshot)
+```
+
+- **The same code as the dashboard.** The figures come from the one function the dashboard uses (`app/api/worth.py`), so a snapshot taken now equals what the dashboard shows now. All five groups are stored, including zero or negative ones (`bank_cash` goes negative when an overdraft is larger than the cash held). The dashboard leaves those out of its bar, and the history chart draws them as zero.
+- **One row per user per date.** Writing a date again replaces that row, so re-running a night is harmless.
+- **The nightly job writes them.** The cron at 23:30 India time (18:00 UTC) refreshes prices first, then writes the evening's snapshot for every user who has at least one account or instrument. The snapshot therefore uses tonight's prices. Vercel can start the run as late as 00:29, so the snapshot is dated by the evening it was meant for: India time minus 3 hours (a run at 00:15 on the 14th writes the 13th). A user whose snapshot fails is logged and skipped, and the others still get theirs.
+- **Rounded so it adds up.** Have and owe are rounded to paise first; net worth is have − owe, and bank and cash is have less the other rounded groups, so every stored row adds up exactly.
+- **A missed night stays a gap.** The next run writes only its own date. Nothing is filled in or interpolated. The chart spaces points by date, so a gap shows as a longer line, and a gap longer than 45 days breaks the line.
+- **The first point comes at once.** When a user opens the dashboard (through the history request it makes) and there is no real snapshot for today, one is written then, so a new user has a first point immediately rather than after 23:30. That night's run overwrites it with the final figures.
+- **Today is always live.** The history's last point, and every change figure, use today's figures worked out on the request, never the stored row, so they always match the net worth shown beside them.
+- Snapshots are approximate: a holding is valued at its latest recorded price on the night, a PPF or RD at its balance, and a later balance correction (which rewrites the opening balance, see above) leaves earlier snapshots as they were.
+
+### Estimated history (backfill)
+
+`python -m app.cli backfill-net-worth [email]` estimates one point per month-end for the last 12 months from the transactions already recorded. Without an email it runs for every user. These points are marked `estimated` and drawn differently.
+
+For each month-end `D` of the 12 months before the current one:
+
+```
+an account counts on D   when it existed (its first transaction or its creation date ≤ D)
+                         and wasn't archived yet (archived after D, or never)
+balance(account, D)      = opening_balance + the money its transactions and trades moved up to D
+total_have, total_owe    = the same rules as today, over the accounts that count
+deposits                 = PPF and RD balances on D
+bank_cash                = total_have − deposits
+stocks, funds, crypto    = 0
+```
+
+**Limits, written down so nobody mistakes the estimate for a record:**
+
+- **Investments are left out.** Stocks, funds and coins count only from the day snapshots start. Before that the estimate has no holdings at all, so a month where money went from the bank into a fund shows as a fall. There are no past prices to value them with. Broker cash, PPF and RD balances are accounts, so they are estimated like a bank.
+- **Only what was recorded.** An account counts from its first transaction or the day it was added to the app, whichever is earlier. Money held before that is unknown and left out, so the earliest months can be too low or missing. A month-end with no account counted gets no point.
+- **The opening balance is taken to come before every transaction.** That is how balances are worked out today, so the estimate agrees with them, but a balance correction shifts every past estimate with it.
+- **Real snapshots win.** The backfill only writes month-ends before the user's first real snapshot, never replaces a real snapshot, and re-running it replaces its own earlier estimates.
+
+### Change figures
+
+```
+since last month = today's net worth − the snapshot nearest to the same day last month
+since the start  = today's net worth − the first snapshot in the chosen range
+```
+
+- "The same day last month" is today's day in the previous month, clamped to that month's length (31 March looks for 28 or 29 February).
+- **Which snapshot.** Candidates are dated before today, from 16 days before that day to 3 days after it (a point long after the target, left by missed nights, doesn't count). A real snapshot is always preferred; an estimate is used only when no real one is a candidate. The nearest wins, and on a tie the earlier. With none there is no figure ("not enough history yet"), never a misleading ₹0.
+- **Like with like.** An estimate has no stocks, funds or coins. When the compared snapshot is estimated, today's side leaves them out too: `today's net worth − today's stocks, funds and coins − the estimate`. Otherwise someone holding ₹5,00,000 of shares would see "▲ ₹5,00,000 since last month" for weeks after a backfill. The response says so (`estimated: true`).
+- **On the day or not.** Each figure also says whether its date is within 3 days of the day it was looking for (`on_target`). When it isn't, or when it is estimated, the clients name the date ("since 30 Sep, estimated") instead of saying "since last month".
+- Ranges are 3 months, 6 months, 1 year (the default) or all, each counted back from today with the day clamped as above.
+- Both figures are Decimal subtractions on the server. They cross the API as two-decimal strings, each with the date it compares against.
+
+Example: today is 13 Nov 2026 and net worth is ₹5,12,000. There are snapshots on 12 Oct (₹4,90,000) and 15 Oct (₹4,95,000). The target is 13 Oct, and they are 1 and 2 days from it, so 12 Oct is nearest and the change is **+₹22,000 since last month**.
+
+Example with an estimate: net worth ₹5,12,000, of which ₹1,00,000 is a fund, and the only candidate is the estimate for 30 Sep (₹3,90,000). The change is ₹5,12,000 − ₹1,00,000 − ₹3,90,000 = **+₹22,000 since 30 Sep, estimated**, not +₹1,22,000.
+
 ## Dates
 
 "Today" is India's date (UTC+05:30). Future-dated transactions are refused.

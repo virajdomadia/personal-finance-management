@@ -9,6 +9,7 @@ import { ApiError, apiFetch } from "@/lib/api";
 import { Signed } from "@/components/investments/shared";
 import { DueSection } from "@/components/recurring/due-list";
 import { SetupChecklist } from "@/components/dashboard/setup-checklist";
+import { NetWorthTrend } from "@/components/net-worth/net-worth-trend";
 import { MonthCard } from "@/components/dashboard/month-card";
 import {
   FOCUS,
@@ -172,7 +173,9 @@ function Content({
                 label="Net worth"
                 value={formatRupees(data.net_worth)}
                 size="huge"
+                href="/net-worth"
               >
+                <NetWorthTrend />
                 {investments && (
                   <span className="mt-2 block text-xs font-extrabold">
                     Includes investments at their latest price (or cost if no

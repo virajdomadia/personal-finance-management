@@ -52,6 +52,7 @@ ALL_TABLES = {
     "sms_entries",
     "payee_rules",
     "sms_samples",
+    "net_worth_snapshots",
     "categories",
 }
 
@@ -243,7 +244,9 @@ NEW_REVISION = "5d7e3a90c1f2"
 RECURRING_REVISION = "8e4c1b7a2d95"
 GOALS_REVISION = "a1d4f7c92b36"
 MARKET_REVISION = "c7e2a95d1b48"
-HEAD_REVISION = "2d46fef3dab4"
+SMS_REVISION = "e3b81f46a0d7"
+CATEGORIES_REVISION = "2d46fef3dab4"
+HEAD_REVISION = "4f9a2c7e1b30"
 SMS_TABLES = {"account_identifiers", "sms_entries", "payee_rules", "sms_samples"}
 GOAL_TABLES = {"goals", "goal_earmarks", "goal_holdings"}
 RECURRING_TABLES = {
@@ -374,8 +377,9 @@ def test_recurring_migration_round_trip(migrations_db: str) -> None:
 
     command.downgrade(config, NEW_REVISION)
     assert tables(migrations_db) == ALL_TABLES - RECURRING_TABLES - GOAL_TABLES - SMS_TABLES - {
-        "categories",
         "market_codes",
+        "net_worth_snapshots",
+        "categories",
     }
     columns = {c["name"] for c in inspect(create_engine(migrations_db)).get_columns("transactions")}
     assert "recurring_template_id" not in columns
@@ -428,6 +432,7 @@ def test_goals_migration_round_trip(migrations_db: str) -> None:
     command.downgrade(config, RECURRING_REVISION)
     assert tables(migrations_db) == ALL_TABLES - GOAL_TABLES - SMS_TABLES - {
         "market_codes",
+        "net_worth_snapshots",
         "categories",
     }
     assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(RECURRING_REVISION,)]
@@ -562,7 +567,45 @@ def test_sms_migration_round_trip(migrations_db: str) -> None:
     assert tables(migrations_db) == ALL_TABLES
 
 
-SMS_REVISION = "e3b81f46a0d7"
+SNAPSHOT_INSERT = (
+    "INSERT INTO net_worth_snapshots (user_id, date, net_worth, total_have, total_owe,"
+    " bank_cash, deposits, stocks, funds, crypto)"
+    " VALUES (1, '2026-11-13', 5, 5, 0, 5, 0, 0, 0, 0)"
+)
+
+
+def test_snapshot_migration_round_trip(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, "head")
+    assert "net_worth_snapshots" in tables(migrations_db)
+
+    command.downgrade(config, CATEGORIES_REVISION)
+    assert "net_worth_snapshots" not in tables(migrations_db)
+    version = rows(migrations_db, "SELECT version_num FROM alembic_version")
+    assert version == [(CATEGORIES_REVISION,)]
+
+    command.upgrade(config, "head")
+    assert tables(migrations_db) == ALL_TABLES
+
+
+def test_snapshot_downgrade_refuses_history(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, "head")
+    seed_investments(migrations_db, "5")
+    run_sql(migrations_db, SNAPSHOT_INSERT)
+    with pytest.raises(RuntimeError, match="Net worth history exists"):
+        command.downgrade(config, CATEGORIES_REVISION)
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(HEAD_REVISION,)]
+    assert rows(migrations_db, "SELECT estimated FROM net_worth_snapshots") == [(False,)]
+
+
+def test_one_snapshot_per_user_and_date_on_postgres(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, "head")
+    seed_investments(migrations_db, "5")
+    run_sql(migrations_db, SNAPSHOT_INSERT)
+    with pytest.raises(IntegrityError):
+        run_sql(migrations_db, SNAPSHOT_INSERT)
 
 
 def test_categories_migration_seeds_and_round_trips(migrations_db: str) -> None:

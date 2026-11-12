@@ -15,6 +15,7 @@ from app.api.routes import (
     goals,
     health,
     market,
+    net_worth,
     policies,
     portfolio,
     recurring,
@@ -52,5 +53,6 @@ api_router.include_router(market.router)
 api_router.include_router(crypto_trades.router)
 api_router.include_router(trades.router)
 api_router.include_router(portfolio.router)
+api_router.include_router(net_worth.router)
 api_router.include_router(health.router)
 api_router.include_router(cron.router)
