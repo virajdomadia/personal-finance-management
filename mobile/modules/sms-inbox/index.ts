@@ -15,7 +15,7 @@ export function isAvailable(): boolean {
   return native !== null;
 }
 
-// Received SMS newer than `sinceMillis`, newest first, at most `limit`. Rejects without READ_SMS.
+// Received SMS newer than `sinceMillis`, oldest first, at most `limit`. Rejects without READ_SMS.
 export function readInbox(sinceMillis: number, limit: number): Promise<InboxSms[]> {
   if (native === null) return Promise.reject(new Error("The SMS reader is not in this app version."));
   return native.readInbox(sinceMillis, limit);

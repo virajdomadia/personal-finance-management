@@ -1,7 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 
 import { istDay } from "./parse.ts";
-import type { RawSms, SmsSettings } from "./sync.ts";
+import { type RawSms, type SmsSettings, mergeSmsSettings } from "./sync.ts";
 
 // The SMS settings, kept on the phone only under one key. The unreadable list holds raw message
 // text, which never leaves the phone unless the owner sends a masked sample.
@@ -54,7 +54,8 @@ let queue: Promise<unknown> = Promise.resolve();
 
 export function saveSmsSettings(patch: Partial<SmsSettings>): Promise<SmsSettings> {
   const run = queue.then(async () => {
-    const next = { ...(await loadSmsSettings()), ...patch };
+    // Moving the start date earlier resets lastReadAt, so the earlier days are read.
+    const next = mergeSmsSettings(await loadSmsSettings(), patch);
     await SecureStore.setItemAsync(KEY, JSON.stringify(next));
     return next;
   });

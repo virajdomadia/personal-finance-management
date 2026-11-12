@@ -3,12 +3,13 @@
 //
 // Only messages from known bank, card and depository senders are opened. Anything else is skipped
 // on the sender alone; its text is never parsed, stored or sent. Raw text never leaves the phone:
-// messages no parser understood stay in local storage for the owner to look at.
+// messages no parser understood, or that the server refused, stay in local storage for the owner.
 
 import { type Parsed, istDay, parseSms } from "./parse.ts";
 import { senderBank } from "./senders.ts";
 
 export const BATCH_SIZE = 50;
+export const PAGE_SIZE = 500;
 export const MAX_DAYS_BACK = 90;
 export const MAX_UNREADABLE = 50;
 
@@ -43,13 +44,16 @@ export type SmsEntry = {
 };
 
 export type SyncDeps = {
-  read: (sinceMillis: number) => Promise<RawSms[]>;
+  // Received SMS with date > sinceMillis, OLDEST first, at most `limit`.
+  read: (sinceMillis: number, limit: number) => Promise<RawSms[]>;
+  // Rejects with an error carrying `status: 422` when the server refuses the entries' shape.
   post: (entries: SmsEntry[]) => Promise<unknown>;
   hash: (text: string) => Promise<string>;
   settings: SmsSettings;
   now: Date;
   save: (patch: Partial<SmsSettings>) => Promise<void>;
   parse?: typeof parseSms;
+  pageSize?: number;
 };
 
 export type SyncResult = { sent: number; unreadable: number; banks: string[] };
@@ -66,12 +70,36 @@ export function startMillis(startDate: string, now: Date): number {
   return Math.min(today, Math.max(floor, start));
 }
 
+// Applies a settings change. Moving the start date earlier starts reading over from it; the
+// server answers messages it already has as duplicates.
+export function mergeSmsSettings(current: SmsSettings, patch: Partial<SmsSettings>): SmsSettings {
+  const next = { ...current, ...patch };
+  if (patch.startDate !== undefined && patch.startDate < current.startDate && patch.lastReadAt === undefined) {
+    next.lastReadAt = 0;
+  }
+  return next;
+}
+
+// What the server accepts: Numeric(14,2) money, Numeric(24,8) positive quantities, ISO days.
+const MONEY = /^\d{1,12}(?:\.\d{1,2})?$/;
+const QUANTITY = /^\d{1,16}(?:\.\d{1,8})?$/;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
 function clip(value: string | null, max: number): string | null {
   return value === null ? null : value.slice(0, max);
 }
 
-function toEntry(hash: string, address: string, bank: string, line: Parsed, today: string, received: string): SmsEntry {
-  // The server refuses a date after today, and one refused entry fails its whole batch.
+function moneyOk(value: string | null): boolean {
+  return value === null || MONEY.test(value);
+}
+
+// The entry for one parsed line, or null when a number or date is outside what the server takes
+// (the whole message then counts as unreadable). Text fields are clipped to the server's lengths.
+function toEntry(hash: string, address: string, bank: string, line: Parsed, today: string, received: string): SmsEntry | null {
+  if (!moneyOk(line.amount) || !moneyOk(line.balance)) return null;
+  if (line.quantity !== null && (!QUANTITY.test(line.quantity) || Number(line.quantity) <= 0)) return null;
+  if (!DAY.test(line.date) || (line.dueDate !== null && !DAY.test(line.dueDate))) return null;
+  // The server refuses a date after today.
   const date = line.date > today ? received : line.date;
   return {
     hash,
@@ -80,7 +108,7 @@ function toEntry(hash: string, address: string, bank: string, line: Parsed, toda
     kind: line.kind,
     amount: line.amount,
     date,
-    last4: line.last4,
+    last4: line.last4 !== null && /^\d{4}$/.test(line.last4) ? line.last4 : null,
     payee: clip(line.payee, 120),
     ref: clip(line.ref, 40),
     balance: line.balance,
@@ -90,78 +118,154 @@ function toEntry(hash: string, address: string, bank: string, line: Parsed, toda
   };
 }
 
-// `end` is the index of the batch's last message, entries or not.
-type Batch = { entries: SmsEntry[]; newest: number; end: number };
-
-export async function syncSms({ read, post, hash, settings, now, save, parse = parseSms }: SyncDeps): Promise<SyncResult> {
-  const since = Math.max(settings.lastReadAt, startMillis(settings.startDate, now) - 1);
-  // Oldest first, so the mark only ever moves forward over handled messages.
-  const messages = (await read(since)).filter((m) => m.date > since).sort((a, b) => a.date - b.date);
-  const today = istDay(now);
-
-  const batches: Batch[] = [{ entries: [], newest: since, end: -1 }];
-  const unreadable: RawSms[] = [];
-  const banks = new Set<string>();
-
-  for (const [index, message] of messages.entries()) {
-    const bank = senderBank(message.address);
-    let entries: SmsEntry[] = [];
-    if (bank !== null) {
-      banks.add(bank);
-      const received = new Date(message.date);
-      let result: ReturnType<typeof parseSms>;
-      try {
-        result = parse(bank, message.body, received);
-      } catch {
-        // A parser bug must not stall every later message; the owner sees it in the unreadable list.
-        result = "unreadable";
-      }
-      if (result === "unreadable") {
-        unreadable.push({ id: message.id, address: message.address, body: message.body, date: message.date });
-      } else if (result !== "ignore") {
-        const base = `${message.address}\n${message.date}\n${message.body}`;
-        const indexed = result.length > 1 || result.some((line) => line.kind === "demat");
-        entries = await Promise.all(
-          result.map(async (line, i) =>
-            toEntry((await hash(indexed ? `${base}:${i}` : base)).toLowerCase(), message.address, bank, line, today, istDay(received)),
-          ),
-        );
-      }
-    }
-    // A message's lines always go in one batch; a full batch starts a new one.
-    let current = batches[batches.length - 1];
-    if (entries.length > 0 && current.entries.length > 0 && current.entries.length + entries.length > BATCH_SIZE) {
-      current = { entries: [], newest: current.newest, end: current.end };
-      batches.push(current);
-    }
-    current.entries.push(...entries);
-    current.newest = message.date;
-    current.end = index;
-  }
-
-  const seen = new Set<string>();
-  const kept = [...unreadable.reverse(), ...settings.unreadable]
-    .filter((m) => (seen.has(m.id) ? false : (seen.add(m.id), true)))
-    .slice(0, MAX_UNREADABLE);
-  const allBanks = [...new Set([...settings.banks, ...banks])].sort();
-  await save({ unreadable: kept, banks: allBanks });
-
-  let sent = 0;
-  let mark = settings.lastReadAt;
-  for (const batch of batches) {
-    if (batch.entries.length > 0) await post(batch.entries);
-    sent += batch.entries.length;
-    // When the next batch starts at this batch's newest time, stop just below it: reading is
-    // "after the mark", and the message sharing that time must be read again if its batch fails.
-    // The server answers a resent message as a duplicate.
-    const next = messages[batch.end + 1];
-    const advance = next !== undefined && next.date <= batch.newest ? batch.newest - 1 : batch.newest;
-    if (batch.end >= 0 && advance > mark) {
-      mark = advance;
-      await save({ lastReadAt: mark });
-    }
-  }
-
-  return { sent, unreadable: unreadable.length, banks: [...banks].sort() };
+function isRefused(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { status?: unknown }).status === 422;
 }
 
+// One message read from the inbox: its entries (none when ignored or unreadable) and the mark
+// that is safe once it has been handled.
+type Unit = { message: RawSms; entries: SmsEntry[]; safe: number };
+
+export async function syncSms({
+  read,
+  post,
+  hash,
+  settings,
+  now,
+  save,
+  parse = parseSms,
+  pageSize = PAGE_SIZE,
+}: SyncDeps): Promise<SyncResult> {
+  const today = istDay(now);
+  let cursor = Math.max(settings.lastReadAt, startMillis(settings.startDate, now) - 1);
+  let mark = settings.lastReadAt;
+  let stored = settings.unreadable;
+  let storedBanks = settings.banks;
+  const seen = new Set<string>();
+  const banks = new Set<string>();
+  let sent = 0;
+  let unreadableCount = 0;
+
+  const keep = async (messages: RawSms[]) => {
+    if (messages.length === 0) return;
+    unreadableCount += messages.length;
+    const ids = new Set<string>();
+    stored = [...[...messages].reverse(), ...stored]
+      .filter((m) => (ids.has(m.id) ? false : (ids.add(m.id), true)))
+      .slice(0, MAX_UNREADABLE);
+    await save({ unreadable: stored });
+  };
+  const advance = async (to: number) => {
+    if (to <= mark) return;
+    mark = to;
+    await save({ lastReadAt: mark });
+  };
+  // Posts one message's lines, at most a batch per request.
+  const postLines = async (entries: SmsEntry[]) => {
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) await post(entries.slice(i, i + BATCH_SIZE));
+  };
+
+  for (;;) {
+    const page = (await read(cursor, pageSize)).filter((m) => m.date > cursor).sort((a, b) => a.date - b.date);
+    if (page.length === 0) break;
+    const full = page.length >= pageSize;
+    const last = page[page.length - 1].date;
+    // A full page may stop partway through a millisecond: read again from just below its last
+    // time and skip the ids already handled. Only a page that is one single millisecond can't be
+    // split that way, and then reading moves on past it.
+    const allSame = page[0].date === last;
+    const nextCursor = full && !allSame ? last - 1 : last;
+
+    const fresh = page.filter((m) => !seen.has(m.id));
+    fresh.forEach((m) => seen.add(m.id));
+
+    const units: Unit[] = [];
+    const unreadable: RawSms[] = [];
+    for (const [i, message] of fresh.entries()) {
+      const following = fresh[i + 1];
+      const safe =
+        following !== undefined
+          ? following.date <= message.date
+            ? message.date - 1
+            : message.date
+          : Math.min(message.date, nextCursor);
+      const bank = senderBank(message.address);
+      let entries: SmsEntry[] = [];
+      if (bank !== null) {
+        banks.add(bank);
+        const received = new Date(message.date);
+        let result: ReturnType<typeof parseSms>;
+        try {
+          result = parse(bank, message.body, received);
+        } catch {
+          // A parser bug must not stall every later message; the owner sees it in the list.
+          result = "unreadable";
+        }
+        if (result !== "unreadable" && result !== "ignore") {
+          const base = `${message.address}\n${message.date}\n${message.body}`;
+          const indexed = result.length > 1 || result.some((line) => line.kind === "demat");
+          const built = await Promise.all(
+            result.map(async (line, n) =>
+              toEntry((await hash(indexed ? `${base}:${n}` : base)).toLowerCase(), message.address, bank, line, today, istDay(received)),
+            ),
+          );
+          if (built.every((e): e is SmsEntry => e !== null)) entries = built;
+          else result = "unreadable";
+        }
+        if (result === "unreadable") unreadable.push({ ...message });
+      }
+      units.push({ message, entries, safe });
+    }
+
+    const allBanks = [...new Set([...storedBanks, ...banks])].sort();
+    if (allBanks.length !== storedBanks.length) {
+      storedBanks = allBanks;
+      await save({ banks: allBanks });
+    }
+    await keep(unreadable);
+
+    // Whole messages per request, up to a batch of lines; a message with more lines goes alone.
+    const batches: Unit[][] = [[]];
+    for (const unit of units) {
+      let current = batches[batches.length - 1];
+      const lines = current.reduce((n, u) => n + u.entries.length, 0);
+      if (unit.entries.length > 0 && lines > 0 && lines + unit.entries.length > BATCH_SIZE) {
+        current = [];
+        batches.push(current);
+      }
+      current.push(unit);
+    }
+
+    for (const batch of batches) {
+      if (batch.length === 0) continue;
+      const entries = batch.flatMap((u) => u.entries);
+      try {
+        if (entries.length > BATCH_SIZE) await postLines(entries);
+        else if (entries.length > 0) await post(entries);
+        sent += entries.length;
+      } catch (error) {
+        if (!isRefused(error)) throw error;
+        // The server refused something in this batch: send each message on its own, and keep
+        // the ones it still refuses on the phone so they don't block everything after them.
+        for (const unit of batch) {
+          if (unit.entries.length > 0) {
+            try {
+              await postLines(unit.entries);
+              sent += unit.entries.length;
+            } catch (single) {
+              if (!isRefused(single)) throw single;
+              await keep([{ ...unit.message }]);
+            }
+          }
+          await advance(unit.safe);
+        }
+      }
+      await advance(batch[batch.length - 1].safe);
+    }
+
+    if (!full) break;
+    cursor = nextCursor;
+  }
+
+  return { sent, unreadable: unreadableCount, banks: [...banks].sort() };
+}

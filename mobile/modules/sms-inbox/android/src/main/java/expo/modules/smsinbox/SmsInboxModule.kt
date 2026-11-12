@@ -10,8 +10,8 @@ import expo.modules.kotlin.modules.ModuleDefinition
 
 class SmsPermissionException : CodedException("ERR_SMS_PERMISSION", "READ_SMS permission is not granted", null)
 
-// Reads received SMS newer than a time, newest first. Nothing else: no sending, no listening in
-// the background. Which senders matter is decided in JavaScript.
+// Reads received SMS newer than a time, oldest first, so a caller can page forward. Nothing
+// else: no sending, no listening in the background. Which senders matter is decided in JavaScript.
 class SmsInboxModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("SmsInbox")
@@ -33,7 +33,7 @@ class SmsInboxModule : Module() {
         projection,
         "${Telephony.Sms.DATE} > ?",
         arrayOf(sinceMillis.toLong().toString()),
-        "${Telephony.Sms.DATE} DESC"
+        "${Telephony.Sms.DATE} ASC"
       )?.use { cursor ->
         val idColumn = cursor.getColumnIndexOrThrow(Telephony.Sms._ID)
         val addressColumn = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)

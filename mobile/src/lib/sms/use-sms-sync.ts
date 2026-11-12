@@ -1,5 +1,5 @@
 import * as Crypto from "expo-crypto";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { AppState } from "react-native";
 
 import { apiFetch } from "@/lib/api";
@@ -7,55 +7,74 @@ import { useSession } from "@/lib/session";
 import { isAvailable, readInbox } from "../../../modules/sms-inbox";
 
 import { loadSmsSettings, saveSmsSettings } from "./settings";
-import { type SmsEntry, syncSms } from "./sync";
+import { type SmsEntry, type SyncResult, syncSms } from "./sync";
 
 const MIN_GAP_MS = 30_000;
-// Covers every SMS of 90 days for a heavy inbox; personal messages count too, since the sender
-// check happens in JavaScript.
-const READ_LIMIT = 5_000;
 
 type EntryResult = { hash: string; status: string; reason: string | null };
 
-// Reads new bank SMS when the app opens and whenever it comes back to the front. Never in the
-// background. Does nothing while SMS reading is off or on an app build without the native reader.
+// One sync at a time for the whole app, shared by the hook and syncSmsNow.
+let inFlight: Promise<SyncResult | null> | null = null;
+let lastRun = 0;
+let currentToken: string | null = null;
+
+function runSync(token: string): Promise<SyncResult | null> {
+  if (inFlight) return inFlight;
+  inFlight = (async () => {
+    try {
+      const settings = await loadSmsSettings();
+      if (!settings.enabled) return null;
+      lastRun = Date.now();
+      return await syncSms({
+        read: (since, limit) => readInbox(since, limit),
+        post: (entries: SmsEntry[]) =>
+          apiFetch<{ results: EntryResult[] }>("/sms/entries", { method: "POST", token, body: { entries } }),
+        hash: (text) => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text),
+        settings,
+        now: new Date(),
+        save: async (patch) => {
+          await saveSmsSettings(patch);
+        },
+      });
+    } finally {
+      inFlight = null;
+    }
+  })();
+  return inFlight;
+}
+
+// Reads right away, for "Read now" and for switching SMS reading on. Resolves null when reading is
+// off, signed out or this app build has no SMS reader; rejects when the sync fails.
+export function syncSmsNow(): Promise<SyncResult | null> {
+  if (!currentToken || !isAvailable()) return Promise.resolve(null);
+  return runSync(currentToken);
+}
+
+// Reads new bank SMS when the app opens and whenever it comes back to the front, at most every
+// 30 seconds. Never in the background. Does nothing while SMS reading is off or on an app build
+// without the native reader.
 export function useSmsSync(): void {
   const { token } = useSession();
-  const running = useRef(false);
-  const lastRun = useRef(0);
 
   useEffect(() => {
+    currentToken = token;
     if (!token || !isAvailable()) return;
 
-    const run = async () => {
-      if (running.current || Date.now() - lastRun.current < MIN_GAP_MS) return;
-      running.current = true;
-      try {
-        const settings = await loadSmsSettings();
-        if (!settings.enabled) return;
-        lastRun.current = Date.now();
-        await syncSms({
-          read: (since) => readInbox(since, READ_LIMIT),
-          post: (entries: SmsEntry[]) =>
-            apiFetch<{ results: EntryResult[] }>("/sms/entries", { method: "POST", token, body: { entries } }),
-          hash: (text) => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text),
-          settings,
-          now: new Date(),
-          save: async (patch) => {
-            await saveSmsSettings(patch);
-          },
-        });
-      } catch (error) {
+    const run = () => {
+      if (Date.now() - lastRun < MIN_GAP_MS) return;
+      runSync(token).catch((error: unknown) => {
         // Quiet: whatever wasn't sent is read again next time.
         if (__DEV__) console.warn("SMS sync failed", error);
-      } finally {
-        running.current = false;
-      }
+      });
     };
 
-    void run();
+    run();
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void run();
+      if (state === "active") run();
     });
-    return () => subscription.remove();
+    return () => {
+      subscription.remove();
+      if (currentToken === token) currentToken = null;
+    };
   }, [token]);
 }

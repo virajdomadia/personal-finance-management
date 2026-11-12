@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { OWNER } from "./fixtures.mjs";
 import { parseSms } from "./parse.ts";
-import { BATCH_SIZE, MAX_DAYS_BACK, startMillis, syncSms } from "./sync.ts";
+import { BATCH_SIZE, MAX_DAYS_BACK, mergeSmsSettings, startMillis, syncSms } from "./sync.ts";
 
 const NOW = new Date("2026-11-12T10:00:00+05:30");
 const DAY = 86_400_000;
@@ -14,21 +14,26 @@ function settings(patch = {}) {
   return { enabled: true, startDate: "2026-11-01", lastReadAt: 0, unreadable: [], banks: [], ...patch };
 }
 
-// A fake inbox: keeps messages newer than `since`, newest first, like the native module.
+// A fake inbox like the native module: messages newer than `since`, oldest first, at most `limit`.
+// Same-millisecond messages keep a stable order, as a real query would.
 function inbox(messages) {
   const calls = [];
-  const read = async (since) => {
+  const read = async (since, limit) => {
     calls.push(since);
-    return messages.filter((m) => m.date > since).sort((a, b) => b.date - a.date);
+    return messages
+      .filter((m) => m.date > since)
+      .sort((a, b) => a.date - b.date || Number(a.id) - Number(b.id))
+      .slice(0, limit);
   };
   return { read, calls };
 }
 
-function recorder({ failOn } = {}) {
+function recorder({ failOn, refuse } = {}) {
   const batches = [];
   const post = async (entries) => {
     batches.push(entries);
     if (failOn === batches.length) throw new Error("network down");
+    if (refuse && entries.some(refuse)) throw Object.assign(new Error("API responded with 422"), { status: 422 });
   };
   return { post, batches };
 }
@@ -43,8 +48,20 @@ function saver(initial) {
 
 const BOI = OWNER.boiUpiDebit;
 
+// Each gets its own amount, so each has its own hash.
 function boiMessage(id, date) {
-  return { id: String(id), address: BOI.sender, body: BOI.body, date };
+  return { id: String(id), address: BOI.sender, body: BOI.body.replace("Rs.243.00", `Rs.${1000 + Number(id)}.00`), date };
+}
+
+function demat(n, extra = {}) {
+  return {
+    kind: "demat", amount: null, date: "2026-11-10", last4: "8277", payee: `STOCK ${n}`, ref: "debit",
+    balance: null, isin: null, quantity: String(n + 1), dueDate: null, ...extra,
+  };
+}
+
+function hashesOf(batches) {
+  return batches.flat().map((e) => e.hash);
 }
 
 test("test_only_known_senders_are_parsed", async () => {
@@ -62,22 +79,22 @@ test("test_only_known_senders_are_parsed", async () => {
 
   const result = await syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, parse, save });
 
-  assert.deepEqual(parsedBodies, [BOI.body]);
+  assert.deepEqual(parsedBodies, [bank.body]);
   assert.equal(result.sent, 1);
   assert.deepEqual(result.banks, ["boi"]);
   const sentText = JSON.stringify(batches);
   assert.ok(!sentText.includes("send me the money"), "a personal message must never be sent");
   assert.ok(!sentText.includes("Shop again"), "an unknown sender must never be sent");
-  assert.ok(!sentText.includes(BOI.body), "raw text never leaves the phone");
+  assert.ok(!sentText.includes(bank.body), "raw text never leaves the phone");
   const [entry] = batches[0];
   assert.deepEqual(Object.keys(entry).sort(), [
     "amount", "balance", "bank", "date", "due_date", "hash", "isin", "kind", "last4", "payee", "quantity", "ref", "sender",
   ]);
   assert.equal(entry.sender, BOI.sender);
   assert.equal(entry.bank, "boi");
-  assert.equal(entry.amount, "243.00");
+  assert.equal(entry.amount, "1003.00");
   assert.equal(entry.due_date, null);
-  assert.equal(entry.hash, await sha256(`${BOI.sender}\n${bank.date}\n${BOI.body}`));
+  assert.equal(entry.hash, await sha256(`${BOI.sender}\n${bank.date}\n${bank.body}`));
   assert.match(entry.hash, /^[0-9a-f]{64}$/);
 });
 
@@ -194,4 +211,132 @@ test("test_nothing_new_keeps_mark_and_ignored_messages_advance_it", async () => 
   assert.equal(batches.length, 0);
   assert.equal(result.sent, 0);
   assert.equal(state.current.lastReadAt, otp.date);
+});
+
+test("test_pages_read_every_message_once", async () => {
+  const base = NOW.getTime() - 5 * DAY;
+  const messages = Array.from({ length: 25 }, (_, i) => boiMessage(i, base + i * 1000));
+  const { read, calls } = inbox(messages);
+  const { post, batches } = recorder();
+  const { save, state } = saver(settings());
+
+  const result = await syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save, pageSize: 10 });
+
+  const hashes = hashesOf(batches);
+  assert.equal(result.sent, 25);
+  assert.equal(new Set(hashes).size, 25);
+  assert.equal(hashes.length, 25, "none sent twice");
+  assert.equal(calls.length, 3);
+  assert.equal(state.current.lastReadAt, messages.at(-1).date);
+});
+
+test("test_same_millisecond_group_cut_at_page_edge_is_read_once", async () => {
+  const base = NOW.getTime() - DAY;
+  // Messages 7..13 share one millisecond; a page of 10 cuts that group.
+  const messages = Array.from({ length: 20 }, (_, i) => boiMessage(i, base + (i < 7 ? i : i <= 13 ? 7 : i) * 1000));
+  const { read } = inbox(messages);
+  const { post, batches } = recorder();
+  const { save, state } = saver(settings());
+
+  const result = await syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save, pageSize: 10 });
+
+  const hashes = hashesOf(batches);
+  assert.equal(result.sent, 20);
+  assert.equal(new Set(hashes).size, 20);
+  assert.equal(hashes.length, 20);
+  assert.equal(state.current.lastReadAt, messages.at(-1).date);
+});
+
+test("test_refused_batch_is_split_and_the_refused_message_kept_on_phone", async () => {
+  const base = NOW.getTime() - DAY;
+  const messages = Array.from({ length: 5 }, (_, i) => boiMessage(i, base + i * 1000));
+  const poison = messages[2];
+  const { read } = inbox(messages);
+  const { post, batches } = recorder({ refuse: (e) => e.amount === "1002.00" });
+  const { save, state } = saver(settings());
+
+  const result = await syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save });
+
+  assert.equal(result.sent, 4);
+  assert.equal(result.unreadable, 1);
+  assert.equal(batches[0].length, 5, "first the whole batch");
+  assert.deepEqual(batches.slice(1).map((b) => b.length), [1, 1, 1, 1, 1], "then one message at a time");
+  assert.deepEqual(state.current.unreadable.map((m) => m.id), [poison.id]);
+  assert.equal(state.current.lastReadAt, messages.at(-1).date, "the mark moves past the refused message");
+
+  // The next run doesn't send it again.
+  const again = recorder();
+  await syncSms({ read, post: again.post, hash: sha256, settings: state.current, now: NOW, save });
+  assert.equal(again.batches.length, 0);
+});
+
+test("test_network_failure_while_splitting_still_stops", async () => {
+  const messages = Array.from({ length: 3 }, (_, i) => boiMessage(i, NOW.getTime() - 10_000 + i * 1000));
+  const { read } = inbox(messages);
+  let calls = 0;
+  const post = async () => {
+    calls += 1;
+    if (calls === 1) throw Object.assign(new Error("422"), { status: 422 });
+    if (calls === 3) throw Object.assign(new Error("502"), { status: 502 });
+  };
+  const { save, state } = saver(settings());
+
+  await assert.rejects(syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save }), /502/);
+  assert.equal(state.current.lastReadAt, messages[0].date);
+  assert.deepEqual(state.current.unreadable, []);
+});
+
+test("test_big_cdsl_message_is_split_across_requests", async () => {
+  const message = { id: "40", address: "CDSLTX", body: "CDSL: many holdings", date: NOW.getTime() - 1000 };
+  const parse = () => Array.from({ length: 120 }, (_, n) => demat(n));
+  const { read } = inbox([message]);
+  const { post, batches } = recorder();
+  const { save, state } = saver(settings());
+
+  const result = await syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save, parse });
+
+  assert.deepEqual(batches.map((b) => b.length), [50, 50, 20]);
+  assert.equal(result.sent, 120);
+  const base = `CDSLTX\n${message.date}\n${message.body}`;
+  assert.equal(batches[2][19].hash, await sha256(`${base}:119`));
+  assert.equal(state.current.lastReadAt, message.date);
+});
+
+test("test_out_of_range_numbers_are_unreadable_and_text_is_clipped", async () => {
+  const bad = [
+    { amount: "1000000000000.00" },
+    { amount: "12.345" },
+    { balance: "9999999999999" },
+    { quantity: "0" },
+    { quantity: "1.123456789" },
+  ];
+  const messages = [...bad, {}].map((_, i) => ({ id: String(50 + i), address: "CDSLTX", body: `case ${i}`, date: NOW.getTime() - 10_000 + i }));
+  const parse = (_bank, body) => {
+    const i = Number(body.split(" ")[1]);
+    return i < bad.length
+      ? [demat(i, bad[i])]
+      : [demat(i, { payee: "P".repeat(200), ref: "R".repeat(60), amount: "999999999999.99", quantity: "0.00000001" })];
+  };
+  const { read } = inbox(messages);
+  const { post, batches } = recorder();
+  const { save, state } = saver(settings());
+
+  const result = await syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save, parse });
+
+  assert.equal(result.unreadable, bad.length);
+  assert.equal(result.sent, 1);
+  const [entry] = batches[0];
+  assert.equal(entry.payee.length, 120);
+  assert.equal(entry.ref.length, 40);
+  assert.equal(entry.amount, "999999999999.99");
+  assert.equal(state.current.unreadable.length, bad.length);
+  assert.equal(state.current.lastReadAt, messages.at(-1).date);
+});
+
+test("test_moving_start_date_earlier_resets_last_read", () => {
+  const current = settings({ startDate: "2026-11-05", lastReadAt: 12345 });
+  assert.equal(mergeSmsSettings(current, { startDate: "2026-10-01" }).lastReadAt, 0);
+  assert.equal(mergeSmsSettings(current, { startDate: "2026-11-08" }).lastReadAt, 12345);
+  assert.equal(mergeSmsSettings(current, { startDate: "2026-11-05" }).lastReadAt, 12345);
+  assert.equal(mergeSmsSettings(current, { enabled: false }).lastReadAt, 12345);
 });
