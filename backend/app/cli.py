@@ -6,8 +6,11 @@ import sys
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.dates import today_india
 from app.db.session import SessionLocal
 from app.models.user import User
+from app.prices.fetch import default_fetcher
+from app.prices.refresh import run_nightly
 
 
 def _find(db: Session, email: str) -> User:
@@ -54,6 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     move.add_argument("old_email")
     move.add_argument("new_email")
     commands.add_parser("revoke-sessions", help="sign a user out everywhere").add_argument("email")
+    commands.add_parser("refresh-prices", help="fetch today's prices now, as the nightly job does")
     args = parser.parse_args(argv)
 
     try:
@@ -64,6 +68,10 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "move-user":
                 user = move_user(db, args.old_email, args.new_email)
                 print(f"Moved to {user.email}; Google link cleared and sessions revoked")
+            elif args.command == "refresh-prices":
+                report = run_nightly(db, default_fetcher(), today_india())
+                print(f"Updated: {report.updated}")
+                print(f"Failed: {report.failed}")
             else:
                 user = revoke_sessions(db, args.email)
                 print(f"Revoked sessions for {user.email}")

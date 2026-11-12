@@ -4,6 +4,7 @@ from app.api.routes import (
     accounts,
     auth,
     coins,
+    cron,
     crypto_trades,
     dashboard,
     deposits,
@@ -41,3 +42,4 @@ api_router.include_router(crypto_trades.router)
 api_router.include_router(trades.router)
 api_router.include_router(portfolio.router)
 api_router.include_router(health.router)
+api_router.include_router(cron.router)

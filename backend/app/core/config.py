@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     # Optional CoinGecko demo key; sent only on CoinGecko requests.
     coingecko_api_key: str = ""
+    # Vercel Cron sends this as a bearer token to the nightly price job. Empty keeps it closed.
+    cron_secret: str = ""
 
     @field_validator("database_url")
     @classmethod
