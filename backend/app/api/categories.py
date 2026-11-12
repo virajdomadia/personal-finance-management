@@ -11,8 +11,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, NoReturn
 
+from fastapi import HTTPException, status
 from fastapi.exceptions import RequestValidationError
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -199,6 +200,7 @@ def _find(db: Session, user_id: int, kind: str, key: str) -> Category | None:
         select(Category)
         .where(Category.user_id == user_id, Category.kind == kind, Category.name_key == key)
         .order_by(Category.merged_into_id.is_not(None), Category.id.desc())
+        .execution_options(populate_existing=True)
     ).all()
     if not rows:
         return None
@@ -209,23 +211,33 @@ def _find(db: Session, user_id: int, kind: str, key: str) -> Category | None:
 
 
 def category_family(db: Session, user_id: int, name: str) -> list[str]:
-    """A category's name (of either kind) with its subcategories' names, for filtering. An old,
-    merged name finds the category it went into; an unknown name finds just itself."""
+    """A category's name (of either kind) with its subcategories' names, for filtering, plus every
+    old name merged into or renamed to one of them, so a row saved under an old name mid-merge is
+    still found. An old name finds the category it went into; an unknown name finds just itself."""
     key = name_key(name)
     names = [name]
     for kind in KINDS:
         found = _find(db, user_id, kind, key)
         if found is None:
             continue
-        names.append(found.name)
-        children = db.scalars(
-            select(Category.name).where(
-                Category.user_id == user_id,
-                Category.parent_id == found.id,
-                Category.merged_into_id.is_(None),
+        ids = [found.id]
+        ids.extend(
+            db.scalars(
+                select(Category.id).where(
+                    Category.user_id == user_id,
+                    Category.parent_id == found.id,
+                    Category.merged_into_id.is_(None),
+                )
             )
         )
-        names.extend(children)
+        names.extend(
+            db.scalars(
+                select(Category.name).where(
+                    Category.user_id == user_id,
+                    or_(Category.id.in_(ids), Category.merged_into_id.in_(ids)),
+                )
+            )
+        )
     return names
 
 
@@ -247,6 +259,13 @@ def resolve(
     """
     ensure_seeded(db, user_id)
     key = name_key(name)
+    if key == name_key(UNCATEGORISED):
+        _error(field, f"{UNCATEGORISED} is for money without a category. Choose a category.")
+    # Shared lock: a rename or merge (which locks every category for update) finishes first, and
+    # none starts until this save commits, so the name read here is still current then.
+    db.execute(
+        select(Category.id).where(Category.user_id == user_id).with_for_update(read=True)
+    ).all()
     found = _find(db, user_id, kind, key)
     if found is None:
         try:
@@ -257,7 +276,9 @@ def resolve(
         except IntegrityError:  # another request created it first
             found = _find(db, user_id, kind, key)
             if found is None:
-                raise
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT, "Categories changed while saving. Try again."
+                ) from None
     if found.archived_at is not None and (keep is None or name_key(keep) != found.name_key):
         _error(field, f"{found.name} is archived. Restore it to use it.")
     return found.name
@@ -339,6 +360,10 @@ def owned(categories: list[Category], id: int) -> Category | None:
 
 def check_name(categories: list[Category], kind: str, name: str, itself: int | None) -> None:
     key = name_key(name)
+    if key == name_key(UNCATEGORISED):
+        _error(
+            "name", f"{UNCATEGORISED} is kept for money without a category. Choose another name."
+        )
     for c in live(categories, kind):
         if c.name_key == key and c.id != itself:
             if c.archived_at is not None:
@@ -372,6 +397,14 @@ def rename(db: Session, user_id: int, categories: list[Category], c: Category, n
         _error("name", f"{c.name} is used by the app itself, so it can't be renamed.")
     check_name(categories, c.kind, name, itself=c.id)
     _move_references(db, user_id, categories, c.kind, c.name, name)
+    if name_key(name) != c.name_key:
+        # The old name stays as an alias, like a merged category, so whatever still sends it (an
+        # SMS merchant, a payee rule left on a shared name, an old client) lands here.
+        alias = Category(
+            user_id=user_id, kind=c.kind, name=c.name, name_key=c.name_key, merged_into_id=c.id
+        )
+        db.add(alias)
+        categories.append(alias)
     c.name, c.name_key = name, name_key(name)
 
 

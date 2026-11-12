@@ -132,14 +132,14 @@ function Report({ data }: { data: CashFlowMonth }) {
         <CategoryTable
           title="Where it went"
           slices={data.spending_by_category}
-          month={data.month}
+          data={data}
           kind="expense"
           empty="No spending recorded this month."
         />
         <CategoryTable
           title="Where it came from"
           slices={data.income_by_category}
-          month={data.month}
+          data={data}
           kind="income"
           empty="No income recorded this month."
         />
@@ -242,13 +242,13 @@ function ShareBar({ slice }: { slice: CategorySlice }) {
 function CategoryTable({
   title,
   slices,
-  month,
+  data,
   kind,
   empty,
 }: {
   title: string;
   slices: CategorySlice[];
-  month: string;
+  data: CashFlowMonth;
   kind: "income" | "expense";
   empty: string;
 }) {
@@ -278,7 +278,7 @@ function CategoryTable({
             </thead>
             <tbody>
               {slices.flatMap((slice) => [
-                <Row key={`p-${slice.id ?? slice.name}`} slice={slice} month={month} kind={kind} />,
+                <Row key={`p-${slice.id ?? slice.name}`} slice={slice} data={data} kind={kind} />,
                 ...(slice.children.length > 0 && slice.direct !== "0.00"
                   ? [
                       <tr key={`d-${slice.id}`}>
@@ -289,7 +289,7 @@ function CategoryTable({
                     ]
                   : []),
                 ...slice.children.map((child) => (
-                  <Row key={`c-${child.id}`} slice={child} month={month} kind={kind} nested />
+                  <Row key={`c-${child.id}`} slice={child} data={data} kind={kind} nested />
                 )),
               ])}
             </tbody>
@@ -302,19 +302,19 @@ function CategoryTable({
 
 function Row({
   slice,
-  month,
+  data,
   kind,
   nested = false,
 }: {
   slice: CategorySlice;
-  month: string;
+  data: CashFlowMonth;
   kind: "income" | "expense";
   nested?: boolean;
 }) {
   return (
     <tr>
       <td className={`${TD} w-full min-w-40 ${nested ? "pl-10" : ""}`}>
-        <Link href={categoryLink(month, slice.name, kind)} className={`rounded hover:underline ${FOCUS} ${nested ? "text-sm" : "font-extrabold"}`}>
+        <Link href={categoryLink(data.month, slice.name, kind, data)} className={`rounded hover:underline ${FOCUS} ${nested ? "text-sm" : "font-extrabold"}`}>
           <span aria-hidden="true">{iconEmoji(slice.icon)} </span>
           {slice.name}
         </Link>
