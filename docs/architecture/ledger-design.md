@@ -254,6 +254,8 @@ For a liability, "Account +x" lowers what's owed, following the sign convention.
 - **Nesting.** One level: a parent and its children. Parent totals include the children's.
 - **Seeding.** Each user gets the current default list as rows. Free-text categories already in use are backfilled as rows, with case-insensitive duplicates collapsed using the existing "known spelling" rule.
 
+**Built before the ledger (Phase 2, branch `cash-flow`).** The `categories` table exists with this shape plus `name_key` (the case-folded name the partial unique index uses, because a functional index can't be compared by `alembic check`), `icon`, `colour`, `created_at` and `updated_at`. Until the ledger, transactions, templates and payee rules keep their `category` **name**, and the table is the registry of those names. Because the merge can't leave history on the old category without journal lines, a merge today **moves** every reference to the target and marks the old row merged; unmerge and the `category_changes` audit table come with the ledger. The ledger migration adds `category_id` by joining on `(user_id, kind, name_key)` among live categories, which is unique. See the [cash flow design](../superpowers/specs/2026-11-12-cash-flow-design.md).
+
 ## Transactions from SMS
 
 Transactions the phone reads from bank SMS have `source="sms"`. They are ordinary transactions with the same lines as any other.
