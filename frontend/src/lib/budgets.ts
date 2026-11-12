@@ -2,7 +2,6 @@
 // worked out by the server; these helpers only word, order and format them.
 
 import { cleanMoney, formatRupees, splitErrors } from "./accounts.ts";
-import { categoryLink } from "./cash-flow.ts";
 import { shiftMonth } from "./transactions.ts";
 
 export type BudgetTotals = {
@@ -128,9 +127,10 @@ export function budgetsHref(month: string, thisMonth: string): string {
   return month === thisMonth ? "/budgets" : `/budgets?month=${month}`;
 }
 
-// A budget's transactions in that month (a parent's link includes its subcategories).
+// A budget's spending in that month (a parent's link includes its subcategories). Always
+// type=expense, so income under the same name never mixes into the list.
 export function budgetLink(month: string, line: Pick<BudgetLine, "name">): string {
-  return categoryLink(month, line.name, "expense");
+  return `/transactions?${new URLSearchParams({ month, category: line.name, type: "expense" })}`;
 }
 
 // The month report's category rows look up their active budget by category id.

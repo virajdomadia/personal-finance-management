@@ -104,7 +104,7 @@ test("month navigation never goes past this month", () => {
 });
 
 test("budgetLink opens the category's spending in the month", () => {
-  assert.equal(budgetLink("2026-11", line()), "/transactions?month=2026-11&category=Food+and+dining");
+  assert.equal(budgetLink("2026-11", line()), "/transactions?month=2026-11&category=Food+and+dining&type=expense");
 });
 
 test("budgetsById keeps active budgets only", () => {
