@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.balances import Movement, balance_of, load_movements, net_flows
+from app.api.categories import DEFAULTS, kind_of, picker_names, resolve
 from app.api.dates import iso_date, today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.policy_periods import LINKED as PERIOD_LINKED
@@ -42,27 +43,8 @@ TransactionType = Literal["income", "expense", "transfer", "emi"]
 EMI_CATEGORY = "Loan interest"
 _CHOOSE_TEMPLATE = "Choose a reminder of this type."
 
-DEFAULT_CATEGORIES = {
-    "income": ["Salary", "Business", "Interest", "Dividends", "Refund", "Gift", "Other"],
-    "expense": [
-        "Groceries",
-        "Food and dining",
-        "Transport",
-        "Fuel",
-        "Housing",
-        "Utilities",
-        "Shopping",
-        "Health",
-        "Entertainment",
-        "Education",
-        "Insurance",
-        "Loan payments",
-        "Travel",
-        "Gifts and donations",
-        "Fees and charges",
-        "Other",
-    ],
-}
+# The names every user starts with (the registry adds what they create).
+DEFAULT_CATEGORIES = {kind: [name for name, _, _ in rows] for kind, rows in DEFAULTS.items()}
 
 
 def _account_id(value: Any) -> int | None:
@@ -363,27 +345,6 @@ def balance_problem(
     return None
 
 
-def _used_categories(db: Session, user_id: int, type_: str) -> list[str]:
-    query = (
-        select(Transaction.category)
-        .where(
-            Transaction.user_id == user_id,
-            Transaction.type == type_,
-            Transaction.category.is_not(None),
-        )
-        .distinct()
-    )
-    return [c for c in db.scalars(query) if c is not None]
-
-
-def _known_spelling(db: Session, user_id: int, type_: str, category: str) -> str:
-    """So that "groceries" and "Groceries" don't become two categories."""
-    for known in [*DEFAULT_CATEGORIES[type_], *_used_categories(db, user_id, type_)]:
-        if known.casefold() == category.casefold():
-            return known
-    return category
-
-
 def _check_template(db: Session, user_id: int, values: dict[str, Any]) -> None:
     """A linked reminder must be the owner's, of the transaction's type, and not a policy's."""
     template_id = values["recurring_template_id"]
@@ -445,7 +406,15 @@ def save_checks(
     if values["type"] == "emi":
         values["category"] = EMI_CATEGORY
     elif values["category"] is not None:
-        values["category"] = _known_spelling(db, user_id, values["type"], values["category"])
+        # The registry's spelling; an edit may keep the archived category it already had.
+        kept = None if existing_id is None else db.get(Transaction, existing_id)
+        values["category"] = resolve(
+            db,
+            user_id,
+            kind_of(values["type"]) or "expense",
+            values["category"],
+            keep=None if kept is None else kept.category,
+        )
 
 
 def _get_owned(db: Session, user_id: int, id: int) -> Transaction:
@@ -531,12 +500,12 @@ def expense_breakdown(matches: list[Transaction]) -> list[CategorySpend]:
 
 @router.get("/categories")
 def list_categories(user: CurrentUser, db: DbSession) -> CategoryList:
-    def merged(type_: str) -> list[str]:
-        defaults = DEFAULT_CATEGORIES[type_]
-        extras = set(_used_categories(db, user.id, type_)) - set(defaults)
-        return [*defaults, *sorted(extras, key=str.casefold)]
-
-    return CategoryList(income=merged("income"), expense=merged("expense"))
+    """The names the pickers offer: live, unarchived categories. `/categories` has the detail."""
+    result = CategoryList(
+        income=picker_names(db, user.id, "income"), expense=picker_names(db, user.id, "expense")
+    )
+    db.commit()  # a first read seeds the defaults
+    return result
 
 
 @router.get("")

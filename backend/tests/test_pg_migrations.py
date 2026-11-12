@@ -52,6 +52,7 @@ ALL_TABLES = {
     "sms_entries",
     "payee_rules",
     "sms_samples",
+    "categories",
 }
 
 
@@ -242,7 +243,7 @@ NEW_REVISION = "5d7e3a90c1f2"
 RECURRING_REVISION = "8e4c1b7a2d95"
 GOALS_REVISION = "a1d4f7c92b36"
 MARKET_REVISION = "c7e2a95d1b48"
-HEAD_REVISION = "e3b81f46a0d7"
+HEAD_REVISION = "2d46fef3dab4"
 SMS_TABLES = {"account_identifiers", "sms_entries", "payee_rules", "sms_samples"}
 GOAL_TABLES = {"goals", "goal_earmarks", "goal_holdings"}
 RECURRING_TABLES = {
@@ -373,7 +374,8 @@ def test_recurring_migration_round_trip(migrations_db: str) -> None:
 
     command.downgrade(config, NEW_REVISION)
     assert tables(migrations_db) == ALL_TABLES - RECURRING_TABLES - GOAL_TABLES - SMS_TABLES - {
-        "market_codes"
+        "categories",
+        "market_codes",
     }
     columns = {c["name"] for c in inspect(create_engine(migrations_db)).get_columns("transactions")}
     assert "recurring_template_id" not in columns
@@ -424,7 +426,10 @@ def test_goals_migration_round_trip(migrations_db: str) -> None:
     assert GOAL_TABLES <= tables(migrations_db)
 
     command.downgrade(config, RECURRING_REVISION)
-    assert tables(migrations_db) == ALL_TABLES - GOAL_TABLES - SMS_TABLES - {"market_codes"}
+    assert tables(migrations_db) == ALL_TABLES - GOAL_TABLES - SMS_TABLES - {
+        "market_codes",
+        "categories",
+    }
     assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(RECURRING_REVISION,)]
 
     command.upgrade(config, "head")
@@ -553,5 +558,49 @@ def test_sms_migration_round_trip(migrations_db: str) -> None:
     assert not SMS_TABLES & tables(migrations_db)
     assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(MARKET_REVISION,)]
 
+    command.upgrade(config, "head")
+    assert tables(migrations_db) == ALL_TABLES
+
+
+SMS_REVISION = "e3b81f46a0d7"
+
+
+def test_categories_migration_seeds_and_round_trips(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, SMS_REVISION)
+    seed_investments(migrations_db, "5")
+    for category in ("groceries", "Swiggy"):
+        run_sql(
+            migrations_db,
+            "INSERT INTO transactions (user_id, type, amount, date, account_id, category,"
+            f" created_at, updated_at) VALUES (1, 'expense', 10, '2026-11-01', 1, '{category}',"
+            " :s, :s)",
+        )
+
+    command.upgrade(config, "head")
+    assert rows(migrations_db, "SELECT category FROM transactions ORDER BY id") == [
+        ("Groceries",),
+        ("Swiggy",),
+    ]
+    expense = rows(migrations_db, "SELECT name FROM categories WHERE kind = 'expense' ORDER BY id")
+    assert expense[0] == ("Groceries",) and expense[-1] == ("Swiggy",)
+    # One live category per name, ignoring case.
+    with pytest.raises(IntegrityError):
+        run_sql(
+            migrations_db,
+            "INSERT INTO categories (user_id, kind, name, name_key, created_at, updated_at)"
+            " VALUES (1, 'expense', 'SWIGGY', 'swiggy', :s, :s)",
+        )
+    # A parent must be the same user's category of the same kind.
+    with pytest.raises(IntegrityError):
+        run_sql(
+            migrations_db,
+            "INSERT INTO categories (user_id, kind, name, name_key, parent_id, created_at,"
+            " updated_at) SELECT 1, 'income', 'Odd', 'odd', id, :s, :s FROM categories"
+            " WHERE name = 'Swiggy'",
+        )
+
+    command.downgrade(config, SMS_REVISION)
+    assert "categories" not in tables(migrations_db)
     command.upgrade(config, "head")
     assert tables(migrations_db) == ALL_TABLES

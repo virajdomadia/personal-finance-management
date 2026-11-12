@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, or_, select
 
 from app.api.balances import Movement, balance_of, load_movements
+from app.api.categories import ensure_seeded
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.loans import load_book
@@ -102,6 +103,7 @@ def close_rd(id: int, body: CloseRd, user: CurrentUser, db: DbSession) -> Accoun
     if problem:
         raise RequestValidationError([field_error("amount", problem)])
 
+    ensure_seeded(db, user.id)  # its categories are fixed ones, so the defaults have them
     db.add_all(added)
     rd.archived_at = datetime.now(UTC)
     db.commit()

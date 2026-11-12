@@ -15,6 +15,7 @@ from pydantic_core import PydanticCustomError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.categories import resolve, rule_kind
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.routes.accounts import MAX_ID, Flag, Money, field_error, fmt
@@ -423,6 +424,14 @@ def update_rule(
     if all(v is None for v in values.values()):
         raise RequestValidationError(
             [field_error("category", "Choose a category or an account, or delete the rule.")]
+        )
+    if values["category"] is not None:
+        values["category"] = resolve(
+            db,
+            user.id,
+            rule_kind(db, user.id, values["category"]),
+            values["category"],
+            keep=rule.category,
         )
     for field, value in values.items():
         setattr(rule, field, value)
