@@ -58,9 +58,20 @@ def is_recorded(t: TemplateRow, occurrence: date, paid: Iterable[date]) -> bool:
 
 
 def status(t: TemplateRow, paid: list[date], skips: set[date], today: date) -> Status:
+    open_ = open_occurrences(t, paid, skips, today + timedelta(days=t.remind_days))
+    due = [o for o in open_ if o <= today]
+    coming = next((o for o in open_ if o > today), None)
+    return Status(due, coming)
+
+
+def open_occurrences(t: TemplateRow, paid: list[date], skips: set[date], upto: date) -> list[date]:
+    """Occurrences up to `upto`, oldest first, that no payment settles and that aren't skipped.
+
+    `status` looks `remind_days` ahead; the next-30-days list looks further with the same rules.
+    """
     if not t.active:
-        return Status([], None)
-    occs = occurrences(t, today + timedelta(days=t.remind_days))
+        return []
+    occs = occurrences(t, upto)
     settled: set[date] = set()
     for p in sorted(paid):
         candidates = [
@@ -75,10 +86,7 @@ def status(t: TemplateRow, paid: list[date], skips: set[date], today: date) -> S
                     key=lambda o: ((o.year, o.month) != (p.year, p.month), abs((p - o).days), o),
                 )
             )
-    open_ = [o for o in occs if o not in settled and o not in skips]
-    due = [o for o in open_ if o <= today]
-    coming = next((o for o in open_ if o > today), None)
-    return Status(due, coming)
+    return [o for o in occs if o not in settled and o not in skips]
 
 
 def card_bill_due(charge: date, statement_day: int, due_day: int) -> date:

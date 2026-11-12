@@ -116,7 +116,13 @@ def _to_review(db: Session, user_id: int) -> int:
 
 
 def card_bill(db: Session, user_id: int, cards: list[Account], today: date) -> CardBill | None:
-    """The unpaid card bill due soonest: each card's latest statement SMS, less what was
+    """The unpaid card bill due soonest. Shown until 3 days past due."""
+    bills = card_bills(db, user_id, cards, today)
+    return bills[0] if bills else None
+
+
+def card_bills(db: Session, user_id: int, cards: list[Account], today: date) -> list[CardBill]:
+    """Every card's unpaid bill, soonest first: its latest statement SMS, less what was
     transferred into the card after the statement's date. Shown until 3 days past due."""
     bills: list[tuple[date, int, CardBill]] = []
     for card in cards:
@@ -154,7 +160,7 @@ def card_bill(db: Session, user_id: int, cards: list[Account], today: date) -> C
                 due_date=statement.due_date.isoformat(),
             )
             bills.append((statement.due_date, card.id, bill))
-    return min(bills, key=lambda b: (b[0], b[1]))[2] if bills else None
+    return [b[2] for b in sorted(bills, key=lambda b: (b[0], b[1]))]
 
 
 @router.get("")
