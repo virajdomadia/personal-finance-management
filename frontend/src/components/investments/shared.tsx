@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 import { logout } from "@/app/login/actions";
 import { type Account, type GoalTag, errorMessage, formatRupees } from "@/lib/accounts";
@@ -415,5 +415,29 @@ export function PriceCard({
       <p className="text-xs font-bold text-zinc-600">{sub}</p>
       <PriceLine points={points} label={lineLabel} />
     </div>
+  );
+}
+
+// Set by the Add investment dialog around its second step, so the dialog it shows (a trade, a SIP or a
+// deposit account) says which step it is, offers Back, and starts as a first purchase.
+export const AddFlow = createContext<{ onBack: () => void } | null>(null);
+
+export function useAddFlow(): boolean {
+  return useContext(AddFlow) !== null;
+}
+
+export function StepLine() {
+  const flow = useContext(AddFlow);
+  if (!flow) return null;
+  return <span className="block text-xs font-extrabold tracking-wide text-zinc-700 uppercase">Add investment · Step 2 of 2</span>;
+}
+
+export function BackButton({ disabled }: { disabled: boolean }) {
+  const flow = useContext(AddFlow);
+  if (!flow) return null;
+  return (
+    <button type="button" disabled={disabled} onClick={flow.onBack} className={`${QUIET} mr-auto`}>
+      Back
+    </button>
   );
 }

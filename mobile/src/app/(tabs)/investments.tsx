@@ -37,7 +37,6 @@ export default function InvestmentsScreen() {
   const [unlinked, setUnlinked] = useState<Unlinked | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [fabOpen, setFabOpen] = useState(false);
   const [focused, setFocused] = useState(true);
   const [soldOpen, setSoldOpen] = useState(false);
   const [redeemedOpen, setRedeemedOpen] = useState(false);
@@ -84,7 +83,6 @@ export default function InvestmentsScreen() {
       return () => {
         current = false;
         setFocused(false);
-        setFabOpen(false);
       };
     }, [load, token]),
   );
@@ -124,23 +122,23 @@ export default function InvestmentsScreen() {
     router.push(target);
   }, []);
 
-  const addTrade = (kind: Kind) =>
-    go({ pathname: "/trade-form", params: kind === "opening" ? { opening: "1" } : { side: kind } });
+  // The empty sections' buttons start Add investment's second step for their kind.
+  const addTrade = (kind: Kind) => go({ pathname: "/trade-form", params: { kind: "stock", mode: kind, new: "1" } });
   const openStock = (row: { stock_id: number; symbol: string }) =>
     go({ pathname: "/stock", params: { id: String(row.stock_id), symbol: row.symbol } });
   const openCoin = (row: { coin_id: number; symbol: string }) =>
     go({ pathname: "/coin", params: { id: String(row.coin_id), symbol: row.symbol } });
-  const addCoinTrade = (mode: CryptoTradeMode) => go({ pathname: "/crypto-trade-form", params: { mode } });
+  const addCoinTrade = (mode: CryptoTradeMode) => go({ pathname: "/trade-form", params: { kind: "crypto", mode, new: "1" } });
   const openFund = (row: { fund_id: number; symbol: string }) =>
     go({ pathname: "/fund", params: { id: String(row.fund_id), symbol: row.symbol } });
   // Deposits are accounts, so their actions (deposit, interest, close) live on the Accounts tab.
   const openAccounts = () => router.navigate("/accounts");
-  const addFundTrade = (mode: FundTradeMode) => go({ pathname: "/fund-trade-form", params: { mode } });
+  const addFundTrade = (mode: FundTradeMode) => go({ pathname: "/trade-form", params: { kind: "mutual_fund", mode, new: "1" } });
   // Opens Record SIP for the SIP's oldest due month, with everything but the NAV filled in.
   const recordSip = (sip: Sip) =>
     go({
-      pathname: "/fund-trade-form",
-      params: { mode: "sip", fundId: String(sip.fund_id), sipId: String(sip.id), ...(sip.due_date ? { date: sip.due_date } : {}) },
+      pathname: "/trade-form",
+      params: { kind: "mutual_fund", mode: "sip", fundId: String(sip.fund_id), sipId: String(sip.id), ...(sip.due_date ? { date: sip.due_date } : {}) },
     });
 
   const dueSips = portfolio?.funds.due_sips ?? [];
@@ -385,12 +383,6 @@ export default function InvestmentsScreen() {
     );
   }
 
-  const hasHoldings = (portfolio?.holdings.length ?? 0) > 0;
-  const hasCoinHoldings = (portfolio?.crypto.holdings.length ?? 0) > 0;
-  const hasFundHoldings = (portfolio?.funds.holdings.length ?? 0) > 0;
-  // With one SIP due, Record SIP goes straight to it; otherwise the form asks which.
-  const onlyDue = dueSips.length === 1 ? dueSips[0] : null;
-
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader
@@ -416,10 +408,7 @@ export default function InvestmentsScreen() {
         <Segmented<Segment>
           label="Investment type"
           value={segment}
-          onChange={(value) => {
-            setFabOpen(false);
-            setSegment(value);
-          }}
+          onChange={setSegment}
           options={[
             { value: "stocks", label: "Stocks" },
             { value: "funds", label: "Funds" },
@@ -431,59 +420,17 @@ export default function InvestmentsScreen() {
 
       {body}
 
-      {segment === "deposits" ? null : segment === "stocks" ? (
-        <FAB.Group
-          open={fabOpen}
-          visible={focused && portfolio !== null}
-          icon={fabOpen ? "close" : "plus"}
-          label={fabOpen ? undefined : "Add trade"}
-          accessibilityLabel={fabOpen ? "Close trade options" : "Add a trade"}
-          fabStyle={styles.fab}
-          onStateChange={({ open }) => setFabOpen(open)}
-          actions={[
-            { ...look, icon: "archive-arrow-down-outline", label: "Add existing shares", onPress: () => addTrade("opening") },
-            ...(hasHoldings ? [{ ...look, icon: "minus", label: "Sell", onPress: () => addTrade("sell") }] : []),
-            { ...look, icon: "plus", label: "Buy", onPress: () => addTrade("buy") },
-          ]}
-        />
-      ) : segment === "crypto" ? (
-        <FAB.Group
-          open={fabOpen}
-          visible={focused && portfolio !== null}
-          icon={fabOpen ? "close" : "plus"}
-          label={fabOpen ? undefined : "Add"}
-          accessibilityLabel={fabOpen ? "Close crypto options" : "Add a crypto transaction"}
-          fabStyle={styles.fab}
-          onStateChange={({ open }) => setFabOpen(open)}
-          actions={[
-            { ...look, icon: "archive-arrow-down-outline", label: "Add existing coins", onPress: () => addCoinTrade("opening") },
-            ...(hasCoinHoldings ? [{ ...look, icon: "minus", label: "Sell", onPress: () => addCoinTrade("sell") }] : []),
-            { ...look, icon: "plus", label: "Buy", onPress: () => addCoinTrade("buy") },
-          ]}
-        />
-      ) : (
-        <FAB.Group
-          open={fabOpen}
-          visible={focused && portfolio !== null}
-          icon={fabOpen ? "close" : "plus"}
-          label={fabOpen ? undefined : "Add"}
-          accessibilityLabel={fabOpen ? "Close fund options" : "Add a fund transaction or SIP"}
-          fabStyle={styles.fab}
-          onStateChange={({ open }) => setFabOpen(open)}
-          actions={[
-            { ...look, icon: "calendar-sync-outline", label: "Add SIP", onPress: () => go({ pathname: "/sip-form" }) },
-            { ...look, icon: "archive-arrow-down-outline", label: "Add existing units", onPress: () => addFundTrade("opening") },
-            ...(hasFundHoldings ? [{ ...look, icon: "minus", label: "Redeem", onPress: () => addFundTrade("sell") }] : []),
-            { ...look, icon: "plus", label: "Buy", onPress: () => addFundTrade("buy") },
-            {
-              ...look,
-              icon: "calendar-check-outline",
-              label: "Record SIP",
-              onPress: () => (onlyDue ? recordSip(onlyDue) : addFundTrade("sip")),
-            },
-          ]}
-        />
-      )}
+      {/* The one way to add an investment, whichever segment is showing. Buying more, selling and SIPs
+          are on each holding's screen. */}
+      <FAB
+        icon="plus"
+        label="Add investment"
+        visible={focused && portfolio !== null}
+        accessibilityLabel="Add investment"
+        style={styles.addFab}
+        color={BRAND.ink}
+        onPress={() => go({ pathname: "/add-investment" })}
+      />
     </View>
   );
 }
@@ -751,10 +698,14 @@ const styles = StyleSheet.create({
   footerHead: { alignItems: "flex-start", paddingHorizontal: 16, paddingBottom: 8 },
   empty: { alignItems: "center", gap: 12, padding: 32 },
   emptyText: { color: BRAND.zinc600, textAlign: "center" },
-  fab: { backgroundColor: BRAND.yellow, borderWidth: 2.5, borderColor: BRAND.ink, borderRadius: 16 },
-  fabAction: { backgroundColor: BRAND.card, borderWidth: 2.5, borderColor: BRAND.ink },
-  fabLabel: { color: BRAND.ink },
+  addFab: {
+    position: "absolute",
+    right: 16,
+    bottom: 16,
+    backgroundColor: BRAND.yellow,
+    borderWidth: 2.5,
+    borderColor: BRAND.ink,
+    borderRadius: 16,
+  },
 });
 
-// The chunky look for each speed-dial action: a white chip with an ink border.
-const look = { style: styles.fabAction, labelStyle: styles.fabLabel };

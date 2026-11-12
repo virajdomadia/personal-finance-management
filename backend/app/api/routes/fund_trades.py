@@ -25,8 +25,12 @@ from app.api.routes.funds import (
     MUTUAL_FUND,
     NAV_RULE,
     UNITS_RULE,
+    FundCreate,
+    FundResponse,
     Nav,
     Units,
+    add_fund,
+    fund_response,
     get_owned_fund,
 )
 from app.api.routes.transactions import Day, Note, lock_accounts
@@ -35,6 +39,7 @@ from app.api.trade_checks import (
     ShortMessages,
     check_cash_and_holdings,
     check_delete,
+    create_with_first_trade,
     lock_trade,
     require_active,
 )
@@ -117,6 +122,28 @@ class FundTradeUpdate(BaseModel):
     note: Note = None
 
 
+class FirstFundTrade(BaseModel):
+    """A new fund's first transaction: always a purchase, and never a SIP's (it has none yet)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: BankRef = None
+    date: Day = None
+    units: Units = None
+    nav: Nav = None  # required unless `opening`, and ignored when it is
+    charges: Money = None
+    amount: Money = None
+    opening: Flag = False
+    note: Note = None
+
+
+class NewFundWithTrade(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fund: FundCreate
+    trade: FirstFundTrade
+
+
 class FundTrade(BaseModel):
     id: int
     fund_id: int
@@ -139,6 +166,11 @@ class FundTrade(BaseModel):
 
 class FundTradeList(BaseModel):
     trades: list[FundTrade]
+
+
+class FundWithTrade(BaseModel):
+    fund: FundResponse
+    trade: FundTrade
 
 
 def sync_trade_nav(db: Session, trade: InvestmentTrade) -> None:
@@ -448,12 +480,12 @@ def _defaults(values: dict[str, Any]) -> dict[str, Any]:
     return values
 
 
-@router.post("/fund-trades", status_code=status.HTTP_201_CREATED)
-def create_fund_trade(body: FundTradeCreate, user: CurrentUser, db: DbSession) -> FundTrade:
-    values = _defaults(body.model_dump())
-    accounts = lock_accounts(db, user.id, [values["account_id"]])
-    account, price = fund_save_checks(db, user.id, accounts, values, existing_id=None)
-    trade = InvestmentTrade(user_id=user.id, **fund_columns(values, price))
+def _add_trade(
+    db: Session, user_id: int, values: dict[str, Any]
+) -> tuple[InvestmentTrade, Account]:
+    accounts = lock_accounts(db, user_id, [values["account_id"]])
+    account, price = fund_save_checks(db, user_id, accounts, values, existing_id=None)
+    trade = InvestmentTrade(user_id=user_id, **fund_columns(values, price))
     db.add(trade)
     try:
         db.flush()  # gives the trade its id, for its NAV row
@@ -464,7 +496,38 @@ def create_fund_trade(body: FundTradeCreate, user: CurrentUser, db: DbSession) -
             db.rollback()
             raise
         _sip_gone(db)
+    return trade, account
+
+
+@router.post("/fund-trades", status_code=status.HTTP_201_CREATED)
+def create_fund_trade(body: FundTradeCreate, user: CurrentUser, db: DbSession) -> FundTrade:
+    values = _defaults(body.model_dump())
+    trade, account = _add_trade(db, user.id, values)
     return _saved_response(db, user.id, trade, account)
+
+
+@router.post("/funds/with-trade", status_code=status.HTTP_201_CREATED)
+def create_fund_with_trade(
+    body: NewFundWithTrade, user: CurrentUser, db: DbSession
+) -> FundWithTrade:
+    """A new fund and its first purchase (or existing units), saved together or not at all."""
+    values = _defaults(
+        {**body.trade.model_dump(), "side": "buy", "sip_id": None, "fund_id": NEW_ID}
+    )
+
+    def save(fund: Instrument) -> tuple[InvestmentTrade, Account]:
+        return _add_trade(db, user.id, {**values, "fund_id": fund.id})
+
+    fund, (trade, account) = create_with_first_trade(
+        db,
+        lambda: _validate_fields(values),
+        lambda: add_fund(db, user.id, body.fund),
+        save,
+    )
+    return FundWithTrade(
+        fund=fund_response(db, user.id, fund),
+        trade=_saved_response(db, user.id, trade, account),
+    )
 
 
 @router.patch("/fund-trades/{id}")

@@ -36,7 +36,8 @@ import {
   suggestedUnits,
   unitsMismatch,
 } from "@/lib/funds";
-import { realDate } from "@/lib/investments";
+import { type MarketMatch, type Prefill, applyPick, asFirstTrade, realDate, withTradePath } from "@/lib/investments";
+import { MarketSearch } from "@/components/market-search";
 import { ChunkyBox, ChunkyButton, Chip, HeaderAction, ScreenHeader } from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
 import { DateField } from "@/components/date-field";
@@ -74,7 +75,7 @@ type Form = FundTradeForm & { name: string; symbol: string };
 type Key = Exclude<keyof Form, "mode">;
 
 type Loaded = { funds: Fund[]; holdings: FundHolding[]; banks: Account[]; sips: Sip[]; trade: FundTrade | null };
-type Defaults = { mode: FundTradeMode; fundId?: string; sipId?: string; date?: string; accountId?: string };
+type Defaults = { mode: FundTradeMode; fundId?: string; sipId?: string; date?: string; accountId?: string; fresh?: boolean };
 
 function parseMode(value: string | undefined): FundTradeMode {
   return value === "sip" || value === "sell" || value === "opening" ? value : "buy";
@@ -85,7 +86,7 @@ function titleFor(mode: FundTradeMode, editing: boolean): string {
   return mode === "sip" ? "Record SIP" : mode === "buy" ? "Buy fund units" : mode === "sell" ? "Redeem units" : "Add existing units";
 }
 
-export default function FundTradeFormScreen() {
+export function FundTradeScreen() {
   const params = useLocalSearchParams<{
     id?: string;
     mode?: string;
@@ -93,6 +94,7 @@ export default function FundTradeFormScreen() {
     sipId?: string;
     date?: string;
     accountId?: string;
+    new?: string;
   }>();
   const { id, fundId } = params;
   const { token, logOut } = useSession();
@@ -187,7 +189,7 @@ export default function FundTradeFormScreen() {
   return (
     <FormBody
       {...loaded}
-      defaults={{ mode, fundId, sipId: params.sipId, date: params.date, accountId: params.accountId }}
+      defaults={{ mode, fundId, sipId: params.sipId, date: params.date, accountId: params.accountId, fresh: params.new === "1" }}
     />
   );
 }
@@ -278,7 +280,8 @@ function startForm({ funds, holdings, banks, sips, trade, defaults }: Loaded & {
     funds.some((f) => String(f.id) === defaults.fundId) &&
     (defaults.mode !== "sell" || holdings.some((h) => String(h.fund_id) === defaults.fundId));
   if (fundOk) form.fund_id = defaults.fundId ?? "";
-  else if (funds.length === 0 && defaults.mode !== "sell") form.fund_id = NEW_FUND;
+  // From Add investment, a new fund is the likely one; an existing one can still be chosen.
+  else if ((funds.length === 0 || defaults.fresh) && defaults.mode !== "sell") form.fund_id = NEW_FUND;
   const accountId = defaults.accountId ?? (banks.length === 1 ? String(banks[0].id) : "");
   if (bankOk(accountId)) form.account_id = accountId;
   if (form.mode === "sip") {
@@ -295,7 +298,17 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [form, setForm] = useState<Form>(() => startForm(props));
-  const [funds, setFunds] = useState<Fund[]>(props.funds);
+  const funds = props.funds;
+  const [source, setSource] = useState<MarketMatch | null>(null);
+  // A match links live prices and fills in the name (and symbol). What the last pick filled in is
+  // remembered, so a new pick replaces it and clearing removes it; text typed by hand stays.
+  const filled = useRef<Prefill | null>(null);
+  const pickSource = (match: MarketMatch | null) => {
+    setSource(match);
+    const next = applyPick("mutual_fund", { name: form.name, symbol: form.symbol }, filled.current, match);
+    filled.current = next.filled;
+    setForm((f) => ({ ...f, ...next.fields }));
+  };
   // Units and stamp duty follow the amount and NAV until the owner types them by hand.
   const [unitsByHand, setUnitsByHand] = useState(editing);
   const [chargesByHand, setChargesByHand] = useState(editing);
@@ -488,39 +501,24 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
     let done = false;
     const auth = { token: token ?? undefined };
     try {
-      let current: FundTradeForm = form;
       if (!trade && form.fund_id === NEW_FUND) {
-        let created: Fund;
-        try {
-          const symbol = form.symbol.trim();
-          created = await apiFetch<Fund>("/investments/funds", {
-            method: "POST",
-            ...auth,
-            body: { name: form.name, symbol: symbol === "" ? null : symbol },
-          });
-        } catch (err) {
-          if (err instanceof ApiError && err.status === 422) {
-            needFocus.current = true;
-            const result = splitErrors(err.detail, ["name", "symbol"]);
-            setErrors(result.fields);
-            setGeneral(result.general);
-            return;
-          }
-          throw err;
-        }
-        // The fund exists now. If the transaction below fails, it stays chosen so a retry doesn't add it twice.
-        setFunds((list) => [...list, created].sort((a, b) => a.name.localeCompare(b.name)));
-        setForm((f) => ({ ...f, fund_id: String(created.id), name: "", symbol: "" }));
-        current = { ...form, fund_id: String(created.id) };
-      }
-
-      if (trade && payload) {
+        // The new fund and its first trade are saved together: if the trade is refused, no fund is left behind.
+        const symbol = form.symbol.trim();
+        await apiFetch(withTradePath("mutual_fund"), {
+          method: "POST",
+          ...auth,
+          body: {
+            fund: { name: form.name, symbol: symbol === "" ? null : symbol, source_code: source?.code ?? null },
+            trade: asFirstTrade(fundTradePayload(form, "create")),
+          },
+        });
+      } else if (trade && payload) {
         await apiFetch<FundTrade>(`/investments/fund-trades/${trade.id}`, { method: "PATCH", ...auth, body: payload });
       } else {
         await apiFetch<FundTrade>("/investments/fund-trades", {
           method: "POST",
           ...auth,
-          body: fundTradePayload(current, "create"),
+          body: fundTradePayload(form, "create"),
         });
       }
       done = true;
@@ -731,7 +729,7 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
             <View>
               {heading("Type")}
               <View style={styles.chips} accessibilityRole="radiogroup">
-                {MODES.map((option) => choice(option.label, mode === option.value, () => changeMode(option.value)))}
+                {MODES.filter((option) => !props.defaults.fresh || option.value === "buy" || option.value === "opening").map((option) => choice(option.label, mode === option.value, () => changeMode(option.value)))}
               </View>
             </View>
           )}
@@ -746,6 +744,13 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
 
           {form.fund_id === NEW_FUND ? (
             <>
+              <MarketSearch
+                kind="mutual_fund"
+                label="Find it to link live prices (optional)"
+                selected={source}
+                onSelect={pickSource}
+                disabled={busy}
+              />
               {field("name", input("name", "Fund name, like Parag Parikh Flexi Cap", { maxLength: 60 }))}
               {field(
                 "symbol",

@@ -285,3 +285,59 @@ export function syncStatusText(state: SyncState): string {
 export function syncOutcome(result: SyncResult | null): SyncState {
   return { status: result !== null && Object.keys(result.failed).length === 0 ? "done" : "partial" };
 }
+
+// The longest name a stock, fund or coin can have.
+export const NAME_MAX = 60;
+
+// What a market match fills in for a new holding. A stock's NSE code is its symbol. A coin's match
+// is named like "Bitcoin (BTC)", so the ticker comes from there. A fund's symbol is made by the server.
+export function prefillFromMatch(kind: MarketKind, match: MarketMatch): { name: string; symbol: string } {
+  const clip = (text: string) => text.trim().slice(0, NAME_MAX).trim();
+  if (kind === "stock") return { name: clip(match.name), symbol: match.code.trim().toUpperCase().slice(0, 20) };
+  if (kind === "crypto") {
+    const found = /^(.*\S)\s*\(([A-Za-z0-9]{1,20})\)$/.exec(match.name.trim());
+    if (found) return { name: clip(found[1]), symbol: found[2].toUpperCase() };
+  }
+  return { name: clip(match.name), symbol: "" };
+}
+
+// Where a new stock, fund or coin is created together with its first purchase, in one save.
+export function withTradePath(kind: MarketKind): string {
+  return `/investments/${kind === "stock" ? "stocks" : kind === "mutual_fund" ? "funds" : "coins"}/with-trade`;
+}
+
+const NOT_IN_FIRST_TRADE = new Set(["stock_id", "fund_id", "coin_id", "side", "sip_id"]);
+
+// A trade's create payload as the first trade of a new holding: no instrument id (it is created in
+// the same save), no side (always a buy) and no SIP (a new fund has none yet).
+export function asFirstTrade(payload: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(payload).filter(([key]) => !NOT_IN_FIRST_TRADE.has(key)));
+}
+
+export type Prefill = { name: string; symbol: string };
+
+// What a new pick (or clearing it, `match` null) does to the typed name and symbol. A field takes the
+// match's value when it is empty or still holds what the last pick filled in; anything typed by hand
+// stays. Clearing empties what the last pick filled in. `filled` is what to remember for the next pick.
+export function applyPick(
+  kind: MarketKind,
+  current: Prefill,
+  previous: Prefill | null,
+  match: MarketMatch | null,
+): { fields: Prefill; filled: Prefill | null } {
+  const auto = (key: keyof Prefill) => current[key].trim() === "" || (previous !== null && current[key] === previous[key]);
+  if (match === null) {
+    return {
+      fields: {
+        name: previous !== null && current.name === previous.name ? "" : current.name,
+        symbol: previous !== null && current.symbol === previous.symbol ? "" : current.symbol,
+      },
+      filled: null,
+    };
+  }
+  const fill = prefillFromMatch(kind, match);
+  return {
+    fields: { name: auto("name") ? fill.name : current.name, symbol: auto("symbol") ? fill.symbol : current.symbol },
+    filled: fill,
+  };
+}

@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type Account, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import type { MarketMatch } from "@/lib/investments";
+import { type MarketMatch, type Prefill, applyPick, asFirstTrade, withTradePath } from "@/lib/investments";
 import {
   type Fund,
   type FundHolding,
@@ -25,7 +25,7 @@ import { todayIndia } from "@/lib/transactions";
 import { Select } from "@/components/ui/select";
 
 import { LinkField } from "./link-dialog";
-import { DIALOG, INPUT, PRIMARY, QUIET } from "./shared";
+import { BackButton, DIALOG, INPUT, PRIMARY, QUIET, StepLine, useAddFlow } from "./shared";
 
 const MODES: { value: FundTradeMode; label: string }[] = [
   { value: "sip", label: "Record SIP" },
@@ -42,7 +42,7 @@ const MONEY = /^\d+(?:\.\d{1,2})?$/;
 const UNITS = /^\d+(?:\.\d{1,3})?$/;
 const NAV = /^\d+(?:\.\d{1,4})?$/;
 const MISMATCH = "Units × NAV doesn't match the amount. Check the units and NAV.";
-const RENDERED = ["fund_id", "account_id", "sip_id", "date", "amount", "charges", "nav", "units", "note"] as const;
+const RENDERED = ["fund_id", "name", "symbol", "account_id", "sip_id", "date", "amount", "charges", "nav", "units", "note"] as const;
 
 type Form = FundTradeForm & { name: string; symbol: string };
 type Key = keyof Omit<Form, "mode">;
@@ -61,10 +61,10 @@ type Props = {
   onFundCreated: (fund: Fund) => void;
 };
 
-function startForm(props: Props): Form {
+function startForm(props: Props, adding: boolean): Form {
   if (props.trade) return { ...fundTradeFormFrom(props.trade), name: "", symbol: "" };
   const form: Form = { ...props.initial, name: "", symbol: "" };
-  if (form.fund_id === "" && props.funds.length === 0 && form.mode !== "sell") form.fund_id = NEW_FUND;
+  if (form.fund_id === "" && (props.funds.length === 0 || adding) && form.mode !== "sell") form.fund_id = NEW_FUND;
   if (form.account_id === "" && props.banks.length === 1) form.account_id = String(props.banks[0].id);
   if (form.mode === "sip" && form.sip_id === "") {
     const only = onlySip(props.sips, form.fund_id);
@@ -141,8 +141,10 @@ export function FundTradeDialog(props: Props) {
   const submitRef = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLInputElement>(null);
   const needFocus = useRef(false);
-  const [form, setForm] = useState<Form>(() => startForm(props));
-  const [funds, setFunds] = useState<Fund[]>(props.funds);
+  // In the Add investment flow this is a first purchase: a new one, bought or already held.
+  const adding = useAddFlow();
+  const [form, setForm] = useState<Form>(() => startForm(props, adding));
+  const funds = props.funds;
   const [source, setSource] = useState<MarketMatch | null>(null);
   // Units and stamp duty follow the amount and NAV until the owner types them by hand.
   const [unitsByHand, setUnitsByHand] = useState(editing);
@@ -182,6 +184,15 @@ export function FundTradeDialog(props: Props) {
       }
       return next;
     });
+  };
+  // A match links live prices and fills in the name (and symbol). What the last pick filled in is
+  // remembered, so a new pick replaces it and clearing removes it; text typed by hand stays.
+  const filled = useRef<Prefill | null>(null);
+  const pickSource = (match: MarketMatch | null) => {
+    setSource(match);
+    const next = applyPick("mutual_fund", { name: form.name, symbol: form.symbol }, filled.current, match);
+    filled.current = next.filled;
+    setForm((f) => ({ ...f, ...next.fields }));
   };
   const set = (key: Key, value: string) => {
     if (key === "units") {
@@ -253,30 +264,20 @@ export function FundTradeDialog(props: Props) {
     setErrors({});
     setFormError(null);
     try {
-      let current: FundTradeForm = form;
+      const current: FundTradeForm = form;
       if (!editing && form.fund_id === NEW_FUND) {
-        let created: Fund;
-        try {
-          const symbol = form.symbol.trim();
-          created = await apiFetch<Fund>("/investments/funds", {
-            method: "POST",
-            body: JSON.stringify({ name: form.name, symbol: symbol === "" ? null : symbol, source_code: source?.code ?? null }),
-          });
-        } catch (err) {
-          if (err instanceof ApiError && err.status === 422) {
-            needFocus.current = true;
-            const { fields, general } = splitErrors(err.body, ["name", "symbol"]);
-            setErrors(fields);
-            if (general.length > 0) setFormError(general.join(" "));
-            return;
-          }
-          throw err;
-        }
-        // The fund exists now. If the transaction below fails, it stays chosen so a retry doesn't add it twice.
-        setFunds((list) => [...list, created].sort((a, b) => a.name.localeCompare(b.name)));
-        setForm((f) => ({ ...f, fund_id: String(created.id), name: "", symbol: "" }));
-        onFundCreated(created);
-        current = { ...form, fund_id: String(created.id) };
+        // The new fund and its first trade are saved together: if the trade is refused, no fund is left behind.
+        const symbol = form.symbol.trim();
+        const saved = await apiFetch<{ fund: Fund; trade: FundTrade }>(withTradePath("mutual_fund"), {
+          method: "POST",
+          body: JSON.stringify({
+            fund: { name: form.name, symbol: symbol === "" ? null : symbol, source_code: source?.code ?? null },
+            trade: asFirstTrade(fundTradePayload(current, "create")),
+          }),
+        });
+        onFundCreated(saved.fund);
+        onSaved(saved.trade);
+        return;
       }
 
       if (editing) {
@@ -389,6 +390,7 @@ export function FundTradeDialog(props: Props) {
         <div>
           <h2 id="fund-trade-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
+            <StepLine />
           </h2>
           <div className="px-5 py-4">
             <p className="text-sm font-extrabold">Add a bank account first</p>
@@ -397,6 +399,7 @@ export function FundTradeDialog(props: Props) {
             </p>
           </div>
           <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
+            <BackButton disabled={saving} />
             {closeButton}
             <Link href="/accounts" className={PRIMARY}>
               Go to accounts
@@ -407,6 +410,7 @@ export function FundTradeDialog(props: Props) {
         <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
           <h2 id="fund-trade-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
+            <StepLine />
           </h2>
           <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
             {editing ? (
@@ -418,7 +422,7 @@ export function FundTradeDialog(props: Props) {
               <fieldset disabled={saving}>
                 <legend className="mb-1 block text-xs font-black tracking-wide uppercase">Type</legend>
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
-                  {MODES.map((option) => (
+                  {MODES.filter((option) => !adding || option.value === "buy" || option.value === "opening").map((option) => (
                     <label key={option.value} className="flex items-center gap-1.5 text-sm font-extrabold">
                       <input
                         type="radio"
@@ -444,6 +448,8 @@ export function FundTradeDialog(props: Props) {
               ) : null,
             )}
 
+            {form.fund_id === NEW_FUND && <LinkField kind="mutual_fund" selected={source} onSelect={pickSource} disabled={saving} />}
+
             {form.fund_id === NEW_FUND && (
               <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-4">
                 {field(
@@ -458,8 +464,6 @@ export function FundTradeDialog(props: Props) {
                 )}
               </div>
             )}
-
-            {form.fund_id === NEW_FUND && <LinkField kind="mutual_fund" selected={source} onSelect={setSource} disabled={saving} />}
 
             {mode === "sip" &&
               form.fund_id !== "" &&
@@ -563,6 +567,7 @@ export function FundTradeDialog(props: Props) {
             ) : null}
           </div>
           <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
+            <BackButton disabled={saving} />
             {closeButton}
             <button ref={submitRef} type="submit" disabled={saving} className={PRIMARY}>
               {saving

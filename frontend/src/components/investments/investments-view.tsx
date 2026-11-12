@@ -9,9 +9,7 @@ import { apiFetch } from "@/lib/api";
 import {
   type Coin,
   type CoinTotal,
-  type CryptoTradeForm,
   type CryptoTradeMode,
-  blankCryptoTradeForm,
   formatCoinAverage,
   formatCoinPrice,
   formatCoinQty,
@@ -22,7 +20,6 @@ import {
   type FundTradeForm,
   type FundTradeMode,
   type Sip,
-  blankFundTradeForm,
   formatNav,
   formatUnits,
   sipTradeForm,
@@ -53,8 +50,8 @@ import {
   LIST,
   Notice,
   BUY,
-  SELL,
   PlainSigned,
+  PRIMARY,
   QUIET,
   SECONDARY,
   SECTION_TITLE,
@@ -67,11 +64,10 @@ import {
   isUnauthorized,
   tradeDeleteText,
 } from "./shared";
-import { CryptoTradeDialog } from "./crypto-trade-dialog";
 import { FundTradeDialog } from "./fund-trade-dialog";
 import { DueSips } from "./fund-view";
 import { LinkPrompt } from "./link-prompt";
-import { SipDialog } from "./sip-dialog";
+import { type AddStart, AddInvestmentDialog } from "./add-investment-dialog";
 import { TradeDialog, type TradeKind } from "./trade-dialog";
 
 // The portfolio is what the page can't do without. Everything else loads and fails on its own, so a
@@ -93,8 +89,7 @@ type Dialog =
   | { kind: "trade"; trade: Trade | null; tradeKind: TradeKind }
   | { kind: "delete"; trade: Trade }
   | { kind: "fundTrade"; initial: FundTradeForm; focusNav: boolean }
-  | { kind: "cryptoTrade"; initial: CryptoTradeForm }
-  | { kind: "sip" };
+  | { kind: "add"; start: AddStart };
 
 async function fetchData(brokerId: number | null): Promise<Data> {
   const [portfolio, stocks, funds, coins, accounts, unlinked] = await Promise.all([
@@ -199,21 +194,17 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
     reload();
   };
   const closeDialog = () => setDialog({ kind: "none" });
-  const openTrade = (tradeKind: TradeKind) => setDialog({ kind: "trade", trade: null, tradeKind });
+  // Every way to add (the header button and the empty sections' buttons) goes through Add investment.
+  const openAdd = (start: AddStart) => setDialog({ kind: "add", start });
   const data = load.status === "ready" ? load.data : null;
   const accounts = data?.accounts.status === "ready" ? data.accounts.data : null;
   const stocksExtra: StocksExtra | null = data && accounts && data.stocks.status === "ready" ? { ...data.stocks.data, ...accounts } : null;
   const fundsData: FundsExtra | null = data?.funds.status === "ready" ? data.funds.data : null;
   const fundsExtra: FundsExtra | null = accounts ? fundsData : null;
   const coinsData: CoinsExtra | null = data?.coins.status === "ready" ? data.coins.data : null;
-  const coinsExtra: CoinsExtra | null = accounts ? coinsData : null;
   const accountsFailed = data?.accounts.status === "error";
   const brokers = accounts?.active.filter((a) => a.type === "broker") ?? [];
   const banks = accounts?.active.filter((a) => a.type === "bank") ?? [];
-  const openFundTrade = (mode: FundTradeMode) =>
-    setDialog({ kind: "fundTrade", initial: blankFundTradeForm(mode, todayIndia()), focusNav: false });
-  const openCryptoTrade = (mode: CryptoTradeMode) =>
-    setDialog({ kind: "cryptoTrade", initial: blankCryptoTradeForm(mode, todayIndia()) });
   const recordSip = (sip: Sip) =>
     setDialog({ kind: "fundTrade", initial: sipTradeForm(sip, sip.due_date ?? todayIndia()), focusNav: true });
   const done = (message: string | null) => {
@@ -233,6 +224,9 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
             </span>
             <button type="button" className={SECONDARY} disabled={sync.status === "syncing"} onClick={syncPrices}>
               {sync.status === "syncing" ? "Syncing…" : "Sync prices"}
+            </button>
+            <button type="button" className={PRIMARY} disabled={accounts === null} onClick={() => openAdd(null)}>
+              Add investment
             </button>
           </>
         }
@@ -275,7 +269,7 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
             retrying={retrying}
             onRetry={retry}
             brokerId={brokerId}
-            onAdd={openTrade}
+            onAdd={(kind) => openAdd({ type: "stock", opening: kind === "opening" })}
             onEdit={(trade) => setDialog({ kind: "trade", trade, tradeKind: trade.opening ? "opening" : trade.side })}
             onDelete={(trade) => setDialog({ kind: "delete", trade })}
           />
@@ -286,8 +280,8 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
             accountsFailed={accountsFailed}
             retrying={retrying}
             onRetry={retry}
-            onAdd={openFundTrade}
-            onAddSip={() => setDialog({ kind: "sip" })}
+            onAdd={(mode) => openAdd({ type: "mutual_fund", opening: mode === "opening" })}
+            onAddSip={() => openAdd({ type: "sip", opening: false })}
           />
           <Crypto
             portfolio={data.portfolio}
@@ -296,7 +290,7 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
             accountsFailed={accountsFailed}
             retrying={retrying}
             onRetry={retry}
-            onAdd={openCryptoTrade}
+            onAdd={(mode) => openAdd({ type: "crypto", opening: mode === "opening" })}
           />
           <DepositsSection deposits={data.portfolio.deposits} />
         </div>
@@ -318,29 +312,20 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
         />
       )}
 
-      {dialog.kind === "cryptoTrade" && data && coinsExtra && (
-        <CryptoTradeDialog
-          trade={null}
-          initial={dialog.initial}
-          coins={coinsExtra.coins}
-          brokers={brokers}
-          holdings={data.portfolio.crypto.holdings}
+      {dialog.kind === "add" && data && accounts && (
+        <AddInvestmentDialog
+          start={dialog.start}
+          portfolio={data.portfolio}
+          stocks={data.stocks.status === "ready" ? data.stocks.data.stocks : null}
+          funds={fundsData?.funds ?? null}
+          sips={fundsData?.sips ?? []}
+          coins={coinsData?.coins ?? null}
+          accounts={accounts.active}
+          defaultBrokerId={brokerId}
           onClose={closeDialog}
           onSaved={() => done(null)}
           onConflict={done}
-          onCoinCreated={reload}
-        />
-      )}
-
-      {dialog.kind === "sip" && fundsExtra && (
-        <SipDialog
-          sip={null}
-          funds={fundsExtra.funds}
-          banks={banks}
-          onClose={closeDialog}
-          onSaved={() => done(null)}
-          onConflict={done}
-          onFundCreated={reload}
+          onCreated={reload}
         />
       )}
 
@@ -431,7 +416,6 @@ function Content({
   onDelete: (trade: Trade) => void;
 }) {
   const empty = portfolio.by_stock.length === 0 && portfolio.closed.length === 0;
-  const hasHoldings = portfolio.holdings.length > 0;
 
   return (
     <section aria-labelledby="stocks-title" className="flex flex-col gap-8">
@@ -439,21 +423,6 @@ function Content({
         <h2 id="stocks-title" className="text-lg font-black">
           <span aria-hidden="true">{investmentEmoji("stock")} </span>Stocks
         </h2>
-        {extra && (
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className={QUIET} onClick={() => onAdd("opening")}>
-              Add existing shares
-            </button>
-            {hasHoldings && (
-              <button type="button" className={SELL} onClick={() => onAdd("sell")}>
-                Sell
-              </button>
-            )}
-            <button type="button" className={BUY} onClick={() => onAdd("buy")}>
-              Buy
-            </button>
-          </div>
-        )}
       </div>
 
       {accountsFailed && stocksLoaded && <NeedsAccounts retrying={retrying} onRetry={onRetry} />}
@@ -713,7 +682,6 @@ function Funds({
 }) {
   const funds = portfolio.funds;
   const empty = funds.by_fund.length === 0 && funds.closed.length === 0;
-  const hasHoldings = funds.holdings.length > 0;
   // A fund with no units and no past (one just added with its SIP) still gets a row to reach it by.
   const listed = new Set([...funds.by_fund.map((f) => f.fund_id), ...funds.closed.map((c) => c.fund_id)]);
   const unheld = (fundsData?.funds ?? []).filter((f) => !listed.has(f.id));
@@ -724,24 +692,6 @@ function Funds({
         <h2 id="funds-title" className="text-lg font-black">
           <span aria-hidden="true">{investmentEmoji("mutual_fund")} </span>Mutual funds
         </h2>
-        {fundsData && canAdd && (
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className={QUIET} onClick={onAddSip}>
-              Add SIP
-            </button>
-            <button type="button" className={QUIET} onClick={() => onAdd("opening")}>
-              Add existing units
-            </button>
-            {hasHoldings && (
-              <button type="button" className={SELL} onClick={() => onAdd("sell")}>
-                Redeem
-              </button>
-            )}
-            <button type="button" className={BUY} onClick={() => onAdd("buy")}>
-              Buy
-            </button>
-          </div>
-        )}
       </div>
 
       {accountsFailed && fundsData && <NeedsAccounts retrying={retrying} onRetry={onRetry} />}
@@ -903,7 +853,6 @@ function Crypto({
 }) {
   const crypto = portfolio.crypto;
   const empty = crypto.by_coin.length === 0 && crypto.closed.length === 0;
-  const hasHoldings = crypto.holdings.length > 0;
   // A coin with no quantity and no past (one just added) still gets a row to reach it by.
   const listed = new Set([...crypto.by_coin.map((c) => c.coin_id), ...crypto.closed.map((c) => c.coin_id)]);
   const unheld = (coinsData?.coins ?? []).filter((c) => !listed.has(c.id));
@@ -914,21 +863,6 @@ function Crypto({
         <h2 id="crypto-title" className="text-lg font-black">
           <span aria-hidden="true">{investmentEmoji("crypto")} </span>Crypto
         </h2>
-        {coinsData && canAdd && (
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className={QUIET} onClick={() => onAdd("opening")}>
-              Add existing coins
-            </button>
-            {hasHoldings && (
-              <button type="button" className={SELL} onClick={() => onAdd("sell")}>
-                Sell
-              </button>
-            )}
-            <button type="button" className={BUY} onClick={() => onAdd("buy")}>
-              Buy
-            </button>
-          </div>
-        )}
       </div>
 
       {accountsFailed && coinsData && <NeedsAccounts retrying={retrying} onRetry={onRetry} />}

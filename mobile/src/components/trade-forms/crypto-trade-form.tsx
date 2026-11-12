@@ -33,6 +33,8 @@ import {
   formatCoinQty,
   qtyMismatch,
 } from "@/lib/crypto";
+import { type MarketMatch, type Prefill, applyPick, asFirstTrade, withTradePath } from "@/lib/investments";
+import { MarketSearch } from "@/components/market-search";
 import { ChunkyBox, ChunkyButton, Chip, HeaderAction, ScreenHeader } from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
 import { DateField } from "@/components/date-field";
@@ -57,7 +59,7 @@ type Form = CryptoTradeForm & { name: string; symbol: string };
 type Key = Exclude<keyof Form, "mode">;
 
 type Loaded = { coins: Coin[]; holdings: CoinHolding[]; brokers: Account[]; trade: CryptoTrade | null };
-type Defaults = { mode: CryptoTradeMode; coinId?: string; accountId?: string };
+type Defaults = { mode: CryptoTradeMode; coinId?: string; accountId?: string; fresh?: boolean };
 
 function parseMode(value: string | undefined): CryptoTradeMode {
   return value === "sell" || value === "opening" ? value : "buy";
@@ -68,8 +70,8 @@ function titleFor(mode: CryptoTradeMode, editing: boolean): string {
   return mode === "buy" ? "Buy crypto" : mode === "sell" ? "Sell crypto" : "Add existing coins";
 }
 
-export default function CryptoTradeFormScreen() {
-  const params = useLocalSearchParams<{ id?: string; mode?: string; coinId?: string; accountId?: string }>();
+export function CryptoTradeScreen() {
+  const params = useLocalSearchParams<{ id?: string; mode?: string; coinId?: string; accountId?: string; new?: string }>();
   const { id, coinId } = params;
   const { token, logOut } = useSession();
   const { colors } = useTheme();
@@ -158,7 +160,7 @@ export default function CryptoTradeFormScreen() {
     );
   }
 
-  return <FormBody {...loaded} defaults={{ mode, coinId, accountId: params.accountId }} />;
+  return <FormBody {...loaded} defaults={{ mode, coinId, accountId: params.accountId, fresh: params.new === "1" }} />;
 }
 
 type FieldInputProps = {
@@ -204,7 +206,8 @@ function startForm({ coins, holdings, brokers, trade, defaults }: Loaded & { def
     coins.some((c) => String(c.id) === defaults.coinId) &&
     (defaults.mode !== "sell" || holdings.some((h) => String(h.coin_id) === defaults.coinId));
   if (coinOk) form.coin_id = defaults.coinId ?? "";
-  else if (coins.length === 0 && defaults.mode !== "sell") form.coin_id = NEW_COIN;
+  // From Add investment, a new coin is the likely one; an existing one can still be chosen.
+  else if ((coins.length === 0 || defaults.fresh) && defaults.mode !== "sell") form.coin_id = NEW_COIN;
   const accountId = defaults.accountId ?? (brokers.length === 1 ? String(brokers[0].id) : "");
   if (brokers.some((b) => String(b.id) === accountId)) form.account_id = accountId;
   return form;
@@ -217,7 +220,17 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [form, setForm] = useState<Form>(() => startForm(props));
-  const [coins, setCoins] = useState<Coin[]>(props.coins);
+  const coins = props.coins;
+  const [source, setSource] = useState<MarketMatch | null>(null);
+  // A match links live prices and fills in the name (and symbol). What the last pick filled in is
+  // remembered, so a new pick replaces it and clearing removes it; text typed by hand stays.
+  const filled = useRef<Prefill | null>(null);
+  const pickSource = (match: MarketMatch | null) => {
+    setSource(match);
+    const next = applyPick("crypto", { name: form.name, symbol: form.symbol }, filled.current, match);
+    filled.current = next.filled;
+    setForm((f) => ({ ...f, ...next.fields }));
+  };
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
   const [missing, setMissing] = useState<string | null>(null);
@@ -360,38 +373,24 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
     let done = false;
     const auth = { token: token ?? undefined };
     try {
-      let current: CryptoTradeForm = form;
       if (!trade && form.coin_id === NEW_COIN) {
-        let created: Coin;
-        try {
-          created = await apiFetch<Coin>("/investments/coins", {
-            method: "POST",
-            ...auth,
-            body: { name: form.name, symbol: form.symbol.trim() },
-          });
-        } catch (err) {
-          if (err instanceof ApiError && err.status === 422) {
-            needFocus.current = true;
-            const result = splitErrors(err.detail, ["name", "symbol"]);
-            setErrors(result.fields);
-            setGeneral(result.general);
-            return;
-          }
-          throw err;
-        }
-        // The coin exists now. If the transaction below fails, it stays chosen so a retry doesn't add it twice.
-        setCoins((list) => [...list, created].sort((a, b) => a.name.localeCompare(b.name)));
-        setForm((f) => ({ ...f, coin_id: String(created.id), name: "", symbol: "" }));
-        current = { ...form, coin_id: String(created.id) };
-      }
-
-      if (trade && payload) {
+        // The new coin and its first trade are saved together: if the trade is refused, no coin is left behind.
+        const symbol = form.symbol.trim();
+        await apiFetch(withTradePath("crypto"), {
+          method: "POST",
+          ...auth,
+          body: {
+            coin: { name: form.name, symbol: symbol, source_code: source?.code ?? null },
+            trade: asFirstTrade(cryptoTradePayload(form, "create")),
+          },
+        });
+      } else if (trade && payload) {
         await apiFetch<CryptoTrade>(`/investments/crypto-trades/${trade.id}`, { method: "PATCH", ...auth, body: payload });
       } else {
         await apiFetch<CryptoTrade>("/investments/crypto-trades", {
           method: "POST",
           ...auth,
-          body: cryptoTradePayload(current, "create"),
+          body: cryptoTradePayload(form, "create"),
         });
       }
       done = true;
@@ -599,7 +598,7 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
             <View>
               {heading("Type")}
               <View style={styles.chips} accessibilityRole="radiogroup">
-                {MODES.map((option) => choice(option.label, mode === option.value, () => changeMode(option.value)))}
+                {MODES.filter((option) => !props.defaults.fresh || option.value === "buy" || option.value === "opening").map((option) => choice(option.label, mode === option.value, () => changeMode(option.value)))}
               </View>
             </View>
           )}
@@ -614,6 +613,13 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
 
           {form.coin_id === NEW_COIN ? (
             <>
+              <MarketSearch
+                kind="crypto"
+                label="Find it to link live prices (optional)"
+                selected={source}
+                onSelect={pickSource}
+                disabled={busy}
+              />
               {field("name", input("name", "Coin name, like Bitcoin", { maxLength: 60 }))}
               {field(
                 "symbol",

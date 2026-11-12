@@ -13,7 +13,7 @@ import { Select } from "@/components/ui/select";
 
 import { NEW_FUND } from "./fund-trade-dialog";
 import { LinkField } from "./link-dialog";
-import { DIALOG, INPUT, PRIMARY, QUIET } from "./shared";
+import { BackButton, DIALOG, INPUT, PRIMARY, QUIET, StepLine } from "./shared";
 
 const MONEY = /^\d+(?:\.\d{1,2})?$/;
 const RENDERED = ["fund_id", "account_id", "amount", "day", "start_date"] as const;
@@ -230,12 +230,14 @@ export function SipDialog(props: Props) {
         <div>
           <h2 id="sip-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
+            <StepLine />
           </h2>
           <div className="px-5 py-4">
             <p className="text-sm font-extrabold">Add a bank account first</p>
             <p className="mt-1 text-sm text-zinc-600">A SIP is debited from a bank account each month.</p>
           </div>
           <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
+            <BackButton disabled={saving} />
             {closeButton}
             <Link href="/accounts" className={PRIMARY}>
               Go to accounts
@@ -246,6 +248,7 @@ export function SipDialog(props: Props) {
         <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
           <h2 id="sip-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black [overflow-wrap:anywhere]">
             {title}
+            <StepLine />
           </h2>
           <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
             {!editing && field("fund_id", "Fund", <Select {...pickerProps("fund_id")} placeholder="Choose a fund" options={fundOptions} />)}
@@ -298,6 +301,7 @@ export function SipDialog(props: Props) {
             ) : null}
           </div>
           <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
+            <BackButton disabled={saving} />
             {closeButton}
             <button ref={submitRef} type="submit" disabled={saving} className={PRIMARY}>
               {saving ? "Saving..." : editing ? "Save changes" : "Add SIP"}

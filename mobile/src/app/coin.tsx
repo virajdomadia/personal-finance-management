@@ -187,7 +187,7 @@ export default function CoinScreen() {
   // Coins in an archived account can't be sold until it's restored.
   const sellable = holdings.filter((h) => !locked.has(h.account_id));
 
-  const trade = (params: Record<string, string>) => go({ pathname: "/crypto-trade-form", params: { coinId, ...params } });
+  const trade = (params: Record<string, string>) => go({ pathname: "/trade-form", params: { kind: "crypto", coinId, ...params } });
   // The prices come newest first; a line runs oldest to newest.
   const line = [...data.prices].reverse().map((p) => ({ date: p.date, value: p.price }));
 
@@ -200,7 +200,7 @@ export default function CoinScreen() {
           <HeaderAction
             icon="pencil-outline"
             label="Rename or delete coin"
-            onPress={() => go({ pathname: "/coin-form", params: { id: coinId } })}
+            onPress={() => go({ pathname: "/holding-form", params: { kind: "crypto", id: coinId } })}
           />
         }
       />
@@ -251,17 +251,14 @@ export default function CoinScreen() {
             variant="alt"
             icon="tag-outline"
             label="Update price"
-            onPress={() => go({ pathname: "/coin-price-form", params: { coinId } })}
+            onPress={() => go({ pathname: "/price-form", params: { kind: "crypto", id: coinId } })}
           />
           <ChunkyButton
             variant="alt"
             icon="link-variant"
             label={linkLabel(coin.source_code)}
             onPress={() =>
-              go({
-                pathname: "/link-form",
-                params: { kind: "crypto", id: coinId, title: coin.symbol, ...(coin.source_code ? { code: coin.source_code } : {}) },
-              })
+go({ pathname: "/holding-form", params: { kind: "crypto", id: coinId, focus: "link" } })
             }
           />
           <View style={styles.tradeButtons}>

@@ -86,7 +86,8 @@ function blankForm(type: AccountType): AccountForm {
 
 // Finds the account to edit in the list, because the API has no single-account route.
 export default function AccountFormScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  // `type` starts a new account as that type (Add investment opens a PPF or RD this way).
+  const { id, type } = useLocalSearchParams<{ id?: string; type?: string }>();
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const editing = id !== undefined;
@@ -151,7 +152,8 @@ export default function AccountFormScreen() {
     );
   }
 
-  return <FormBody account={editing ? account : null} loadedAccounts={editing ? accounts : null} />;
+  const startType = type === "ppf" || type === "rd" ? type : "bank";
+  return <FormBody account={editing ? account : null} loadedAccounts={editing ? accounts : null} startType={startType} />;
 }
 
 type FieldInputProps = {
@@ -198,7 +200,15 @@ function FieldInput({
   );
 }
 
-function FormBody({ account, loadedAccounts }: { account: Account | null; loadedAccounts: Account[] | null }) {
+function FormBody({
+  account,
+  loadedAccounts,
+  startType,
+}: {
+  account: Account | null;
+  loadedAccounts: Account[] | null;
+  startType: AccountType;
+}) {
   const editing = account !== null;
   const { token, logOut } = useSession();
   // The active accounts a loan can be paid from. Adding loads them here; if that fails, the loan
@@ -218,7 +228,7 @@ function FormBody({ account, loadedAccounts }: { account: Account | null; loaded
   }, [loadedAccounts, token]);
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [form, setForm] = useState<AccountForm>(() => (account ? formFromAccount(account) : blankForm("bank")));
+  const [form, setForm] = useState<AccountForm>(() => (account ? formFromAccount(account) : blankForm(startType)));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
   const [conflict, setConflict] = useState<string | null>(null);
