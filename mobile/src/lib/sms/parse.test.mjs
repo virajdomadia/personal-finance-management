@@ -357,3 +357,57 @@ test("more shapes the general reader understands", () => {
     assert.deepEqual([line.kind, line.amount, line.last4, line.payee, line.ref, line.date], [kind, amount, last4, payee, ref, "2026-11-10"], body);
   }
 });
+
+// Review fix round 1
+
+test("a refund, reversal or cashback onto a credit card is a credit, not a card payment", () => {
+  const refund = parseOne("hdfc", "Refund of Rs 799.00 from AMAZON credited to HDFC Bank Credit Card XX1234 on 10-11-26");
+  assert.deepEqual([refund.kind, refund.amount, refund.last4, refund.payee], ["credit", "799.00", "1234", "AMAZON"]);
+  const reversal = parseOne("madeupbank", "Reversal of Rs 500 credited to your Credit Card ending 1234");
+  assert.deepEqual([reversal.kind, reversal.amount, reversal.last4], ["credit", "500.00", "1234"]);
+  const cashback = parseOne("madeupbank", "Rs.250 cashback credited to your credit card XX1234");
+  assert.deepEqual([cashback.kind, cashback.amount, cashback.last4], ["credit", "250.00", "1234"]);
+  // Payment wording still makes a card payment.
+  const paid = parseOne("madeupbank", "Payment of Rs 3,000.00 credited towards your credit card XX1234 on 10-11-26");
+  assert.deepEqual([paid.kind, paid.amount, paid.last4], ["card_payment", "3000.00", "1234"]);
+});
+
+test("reward points are not rupees", () => {
+  for (const body of [
+    "Your A/c XX1234 has been credited with 250 reward points",
+    "Your card XX1234 has been credited with 500 reward points worth Rs.125",
+    "1,200 miles credited to your card XX1234",
+  ]) {
+    assert.equal(parseSms("madeupbank", body, AT), "ignore", body);
+  }
+});
+
+test("a UPI money request is not a credit", () => {
+  for (const body of [
+    "Request to pay Rs 300 received from ramesh@upi. Approve in app",
+    "You have received a money request of Rs 300 from ramesh@upi. Approve on iMobile",
+  ]) {
+    assert.equal(parseSms("madeupbank", body, AT), "ignore", body);
+  }
+});
+
+test("an earlier debit reversed is a credit to the owner's account", () => {
+  for (const body of [
+    "Rs.500 debited from A/c XX1234 has been reversed on 10-11-26",
+    "Your UPI txn of Rs 500 debited on 10-11-26 has been reversed to A/c XX1234",
+    "Txn of Rs 500 debited from A/c XX1234 is reversed and credited back",
+  ]) {
+    const line = parseOne("madeupbank", body);
+    assert.deepEqual([line.kind, line.amount, line.last4, line.payee], ["credit", "500.00", "1234", null], body);
+  }
+});
+
+test("the mask hides a name after 'by' but keeps 'by you'", () => {
+  assert.equal(maskSample("Rs 500 credited by RAHUL SHARMA on 10-11-26"), "Rs XXX credited by <name> on 10-11-26");
+  assert.match(maskSample("if not done by you"), /by you/);
+});
+
+test("a statement's due date may follow the card it names", () => {
+  const line = parseOne("hdfc", "Rs.2000 payment due on HDFC Card XX1234 on 15-11-26");
+  assert.deepEqual([line.kind, line.amount, line.last4, line.dueDate], ["card_statement", "2000.00", "1234", "2026-11-15"]);
+});

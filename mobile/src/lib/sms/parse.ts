@@ -50,7 +50,7 @@ const CUR_AMOUNT = new RegExp(String.raw`${CUR}\s*:?\s*(${NUM})`, "gi");
 const AMOUNT_CUR = /(?<![\d,.])(\d[\d,]*\.\d{1,2})\s*(?:inr|rs)\b/gi;
 // SBI writes "debited by 20.0" with no currency.
 const BARE_AMOUNT = new RegExp(
-  String.raw`\b(?:debited|credited|withdrawn|deducted|debit|credit)\s+(?:by|for|with|of)\s+(?:an?\s+amount\s+of\s+)?(${NUM})(?![\d/:-])`,
+  String.raw`\b(?:debited|credited|withdrawn|deducted|debit|credit)\s+(?:by|for|with|of)\s+(?:an?\s+amount\s+of\s+)?(${NUM})(?![\d/:-])(?!\s*(?:reward\s+)?(?:points?|pts|miles|coins)\b)`,
   "gi",
 );
 
@@ -182,7 +182,7 @@ function last4Of(text: string, kind: SmsKind): string | null {
 
 // Payees
 
-const NAME_END = String.raw`(?=\s+(?:via|on|ref(?:no)?|rrn|upi|imps|neft|rtgs|using|for|from|with|avl|avbl|avail(?:able)?|bal|info|dated|thru|through|is|has|was|and|by|towards|at|txn|transaction)\b|\s*\.(?:\s|$)|\.(?=(?:ref|rrn|avl|avbl|bal|upi|not|call|if|info|total|txn)\b)|\s*[,;(|]|\s+-|$)`;
+const NAME_END = String.raw`(?=\s+(?:via|on|credited|debited|ref(?:no)?|rrn|upi|imps|neft|rtgs|using|for|from|with|avl|avbl|avail(?:able)?|bal|info|dated|thru|through|is|has|was|and|by|towards|at|txn|transaction)\b|\s*\.(?:\s|$)|\.(?=(?:ref|rrn|avl|avbl|bal|upi|not|call|if|info|total|txn)\b)|\s*[,;(|]|\s+-|$)`;
 const UPI_PATH = new RegExp(String.raw`\bUPI(?:\/[A-Z0-9]{2,5})?\/(\d{6,})\/(.+?)(?=\/|${NAME_END.slice(3)}`, "i");
 const VPA = /\bVPA[:\s]+([\w.-]+@[\w.-]+)/i;
 const INFO = /\binfo[:\s]+(.+?)(?=\s*[.;]|$)/i;
@@ -282,7 +282,9 @@ function kindOf(text: string): SmsKind | null {
   const cardOnly = creditCard(text) && !BANK_ACCOUNT.test(text);
   if (word === "spend") return anyCard(text) ? "card_spend" : "debit";
   if (word === "debit") return cardOnly ? "card_spend" : "debit";
-  return cardOnly ? "card_payment" : "credit";
+  // Money onto a card is a credit (a refund, reversal or cashback). Only payment wording, caught
+  // before this, makes it a card_payment.
+  return "credit";
 }
 
 // Messages that are not a transaction
@@ -296,11 +298,21 @@ const FAILED =
 const SHORT_OF_FUNDS = /\binsufficient\s+(?:funds|bal(?:ance)?)\b/i;
 const NOT_YET =
   /\b(?:will|to)\s+be\s+(?:auto-?)?(?:debited|credited|deducted|charged)\b|\brequested\s+(?:money|payment)\b|\bcollect\s+request\b|\bpayment\s+request\b|\bis\s+scheduled\b|\bupcoming\b/i;
+// A UPI request asks for money; nothing has moved.
+const REQUEST = /\brequest\b/i;
+const REQUEST_ACTION = /\b(?:approve|accept|decline|reject|collect|pay)\b/i;
+// Points, miles or coins credited are not rupees.
+const POINTS_MOVED =
+  /\b(?:credited|debited|redeemed)\b(?:\s+(?:with|by|for|of))?\s+\d[\d,]*(?:\.\d+)?\s*(?:reward\s+)?(?:points?|pts|miles|coins)\b/i;
+// "Rs.500 debited from A/c XX1234 has been reversed": the earlier debit came back.
+const REVERSED = /\b(?:has\s+been|have\s+been|is|was|been)\s+reversed\b|\breversed\s+(?:to|and|into)\b|\bcredited\s+back\b/i;
 
 function ignorable(text: string, region: string): boolean {
   if (OTP.test(text) && !PAST.test(text)) return true;
   if (PROMO.test(region)) return true;
   if (NOT_YET.test(text)) return true;
+  if (REQUEST.test(text) && REQUEST_ACTION.test(text)) return true;
+  if (POINTS_MOVED.test(text)) return true;
   // A failed payment is ignored, but money put back after one is a credit.
   if (FAILED.test(text) && !(/\bcredited\b/i.test(text) && /\b(?:revers|refund)/i.test(text))) return true;
   // A bounce is ignored, but the bank's fee for it is a real debit.
@@ -335,6 +347,8 @@ function blank(line: Partial<Parsed> & { kind: SmsKind; date: string }): Parsed 
   };
 }
 
+const CARD_BEFORE_DATE = /^[a-z\s]{0,30}\bcard\b[\s\w*.•]{0,25}?\b(?:on|by)\s*$/i;
+
 function statement(text: string, received: string): ParseResult {
   const total = TOTAL_DUE.exec(text);
   const amount = (total && money(total[1])) || amountOf(text, NOT_TOTAL);
@@ -343,7 +357,10 @@ function statement(text: string, received: string): ParseResult {
   let rest = text;
   for (const words of text.matchAll(DUE_WORDS)) {
     const from = (words.index ?? 0) + words[0].length;
-    const hit = dateHits(text.slice(from, from + 30)).find((h) => h.index === 0);
+    const after = text.slice(from, from + 60);
+    // The date right after the due words, or after a card named in between ("due on HDFC Card
+    // XX1234 on 15-11-26").
+    const hit = dateHits(after).find((h) => h.index === 0 || CARD_BEFORE_DATE.test(after.slice(0, h.index)));
     const day = hit && dueDay(hit, received);
     if (hit && day) {
       dueDate = day;
@@ -556,7 +573,11 @@ export function parseSms(bank: string, body: string, receivedAt: Date): ParseRes
 
   const kind = kindOf(region) ?? kindOf(text);
   if (!kind) return "ignore";
-  const parsed = line(kind, text, region, received);
+  // An earlier debit put back is money in, and the account it names is the owner's, not a payee.
+  const parsed =
+    kind === "debit" && REVERSED.test(region)
+      ? line("credit", text, region, received, { payee: null })
+      : line(kind, text, region, received);
   if (!parsed.amount) return mentionsAmount(text) ? "unreadable" : "ignore";
   return [parsed];
 }
