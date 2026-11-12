@@ -188,9 +188,9 @@ def ordered(categories: list[Category], kind: str) -> list[Category]:
 
 
 def picker_names(db: Session, user_id: int, kind: str) -> list[str]:
-    """The names a picker offers: live, unarchived, in picker order (nesting not shown)."""
-    rows = [c for c in live(all_categories(db, user_id), kind) if c.archived_at is None]
-    return [c.name for c in sorted(rows, key=picker_order(kind))]
+    """The names a picker offers: live and unarchived, in picker order, each subcategory right
+    after its parent."""
+    return [c.name for c in ordered(all_categories(db, user_id), kind) if c.archived_at is None]
 
 
 def _find(db: Session, user_id: int, kind: str, key: str) -> Category | None:
