@@ -59,7 +59,7 @@ confident: a missing account always needs the owner.
     day and not already linked to an SMS (a possible duplicate);
   - for a bank debit, no EMI, SIP or reminder it could be paying (the same `expected_candidates`
     check ingestion runs);
-  - an account and an amount are known.
+  - an account and an amount are known, and the account isn't archived.
 
 Everything ingestion deliberately sends to a human keeps doing so: those items have other reasons
 and are excluded by the first condition.
@@ -103,9 +103,8 @@ confirmation, and ingestion is unchanged.
   "Always use <category> for <payee>". One tap creates the payee rule through a new
   `POST /api/payee-rules` (`{"entry_id", "category"}`), so the next message from that payee is
   recorded with its category and never waits.
-- The single-item "Always use this" box now names the category ("Always use Groceries for Ramesh"),
-  and the "None of these" answer of a regular-payment item now honours it even when nothing was
-  recorded yet (before, that path ignored it).
+- The single-item "Always use this" box (already ticked by default) now names the category it will
+  remember ("Always use Groceries for Ramesh"), so a changed pick is learned knowingly.
 
 ## Out of scope
 

@@ -202,6 +202,14 @@ def _rule(db: Session, user_id: int, entry: SmsEntry) -> PayeeRule:
     return rule
 
 
+def remember_category(db: Session, user_id: int, entry: SmsEntry, category: str) -> PayeeRule:
+    """The entry's payee is always this category from now on."""
+    rule = _rule(db, user_id, entry)
+    rule.category, rule.to_account_id = category, None
+    db.flush()
+    return rule
+
+
 # Answers
 
 
