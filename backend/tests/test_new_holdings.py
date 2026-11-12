@@ -1,6 +1,7 @@
 """A new instrument and its first purchase, created together or not at all."""
 
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from app.api.routes import market
 from app.main import app
 from app.models.account import Account
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade
+from app.models.market import MarketCode
 from app.prices.refresh import refresh_market
 from tests.price_fakes import FUND_CODE, FUND_DATE, FUND_NAV, STOCK_CLOSE, STOCK_CODE, FakeFetcher
 from tests.test_accounts import Headers, auth, locs, make
@@ -305,3 +307,114 @@ def test_linked_fund_keeps_market_nav_and_purchase_nav(
         (FUND_DATE.isoformat(), "auto"),
         (DAY, "manual"),
     }
+
+
+def prices(db: Session) -> int:
+    return db.scalar(select(func.count()).select_from(InstrumentPrice)) or 0
+
+
+def archived(headers: Headers, db: Session, type_: str, name: str) -> int:
+    account_id = account(headers, type_, name=name)
+    db.get(Account, account_id).archived_at = datetime.now(UTC)  # type: ignore[union-attr]
+    db.commit()
+    return account_id
+
+
+@pytest.mark.parametrize(
+    ("make_new", "type_"), [(new_fund, "bank"), (new_coin, "broker")], ids=["fund", "coin"]
+)
+def test_another_users_account_leaves_nothing(
+    headers: Headers,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    make_new: Any,
+    type_: str,
+) -> None:
+    theirs = account(auth(db_session, monkeypatch, "them@example.com"), type_, name="Theirs")
+    response = make_new(headers, account_id=theirs)
+    assert response.status_code == 422 and locs(response) == [["body", "account_id"]]
+    assert instruments(db_session) == 0 and trades(db_session) == 0
+
+
+@pytest.mark.parametrize(
+    ("make_new", "type_"), [(new_fund, "bank"), (new_coin, "broker")], ids=["fund", "coin"]
+)
+def test_archived_account_leaves_nothing(
+    headers: Headers, db_session: Session, make_new: Any, type_: str
+) -> None:
+    old = archived(headers, db_session, type_, "Old")
+    response = make_new(headers, account_id=old)
+    assert response.status_code == 422 and locs(response) == [["body", "account_id"]]
+    assert response.json()["detail"][0]["msg"] == "Old is archived. Restore it to use it."
+    assert instruments(db_session) == 0 and trades(db_session) == 0
+
+
+@pytest.mark.parametrize(
+    ("make_new", "type_", "spent"),
+    [(new_fund, "bank", "845.00"), (new_coin, "broker", "50000.00")],
+    ids=["fund", "coin"],
+)
+def test_more_than_the_cash_is_allowed_as_on_its_own(
+    headers: Headers, make_new: Any, type_: str, spent: str
+) -> None:
+    # Banks and brokers can go below zero (`CAN_BE_NEGATIVE`), so a first purchase bigger than the
+    # cash is saved, exactly as the same purchase made on its own would be.
+    poor = account(headers, type_, balance="100.00", name="Poor")
+    response = make_new(headers, account_id=poor)
+    assert response.status_code == 201, response.json()
+    expected = (Decimal("100.00") - Decimal(spent)).quantize(Decimal("0.01"))
+    assert balance(headers, poor) == f"{expected}"
+
+
+def test_refused_linked_stock_leaves_no_price(
+    headers: Headers, seeded: None, db_session: Session
+) -> None:
+    before = prices(db_session)
+    response = new_stock(
+        headers,
+        stock={"symbol": "RELI", "name": "Reliance", "source_code": STOCK_CODE},
+        account_id=archived(headers, db_session, "broker", "Old"),
+    )
+    assert response.status_code == 422
+    assert instruments(db_session) == 0 and prices(db_session) == before == 0
+
+
+def test_refused_linked_fund_leaves_no_nav(
+    headers: Headers, seeded: None, db_session: Session
+) -> None:
+    bank = account(headers, "bank", balance="50000.00", name="SBI")
+    response = new_fund(
+        headers, fund={"name": "Banking", "source_code": FUND_CODE}, account_id=bank, amount="1.00"
+    )
+    assert response.status_code == 422 and locs(response) == [["body", "units"]]
+    assert instruments(db_session) == 0 and prices(db_session) == 0
+
+
+def test_refused_linked_coin_leaves_no_price(headers: Headers, db_session: Session) -> None:
+    db_session.add(
+        MarketCode(
+            kind="crypto",
+            code="bitcoin",
+            name="Bitcoin (BTC)",
+            price=Decimal("9000000"),
+            price_date=date(2026, 11, 12),
+        )
+    )
+    db_session.commit()
+    exchange = account(headers, "broker", balance="100000.00", name="WazirX")
+    response = new_coin(
+        headers,
+        coin={"symbol": "BTC", "name": "Bitcoin", "source_code": "bitcoin"},
+        account_id=exchange,
+        amount="1.00",
+    )
+    assert response.status_code == 422 and locs(response) == [["body", "quantity"]]
+    assert instruments(db_session) == 0 and prices(db_session) == 0
+    # The same coin, linked, with a purchase that adds up, gets the market price.
+    response = new_coin(
+        headers,
+        coin={"symbol": "BTC", "name": "Bitcoin", "source_code": "bitcoin"},
+        account_id=exchange,
+    )
+    assert response.status_code == 201, response.json()
+    assert response.json()["coin"]["price"] is not None and prices(db_session) == 1
