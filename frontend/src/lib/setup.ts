@@ -3,7 +3,7 @@
 
 export type StepKey = "bank" | "cards" | "loans" | "recurring" | "investments";
 export type ServerStep = { key: StepKey; done: boolean; count: number };
-export type SetupResponse = { steps: ServerStep[] };
+export type SetupResponse = { user_id: number; steps: ServerStep[] };
 
 // open: the full card. later: a one-line strip with Resume. hidden: gone.
 export type Mode = "open" | "later" | "hidden";
@@ -21,7 +21,10 @@ export type ChecklistStep = {
   canSkip: boolean;
 };
 
-export const SETUP_KEY = "gullak.setup";
+// Kept per signed-in user, because family members may share a browser.
+export function setupKey(userId: number): string {
+  return `gullak.setup.${userId}`;
+}
 
 const KEYS: StepKey[] = ["bank", "cards", "loans", "recurring", "investments"];
 

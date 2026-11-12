@@ -7,7 +7,6 @@ import { apiFetch } from "@/lib/api";
 import {
   type ChecklistStep,
   type Mode,
-  SETUP_KEY,
   type ServerStep,
   type SetupResponse,
   type SetupState,
@@ -15,6 +14,7 @@ import {
   parseSetupState,
   progressOf,
   progressText,
+  setupKey,
   shownAs,
   statusText,
   stepEmoji,
@@ -24,17 +24,17 @@ import { ProgressBar, buttonClass } from "@/components/ui/chunky";
 
 const SMALL = "!px-2.5 !py-1 uppercase";
 
-function readState(): SetupState {
+function readState(userId: number): SetupState {
   try {
-    return parseSetupState(window.localStorage.getItem(SETUP_KEY));
+    return parseSetupState(window.localStorage.getItem(setupKey(userId)));
   } catch {
     return parseSetupState(null);
   }
 }
 
-function saveState(state: SetupState): void {
+function saveState(userId: number, state: SetupState): void {
   try {
-    window.localStorage.setItem(SETUP_KEY, JSON.stringify(state));
+    window.localStorage.setItem(setupKey(userId), JSON.stringify(state));
   } catch {
     // Not remembered on this browser, then; the change still shows until the page reloads.
   }
@@ -42,10 +42,11 @@ function saveState(state: SetupState): void {
 
 // The new-user checklist at the top of the dashboard. It loads its own data and reloads when the
 // tab comes back into focus, so a step ticks off after the user adds something on another page.
-// `fallback` shows instead whenever the checklist doesn't (hidden, finished or failed to load).
+// `fallback` shows instead whenever the checklist doesn't (loading, hidden, finished or failed to
+// load), so a new user sees the dashboard's own empty box rather than a blank gap. Skip and hide
+// are kept per signed-in user, since family members may share a browser.
 export function SetupChecklist({ fallback = null }: { fallback?: ReactNode }) {
-  const [server, setServer] = useState<ServerStep[] | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [server, setServer] = useState<{ userId: number; steps: ServerStep[] } | null>(null);
   const [state, setState] = useState<SetupState>(() => parseSetupState(null));
   const latest = useRef(0);
 
@@ -54,13 +55,12 @@ export function SetupChecklist({ fallback = null }: { fallback?: ReactNode }) {
     apiFetch<SetupResponse>("/setup")
       .then((data) => {
         if (request !== latest.current) return;
-        setState(readState());
-        setServer(data.steps);
-        setFailed(false);
+        setState(readState(data.user_id));
+        setServer({ userId: data.user_id, steps: data.steps });
       })
       .catch(() => {
-        // The dashboard itself deals with a signed-out user; here the checklist just stays away.
-        if (request === latest.current) setFailed(true);
+        // The dashboard itself deals with a signed-out user. A failed first load leaves the
+        // fallback in place; a failed reload keeps the last checklist.
       });
   }, []);
 
@@ -71,13 +71,13 @@ export function SetupChecklist({ fallback = null }: { fallback?: ReactNode }) {
   }, [load]);
 
   const update = (next: SetupState) => {
-    saveState(next);
+    if (server) saveState(server.userId, next);
     setState(next);
   };
   const setMode = (mode: Mode) => update({ ...state, mode });
 
-  if (server === null) return failed ? <>{fallback}</> : null;
-  const steps = checklistSteps(server, state.none);
+  if (server === null) return <>{fallback}</>;
+  const steps = checklistSteps(server.steps, state.none);
   const shown = shownAs(steps, state.mode);
   if (shown === "nothing") return <>{fallback}</>;
 

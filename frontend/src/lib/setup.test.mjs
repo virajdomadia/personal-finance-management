@@ -5,6 +5,7 @@ import {
   checklistSteps,
   parseSetupState,
   progressText,
+  setupKey,
   shownAs,
   statusText,
   withNone,
@@ -86,4 +87,9 @@ test("marking and unmarking a step as not for me", () => {
   assert.deepEqual(on, { mode: "open", none: ["cards", "loans"] });
   assert.deepEqual(withNone(on, "loans", true).none, ["cards", "loans"]);
   assert.deepEqual(withNone(on, "cards", false), { mode: "open", none: ["loans"] });
+});
+
+test("each signed-in user has their own stored state", () => {
+  assert.equal(setupKey(7), "gullak.setup.7");
+  assert.notEqual(setupKey(7), setupKey(8));
 });
