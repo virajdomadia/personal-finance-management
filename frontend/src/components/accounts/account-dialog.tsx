@@ -92,15 +92,18 @@ type Props = {
   onClose: () => void;
   onSaved: () => void;
   onConflict: (message: string) => void;
+  start?: { type: AccountType; bank_kind?: string }; // adding only: the type (and bank kind) to start on
 };
 
-export function AccountDialog({ account, accounts, onClose, onSaved, onConflict }: Props) {
+export function AccountDialog({ account, accounts, onClose, onSaved, onConflict, start }: Props) {
   const editing = account !== null;
   const ref = useRef<HTMLDialogElement>(null);
   const savingRef = useRef(false);
   const submitRef = useRef<HTMLButtonElement>(null);
   const needFocus = useRef(false);
-  const [form, setForm] = useState<AccountForm>(() => (account ? formFromAccount(account) : blankForm("bank")));
+  const [form, setForm] = useState<AccountForm>(() =>
+    account ? formFromAccount(account) : { ...blankForm(start?.type ?? "bank"), ...(start?.bank_kind ? { bank_kind: start.bank_kind } : {}) },
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);

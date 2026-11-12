@@ -27,9 +27,9 @@ function nextText(t: Template): string {
   return "Nothing due yet";
 }
 
-export function RecurringView() {
+export function RecurringView({ adding = false }: { adding?: boolean }) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
-  const [dialog, setDialog] = useState<Dialog>({ kind: "none" });
+  const [dialog, setDialog] = useState<Dialog>(adding ? { kind: "form", template: null } : { kind: "none" });
   const [notice, setNotice] = useState<string | null>(null);
   const [dueKey, setDueKey] = useState(0);
   const [toggling, setToggling] = useState<number | null>(null);
@@ -52,6 +52,11 @@ export function RecurringView() {
   useEffect(() => {
     fetchTemplates();
   }, [fetchTemplates]);
+
+  // Opened from the checklist: drop `?add=` so a reload doesn't open the dialog again.
+  useEffect(() => {
+    if (adding) window.history.replaceState(null, "", "/recurring");
+  }, [adding]);
 
   const reload = useCallback(() => {
     fetchTemplates();

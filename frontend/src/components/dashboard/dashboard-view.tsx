@@ -8,6 +8,7 @@ import { type Dashboard, formatDueDate, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Signed } from "@/components/investments/shared";
 import { DueSection } from "@/components/recurring/due-list";
+import { SetupChecklist } from "@/components/dashboard/setup-checklist";
 import {
   FOCUS,
   PageHeader,
@@ -160,7 +161,7 @@ function Content({
           </span>
         </Tile>
       )}
-      {!hasAccounts && emptyPrompt}
+      <SetupChecklist fallback={hasAccounts ? null : emptyPrompt} />
       {(hasAccounts || investments || hasSplit) && (
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-[2fr_1fr_1fr]">
           {hasAccounts && (

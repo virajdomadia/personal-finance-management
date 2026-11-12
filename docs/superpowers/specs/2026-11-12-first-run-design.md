@@ -33,7 +33,7 @@ in the order above. `count` is how many of that thing the user has (accounts, re
 
 ### Not everyone has a loan
 
-A user with no credit card would never finish. So every step except the bank account has **"I don't have one"**. It marks the step as skipped; skipped steps count toward progress ("4 of 6") and can be undone. If the user adds a card later, the step simply shows as done.
+A user with no credit card would never finish. So every step except the bank account has **"Not for me"**. It marks the step as skipped; skipped steps count toward progress ("4 of 6") and can be undone. If the user adds a card later, the step simply shows as done.
 
 ### Skip, resume, hide
 
@@ -50,7 +50,7 @@ Once every step is done or skipped, the checklist disappears, whatever the mode.
 - **Website:** one self-contained component, `SetupChecklist`, inserted at the top of the dashboard with one line. It fetches `/api/setup` itself on mount and when the tab regains focus, so steps tick off when the user comes back from adding something.
 - **App:** one self-contained component, `SetupChecklist`, inserted at the top of the dashboard body with one line. It reloads on screen focus (`useFocusEffect`) and reads the SMS setting at the same time.
 
-Web and Android get their own designs. The website shows a chunky card with a progress bar and numbered rows, each a link. The app shows Material-style rows (emoji square, title, one-line hint, a check or a chevron) inside a chunky box, with large tap targets, and "I don't have one" as a compact secondary button on the row.
+Web and Android get their own designs. The website shows a chunky card with a progress bar and numbered rows, each a link. The app shows Material-style rows (emoji square, title, one-line hint, a check or a chevron) inside a chunky box, with large tap targets, and "Not for me" as a compact secondary button on the row.
 
 ## Empty states
 
@@ -64,7 +64,7 @@ Investment screens are being reworked by the "Add investment" work in parallel, 
 ## Design calls made by Claude
 
 - **Skipping and hiding are stored on the device, not in the database.** Web uses `localStorage` (key `gullak.setup`), the app uses `expo-secure-store` (same key), which it already uses for small preferences. No migration. A user on a second device sees the checklist again there; that's acceptable for a one-time helper.
-- **"I don't have one" is also stored on the device**, for the same reason.
+- **"Not for me" is also stored on the device**, for the same reason.
 - **Any bank account counts as "main bank account"**, not only one marked Salary, because many people get paid into a savings account. The add form starts on kind Salary as a hint.
 - **The SIP step also counts recurring reminders** and vice versa (one step: "Salary, rent and SIPs"), so a user who only has a salary reminder isn't nagged about SIPs.
 - **PPF and RD count as investments**, matching the Investments tab where they live.

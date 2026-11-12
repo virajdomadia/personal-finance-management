@@ -7,6 +7,7 @@ import { logout } from "@/app/login/actions";
 import {
   type Account,
   type AccountList,
+  type AccountType,
   OWED_TYPES,
   TYPE_LABELS,
   TYPE_ORDER,
@@ -24,6 +25,7 @@ import { emiForm, todayIndia } from "@/lib/transactions";
 import { depositLines, instalmentForm, interestForm, ppfDepositForm, ppfInterestText, rdDueText } from "@/lib/deposits";
 import { TransactionDialog } from "@/components/transactions/transaction-dialog";
 import { FOCUS, PageHeader, ProgressBar, Tile, buttonClass } from "@/components/ui/chunky";
+import { EmptyState } from "@/components/ui/empty-state";
 import { accountEmoji } from "@/lib/fun";
 
 import { AccountDialog } from "./account-dialog";
@@ -32,13 +34,16 @@ import { CloseRdDialog } from "./close-rd-dialog";
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: AccountList };
 type Dialog =
   | { kind: "none" }
-  | { kind: "form"; account: Account | null }
+  | { kind: "form"; account: Account | null; start?: AddStart }
   | { kind: "archive"; account: Account }
   | { kind: "emi"; loan: Account }
   | { kind: "instalment"; account: Account }
   | { kind: "ppf-deposit"; account: Account }
   | { kind: "ppf-interest"; account: Account }
   | { kind: "close-rd"; account: Account };
+
+// What the first-run checklist asks the add dialog to start on (`/accounts?add=...`).
+export type AddStart = { type: AccountType; bank_kind?: string };
 
 const PRIMARY = `${buttonClass("primary")} uppercase`;
 const QUIET = `${buttonClass("alt")} uppercase`;
@@ -59,10 +64,10 @@ function isUnauthorized(err: unknown): boolean {
   return err instanceof ApiError && err.status === 401;
 }
 
-export function AccountsView() {
+export function AccountsView({ add = null }: { add?: AddStart | null }) {
   const [archived, setArchived] = useState(false);
   const [load, setLoad] = useState<Load>({ status: "loading" });
-  const [dialog, setDialog] = useState<Dialog>({ kind: "none" });
+  const [dialog, setDialog] = useState<Dialog>(add ? { kind: "form", account: null, start: add } : { kind: "none" });
   const [notice, setNotice] = useState<string | null>(null);
   const latest = useRef(0);
   // The view on screen right now; a late reload must not read a stale `archived` from its closure.
@@ -83,6 +88,11 @@ export function AccountsView() {
   useEffect(() => {
     fetchList(false);
   }, [fetchList]);
+
+  // Opened from the checklist: drop `?add=` so a reload doesn't open the dialog again.
+  useEffect(() => {
+    if (add) window.history.replaceState(null, "", "/accounts");
+  }, [add]);
 
   const reload = () => fetchList(archivedRef.current);
 
@@ -145,6 +155,7 @@ export function AccountsView() {
           data={load.data}
           archived={archived}
           onAdd={() => setDialog({ kind: "form", account: null })}
+          onShowActive={() => switchView(false)}
           onEdit={(account) => setDialog({ kind: "form", account })}
           onArchive={(account) => setDialog({ kind: "archive", account })}
           onRecordEmi={(loan) => setDialog({ kind: "emi", loan })}
@@ -167,6 +178,7 @@ export function AccountsView() {
         <AccountDialog
           key={dialog.account?.id ?? "new"}
           account={dialog.account}
+          start={dialog.start}
           accounts={activeAccounts}
           onClose={closeDialog}
           onSaved={() => {
@@ -265,6 +277,7 @@ function Content({
   data,
   archived,
   onAdd,
+  onShowActive,
   onEdit,
   onArchive,
   onRestore,
@@ -275,6 +288,7 @@ function Content({
   data: AccountList;
   archived: boolean;
   onAdd: () => void;
+  onShowActive: () => void;
   onEdit: (account: Account) => void;
   onArchive: (account: Account) => void;
   onRestore: (account: Account) => Promise<void>;
@@ -354,24 +368,31 @@ function Content({
       )}
 
       {groups.length === 0 ? (
-        <div className={`${CARD} px-6 py-10 text-center`}>
-          <p className="text-4xl" aria-hidden="true">
-            {archived ? "📦" : "👛"}
-          </p>
-          {archived ? (
-            <p className="mt-2 text-sm font-extrabold">No archived accounts.</p>
-          ) : (
-            <>
-              <p className="mt-2 font-black">Add your first account</p>
-              <p className="mt-1 text-sm font-bold text-zinc-600">
-                Bank accounts, credit cards, cash, broker balances, wallets and loans all live here.
-              </p>
-              <button type="button" className={`${PRIMARY} mt-4`} onClick={onAdd}>
+        archived ? (
+          <EmptyState
+            emoji="📦"
+            title="No archived accounts"
+            action={
+              <button type="button" className={QUIET} onClick={onShowActive}>
+                Back to accounts
+              </button>
+            }
+          >
+            Accounts you close or stop using rest here, out of your totals. Nothing is ever deleted.
+          </EmptyState>
+        ) : (
+          <EmptyState
+            emoji="👛"
+            title="Add your first account"
+            action={
+              <button type="button" className={PRIMARY} onClick={onAdd}>
                 + Add account
               </button>
-            </>
-          )}
-        </div>
+            }
+          >
+            Your bank accounts, cards, cash, wallets and loans live here, so you can see what you have and what you owe.
+          </EmptyState>
+        )
       ) : (
         <div className="flex flex-col gap-6">
           {sections.map(({ key, title, accounts }) => (
