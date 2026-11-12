@@ -120,7 +120,7 @@ export function ReviewView() {
 
       <Notice message={notice} />
 
-      {outcome && <ApproveOutcome outcome={outcome} onClose={() => setOutcome(null)} />}
+      {outcome && <ApproveOutcome outcome={outcome} onClose={() => setOutcome(null)} onLearned={changed} />}
 
       {load.status === "loading" && (
         <p role="status" className="text-sm font-bold text-zinc-600">
@@ -209,7 +209,16 @@ export function ReviewView() {
 
 // What "Approve all" did: the count, anything it left (and why), and a one-tap rule for each payee
 // approved from its history, so it never waits again.
-function ApproveOutcome({ outcome, onClose }: { outcome: Outcome; onClose: () => void }) {
+function ApproveOutcome({
+  outcome,
+  onClose,
+  onLearned,
+}: {
+  outcome: Outcome;
+  onClose: () => void;
+  // A rule was made: the payee's other waiting items may now be ready to approve.
+  onLearned: () => void;
+}) {
   const { result, labels } = outcome;
   return (
     <section
@@ -238,7 +247,7 @@ function ApproveOutcome({ outcome, onClose }: { outcome: Outcome; onClose: () =>
           <p className="text-xs font-black tracking-wide uppercase">Make these automatic next time?</p>
           <div className="flex flex-wrap gap-2">
             {result.learn.map((l) => (
-              <LearnButton key={l.entry_id} learn={l} />
+              <LearnButton key={l.entry_id} learn={l} onSaved={onLearned} />
             ))}
           </div>
         </div>
@@ -247,7 +256,7 @@ function ApproveOutcome({ outcome, onClose }: { outcome: Outcome; onClose: () =>
   );
 }
 
-function LearnButton({ learn }: { learn: Learnable }) {
+function LearnButton({ learn, onSaved }: { learn: Learnable; onSaved: () => void }) {
   const [state, setState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
   async function save() {
     if (state === "saving" || state === "saved") return;
@@ -258,6 +267,7 @@ function LearnButton({ learn }: { learn: Learnable }) {
         body: JSON.stringify({ entry_id: learn.entry_id, category: learn.category }),
       });
       setState("saved");
+      onSaved();
     } catch (err) {
       if (isUnauthorized(err)) void logout();
       else setState("failed");
