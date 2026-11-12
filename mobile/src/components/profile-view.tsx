@@ -14,11 +14,12 @@ type Props = {
   onSms: () => void;
   onPayeeRules: () => void;
   onCategories: () => void;
+  onBudgets: () => void;
   onLogOut: () => void;
 };
 
 // The profile tab's content, without the session or fetching.
-export function ProfileView({ streak, onGoals, onRecurring, onInsurance, onArchived, onSms, onPayeeRules, onCategories, onLogOut }: Props) {
+export function ProfileView({ streak, onGoals, onRecurring, onInsurance, onArchived, onSms, onPayeeRules, onCategories, onBudgets, onLogOut }: Props) {
   return (
     <View>
       <ScreenHeader title="You" right={<StreakPill days={streak} />} />
@@ -32,6 +33,7 @@ export function ProfileView({ streak, onGoals, onRecurring, onInsurance, onArchi
         </Tile>
         <View style={styles.menu}>
           <Row emoji="🎯" tone="purple" title="Goals" meta="Money set aside for what you're saving for" amount="›" onPress={onGoals} accessibilityLabel="Goals" accessibilityHint="Opens Goals" />
+          <Row emoji="💰" tone="yellow" title="Budgets" meta="A monthly amount for each spending category" amount="›" onPress={onBudgets} accessibilityLabel="Budgets" accessibilityHint="Opens Budgets" />
           <Row emoji="🔁" tone="blue" title="Recurring" meta="Rent, salary and other regular payments" amount="›" onPress={onRecurring} accessibilityLabel="Recurring" accessibilityHint="Opens Recurring" />
           <Row emoji="🛡️" tone="green" title="Insurance" meta="Health policies and renewals" amount="›" onPress={onInsurance} accessibilityLabel="Insurance" accessibilityHint="Opens Insurance" />
           <Row emoji="📩" tone="orange" title="Bank SMS" meta="Fill in transactions from your bank's messages" amount="›" onPress={onSms} accessibilityLabel="Bank SMS" accessibilityHint="Opens Bank SMS settings" />

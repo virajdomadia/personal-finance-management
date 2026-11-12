@@ -305,6 +305,13 @@ export default function CashFlowScreen() {
             color={data.net.startsWith("-") && !isZero(data.net) ? BRAND.loss : BRAND.ink}
           />
 
+          <ChunkyButton
+            label={`Budgets for ${monthLabel(data.month)}`}
+            icon="piggy-bank-outline"
+            variant="alt"
+            onPress={() => router.push({ pathname: "/budgets", params: data.is_current ? {} : { month: data.month } })}
+          />
+
           <ChunkyBox style={styles.card}>
             <Text variant="titleSmall" accessibilityRole="header" style={styles.heading}>
               Day by day
