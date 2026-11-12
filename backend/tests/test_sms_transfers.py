@@ -490,3 +490,125 @@ def test_equal_amounts_four_days_apart_are_not_asked(headers: Headers, db_sessio
     one(headers, amount="500.00", payee="swiggy@icici", date=days_ago(4))
     result = one(headers, kind="credit", amount="500.00", last4="5678", payee="Ramesh")
     assert result["reason"] == "category"
+
+
+# A card payment proves money reached the card, not which debit paid it
+
+
+def add_rule(db: Session, key: str, category: str) -> None:
+    db.add(PayeeRule(user_id=user_id(db), payee_key=key, display=key, category=category))
+    db.commit()
+
+
+def test_categorised_debit_is_not_taken_by_card_payment(
+    headers: Headers, db_session: Session
+) -> None:
+    b = bank(headers)
+    card(headers)
+    add_rule(db_session, "ramesh", "Gift")
+    send(headers, entry(amount="3000.00", payee="Ramesh"))
+    paid = card_payment()
+    result = send(headers, paid).json()["results"][0]
+    assert (result["status"], result["reason"]) == ("review", "card_payment")
+
+    [tx] = transactions(db_session)
+    assert (tx.type, tx.category) == ("expense", "Gift")
+    saved = stored(db_session, paid["hash"])
+    assert saved.transaction_id is None
+    today = today_india().isoformat()
+    assert saved.candidates == [
+        {"kind": "transaction", "id": tx.id, "label": f"{today} · Gift · ₹3,000"},
+        {"kind": "account", "id": b, "label": "bank"},
+    ]
+    assert balance(headers, b) == "7000.00"
+
+
+def test_card_first_then_categorised_debit_stays_expense(
+    headers: Headers, db_session: Session
+) -> None:
+    b = bank(headers)
+    card(headers)
+    paid = card_payment()
+    send(headers, paid)
+    debit = entry(amount="3000.00", payee="swiggy@icici")
+    assert send(headers, debit).json()["results"][0]["status"] == "recorded"
+
+    [tx] = transactions(db_session)
+    assert (tx.type, tx.category) == ("expense", "Food and dining")
+    saved = stored(db_session, paid["hash"])
+    assert (saved.status, saved.reason, saved.transaction_id) == ("review", "card_payment", None)
+    assert saved.candidates is not None
+    assert saved.candidates[0] == {"kind": "transaction", "id": tx.id, "label": _label_of(tx)}
+    assert saved.candidates[1:] == [{"kind": "account", "id": b, "label": "bank"}]
+
+
+def _label_of(tx: Any) -> str:
+    return f"{tx.date.isoformat()} · {tx.category or tx.type} · ₹3,000"
+
+
+def test_two_equal_uncategorised_debits_ask(headers: Headers, db_session: Session) -> None:
+    b = bank(headers)
+    card(headers)
+    send(headers, entry(amount="3000.00", payee=None, date=days_ago(1)))
+    send(headers, entry(amount="3000.00", payee=None))
+    paid = card_payment()
+    result = send(headers, paid).json()["results"][0]
+    assert (result["status"], result["reason"]) == ("review", "card_payment")
+    assert [t.type for t in transactions(db_session)] == ["expense", "expense"]
+    saved = stored(db_session, paid["hash"])
+    assert saved.candidates is not None
+    assert [c["kind"] for c in saved.candidates] == ["transaction", "transaction", "account"]
+    assert balance(headers, b) == "4000.00"
+
+
+def test_debit_with_two_waiting_card_payments_asks(headers: Headers, db_session: Session) -> None:
+    bank(headers)
+    card(headers)
+    account(headers, "credit_card", "0.00", name="Other card", last4="1111", credit_limit="1000.00")
+    first, second = card_payment(), card_payment(last4="1111")
+    send(headers, first, second)
+    send(headers, entry(amount="3000.00", payee=None))
+    [tx] = transactions(db_session)
+    assert tx.type == "expense"
+    for body in (first, second):
+        saved = stored(db_session, body["hash"])
+        assert (saved.reason, saved.transaction_id) == ("card_payment", None)
+        assert saved.candidates is not None
+        assert saved.candidates[0]["id"] == tx.id
+
+
+@pytest.mark.parametrize("payee", ["CRED Club", "BillDesk", "HDFC Bank", "Credit Card Payment"])
+def test_categorised_bill_payee_still_pays_the_card(
+    headers: Headers, db_session: Session, payee: str
+) -> None:
+    b = bank(headers)
+    c = account(
+        headers,
+        "credit_card",
+        "0.00",
+        name="Regalia",
+        last4="9876",
+        credit_limit="100000.00",
+        institution="HDFC",
+    )
+    add_rule(db_session, payee.casefold(), "Bills")
+    debit = entry(amount="3000.00", payee=payee)
+    send(headers, debit)
+    paid = card_payment()
+    assert send(headers, paid).json()["results"][0]["status"] == "recorded"
+    [tx] = transactions(db_session)
+    assert (tx.type, tx.account_id, tx.to_account_id, tx.category) == ("transfer", b, c, None)
+    assert_reviewless(db_session, debit["hash"], paid["hash"], tx_id=tx.id)
+
+
+def test_card_first_then_bill_payee_pays_the_card(headers: Headers, db_session: Session) -> None:
+    b = bank(headers)
+    c = card(headers)
+    add_rule(db_session, "cred club", "Bills")
+    paid = card_payment()
+    send(headers, paid)
+    debit = entry(amount="3000.00", payee="CRED Club")
+    send(headers, debit)
+    [tx] = transactions(db_session)
+    assert (tx.type, tx.account_id, tx.to_account_id) == ("transfer", b, c)
+    assert_reviewless(db_session, debit["hash"], paid["hash"], tx_id=tx.id)

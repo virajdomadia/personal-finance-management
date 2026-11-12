@@ -36,6 +36,8 @@ PAIR_WINDOW = timedelta(days=3)
 PAYERS = ("bank", "wallet")
 # A payee that is a masked account number, as a payee key: "xx650", "x8650", "a/c xx8650".
 _MASKED = re.compile(r"^(?:a/?c\.?\s*)?x+(\d{3,4})$")
+# Payees that pay card bills.
+_BILL_WORDS = re.compile(r"\bcred|billdesk|\bcards?\b|\bcc\b")
 
 Step = Callable[[Session, int, SmsEntry], SmsEntry | None]
 
@@ -448,6 +450,34 @@ def _masked_target(db: Session, user_id: int, entry: SmsEntry) -> int | None:
     return found[0] if len(found) == 1 else None
 
 
+def _bill_like(key: str | None, card: Account) -> bool:
+    """Whether a payee reads like paying this card's bill: CRED, BillDesk, "credit card", the
+    card's bank, or the card's masked number."""
+    if not key:
+        return False
+    if _BILL_WORDS.search(key):
+        return True
+    bank = (card.institution or "").casefold().strip()
+    if bank and re.search(rf"\b{re.escape(bank)}\b", key):
+        return True
+    masked = re.search(r"x+(\d{3,4})\b", key)
+    return masked is not None and card.last4 is not None and card.last4.endswith(masked.group(1))
+
+
+def _offer(card_entry: SmsEntry, tx: Transaction) -> None:
+    """Adds a debit to a waiting card payment's choices, ahead of the accounts."""
+    choices = list(card_entry.candidates or [])
+    if any(c["kind"] == "transaction" and c["id"] == tx.id for c in choices):
+        return
+    found = [c for c in choices if c["kind"] == "transaction"]
+    rest = [c for c in choices if c["kind"] != "transaction"]
+    card_entry.candidates = [
+        *found,
+        {"kind": "transaction", "id": tx.id, "label": _label(tx)},
+        *rest,
+    ]
+
+
 def _maybe_transfer(
     db: Session, user_id: int, entry: SmsEntry, sides: list[tuple[SmsEntry, Transaction]]
 ) -> SmsEntry:
@@ -502,14 +532,25 @@ def _debit_side(db: Session, user_id: int, entry: SmsEntry, account: Account) ->
         if _join(db, user_id, entry, arrived, here, target) is not None:
             return entry
         return _record_transfer(db, user_id, entry, target)
-    if account.type in PAYERS:
-        waiting = _waiting_card_payments(db, user_id, entry)
-        if waiting and waiting[0].account_id is not None:
-            return _record_transfer(db, user_id, entry, waiting[0].account_id, waiting[0])
+    waiting = _waiting_card_payments(db, user_id, entry) if account.type in PAYERS else []
+    if len(waiting) == 1 and waiting[0].account_id is not None:
+        card = db.get(Account, waiting[0].account_id)
+        # The card SMS proves a payment reached the card, not that this debit paid it: a debit
+        # with its own category (a Swiggy order) stays an expense unless it reads like a bill.
+        if card is not None and (
+            _category_for(db, user_id, entry) is None or _bill_like(entry.payee_key, card)
+        ):
+            return _record_transfer(db, user_id, entry, card.id, waiting[0])
     other_side = _sms_sides(db, user_id, entry, "credit", "income", SmsEntry.account_id != here)
     if other_side:
-        return _maybe_transfer(db, user_id, entry, other_side)
-    return None
+        _maybe_transfer(db, user_id, entry, other_side)
+    else:
+        _category(db, user_id, entry)
+    tx = None if entry.transaction_id is None else db.get(Transaction, entry.transaction_id)
+    if tx is not None:
+        for card_entry in waiting:
+            _offer(card_entry, tx)
+    return entry
 
 
 def _credit_side(db: Session, user_id: int, entry: SmsEntry, account: Account) -> SmsEntry | None:
@@ -548,8 +589,12 @@ def _card_paid(db: Session, user_id: int, entry: SmsEntry, card: Account) -> Sms
         Account.type.in_(PAYERS),
     )
     debits = _sms_sides(db, user_id, entry, "debit", "expense", SmsEntry.account_id.in_(payers))
-    if _join(db, user_id, entry, debits, None, card.id) is not None:
-        return entry
+    # Only one debit, and nothing says it was anything else: it paid the card. Otherwise ask.
+    if len(debits) == 1:
+        other, tx = debits[0]
+        if tx.category is None or _bill_like(other.payee_key, card):
+            if _join(db, user_id, entry, debits, None, card.id) is not None:
+                return entry
     amount = "" if entry.amount is None else f"{rupees(entry.amount)} "
     _review(entry, "card_payment", f"Which account paid {amount}to {card.name}?")
     accounts = db.scalars(
@@ -561,7 +606,10 @@ def _card_paid(db: Session, user_id: int, entry: SmsEntry, card: Account) -> Sms
         )
         .order_by(Account.id)
     )
-    entry.candidates = [{"kind": "account", "id": a.id, "label": a.name} for a in accounts]
+    entry.candidates = [
+        *({"kind": "transaction", "id": tx.id, "label": _label(tx)} for _, tx in debits),
+        *({"kind": "account", "id": a.id, "label": a.name} for a in accounts),
+    ]
     return entry
 
 
@@ -591,20 +639,26 @@ def _transfer(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
     return pair_transfer(db, user_id, entry, account)
 
 
+def _category_for(db: Session, user_id: int, entry: SmsEntry) -> str | None:
+    """The owner's rule for this payee, else (for money out) the built-in merchant list."""
+    if entry.payee_key is None:
+        return None
+    rule = db.scalar(
+        select(PayeeRule).where(
+            PayeeRule.user_id == user_id, PayeeRule.payee_key == entry.payee_key
+        )
+    )
+    if rule is not None and rule.category is not None:
+        return rule.category
+    if entry.kind in MONEY_OUT:
+        return builtin_category(entry.payee_key)
+    return None
+
+
 def _category(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
     """Records the money as income or an expense, categorised when the payee is known."""
     spending = entry.kind in MONEY_OUT
-    category = None
-    if entry.payee_key is not None:
-        rule = db.scalar(
-            select(PayeeRule).where(
-                PayeeRule.user_id == user_id, PayeeRule.payee_key == entry.payee_key
-            )
-        )
-        if rule is not None and rule.category is not None:
-            category = rule.category
-        elif spending:
-            category = builtin_category(entry.payee_key)
+    category = _category_for(db, user_id, entry)
     values = {
         "type": "expense" if spending else "income",
         "account_id": entry.account_id,
