@@ -204,8 +204,17 @@ def _rule(db: Session, user_id: int, entry: SmsEntry) -> PayeeRule:
 # Answers
 
 
-def dismiss(entry: SmsEntry) -> None:
-    """Recorded money stays as it is; a message that recorded nothing is ignored."""
+def dismiss(db: Session, user_id: int, entry: SmsEntry) -> None:
+    """Recorded money stays as it is; a message that recorded nothing is ignored. Dismissing a
+    fund purchase's units means they are fine, so they stop being an estimate."""
+    if entry.reason == "sip_units" and entry.trade_id is not None:
+        trade = db.scalar(
+            select(InvestmentTrade).where(
+                InvestmentTrade.id == entry.trade_id, InvestmentTrade.user_id == user_id
+            )
+        )
+        if trade is not None:
+            trade.estimated = False
     if entry.transaction_id is not None or entry.trade_id is not None:
         _done(entry)
         return
@@ -361,6 +370,24 @@ def _card_paid_from(db: Session, user_id: int, entry: SmsEntry, account_id: int)
     payer = _fits(db, user_id, account_id, ingest.PAYERS)
     if payer is None or entry.account_id is None:
         _invalid("account_id", "Choose the bank or wallet that paid.")
+    # A suggested debit from that account is the payment: it becomes the transfer, rather than
+    # a second one being recorded next to it.
+    offered = [c["id"] for c in entry.candidates or [] if c.get("kind") == "transaction"]
+    debits = list(
+        db.scalars(
+            select(Transaction.id).where(
+                Transaction.id.in_(offered),
+                Transaction.user_id == user_id,
+                Transaction.account_id == payer.id,
+                Transaction.type == "expense",
+            )
+        )
+    )
+    if len(debits) > 1:
+        _invalid("account_id", "Several debits from this account match. Choose the one that paid.")
+    if debits:
+        _card_paid_by(db, user_id, entry, debits[0])
+        return
     values = {
         "type": "transfer",
         "account_id": payer.id,
@@ -531,6 +558,15 @@ def expected(
             _conflict(_OWN_GONE)
         if tx.type != "expense" or tx.recurring_template_id is not None:
             _conflict("This payment was changed since. Edit it in Transactions instead.")
+        shared = db.scalar(
+            select(SmsEntry.id).where(
+                SmsEntry.user_id == user_id,
+                SmsEntry.transaction_id == tx.id,
+                SmsEntry.id != entry.id,
+            )
+        )
+        if shared is not None:  # replacing it would leave that message pointing at nothing
+            _conflict("Another message is linked to this payment. Edit it in Transactions.")
         entry.transaction_id = None
         db.flush()
         db.delete(tx)

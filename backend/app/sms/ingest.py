@@ -587,8 +587,33 @@ def _pending_transfer_into(db: Session, user_id: int, entry: SmsEntry) -> Transa
     return rows[0] if rows else None
 
 
+def _pending_transfer_out_of(db: Session, user_id: int, entry: SmsEntry) -> Transaction | None:
+    """A transfer recorded from the receiving side (a card payment answered with this account)
+    whose paying debit hasn't come yet."""
+    paid = select(SmsEntry.transaction_id).where(
+        SmsEntry.user_id == user_id,
+        SmsEntry.transaction_id.is_not(None),
+        SmsEntry.kind.in_(MONEY_OUT),
+    )
+    query = select(Transaction).where(
+        Transaction.user_id == user_id,
+        Transaction.source == "sms",
+        Transaction.type == "transfer",
+        Transaction.account_id == entry.account_id,
+        Transaction.amount == entry.amount,
+        _near(Transaction.date, entry.occurred_on),
+        Transaction.id.not_in(paid),
+    )
+    rows = _closest(list(db.scalars(query)), entry.occurred_on, lambda t: t.date, lambda t: t.id)
+    return rows[0] if rows else None
+
+
 def _debit_side(db: Session, user_id: int, entry: SmsEntry, account: Account) -> SmsEntry | None:
     here = account.id
+    pending = _pending_transfer_out_of(db, user_id, entry)
+    if pending is not None:
+        _link(entry, pending.id)
+        return entry
     if entry.ref is not None:
         same_ref = _sms_sides(
             db,

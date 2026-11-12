@@ -809,3 +809,118 @@ def test_samples_list_newest_fifty(headers: Headers, db_session: Session) -> Non
     got = client.get("/api/sms/samples", headers=headers).json()["samples"]
     assert len(got) == 50
     assert got[0]["text"] == "sample 51" and got[-1]["text"] == "sample 02"
+
+
+# Fix round 1
+
+
+def test_card_payment_answered_then_the_debit_arrives(
+    headers: Headers, db_session: Session
+) -> None:
+    b = bank(headers, balance="50000.00")
+    c = card(headers)
+    paid = card_payment(amount="12000.00")
+    send(headers, paid)
+    assert (
+        answered(headers, stored(db_session, paid["hash"]).id, action="account", account_id=b)
+        is None
+    )
+    debit = entry(amount="12000.00", payee="CRED Club")
+    assert send(headers, debit).json()["results"][0]["status"] == "recorded"
+
+    [tx] = transactions(db_session)
+    assert (tx.type, tx.account_id, tx.to_account_id) == ("transfer", b, c)
+    assert stored(db_session, debit["hash"]).transaction_id == tx.id
+    assert balance(headers, b) == "38000.00"
+    # A second debit of the same amount is its own payment.
+    again = entry(amount="12000.00", payee="CRED Club")
+    send(headers, again)
+    assert stored(db_session, again["hash"]).transaction_id != tx.id
+
+
+def test_card_payment_account_converts_its_suggested_debit(
+    headers: Headers, db_session: Session
+) -> None:
+    b = bank(headers)
+    c = card(headers)
+    add_rule(db_session, "ramesh", "Gift")
+    debit = entry(amount="3000.00", payee="Ramesh")
+    paid = card_payment()
+    send(headers, debit, paid)
+    assert (
+        answered(headers, stored(db_session, paid["hash"]).id, action="account", account_id=b)
+        is None
+    )
+    [tx] = transactions(db_session)
+    assert (tx.type, tx.account_id, tx.to_account_id, tx.category) == ("transfer", b, c, None)
+    for body in (debit, paid):
+        assert stored(db_session, body["hash"]).transaction_id == tx.id
+    assert balance(headers, b) == "7000.00"
+
+
+def test_sync_and_answers_take_the_user_lock_first(
+    headers: Headers, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.sms import recording
+
+    calls: list[int] = []
+    real = recording.lock_user
+
+    def spy(db: Session, uid: int) -> None:
+        calls.append(uid)
+        real(db, uid)
+
+    monkeypatch.setattr(recording, "lock_user", spy)
+    bank(headers)
+    first, second = entry(payee="Ramesh"), entry(payee="Suresh")
+    send(headers, first, second)
+    uid = user_id(db_session)
+    assert calls == [uid, uid]  # once per message
+    answered(headers, stored(db_session, first["hash"]).id, action="dismiss")
+    assert calls == [uid, uid, uid]
+
+
+def test_dismissing_units_means_they_are_fine(headers: Headers, db_session: Session) -> None:
+    _, body = _estimated(headers, db_session)
+    assert answered(headers, stored(db_session, body["hash"]).id, action="dismiss") is None
+    db_session.expire_all()
+    [trade] = db_session.scalars(select(InvestmentTrade)).all()
+    assert trade.estimated is False
+    assert stored(db_session, body["hash"]).status == "recorded"
+
+
+def test_editing_the_units_by_hand_answers_the_item(headers: Headers, db_session: Session) -> None:
+    _, body = _estimated(headers, db_session)
+    trade_id = stored(db_session, body["hash"]).trade_id
+    url = f"/api/investments/fund-trades/{trade_id}"
+    noted = client.patch(url, json={"note": "monthly"}, headers=headers)
+    assert noted.json()["estimated"] is True  # only units or NAV settle it
+    fixed = client.patch(url, json={"units": "99.800", "nav": "50.1002"}, headers=headers)
+    assert fixed.status_code == 200, fixed.json()
+    assert fixed.json()["estimated"] is False
+    saved = stored(db_session, body["hash"])
+    assert (saved.status, saved.reason, saved.trade_id) == ("recorded", None, trade_id)
+    assert items(headers) == []
+
+
+def test_units_answer_needs_units_and_nav(headers: Headers, db_session: Session) -> None:
+    _, body = _estimated(headers, db_session)
+    response = answer(headers, stored(db_session, body["hash"]).id, action="units")
+    assert response.status_code == 422
+    assert sorted(e["loc"][-1] for e in response.json()["detail"]) == ["nav", "units"]
+
+
+def test_expected_refuses_a_payment_another_message_shares(
+    headers: Headers, db_session: Session
+) -> None:
+    b = bank(headers, balance="50000.00")
+    rent = reminder(headers, b)
+    body = entry(amount="10000.00", payee="Landlord Sharma")
+    other = entry(payee="Ramesh")
+    send(headers, body, other)
+    saved, sharing = stored(db_session, body["hash"]), stored(db_session, other["hash"])
+    sharing.transaction_id = saved.transaction_id
+    db_session.commit()
+    response = answer(headers, saved.id, action="expected", kind="template", id=rent["id"])
+    assert response.status_code == 409
+    assert stored(db_session, body["hash"]).transaction_id == saved.transaction_id

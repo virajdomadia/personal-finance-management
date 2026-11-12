@@ -26,7 +26,7 @@ from app.db.session import DbSession
 from app.models.account import Account
 from app.models.recurring import RecurringTemplate
 from app.models.sms import AccountIdentifier, PayeeRule, SmsEntry, SmsSample
-from app.sms import review
+from app.sms import recording, review
 from app.sms.ingest import decide
 
 router = APIRouter(prefix="/sms", tags=["sms"], dependencies=[Depends(get_current_user)])
@@ -98,6 +98,7 @@ def post_entries(body: SmsBatch, user: CurrentUser, db: DbSession) -> SmsResults
     """Decides each message in order and commits it on its own, so one can't undo another."""
     results = []
     for sms in body.entries:
+        recording.lock_user(db, user.id)
         entry, repeat = decide(db, user.id, sms)
         db.commit()
         if repeat:
@@ -297,7 +298,7 @@ def _apply(db: Session, user_id: int, entry: SmsEntry, body: Any) -> None:
         case RetryAnswer():
             review.retry(db, user_id, entry)
         case _:
-            review.dismiss(entry)
+            review.dismiss(db, user_id, entry)
 
 
 @router.post("/review/{id}")
@@ -305,6 +306,7 @@ def answer_review(id: int, body: Answer, user: CurrentUser, db: DbSession) -> Re
     """Applies the answer completely or not at all. The item comes back while it still waits
     (a fund purchase whose units to check, say), else null."""
     try:
+        recording.lock_user(db, user.id)
         entry = review.lock_entry(db, user.id, id)
         _apply(db, user.id, entry, body)
         db.commit()

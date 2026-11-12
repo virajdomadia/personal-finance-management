@@ -6,11 +6,20 @@ Shared by `ingest` (the decision steps) and `expected` (EMIs, SIPs and reminders
 from typing import Any
 
 from fastapi.exceptions import RequestValidationError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.routes.transactions import lock_accounts, save_checks
 from app.models.sms import SmsEntry
 from app.models.transaction import Transaction
+from app.models.user import User
+
+
+def lock_user(db: Session, user_id: int) -> None:
+    """Takes the user's row lock until commit, so an SMS sync and a review answer for the same
+    user run one at a time and can't lock accounts and entries in opposite orders. Taken first,
+    before any other lock. (SQLite has no row locks; its writes are serialised anyway.)"""
+    db.execute(select(User.id).where(User.id == user_id).with_for_update())
 
 
 def review(entry: SmsEntry, reason: str, message: str | None = None) -> SmsEntry:

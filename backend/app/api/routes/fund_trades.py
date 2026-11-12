@@ -496,6 +496,19 @@ def update_fund_trade(
     was = (trade.instrument_id, trade.date, trade.opening)
     for field, value in fund_columns(values, price).items():
         setattr(trade, field, value)
+    if trade.estimated and ("units" in changes or "nav" in changes):
+        # The owner typed the units or NAV in: no longer an estimate, nor a question.
+        trade.estimated = False
+        db.execute(
+            update(SmsEntry)
+            .where(
+                SmsEntry.user_id == user.id,
+                SmsEntry.trade_id == trade.id,
+                SmsEntry.status == "review",
+                SmsEntry.reason == "sip_units",
+            )
+            .values(status="recorded", reason=None, message=None, candidates=None)
+        )
     try:
         db.flush()
         sync_trade_nav(db, trade)
