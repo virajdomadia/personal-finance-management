@@ -19,8 +19,10 @@ import {
   candidatesOf,
   categoryBody,
   categoryType,
+  expectedBody,
   expectedChoices,
   marketPrefill,
+  needsNav,
   reviewDetails,
   reviewFigure,
   reviewTitle,
@@ -357,12 +359,8 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
         return { action, transaction_id: idOf(transfer) };
       case "expected": {
         const chosen = expected.find((c) => `${c.kind}:${c.id}` === expectedKey);
-        return {
-          action,
-          kind: chosen?.kind ?? null,
-          id: chosen?.id ?? null,
-          remember: chosen?.kind === "template" && item.payee !== null && remember,
-        };
+        if (chosen !== undefined) return expectedBody(item, chosen, remember, nav);
+        return { action, kind: null, id: null, remember: false };
       }
       case "category":
         return categoryBody(item, category, remember);
@@ -436,13 +434,13 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
 
           {has("same")
             ? section(
-                "Same as one of these?",
+                item.reason === "expected" ? "Already recorded as" : "Same as one of these?",
                 <>
                   {radioList(candidateOptions(transactions), same, setSame)}
                   {errorText("transaction_id")}
                   {button("same", "Yes, the same")}
                 </>,
-                "You may have added it by hand already.",
+                item.reason === "expected" ? "This payment may be recorded already." : "You may have added it by hand already.",
               )
             : null}
           {has("new") ? section("It's new", button("new", "No, it's new", "alt")) : null}
@@ -468,11 +466,13 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
                     setExpectedKey,
                   )}
                   {errorText("id")}
+                  {needsNav(item) ? numberInput("nav", "SIP NAV on the day", nav, setNav, { placeholder: "50.1002" }) : null}
                   {item.payee !== null && expected.some((c) => c.kind === "template")
                     ? rememberBox(`Always match ${item.payee} to that reminder`)
                     : null}
                   {button("expected", "Yes, this one")}
                 </>,
+                needsNav(item) ? "No NAV is known for the SIP's day. Copy it from your fund statement." : undefined,
               )
             : null}
 

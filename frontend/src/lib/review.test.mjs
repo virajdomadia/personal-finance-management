@@ -4,6 +4,8 @@ import { test } from "node:test";
 import {
   accountChoices,
   actionsFor,
+  expectedBody,
+  needsNav,
   cardBillText,
   categoryType,
   marketPrefill,
@@ -183,4 +185,28 @@ test("ruleText says what a rule does", () => {
     ruleText(rule({ category: "Housing", template_id: 3, template_name: "Rent" })),
     "Category: Housing · Ticks off Rent",
   );
+});
+
+test("actionsFor expected offers an EMI already recorded as the same payment", () => {
+  const emi = { kind: "emi", id: 5, label: "Car loan EMI" };
+  const recorded = { kind: "transaction", id: 9, label: "2026-11-10 · emi · ₹7,500" };
+  assert.deepEqual(actionsFor(item({ reason: "expected", candidates: [emi, recorded] })), [
+    "expected",
+    "same",
+    "category",
+    "dismiss",
+  ]);
+});
+
+test("needsNav and expectedBody send a NAV only for a SIP that needs one", () => {
+  const sip = { kind: "sip", id: 3, label: "Flexi Cap SIP", needs_nav: true };
+  const rent = { kind: "template", id: 4, label: "Rent" };
+  const asked = item({ reason: "expected", payee: "Landlord", candidates: [sip, rent] });
+  assert.equal(needsNav(asked), true);
+  assert.equal(needsNav(item({ reason: "expected", candidates: [rent] })), false);
+  assert.deepEqual(expectedBody(asked, sip, true, " 50.1 "), { action: "expected", kind: "sip", id: 3, remember: false, nav: "50.1" });
+  assert.deepEqual(expectedBody(asked, sip, true, ""), { action: "expected", kind: "sip", id: 3, remember: false, nav: null });
+  assert.deepEqual(expectedBody(asked, rent, true, "50.1"), { action: "expected", kind: "template", id: 4, remember: true });
+  const known = { kind: "sip", id: 3, label: "Flexi Cap SIP" };
+  assert.deepEqual(expectedBody(asked, known, true, "50.1"), { action: "expected", kind: "sip", id: 3, remember: false });
 });

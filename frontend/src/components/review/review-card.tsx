@@ -12,7 +12,9 @@ import {
   accountChoices,
   actionsFor,
   categoryType,
+  expectedBody,
   marketPrefill,
+  needsNav,
   reviewTitle,
 } from "@/lib/review";
 import { type CategoryList, formatDate } from "@/lib/transactions";
@@ -275,7 +277,9 @@ export function ReviewCard({ item, accounts, categories, onAnswered, onStale }: 
 
         {has("same") && (
           <div className={GROUP}>
-            <p className="text-xs font-black tracking-wide uppercase">Same as one of these?</p>
+            <p className="text-xs font-black tracking-wide uppercase">
+              {item.reason === "expected" ? "Already recorded as" : "Same as one of these?"}
+            </p>
             {choiceButtons(transactions, "Same as ", (c) => ({ action: "same", transaction_id: c.id }))}
           </div>
         )}
@@ -298,12 +302,13 @@ export function ReviewCard({ item, accounts, categories, onAnswered, onStale }: 
         {has("expected") && (
           <div className={GROUP}>
             <p className="text-xs font-black tracking-wide uppercase">Is it one of these?</p>
-            {choiceButtons(expected, "", (c) => ({
-              action: "expected",
-              kind: c.kind,
-              id: c.id,
-              remember: c.kind === "template" && item.payee !== null && remember,
-            }))}
+            {needsNav(item) && (
+              <div className="flex flex-col gap-1">
+                {labelled("nav", "SIP NAV on the day", <input {...inputProps("nav", nav, setNav)} type="text" />)}
+                <p className="text-xs font-bold text-zinc-600">No NAV is known for that day. Copy it from your fund statement.</p>
+              </div>
+            )}
+            {choiceButtons(expected, "", (c) => expectedBody(item, c, remember, nav))}
             {item.payee !== null && expected.some((c) => c.kind === "template") && (
               <label className="flex items-center gap-2 text-sm font-extrabold">
                 <input

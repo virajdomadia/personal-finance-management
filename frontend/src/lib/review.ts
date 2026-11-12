@@ -3,7 +3,8 @@ import { whole } from "./recurring.ts";
 
 // Mirrors ReviewItem in backend/app/api/routes/sms.py. A candidate is one choice the server found:
 // a transaction, an account, a loan's EMI, a SIP, a reminder, an owned stock or a market listing.
-export type Candidate = { kind: string; id: number; label: string };
+// A SIP whose fund has no NAV for the day says needs_nav: its "expected" answer takes the NAV.
+export type Candidate = { kind: string; id: number; label: string; needs_nav?: boolean };
 
 export type ReviewItem = {
   id: number;
@@ -105,7 +106,12 @@ export function actionsFor(item: ReviewItem): Action[] {
       ];
       break;
     case "expected":
-      actions = (item.candidates ?? []).some((c) => EXPECTED_KINDS.has(c.kind)) ? ["expected", "category"] : ["category"];
+      // "same": an EMI already recorded for the period, offered as a transaction.
+      actions = [
+        ...((item.candidates ?? []).some((c) => EXPECTED_KINDS.has(c.kind)) ? (["expected"] as const) : []),
+        ...(transactions ? (["same"] as const) : []),
+        "category",
+      ];
       break;
     case "sip_units":
       actions = ["units", "units_ok"];
@@ -120,6 +126,23 @@ export function actionsFor(item: ReviewItem): Action[] {
       actions = [];
   }
   return [...actions, "dismiss"];
+}
+
+// Whether an "expected" item offers a SIP the NAV has to be typed in for.
+export function needsNav(item: ReviewItem): boolean {
+  return (item.candidates ?? []).some((c) => c.kind === "sip" && c.needs_nav === true);
+}
+
+// The "expected" answer for a choice. Only a SIP that needs a NAV sends one; blank sends null, which
+// the server asks for again.
+export function expectedBody(item: ReviewItem, choice: Candidate, remember: boolean, nav: string) {
+  return {
+    action: "expected" as const,
+    kind: choice.kind,
+    id: choice.id,
+    remember: choice.kind === "template" && item.payee !== null && remember,
+    ...(choice.kind === "sip" && choice.needs_nav === true ? { nav: nav.trim() || null } : {}),
+  };
 }
 
 // Which category list applies: money in is income, anything else an expense.
