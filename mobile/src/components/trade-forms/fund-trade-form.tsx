@@ -18,21 +18,26 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { type Account, type AccountList, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import {
-  type Coin,
-  type CoinHolding,
-  type CryptoPortfolio,
-  type CryptoTrade,
-  type CryptoTradeForm,
-  type CryptoTradeMode,
-  blankCryptoTradeForm,
-  changedCryptoTrade,
-  cryptoTradeDeleteText,
-  cryptoTradeErrors,
-  cryptoTradeFormFrom,
-  cryptoTradePayload,
-  formatCoinQty,
-  qtyMismatch,
-} from "@/lib/crypto";
+  type Fund,
+  type FundHolding,
+  type FundTrade,
+  type FundTradeForm,
+  type FundTradeMode,
+  type Sip,
+  blankFundTradeForm,
+  changedFundTrade,
+  formatUnits,
+  fundTradeDeleteText,
+  fundTradeErrors,
+  fundTradeFormFrom,
+  fundTradePayload,
+  sipTradeForm,
+  stampDuty,
+  suggestedUnits,
+  unitsMismatch,
+} from "@/lib/funds";
+import { type MarketMatch, asFirstTrade, prefillFromMatch, realDate, withTradePath } from "@/lib/investments";
+import { MarketSearch } from "@/components/market-search";
 import { ChunkyBox, ChunkyButton, Chip, HeaderAction, ScreenHeader } from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
 import { DateField } from "@/components/date-field";
@@ -40,37 +45,58 @@ import { BRAND, FONT } from "@/lib/theme";
 import { useSession } from "@/lib/session";
 import { previousDay, todayIndia } from "@/lib/transactions";
 
-const MODES: { value: CryptoTradeMode; label: string }[] = [
+const MODES: { value: FundTradeMode; label: string }[] = [
+  { value: "sip", label: "Record SIP" },
   { value: "buy", label: "Buy" },
-  { value: "sell", label: "Sell" },
-  { value: "opening", label: "Add existing coins" },
+  { value: "sell", label: "Redeem" },
+  { value: "opening", label: "Add existing units" },
 ];
 
-const NEW_COIN = "new";
+const NEW_FUND = "new";
 const MONEY_MAX_LENGTH = 24;
 const MONEY = /^\d+(?:\.\d{1,2})?$/;
-const MISMATCH = "Quantity × price doesn't match the amount. Check the quantity and price.";
+const MISMATCH = "Units × NAV doesn't match the amount. Check the units and NAV.";
 // The fields the form shows, in screen order, which is where field errors can be displayed.
-const RENDERED = ["coin_id", "name", "symbol", "quantity", "price", "amount", "charges", "date", "account_id", "note"] as const;
+const RENDERED = [
+  "fund_id",
+  "name",
+  "symbol",
+  "sip_id",
+  "nav",
+  "units",
+  "amount",
+  "charges",
+  "date",
+  "account_id",
+  "note",
+] as const;
 
-type Form = CryptoTradeForm & { name: string; symbol: string };
+type Form = FundTradeForm & { name: string; symbol: string };
 type Key = Exclude<keyof Form, "mode">;
 
-type Loaded = { coins: Coin[]; holdings: CoinHolding[]; brokers: Account[]; trade: CryptoTrade | null };
-type Defaults = { mode: CryptoTradeMode; coinId?: string; accountId?: string };
+type Loaded = { funds: Fund[]; holdings: FundHolding[]; banks: Account[]; sips: Sip[]; trade: FundTrade | null };
+type Defaults = { mode: FundTradeMode; fundId?: string; sipId?: string; date?: string; accountId?: string; fresh?: boolean };
 
-function parseMode(value: string | undefined): CryptoTradeMode {
-  return value === "sell" || value === "opening" ? value : "buy";
+function parseMode(value: string | undefined): FundTradeMode {
+  return value === "sip" || value === "sell" || value === "opening" ? value : "buy";
 }
 
-function titleFor(mode: CryptoTradeMode, editing: boolean): string {
-  if (editing) return "Edit crypto transaction";
-  return mode === "buy" ? "Buy crypto" : mode === "sell" ? "Sell crypto" : "Add existing coins";
+function titleFor(mode: FundTradeMode, editing: boolean): string {
+  if (editing) return "Edit fund transaction";
+  return mode === "sip" ? "Record SIP" : mode === "buy" ? "Buy fund units" : mode === "sell" ? "Redeem units" : "Add existing units";
 }
 
-export default function CryptoTradeFormScreen() {
-  const params = useLocalSearchParams<{ id?: string; mode?: string; coinId?: string; accountId?: string }>();
-  const { id, coinId } = params;
+export function FundTradeScreen() {
+  const params = useLocalSearchParams<{
+    id?: string;
+    mode?: string;
+    fundId?: string;
+    sipId?: string;
+    date?: string;
+    accountId?: string;
+    new?: string;
+  }>();
+  const { id, fundId } = params;
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const editing = id !== undefined;
@@ -82,14 +108,15 @@ export default function CryptoTradeFormScreen() {
     let current = true;
     const auth = { token: token ?? undefined };
     const tradesPath =
-      coinId !== undefined ? `/investments/crypto-trades?coin_id=${encodeURIComponent(coinId)}` : "/investments/crypto-trades";
+      fundId !== undefined ? `/investments/fund-trades?fund_id=${encodeURIComponent(fundId)}` : "/investments/fund-trades";
     Promise.all([
-      apiFetch<{ coins: Coin[] }>("/investments/coins", auth),
-      apiFetch<{ crypto: CryptoPortfolio }>("/investments/portfolio", auth),
+      apiFetch<{ funds: Fund[] }>("/investments/funds", auth),
+      apiFetch<{ funds: { holdings: FundHolding[] } }>("/investments/portfolio", auth),
       apiFetch<AccountList>("/accounts", auth),
-      editing ? apiFetch<{ trades: CryptoTrade[] }>(tradesPath, auth) : Promise.resolve(null),
+      apiFetch<{ sips: Sip[] }>("/investments/sips", auth),
+      editing ? apiFetch<{ trades: FundTrade[] }>(tradesPath, auth) : Promise.resolve(null),
     ])
-      .then(([coins, portfolio, accounts, trades]) => {
+      .then(([funds, portfolio, accounts, sips, trades]) => {
         if (!current) return;
         const trade = trades?.trades.find((t) => String(t.id) === id) ?? null;
         if (editing && trade === null) {
@@ -97,10 +124,11 @@ export default function CryptoTradeFormScreen() {
           return;
         }
         setLoaded({
-          coins: coins.coins,
-          holdings: portfolio.crypto.holdings,
-          // Only active brokers: the accounts list leaves archived ones out.
-          brokers: accounts.accounts.filter((a) => a.type === "broker"),
+          funds: funds.funds,
+          holdings: portfolio.funds.holdings,
+          // Only active banks pay for funds: the accounts list leaves archived ones out.
+          banks: accounts.accounts.filter((a) => a.type === "bank"),
+          sips: sips.sips,
           trade,
         });
       })
@@ -115,7 +143,7 @@ export default function CryptoTradeFormScreen() {
     return () => {
       current = false;
     };
-  }, [editing, id, coinId, token, logOut, attempt]);
+  }, [editing, id, fundId, token, logOut, attempt]);
 
   const mode = parseMode(params.mode);
   const fallbackTitle = titleFor(mode, editing);
@@ -143,14 +171,14 @@ export default function CryptoTradeFormScreen() {
     );
   }
 
-  if (loaded.brokers.length === 0 && !editing) {
+  if (loaded.banks.length === 0 && !editing) {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
         <ScreenHeader title={fallbackTitle} back />
         <View style={styles.center}>
-          <Text variant="titleMedium">Add a broker or exchange account first</Text>
+          <Text variant="titleMedium">Add a bank account first</Text>
           <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
-            Coins are held in a broker account, like CoinDCX, and buys and sells move its cash.
+            Mutual funds are bought from a bank account, and redemptions are paid back into one.
           </Text>
           <ChunkyButton label="Go to accounts" onPress={() => router.navigate("/accounts")} />
         </View>
@@ -158,7 +186,12 @@ export default function CryptoTradeFormScreen() {
     );
   }
 
-  return <FormBody {...loaded} defaults={{ mode, coinId, accountId: params.accountId }} />;
+  return (
+    <FormBody
+      {...loaded}
+      defaults={{ mode, fundId, sipId: params.sipId, date: params.date, accountId: params.accountId, fresh: params.new === "1" }}
+    />
+  );
 }
 
 type FieldInputProps = {
@@ -195,35 +228,96 @@ function FieldInput({ name, label, value, invalid, disabled, onChange, onFocusFi
   );
 }
 
-function startForm({ coins, holdings, brokers, trade, defaults }: Loaded & { defaults: Defaults }): Form {
-  if (trade) return { ...cryptoTradeFormFrom(trade), name: "", symbol: "" };
-  const form: Form = { ...blankCryptoTradeForm(defaults.mode, todayIndia()), name: "", symbol: "" };
-  // A sale can only be of a coin held somewhere.
-  const coinOk =
-    defaults.coinId !== undefined &&
-    coins.some((c) => String(c.id) === defaults.coinId) &&
-    (defaults.mode !== "sell" || holdings.some((h) => String(h.coin_id) === defaults.coinId));
-  if (coinOk) form.coin_id = defaults.coinId ?? "";
-  else if (coins.length === 0 && defaults.mode !== "sell") form.coin_id = NEW_COIN;
-  const accountId = defaults.accountId ?? (brokers.length === 1 ? String(brokers[0].id) : "");
-  if (brokers.some((b) => String(b.id) === accountId)) form.account_id = accountId;
-  return form;
+// The fund's one active SIP, if it has exactly one.
+function onlySip(sips: Sip[], fundId: string): Sip | null {
+  const active = sips.filter((s) => String(s.fund_id) === fundId && s.active);
+  return active.length === 1 ? active[0] : null;
+}
+
+// Choosing a SIP brings its bank account, amount and stamp duty, and its oldest due date.
+function sipFields(sip: Sip, banks: Account[]): Partial<Form> {
+  const fields = sipTradeForm(sip, sip.due_date ?? todayIndia());
+  return {
+    sip_id: fields.sip_id,
+    account_id: banks.some((b) => String(b.id) === fields.account_id) ? fields.account_id : "",
+    amount: fields.amount,
+    charges: fields.charges,
+    date: fields.date,
+  };
+}
+
+function isPurchase(mode: FundTradeMode): boolean {
+  return mode === "buy" || mode === "sip";
+}
+
+// Stamp duty and units follow the amount and NAV, until the owner types them by hand.
+function withSuggestions(form: Form, unitsByHand: boolean, chargesByHand: boolean): Form {
+  if (!isPurchase(form.mode)) return form;
+  const next = { ...form };
+  if (!chargesByHand) next.charges = stampDuty(next.amount) ?? "";
+  if (!unitsByHand) next.units = suggestedUnits(next.amount, next.charges, next.nav) ?? "";
+  return next;
+}
+
+function startForm({ funds, holdings, banks, sips, trade, defaults }: Loaded & { defaults: Defaults }): Form {
+  if (trade) return { ...fundTradeFormFrom(trade), name: "", symbol: "" };
+  const today = todayIndia();
+  const bankOk = (accountId: string) => banks.some((b) => String(b.id) === accountId);
+
+  // From a due-SIP card: everything but the NAV is filled in, for the month asked for.
+  const sip = defaults.mode === "sip" ? sips.find((s) => String(s.id) === defaults.sipId) : undefined;
+  if (sip) {
+    const date =
+      defaults.date !== undefined && realDate(defaults.date) && defaults.date <= today ? defaults.date : (sip.due_date ?? today);
+    const form = sipTradeForm(sip, date);
+    return { ...form, account_id: bankOk(form.account_id) ? form.account_id : "", name: "", symbol: "" };
+  }
+
+  let form: Form = { ...blankFundTradeForm(defaults.mode, today), name: "", symbol: "" };
+  // A redemption can only be of a fund held somewhere.
+  const fundOk =
+    defaults.fundId !== undefined &&
+    funds.some((f) => String(f.id) === defaults.fundId) &&
+    (defaults.mode !== "sell" || holdings.some((h) => String(h.fund_id) === defaults.fundId));
+  if (fundOk) form.fund_id = defaults.fundId ?? "";
+  // From Add investment, a new fund is the likely one; an existing one can still be chosen.
+  else if ((funds.length === 0 || defaults.fresh) && defaults.mode !== "sell") form.fund_id = NEW_FUND;
+  const accountId = defaults.accountId ?? (banks.length === 1 ? String(banks[0].id) : "");
+  if (bankOk(accountId)) form.account_id = accountId;
+  if (form.mode === "sip") {
+    const only = onlySip(sips, form.fund_id);
+    if (only) form = { ...form, ...sipFields(only, banks) };
+  }
+  return withSuggestions(form, false, false);
 }
 
 function FormBody(props: Loaded & { defaults: Defaults }) {
-  const { brokers, holdings, trade } = props;
+  const { banks, holdings, sips, trade } = props;
   const editing = trade !== null;
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [form, setForm] = useState<Form>(() => startForm(props));
-  const [coins, setCoins] = useState<Coin[]>(props.coins);
+  const funds = props.funds;
+  // A match from the search links live prices and fills in what it knows, unless it was already typed.
+  const [source, setSource] = useState<MarketMatch | null>(null);
+  const pickSource = (match: MarketMatch | null) => {
+    setSource(match);
+    if (!match) return;
+    const fill = prefillFromMatch("mutual_fund", match);
+    setForm((f) => ({ ...f, name: f.name.trim() || fill.name, symbol: f.symbol.trim() || fill.symbol }));
+  };
+  // Units and stamp duty follow the amount and NAV until the owner types them by hand.
+  const [unitsByHand, setUnitsByHand] = useState(editing);
+  const [chargesByHand, setChargesByHand] = useState(editing);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
   const [missing, setMissing] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Opened from a due SIP, the NAV is the only thing left to type, so it gets the keyboard at once.
+  const [focusNav] = useState(() => !editing && form.mode === "sip" && form.sip_id !== "");
   const savingRef = useRef(false);
   const deletingRef = useRef(false);
   const scrollRef = useRef<ScrollViewInstance>(null);
@@ -234,6 +328,7 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
   const mounted = useRef(true);
 
   const mode = form.mode;
+  const purchase = isPurchase(mode);
   const busy = saving || deleting || missing !== null;
 
   const scrollToField = useCallback((key: string) => {
@@ -311,32 +406,76 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
       return rest;
     });
 
-  const set = (key: Key, value: string) => setForm((f) => ({ ...f, [key]: value }));
+  // Applies a change, then works out stamp duty and units again where they aren't typed by hand.
+  const update = (change: Partial<Form>, hand: { units?: boolean; charges?: boolean } = {}) => {
+    const unitsHand = hand.units ?? unitsByHand;
+    const chargesHand = hand.charges ?? chargesByHand;
+    setForm((f) => withSuggestions({ ...f, ...change }, unitsHand, chargesHand));
+  };
 
-  const changeMode = (next: CryptoTradeMode) => {
+  const set = (key: Key, value: string) => {
+    if (key === "units") {
+      setUnitsByHand(true);
+      update({ units: value }, { units: true });
+    } else if (key === "charges") {
+      setChargesByHand(true);
+      update({ charges: value }, { charges: true });
+    } else {
+      update({ [key]: value });
+    }
+  };
+
+  const changeMode = (next: FundTradeMode) => {
     if (next === mode) return;
     setErrors({});
     setGeneral([]);
-    // A sale can only be of a coin held somewhere, so drop one that isn't (or a new coin).
-    const coinId = next === "sell" && !holdings.some((h) => String(h.coin_id) === form.coin_id) ? "" : form.coin_id;
-    setForm((f) => ({ ...f, mode: next, coin_id: coinId, ...(next === "opening" ? { charges: "", price: "" } : {}) }));
+    // A redemption can only be of a fund held somewhere, so drop one that isn't (or a new fund).
+    const fundId = next === "sell" && !holdings.some((h) => String(h.fund_id) === form.fund_id) ? "" : form.fund_id;
+    const change: Partial<Form> = { mode: next, fund_id: fundId, sip_id: next === "sip" ? form.sip_id : "" };
+    if (!isPurchase(next)) {
+      // Worked-out units and stamp duty belong to a purchase. What was typed by hand stays.
+      if (!unitsByHand) change.units = "";
+      if (!chargesByHand || next === "opening") change.charges = "";
+    }
+    const only = next === "sip" && form.sip_id === "" ? onlySip(sips, fundId) : null;
+    if (only) {
+      setChargesByHand(false);
+      update({ ...change, ...sipFields(only, banks) }, { charges: false });
+    } else {
+      update(change);
+    }
   };
 
-  const chooseCoin = (value: string) => {
-    clearError("coin_id");
-    set("coin_id", value);
+  const chooseFund = (value: string) => {
+    clearError("fund_id");
+    const only = mode === "sip" ? onlySip(sips, value) : null;
+    if (only) {
+      setChargesByHand(false);
+      update({ fund_id: value, ...sipFields(only, banks) }, { charges: false });
+    } else {
+      update({ fund_id: value, sip_id: "" });
+    }
+  };
+
+  const chooseSip = (sip: Sip) => {
+    clearError("sip_id");
+    // Editing keeps what was recorded; only the link changes.
+    if (editing) {
+      update({ sip_id: String(sip.id) });
+      return;
+    }
+    setChargesByHand(false);
+    update(sipFields(sip, banks), { charges: false });
   };
 
   async function save() {
     if (savingRef.current || deletingRef.current) return;
     Keyboard.dismiss();
 
-    // Checked before anything is sent, so a new coin isn't created for a transaction bound to be refused.
-    const local = cryptoTradeErrors(form, todayIndia());
-    if (form.coin_id === NEW_COIN) {
-      if (form.name.trim() === "") local.name = "Enter a name.";
-      if (form.symbol.trim() === "") local.symbol = "Enter the coin's ticker, like BTC.";
-    }
+    // Checked before anything is sent, so a new fund isn't created for a transaction bound to be refused.
+    const local = fundTradeErrors(form, todayIndia());
+    if (form.fund_id === NEW_FUND && form.name.trim() === "") local.name = "Enter a name.";
+    if (mode === "sip" && form.sip_id === "" && fundSips.length > 0) local.sip_id = "Choose the SIP this instalment is for.";
     if (Object.keys(local).length > 0) {
       needFocus.current = true;
       setGeneral([]);
@@ -346,7 +485,7 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
 
     let payload: Record<string, unknown> | null = null;
     if (trade) {
-      payload = changedCryptoTrade(form, trade);
+      payload = changedFundTrade(form, trade);
       if (Object.keys(payload).length === 0) {
         router.back();
         return;
@@ -360,38 +499,24 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
     let done = false;
     const auth = { token: token ?? undefined };
     try {
-      let current: CryptoTradeForm = form;
-      if (!trade && form.coin_id === NEW_COIN) {
-        let created: Coin;
-        try {
-          created = await apiFetch<Coin>("/investments/coins", {
-            method: "POST",
-            ...auth,
-            body: { name: form.name, symbol: form.symbol.trim() },
-          });
-        } catch (err) {
-          if (err instanceof ApiError && err.status === 422) {
-            needFocus.current = true;
-            const result = splitErrors(err.detail, ["name", "symbol"]);
-            setErrors(result.fields);
-            setGeneral(result.general);
-            return;
-          }
-          throw err;
-        }
-        // The coin exists now. If the transaction below fails, it stays chosen so a retry doesn't add it twice.
-        setCoins((list) => [...list, created].sort((a, b) => a.name.localeCompare(b.name)));
-        setForm((f) => ({ ...f, coin_id: String(created.id), name: "", symbol: "" }));
-        current = { ...form, coin_id: String(created.id) };
-      }
-
-      if (trade && payload) {
-        await apiFetch<CryptoTrade>(`/investments/crypto-trades/${trade.id}`, { method: "PATCH", ...auth, body: payload });
-      } else {
-        await apiFetch<CryptoTrade>("/investments/crypto-trades", {
+      if (!trade && form.fund_id === NEW_FUND) {
+        // The new fund and its first trade are saved together: if the trade is refused, no fund is left behind.
+        const symbol = form.symbol.trim();
+        await apiFetch(withTradePath("mutual_fund"), {
           method: "POST",
           ...auth,
-          body: cryptoTradePayload(current, "create"),
+          body: {
+            fund: { name: form.name, symbol: symbol === "" ? null : symbol, source_code: source?.code ?? null },
+            trade: asFirstTrade(fundTradePayload(form, "create")),
+          },
+        });
+      } else if (trade && payload) {
+        await apiFetch<FundTrade>(`/investments/fund-trades/${trade.id}`, { method: "PATCH", ...auth, body: payload });
+      } else {
+        await apiFetch<FundTrade>("/investments/fund-trades", {
+          method: "POST",
+          ...auth,
+          body: fundTradePayload(form, "create"),
         });
       }
       done = true;
@@ -405,10 +530,10 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
         setErrors(result.fields);
         setGeneral(result.general);
       } else if (err instanceof ApiError && err.status === 404) {
-        // The transaction, coin or account is gone, so this form can't be saved.
+        // The transaction, fund or account is gone, so this form can't be saved.
         setMissing(errorMessage({ detail: err.detail }));
       } else {
-        // A 409 (a later sale left short, say) can be fixed here, so the form stays open.
+        // A 409 (a later redemption left short, say) can be fixed here, so the form stays open.
         needFocus.current = true;
         setGeneral([errorMessage(err instanceof ApiError ? { detail: err.detail } : err)]);
       }
@@ -427,7 +552,7 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
     setDeleting(true);
     let done = false;
     try {
-      await apiFetch(`/investments/crypto-trades/${trade.id}`, { method: "DELETE", token: token ?? undefined });
+      await apiFetch(`/investments/fund-trades/${trade.id}`, { method: "DELETE", token: token ?? undefined });
       done = true;
       if (mounted.current) router.back();
     } catch (err) {
@@ -492,29 +617,32 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
     </Text>
   );
 
-  // A sale can only be of a coin held somewhere (or the one being edited).
-  const heldIds = new Set(holdings.map((h) => h.coin_id));
-  const choosable = coins.filter((c) => mode !== "sell" || heldIds.has(c.id) || c.id === trade?.coin_id);
-  const chosen = coins.find((c) => String(c.id) === form.coin_id);
-  const canAddCoin = !editing && mode !== "sell";
-  const held = holdings.find((h) => String(h.coin_id) === form.coin_id && String(h.account_id) === form.account_id);
-  const broker = brokers.find((b) => String(b.id) === form.account_id);
+  // A redemption can only be of a fund held somewhere (or the one being edited).
+  const heldIds = new Set(holdings.map((h) => h.fund_id));
+  const choosable = funds.filter((f) => mode !== "sell" || heldIds.has(f.id) || f.id === trade?.fund_id);
+  const chosen = funds.find((f) => String(f.id) === form.fund_id);
+  const canAddFund = !editing && mode !== "sell";
+  const fundSips = sips.filter((s) => String(s.fund_id) === form.fund_id && (s.active || String(s.id) === form.sip_id));
+  const held = holdings.find((h) => String(h.fund_id) === form.fund_id && String(h.account_id) === form.account_id);
+  const bank = banks.find((b) => String(b.id) === form.account_id);
   const amount = cleanMoney(form.amount);
   const amountShown = MONEY.test(amount) && Number(amount) > 0 ? formatRupees(amount) : null;
-  const mismatch = !errors.quantity && !errors.price && !errors.amount && qtyMismatch(form);
+  const mismatch = purchase && !errors.units && unitsMismatch(form);
   const today = todayIndia();
   const yesterday = previousDay(today);
   const title = titleFor(mode, editing);
+  const sipLabel = (sip: Sip) =>
+    `${formatRupees(sip.amount.replace(/\.00$/, ""))} on day ${sip.day} · ${sip.account_name}${sip.active ? "" : " (stopped)"}`;
 
-  // Editing never moves a transaction to another coin.
-  const coinPicker =
-    form.coin_id === NEW_COIN ? (
+  // Editing never moves a transaction to another fund: for a SIP instalment that would silently drop its SIP.
+  const fundPicker =
+    form.fund_id === NEW_FUND ? (
       <View style={styles.picked}>
         <Text variant="bodyLarge" style={styles.grow}>
-          New coin
+          New fund
         </Text>
-        {coins.length > 0 ? (
-          <ChunkyButton compact variant="alt" label="Choose another" disabled={busy} onPress={() => chooseCoin("")} />
+        {funds.length > 0 ? (
+          <ChunkyButton compact variant="alt" label="Choose another" disabled={busy} onPress={() => chooseFund("")} />
         ) : null}
       </View>
     ) : chosen ? (
@@ -526,34 +654,34 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
           </Text>
         </View>
         {editing ? null : (
-          <ChunkyButton compact variant="alt" label="Change" disabled={busy} accessibilityLabel={`Change coin, ${chosen.name} chosen`} onPress={() => chooseCoin("")} />
+          <ChunkyButton compact variant="alt" label="Change" disabled={busy} accessibilityLabel={`Change fund, ${chosen.name} chosen`} onPress={() => chooseFund("")} />
         )}
       </View>
     ) : (
-      <Surface elevation={0} style={[styles.results, { borderColor: errors.coin_id ? BRAND.loss : BRAND.ink }]}>
-        {choosable.map((c) => (
+      <Surface elevation={0} style={[styles.results, { borderColor: errors.fund_id ? BRAND.loss : BRAND.ink }]}>
+        {choosable.map((f) => (
           <List.Item
-            key={c.id}
-            title={c.name}
+            key={f.id}
+            title={f.name}
             titleNumberOfLines={2}
-            description={c.symbol}
+            description={f.symbol}
             disabled={busy}
-            onPress={() => chooseCoin(String(c.id))}
+            onPress={() => chooseFund(String(f.id))}
             accessibilityRole="button"
-            accessibilityLabel={`Choose ${c.name}`}
+            accessibilityLabel={`Choose ${f.name}`}
           />
         ))}
         {mode === "sell" && choosable.length === 0 ? (
           <Text variant="bodyMedium" style={[styles.more, { color: BRAND.zinc600 }]}>
-            You don&apos;t hold any coins to sell.
+            You don&apos;t hold any fund units to redeem.
           </Text>
         ) : null}
-        {canAddCoin ? (
+        {canAddFund ? (
           <List.Item
-            title="Add a coin"
+            title="Add a fund"
             left={(p) => <List.Icon {...p} icon="plus" />}
             disabled={busy}
-            onPress={() => chooseCoin(NEW_COIN)}
+            onPress={() => chooseFund(NEW_FUND)}
             accessibilityRole="button"
           />
         ) : null}
@@ -595,102 +723,146 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
               {heading("Type")}
               <Text variant="bodyLarge">{MODES.find((m) => m.value === mode)?.label}</Text>
             </View>
-          ) : (
+          ) : focusNav ? null : (
             <View>
               {heading("Type")}
               <View style={styles.chips} accessibilityRole="radiogroup">
-                {MODES.map((option) => choice(option.label, mode === option.value, () => changeMode(option.value)))}
+                {MODES.filter((option) => !props.defaults.fresh || option.value === "buy" || option.value === "opening").map((option) => choice(option.label, mode === option.value, () => changeMode(option.value)))}
               </View>
             </View>
           )}
 
           {field(
-            "coin_id",
+            "fund_id",
             <>
-              {heading("Coin")}
-              <View style={styles.gap}>{coinPicker}</View>
+              {heading("Fund")}
+              <View style={styles.gap}>{fundPicker}</View>
             </>,
           )}
 
-          {form.coin_id === NEW_COIN ? (
+          {form.fund_id === NEW_FUND ? (
             <>
-              {field("name", input("name", "Coin name, like Bitcoin", { maxLength: 60 }))}
+              <MarketSearch
+                kind="mutual_fund"
+                label="Find it to link live prices (optional)"
+                selected={source}
+                onSelect={pickSource}
+                disabled={busy}
+              />
+              {field("name", input("name", "Fund name, like Parag Parikh Flexi Cap", { maxLength: 60 }))}
               {field(
                 "symbol",
-                input("symbol", "Ticker, like BTC", { maxLength: 20, autoCapitalize: "characters" }),
+                input("symbol", "Short name (optional)", { maxLength: 20, autoCapitalize: "characters" }),
                 <HelperText type="info" visible>
-                  The coin&apos;s short code. Type a price, or link the coin to live prices.
+                  Shown where space is short. Left blank, one is made from the name.
                 </HelperText>,
               )}
             </>
           ) : null}
 
-          {field("quantity", input("quantity", "Quantity", { keyboardType: "decimal-pad", maxLength: 26, placeholder: "0.00014067" }))}
+          {mode === "sip" && form.fund_id !== "" && form.fund_id !== NEW_FUND
+            ? field(
+                "sip_id",
+                <>
+                  {heading("SIP")}
+                  {fundSips.length > 0 ? (
+                    <View style={styles.chips} accessibilityRole="radiogroup">
+                      {fundSips.map((s) => choice(sipLabel(s), form.sip_id === String(s.id), () => chooseSip(s), String(s.id)))}
+                    </View>
+                  ) : (
+                    <Text variant="bodyMedium" style={[styles.gap, { color: BRAND.zinc600 }]}>
+                      This fund has no SIP, so this is recorded as a plain purchase. Add the SIP from the fund&apos;s screen.
+                    </Text>
+                  )}
+                </>,
+              )
+            : null}
 
           {mode !== "opening"
             ? field(
-                "price",
-                input("price", "Price per coin (₹)", { keyboardType: "decimal-pad", maxLength: 16, placeholder: "7504827.5" }),
-                mismatch ? (
-                  <HelperText type="info" visible accessibilityLiveRegion="polite" style={{ color: colors.tertiary }}>
-                    {MISMATCH}
-                  </HelperText>
-                ) : null,
+                "nav",
+                input("nav", "NAV (₹)", {
+                  keyboardType: "decimal-pad",
+                  maxLength: 16,
+                  placeholder: "84.3793",
+                  autoFocus: focusNav,
+                  returnKeyType: "done",
+                }),
               )
             : null}
 
           {field(
+            "units",
+            input("units", "Units", { keyboardType: "decimal-pad", maxLength: 20 }),
+            <>
+              {purchase && !unitsByHand && form.units !== "" ? (
+                <HelperText type="info" visible accessibilityLiveRegion="polite">
+                  Worked out from the amount, stamp duty and NAV. Check it against your statement.
+                </HelperText>
+              ) : null}
+              {mismatch ? (
+                <HelperText type="info" visible accessibilityLiveRegion="polite" style={{ color: colors.tertiary }}>
+                  {MISMATCH}
+                </HelperText>
+              ) : null}
+            </>,
+          )}
+
+          {field(
             "amount",
-            input("amount", mode === "sell" ? "Amount received (₹)" : mode === "opening" ? "Total cost (₹)" : "Amount paid (₹)", {
+            input("amount", mode === "sell" ? "Amount received (₹)" : mode === "opening" ? "Total cost (₹)" : "Amount (₹)", {
               keyboardType: "decimal-pad",
               maxLength: MONEY_MAX_LENGTH,
             }),
-            <HelperText type="info" visible>
-              {mode === "opening"
-                ? "What you paid for these coins in all, from your statement."
-                : mode === "buy"
-                  ? "The total taken from your account, charges included."
-                  : "What reached your account, after charges and TDS."}
-            </HelperText>,
+            mode === "opening" ? (
+              <HelperText type="info" visible>
+                What you paid for these units in all, from your statement.
+              </HelperText>
+            ) : null,
           )}
 
           {mode !== "opening"
             ? field(
                 "charges",
-                input("charges", "Charges (₹, optional)", { keyboardType: "decimal-pad", maxLength: MONEY_MAX_LENGTH }),
+                input("charges", purchase ? "Stamp duty (₹)" : "Charges (₹, optional)", {
+                  keyboardType: "decimal-pad",
+                  maxLength: MONEY_MAX_LENGTH,
+                }),
                 <HelperText type="info" visible>
-                  {mode === "buy" ? "Fees and GST, already inside the amount." : "Fees and TDS, taken off before you were paid."}
+                  {purchase ? "0.005% of the amount, worked out for you." : "Exit load, STT and any TDS together."}
                 </HelperText>,
               )
             : null}
 
           {field(
             "date",
-            <DateField
-              label={mode === "opening" ? "Bought around" : "Date"}
-              value={form.date}
-              onChange={(iso) => set("date", iso)}
-              disabled={busy}
-              maxDate={today}
-              invalid={Boolean(errors.date)}
-              chips={[
-                { label: "Today", value: today },
-                { label: "Yesterday", value: yesterday },
-              ]}
-            />,
+            <>
+              <DateField
+                label={mode === "opening" ? "Bought around" : "Date"}
+                value={form.date}
+                onChange={(iso) => set("date", iso)}
+                disabled={busy}
+                maxDate={today}
+                invalid={Boolean(errors.date)}
+                chips={[
+                  { label: "Today", value: today },
+                  { label: "Yesterday", value: yesterday },
+                ]}
+              />
+            </>,
           )}
 
           {field(
             "account_id",
             <>
-              {heading("Broker or exchange account")}
+              {heading("Bank account")}
               <View style={styles.chips} accessibilityRole="radiogroup">
-                {brokers.map((b) => choice(b.name, form.account_id === String(b.id), () => set("account_id", String(b.id)), String(b.id)))}
+                {banks.map((b) => choice(b.name, form.account_id === String(b.id), () => set("account_id", String(b.id)), String(b.id)))}
               </View>
             </>,
-            mode === "sell" && form.coin_id && form.coin_id !== NEW_COIN && form.account_id ? (
+            mode === "sell" && form.fund_id && form.fund_id !== NEW_FUND && form.account_id ? (
               <HelperText type="info" visible accessibilityLiveRegion="polite">
-                {held ? `You hold ${formatCoinQty(held.quantity)} ${held.symbol} here.` : "You hold none of this coin here."}
+                {held ? `You hold ${formatUnits(held.units)} units here.` : "You hold none of this fund here."}
               </HelperText>
             ) : null,
           )}
@@ -700,18 +872,18 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
           <ChunkyBox radius={14} offset={3} style={[styles.total, { backgroundColor: BRAND.due }]}>
             <Text variant="bodyLarge" accessibilityLiveRegion="polite" style={{ color: BRAND.zinc600 }}>
               {mode === "opening" ? (
-                "The account's cash won't change."
+                "Your bank balance won't change."
               ) : amountShown === null ? (
-                mode === "buy" ? (
-                  "Enter the amount you paid."
+                purchase ? (
+                  "Enter the amount and NAV, and the units are worked out."
                 ) : (
                   "Enter the amount you received."
                 )
               ) : (
                 <>
                   <Text style={[styles.strong, { color: BRAND.ink }]}>{amountShown}</Text>
-                  {mode === "buy" ? " leaves " : " goes into "}
-                  {broker ? broker.name : "your account"}.
+                  {purchase ? " leaves " : " goes into "}
+                  {bank ? bank.name : "your bank account"}.
                 </>
               )}
             </Text>
@@ -719,7 +891,17 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
 
           <ChunkyButton
             variant={mode === "sell" ? "pink" : "green"}
-            label={saving ? "Saving..." : editing ? "Save changes" : mode === "buy" ? "Buy" : mode === "sell" ? "Sell" : "Add coins"}
+            label={saving
+              ? "Saving..."
+              : editing
+                ? "Save changes"
+                : mode === "sip"
+                  ? "Record SIP"
+                  : mode === "buy"
+                    ? "Buy"
+                    : mode === "sell"
+                      ? "Redeem"
+                      : "Add units"}
             onPress={() => void save()}
             loading={saving}
             disabled={busy && !saving}
@@ -730,9 +912,9 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
 
       <Portal>
         <Dialog visible={confirming} onDismiss={() => (deleting ? undefined : setConfirming(false))}>
-          <Dialog.Title>{trade ? cryptoTradeDeleteText(trade).title : "Delete this transaction?"}</Dialog.Title>
+          <Dialog.Title>{trade ? fundTradeDeleteText(trade).title : "Delete this transaction?"}</Dialog.Title>
           <Dialog.Content>
-            <Text variant="bodyMedium">{trade ? cryptoTradeDeleteText(trade).body : ""}</Text>
+            <Text variant="bodyMedium">{trade ? fundTradeDeleteText(trade).body : ""}</Text>
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setConfirming(false)} disabled={deleting}>

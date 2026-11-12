@@ -14,26 +14,80 @@ import {
 import { Button, Dialog, HelperText, Portal, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { errorMessage, splitErrors } from "@/lib/accounts";
-import { ApiError, apiFetch } from "@/lib/api";
-import type { Fund } from "@/lib/funds";
 import { ChunkyBox, ChunkyButton, HeaderAction, ScreenHeader } from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
+import { MarketSearch } from "@/components/market-search";
+import { errorMessage, splitErrors } from "@/lib/accounts";
+import { ApiError, apiFetch } from "@/lib/api";
+import { type MarketKind, type MarketMatch, linkLabel } from "@/lib/investments";
 import { useSession } from "@/lib/session";
+import { BRAND } from "@/lib/theme";
 
 type Key = "name" | "symbol";
-const FIELDS: Key[] = ["name", "symbol"];
 
-// Renames a fund, or deletes one that has nothing recorded. Its transactions, NAVs and SIPs stay with it.
-export default function FundFormScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+// A stock, fund or coin as this screen needs it.
+type Holding = { id: number; symbol: string; name: string; source_code: string | null };
+
+type Kind = {
+  path: string; // under /investments
+  list: "stocks" | "funds" | "coins";
+  noun: string;
+  fields: { key: Key; label: string; hint?: string; characters?: boolean }[];
+  // Only a fund or coin with nothing recorded can be deleted here. A stock is deleted from its own screen.
+  deleteText: string | null;
+};
+
+const KINDS: Record<MarketKind, Kind> = {
+  stock: {
+    path: "stocks",
+    list: "stocks",
+    noun: "stock",
+    fields: [
+      { key: "symbol", label: "Symbol", characters: true },
+      { key: "name", label: "Company name" },
+    ],
+    deleteText: null,
+  },
+  mutual_fund: {
+    path: "funds",
+    list: "funds",
+    noun: "fund",
+    fields: [
+      { key: "name", label: "Fund name" },
+      { key: "symbol", label: "Short name", hint: "Shown where space is short.", characters: true },
+    ],
+    deleteText: "Only a fund with no transactions, NAVs or SIPs can be deleted. This can't be undone.",
+  },
+  crypto: {
+    path: "coins",
+    list: "coins",
+    noun: "coin",
+    fields: [
+      { key: "name", label: "Coin name" },
+      { key: "symbol", label: "Ticker", hint: "The ticker, like BTC.", characters: true },
+    ],
+    deleteText: "Only a coin with no transactions can be deleted. Its prices are deleted with it. This can't be undone.",
+  },
+};
+
+const FIELDS: string[] = ["name", "symbol"];
+
+// One place to change a stock, fund or coin: its name and symbol, its link to live prices (or
+// unlinking it), and for a fund or coin with nothing recorded, deleting it. Its trades stay with it.
+// Params: kind (stock | mutual_fund | crypto), id, and focus=link to open at the price search.
+export default function HoldingFormScreen() {
+  const params = useLocalSearchParams<{ kind?: string; id?: string; focus?: string }>();
+  const kindName: MarketKind = params.kind === "mutual_fund" || params.kind === "crypto" ? params.kind : "stock";
+  const kind = KINDS[kindName];
+  const linkFirst = params.focus === "link";
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [fund, setFund] = useState<Fund | null>(null);
+  const [holding, setHolding] = useState<Holding | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [form, setForm] = useState<Record<Key, string>>({ name: "", symbol: "" });
+  const [pick, setPick] = useState<MarketMatch | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
   const [missing, setMissing] = useState<string | null>(null);
@@ -48,15 +102,15 @@ export default function FundFormScreen() {
 
   useEffect(() => {
     let current = true;
-    apiFetch<{ funds: Fund[] }>("/investments/funds", { token: token ?? undefined })
+    apiFetch<Record<string, Holding[]>>(`/investments/${kind.path}`, { token: token ?? undefined })
       .then((result) => {
         if (!current) return;
-        const found = result.funds.find((f) => String(f.id) === id);
+        const found = (result[kind.list] ?? []).find((h) => String(h.id) === params.id);
         if (found) {
-          setFund(found);
+          setHolding(found);
           setForm({ name: found.name, symbol: found.symbol });
         } else {
-          setLoadError("This fund was not found.");
+          setLoadError(`This ${kind.noun} was not found.`);
         }
       })
       .catch((err: unknown) => {
@@ -70,7 +124,7 @@ export default function FundFormScreen() {
     return () => {
       current = false;
     };
-  }, [id, token, logOut, attempt]);
+  }, [kind, params.id, token, logOut, attempt]);
 
   useEffect(() => {
     mounted.current = true;
@@ -97,16 +151,20 @@ export default function FundFormScreen() {
   useEffect(() => {
     if (!needFocus.current || saving) return;
     needFocus.current = false;
-    const first = FIELDS.find((key) => errors[key]);
+    const first = kind.fields.map((f) => f.key).find((key) => errors[key]);
     if (first) inputs.current[first]?.focus();
-  }, [errors, saving]);
+  }, [errors, saving, kind]);
 
-  async function save() {
-    if (!fund || savingRef.current || deletingRef.current) return;
+  // Sends only what changed, so a stale screen can't undo a change made elsewhere. `link` is the
+  // code to link to, null to unlink, or undefined to leave the link alone.
+  async function save(link?: string | null) {
+    if (!holding || savingRef.current || deletingRef.current) return;
     Keyboard.dismiss();
-    const body: Record<string, string> = {};
-    if (form.name !== fund.name) body.name = form.name;
-    if (form.symbol !== fund.symbol) body.symbol = form.symbol;
+    const body: Record<string, string | null> = {};
+    if (form.name !== holding.name) body.name = form.name;
+    if (form.symbol !== holding.symbol) body.symbol = form.symbol;
+    if (link !== undefined) body.source_code = link;
+    else if (pick && pick.code !== holding.source_code) body.source_code = pick.code;
     if (Object.keys(body).length === 0) {
       router.back();
       return;
@@ -117,7 +175,7 @@ export default function FundFormScreen() {
     setGeneral([]);
     let done = false;
     try {
-      await apiFetch<Fund>(`/investments/funds/${fund.id}`, { method: "PATCH", token: token ?? undefined, body });
+      await apiFetch(`/investments/${kind.path}/${holding.id}`, { method: "PATCH", token: token ?? undefined, body });
       done = true;
       if (mounted.current) router.back();
     } catch (err) {
@@ -131,7 +189,7 @@ export default function FundFormScreen() {
       } else if (err instanceof ApiError && err.status === 404) {
         setMissing(errorMessage({ detail: err.detail }));
       } else {
-        // A 409 is a short name already in use, which can be fixed here.
+        // A 409 is a symbol already in use, which can be fixed here.
         setGeneral([errorMessage(err instanceof ApiError ? { detail: err.detail } : err)]);
       }
     } finally {
@@ -142,16 +200,16 @@ export default function FundFormScreen() {
     }
   }
 
-  // Only a fund with no transactions, NAVs or SIPs can go; otherwise the server's reason is shown.
+  // Only a fund or coin with nothing recorded can go; otherwise the server's reason is shown.
   async function remove() {
-    if (!fund || deletingRef.current || savingRef.current) return;
+    if (!holding || deletingRef.current || savingRef.current) return;
     deletingRef.current = true;
     setDeleting(true);
     let done = false;
     try {
-      await apiFetch(`/investments/funds/${fund.id}`, { method: "DELETE", token: token ?? undefined });
+      await apiFetch(`/investments/${kind.path}/${holding.id}`, { method: "DELETE", token: token ?? undefined });
       done = true;
-      // The fund's own screen is behind this one, so go past it.
+      // The holding's own screen is behind this one, so go past it.
       if (mounted.current) router.dismissTo("/investments");
     } catch (err) {
       setConfirming(false);
@@ -170,37 +228,55 @@ export default function FundFormScreen() {
     }
   }
 
-  const title = fund ? `Edit ${fund.symbol}` : "Edit fund";
+  const title = holding ? `${linkFirst ? "Link" : "Edit"} ${holding.symbol}` : `Edit ${kind.noun}`;
   const busy = saving || deleting || missing !== null;
 
-  const input = (key: Key, label: string, extra: Partial<React.ComponentProps<typeof TextInput>>, hint?: string) => (
-    <View>
+  const input = (field: Kind["fields"][number]) => (
+    <View key={field.key}>
       <TextInput
         ref={(node: TextInputInstance | null) => {
-          inputs.current[key] = node;
+          inputs.current[field.key] = node;
         }}
         mode="outlined"
-        label={label}
-        value={form[key]}
-        onChangeText={(text) => setForm((f) => ({ ...f, [key]: text }))}
-        error={Boolean(errors[key])}
+        label={field.label}
+        value={form[field.key]}
+        onChangeText={(text) => setForm((f) => ({ ...f, [field.key]: text }))}
+        error={Boolean(errors[field.key])}
         disabled={busy}
         autoComplete="off"
         importantForAutofill="no"
         autoCorrect={false}
-        {...extra}
+        maxLength={field.key === "name" ? 60 : 20}
+        autoCapitalize={field.characters ? "characters" : "sentences"}
       />
-      {errors[key] ? (
+      {errors[field.key] ? (
         <HelperText type="error" visible>
-          {errors[key]}
+          {errors[field.key]}
         </HelperText>
-      ) : hint ? (
+      ) : field.hint ? (
         <HelperText type="info" visible>
-          {hint}
+          {field.hint}
         </HelperText>
       ) : null}
     </View>
   );
+
+  const linkSection = holding ? (
+    <View style={styles.section}>
+      <Text variant="labelLarge" style={{ color: BRAND.zinc600 }}>
+        Live prices
+      </Text>
+      <Text variant="bodyMedium" style={{ color: BRAND.zinc600 }}>
+        {holding.source_code && !pick
+          ? `${linkLabel(holding.source_code)}. Its price updates every night. Pick another match to change it.`
+          : "Link it once and its price updates every night."}
+      </Text>
+      <MarketSearch kind={kindName} selected={pick} onSelect={setPick} disabled={busy} autoFocus={linkFirst} />
+      {holding.source_code ? (
+        <ChunkyButton variant="alt" label="Unlink" disabled={busy} onPress={() => void save(null)} />
+      ) : null}
+    </View>
+  ) : null;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -209,13 +285,13 @@ export default function FundFormScreen() {
         back
         backDisabled={saving || deleting}
         right={
-          fund ? (
-            <HeaderAction icon="delete-outline" label="Delete fund" disabled={busy} onPress={() => setConfirming(true)} />
+          holding && kind.deleteText ? (
+            <HeaderAction icon="delete-outline" label={`Delete ${kind.noun}`} disabled={busy} onPress={() => setConfirming(true)} />
           ) : undefined
         }
       />
 
-      {fund === null ? (
+      {holding === null ? (
         <View style={styles.center}>
           {loadError === null ? (
             <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading" />
@@ -224,19 +300,19 @@ export default function FundFormScreen() {
               <Text variant="bodyLarge" style={styles.centerText}>
                 {loadError}
               </Text>
-              <ChunkyButton label="Try again" onPress={() => {
+              <ChunkyButton
+                label="Try again"
+                onPress={() => {
                   setLoadError(null);
                   setAttempt((n) => n + 1);
-                }} />
+                }}
+              />
             </>
           )}
         </View>
       ) : (
         <KeyboardAvoidingView style={styles.screen} behavior="padding">
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
-          >
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}>
             {missing !== null ? (
               <ChunkyBox radius={14} offset={3} style={[styles.banner, { backgroundColor: colors.errorContainer }]}>
                 <Text variant="bodyMedium" accessibilityRole="alert" style={{ color: colors.onErrorContainer }}>
@@ -247,28 +323,27 @@ export default function FundFormScreen() {
             ) : null}
             <Banner messages={general} />
 
-            {input("name", "Fund name", { maxLength: 60 })}
-            {input("symbol", "Short name", { maxLength: 20, autoCapitalize: "characters" }, "Shown where space is short.")}
+            {linkFirst ? linkSection : null}
+            {kind.fields.map(input)}
+            {linkFirst ? null : linkSection}
 
             <ChunkyButton
-            variant="green"
-            label={saving ? "Saving..." : "Save"}
-            onPress={() => void save()}
-            loading={saving}
-            disabled={busy && !saving}
-            style={styles.save}
-          />
+              variant="green"
+              label={saving ? "Saving..." : "Save"}
+              onPress={() => void save()}
+              loading={saving}
+              disabled={busy && !saving}
+              style={styles.save}
+            />
           </ScrollView>
         </KeyboardAvoidingView>
       )}
 
       <Portal>
         <Dialog visible={confirming} onDismiss={() => (deleting ? undefined : setConfirming(false))}>
-          <Dialog.Title>{fund ? `Delete ${fund.name}?` : "Delete this fund?"}</Dialog.Title>
+          <Dialog.Title>{holding ? `Delete ${holding.name}?` : `Delete this ${kind.noun}?`}</Dialog.Title>
           <Dialog.Content>
-            <Text variant="bodyMedium">
-              Only a fund with no transactions, NAVs or SIPs can be deleted. This can&apos;t be undone.
-            </Text>
+            <Text variant="bodyMedium">{kind.deleteText}</Text>
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setConfirming(false)} disabled={deleting}>
@@ -290,5 +365,6 @@ const styles = StyleSheet.create({
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
   banner: { padding: 12, gap: 8 },
+  section: { gap: 12, marginTop: 8 },
   save: { marginTop: 8 },
 });
