@@ -22,7 +22,7 @@ from app.models.investment import Instrument, InvestmentTrade
 from app.models.market import MarketCode
 from app.models.sms import AccountIdentifier, PayeeRule, SmsEntry
 from app.models.transaction import Transaction
-from app.sms.expected import apply_expected, expected_candidates, rule_template
+from app.sms.expected import apply_expected, emis_paid, expected_candidates, rule_template
 from app.sms.merchants import builtin_category
 from app.sms.payees import display_name, payee_key
 from app.sms.recording import link as _link
@@ -34,6 +34,10 @@ if TYPE_CHECKING:
 
 MONEY_OUT = {"debit", "card_spend"}
 MONEY_IN = {"credit"}
+# The two sides a message can tell of one transaction. A transfer between the owner's accounts
+# is told once from each side, so it can carry one message of each.
+OUT_SIDE = MONEY_OUT
+IN_SIDE = MONEY_IN | {"card_payment"}
 CARD_KINDS = {"card_spend", "card_payment", "card_statement"}
 # A debit card's spend lands on its bank through an identifier, so cards count for debits too.
 BANK_SIDE_TYPES = ("bank", "wallet", "credit_card")
@@ -305,13 +309,42 @@ def _label(tx: Transaction) -> str:
     return f"{tx.date.isoformat()} · {tx.category or tx.type} · {rupees(tx.amount)}"
 
 
+def side_of(kind: str) -> set[str]:
+    """The message kinds on the same side as `kind`: money out, or money in."""
+    return OUT_SIDE if kind in OUT_SIDE else IN_SIDE
+
+
+def linked_on_side(user_id: int, kind: str) -> Any:
+    """Transactions a message on the same side as `kind` already belongs to. One from the other
+    side may still join them: the two halves of a transfer."""
+    return select(SmsEntry.transaction_id).where(
+        SmsEntry.user_id == user_id,
+        SmsEntry.transaction_id.is_not(None),
+        SmsEntry.kind.in_(side_of(kind)),
+    )
+
+
+def _claimed(db: Session, user_id: int, entry: SmsEntry, tx_id: int) -> bool:
+    """Whether a message on this entry's side already belongs to the transaction."""
+    return (
+        db.scalar(
+            select(SmsEntry.id)
+            .where(
+                SmsEntry.user_id == user_id,
+                SmsEntry.transaction_id == tx_id,
+                SmsEntry.kind.in_(side_of(entry.kind)),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
 def _typed_by_hand(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
     """The owner already typed this in: link to it instead of recording it again."""
-    if entry.kind not in MONEY_OUT | MONEY_IN | {"card_payment"} or entry.amount is None:
+    if entry.kind not in OUT_SIDE | IN_SIDE or entry.amount is None:
         return None
-    linked = select(SmsEntry.transaction_id).where(
-        SmsEntry.user_id == user_id, SmsEntry.transaction_id.is_not(None)
-    )
+    linked = linked_on_side(user_id, entry.kind)
     query = (
         select(Transaction)
         .where(
@@ -568,15 +601,11 @@ def _maybe_transfer(
 
 
 def _pending_transfer_into(db: Session, user_id: int, entry: SmsEntry) -> Transaction | None:
-    """A transfer recorded from the paying side's SMS whose receiving side hasn't come yet."""
-    received = select(SmsEntry.transaction_id).where(
-        SmsEntry.user_id == user_id,
-        SmsEntry.transaction_id.is_not(None),
-        SmsEntry.kind.in_(MONEY_IN | {"card_payment"}),
-    )
+    """A transfer into this account, typed in or recorded from the paying side's SMS, whose
+    receiving side hasn't come yet."""
+    received = linked_on_side(user_id, "credit")
     query = select(Transaction).where(
         Transaction.user_id == user_id,
-        Transaction.source == "sms",
         Transaction.type == "transfer",
         Transaction.to_account_id == entry.account_id,
         Transaction.amount == entry.amount,
@@ -588,16 +617,11 @@ def _pending_transfer_into(db: Session, user_id: int, entry: SmsEntry) -> Transa
 
 
 def _pending_transfer_out_of(db: Session, user_id: int, entry: SmsEntry) -> Transaction | None:
-    """A transfer recorded from the receiving side (a card payment answered with this account)
-    whose paying debit hasn't come yet."""
-    paid = select(SmsEntry.transaction_id).where(
-        SmsEntry.user_id == user_id,
-        SmsEntry.transaction_id.is_not(None),
-        SmsEntry.kind.in_(MONEY_OUT),
-    )
+    """A transfer out of this account, typed in or recorded from the receiving side (a card
+    payment answered with this account), whose paying debit hasn't come yet."""
+    paid = linked_on_side(user_id, "debit")
     query = select(Transaction).where(
         Transaction.user_id == user_id,
-        Transaction.source == "sms",
         Transaction.type == "transfer",
         Transaction.account_id == entry.account_id,
         Transaction.amount == entry.amount,
@@ -753,6 +777,10 @@ def expected_payment(
     One candidate is applied when the evidence is enough: an EMI or SIP (the account and exact
     amount), or a reminder the payee is tied to by a rule. Otherwise the money is recorded as an
     uncategorised expense and the owner is asked, with every candidate. Nothing is guessed.
+
+    An EMI whose period is already paid isn't applied again: the one EMI recorded for it that no
+    debit message has claimed yet is this debit; otherwise the owner is asked, with those EMIs.
+    A SIP whose fund has no NAV for the day is asked about too, for the NAV.
     """
     if entry.kind != "debit" or entry.amount is None:
         return None
@@ -761,13 +789,23 @@ def expected_payment(
     )
     if not found:
         return None
+    paid: list[Transaction] = []
     if len(found) == 1:
         only = found[0]
         tied = rule_template(db, user_id, entry.payee_key) == only["id"]
-        if only["kind"] != "template" or tied:
+        if only["kind"] == "emi":
+            paid = emis_paid(db, user_id, only["id"], entry.occurred_on)
+            if len(paid) == 1 and not _claimed(db, user_id, entry, paid[0].id):
+                _link(entry, paid[0].id)
+                return entry
+        if (only["kind"] == "template" and tied) or (
+            only["kind"] in ("emi", "sip") and not paid and not only.get("needs_nav")
+        ):
             apply_expected(db, user_id, entry, only)
             return entry
         message = f"Is this your {only['label']}?"
+        if paid:
+            message = f"Is this another {only['label']}? One is already recorded for it."
     else:
         message = "Which of your expected payments is this?"
     values = {
@@ -780,7 +818,10 @@ def expected_payment(
     }
     if record(db, user_id, entry, values):
         _review(entry, "expected", message)
-        entry.candidates = [dict(c) for c in found]
+        entry.candidates = [
+            *(dict(c) for c in found),
+            *({"kind": "transaction", "id": tx.id, "label": _label(tx)} for tx in paid),
+        ]
     return entry
 
 

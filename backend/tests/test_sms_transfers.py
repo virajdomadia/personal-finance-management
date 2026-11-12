@@ -19,6 +19,7 @@ from tests.test_sms_ingest import (
     card,
     client,
     entry,
+    manual,
     one,
     send,
     stored,
@@ -612,3 +613,88 @@ def test_card_first_then_bill_payee_pays_the_card(headers: Headers, db_session: 
     [tx] = transactions(db_session)
     assert (tx.type, tx.account_id, tx.to_account_id) == ("transfer", b, c)
     assert_reviewless(db_session, debit["hash"], paid["hash"], tx_id=tx.id)
+
+
+# A transfer the owner typed in, told by both banks
+
+
+def _typed_transfer(headers: Headers, days: int = 0) -> tuple[int, int, int]:
+    a = bank(headers, last4="1111", name="A", balance="10000.00")
+    b = bank(headers, last4="2222", name="B", balance="0.00")
+    typed = manual(
+        headers,
+        type="transfer",
+        account_id=a,
+        to_account_id=b,
+        amount="500.00",
+        date=days_ago(days),
+    )
+    return a, b, typed
+
+
+@pytest.mark.parametrize("credit_first", [False, True])
+def test_typed_transfer_is_linked_by_both_sides(
+    headers: Headers, db_session: Session, credit_first: bool
+) -> None:
+    a, b, typed = _typed_transfer(headers)
+    debit = entry(kind="debit", amount="500.00", last4="1111", payee=None)
+    credit = entry(kind="credit", amount="500.00", last4="2222", payee=None)
+    send(headers, *((credit, debit) if credit_first else (debit, credit)))
+    [tx] = transactions(db_session)
+    assert tx.id == typed
+    assert_reviewless(db_session, debit["hash"], credit["hash"], tx_id=typed)
+    assert (balance(headers, a), balance(headers, b)) == ("9500.00", "500.00")
+
+
+def test_typed_transfer_sides_arriving_days_later_still_link(
+    headers: Headers, db_session: Session
+) -> None:
+    a, b, typed = _typed_transfer(headers, days=3)
+    debit = entry(kind="debit", amount="500.00", last4="1111", payee=None)  # today
+    credit = entry(kind="credit", amount="500.00", last4="2222", payee=None, date=days_ago(1))
+    send(headers, debit, credit)
+    [tx] = transactions(db_session)
+    assert tx.id == typed
+    assert_reviewless(db_session, debit["hash"], credit["hash"], tx_id=typed)
+    assert (balance(headers, a), balance(headers, b)) == ("9500.00", "500.00")
+
+
+@pytest.mark.parametrize("card_first", [False, True])
+@pytest.mark.parametrize("days", [0, 2])
+def test_typed_card_bill_is_linked_by_both_sides(
+    headers: Headers, db_session: Session, card_first: bool, days: int
+) -> None:
+    a = bank(headers, last4="1111", name="A", balance="10000.00")
+    c = card(headers)
+    typed = manual(
+        headers,
+        type="transfer",
+        account_id=a,
+        to_account_id=c,
+        amount="500.00",
+        date=days_ago(days),
+    )
+    debit = entry(kind="debit", amount="500.00", last4="1111", payee="CRED")
+    paid = card_payment(amount="500.00")
+    send(headers, *((paid, debit) if card_first else (debit, paid)))
+    [tx] = transactions(db_session)
+    assert tx.id == typed
+    assert_reviewless(db_session, debit["hash"], paid["hash"], tx_id=typed)
+    assert (balance(headers, a), balance(headers, c)) == ("9500.00", "-500.00")
+
+
+def test_one_typed_transaction_takes_one_message_per_side(
+    headers: Headers, db_session: Session
+) -> None:
+    a, b, typed = _typed_transfer(headers)
+    first = entry(kind="debit", amount="500.00", last4="1111", payee="Ramesh", ref="111")
+    second = entry(kind="debit", amount="500.00", last4="1111", payee="Ramesh", ref="222")
+    came = entry(kind="credit", amount="500.00", last4="2222", payee=None, ref="333")
+    again = entry(kind="credit", amount="500.00", last4="2222", payee=None, ref="444")
+    send(headers, first, second, came, again)
+    assert stored(db_session, first["hash"]).transaction_id == typed
+    assert stored(db_session, came["hash"]).transaction_id == typed
+    for hash_ in (second["hash"], again["hash"]):
+        own = stored(db_session, hash_).transaction_id
+        assert own is not None and own != typed
+    assert len(transactions(db_session)) == 3

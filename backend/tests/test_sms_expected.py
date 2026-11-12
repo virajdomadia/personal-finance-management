@@ -13,7 +13,18 @@ from app.models.investment import InstrumentPrice, InvestmentTrade, Sip
 from app.models.sms import PayeeRule
 from app.models.user import User
 from tests.test_accounts import Headers, auth
-from tests.test_sms_ingest import account, bank, client, entry, one, send, stored, transactions
+from tests.test_sms_ingest import (
+    account,
+    balance,
+    bank,
+    client,
+    entry,
+    manual,
+    one,
+    send,
+    stored,
+    transactions,
+)
 
 
 @pytest.fixture
@@ -179,7 +190,9 @@ def test_sip_uses_the_latest_nav_before_the_day(headers: Headers, db_session: Se
     assert (trade.price, trade.quantity) == (Decimal("50.0000"), Decimal("100.000"))
 
 
-def test_sip_without_nav_waits_in_review(headers: Headers, db_session: Session) -> None:
+def test_sip_without_nav_records_spending_and_asks_for_the_nav(
+    headers: Headers, db_session: Session
+) -> None:
     b = bank(headers, balance="50000.00")
     f = fund(headers)
     s = sip(db_session, f, b)
@@ -187,11 +200,16 @@ def test_sip_without_nav_waits_in_review(headers: Headers, db_session: Session) 
     result = send(headers, body).json()["results"][0]
     assert (result["status"], result["reason"]) == ("review", "expected")
 
-    assert transactions(db_session) == []
+    # The money left the bank, so it is recorded meanwhile: the balance stays right.
+    [tx] = transactions(db_session)
+    assert (tx.type, tx.category, tx.account_id) == ("expense", None, b)
     assert db_session.scalars(select(InvestmentTrade)).all() == []
     saved = stored(db_session, body["hash"])
-    assert saved.transaction_id is None and saved.trade_id is None
-    assert [(c["kind"], c["id"]) for c in saved.candidates or []] == [("sip", s)]
+    assert saved.transaction_id == tx.id and saved.trade_id is None
+    assert saved.candidates == [
+        {"kind": "sip", "id": s, "label": "Parag Parikh Flexi Cap SIP", "needs_nav": True}
+    ]
+    assert balance(headers, b) == "45000.00"
 
 
 def test_sip_far_from_its_debit_day_is_not_matched(headers: Headers, db_session: Session) -> None:
@@ -380,3 +398,81 @@ def test_sip_debited_after_a_holiday_settles_its_own_month(
     sips = client.get("/api/investments/sips", headers=headers).json()["sips"]
     assert "2026-03-30" not in next(x for x in sips if x["id"] == s)["due"]
     assert "2026-04-30" not in next(x for x in sips if x["id"] == s)["due"]
+
+
+# An EMI already recorded for the period
+
+
+def _home_loan(headers: Headers) -> tuple[int, int]:
+    b = bank(headers, balance="50000.00")
+    return b, loan(headers, b, balance="210000.00")
+
+
+def _days_ago(n: int) -> str:
+    return (today_india() - timedelta(days=n)).isoformat()
+
+
+def _typed_emi(headers: Headers, b: int, home: int, days: int) -> int:
+    return manual(
+        headers,
+        type="emi",
+        account_id=b,
+        to_account_id=home,
+        amount="7500.00",
+        date=_days_ago(days),
+        interest="2000.00",
+    )
+
+
+def test_emi_typed_in_days_apart_is_not_recorded_twice(
+    headers: Headers, db_session: Session
+) -> None:
+    b, home = _home_loan(headers)
+    typed = _typed_emi(headers, b, home, 0)
+    body = entry(amount="7500.00", payee="HDFC LOAN ACH", date=_days_ago(3))
+    result = send(headers, body).json()["results"][0]
+    assert (result["status"], result["reason"]) == ("recorded", None)
+    [tx] = transactions(db_session)
+    assert tx.id == typed
+    assert stored(db_session, body["hash"]).transaction_id == typed
+    assert balance(headers, b) == "42500.00"
+
+
+def test_emi_already_recorded_from_a_message_asks(headers: Headers, db_session: Session) -> None:
+    b, home = _home_loan(headers)
+    first = entry(amount="7500.00", payee="HDFC LOAN ACH", date=_days_ago(1))
+    assert send(headers, first).json()["results"][0]["status"] == "recorded"
+    [emi] = transactions(db_session)
+    second = entry(amount="7500.00", payee="HDFC LOAN EMI")
+    result = send(headers, second).json()["results"][0]
+    assert (result["status"], result["reason"]) == ("review", "expected")
+
+    emi_tx, spent = transactions(db_session)
+    assert emi_tx.id == emi.id and emi_tx.type == "emi"
+    assert (spent.type, spent.category) == ("expense", None)
+    saved = stored(db_session, second["hash"])
+    assert saved.transaction_id == spent.id
+    assert [(c["kind"], c["id"]) for c in saved.candidates or []] == [
+        ("emi", home),
+        ("transaction", emi.id),
+    ]
+    assert balance(headers, b) == "35000.00"
+
+
+def test_two_emis_already_recorded_asks(headers: Headers, db_session: Session) -> None:
+    b, home = _home_loan(headers)
+    ids = [_typed_emi(headers, b, home, days) for days in (2, 4)]
+    body = entry(amount="7500.00", payee="HDFC LOAN ACH")
+    assert send(headers, body).json()["results"][0]["reason"] == "expected"
+    saved = stored(db_session, body["hash"])
+    found = sorted(c["id"] for c in saved.candidates or [] if c["kind"] == "transaction")
+    assert found == sorted(ids)
+    assert len(transactions(db_session)) == 3
+
+
+def test_emi_paid_last_period_does_not_stop_this_one(headers: Headers, db_session: Session) -> None:
+    b, home = _home_loan(headers)
+    _typed_emi(headers, b, home, 40)
+    result = one(headers, amount="7500.00", payee="HDFC LOAN ACH")
+    assert (result["status"], result["reason"]) == ("recorded", None)
+    assert [t.type for t in transactions(db_session)] == ["emi", "emi"]

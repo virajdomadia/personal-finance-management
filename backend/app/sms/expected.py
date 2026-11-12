@@ -7,10 +7,10 @@ reminder (rent, say). Such a debit ticks its plan off instead of being asked abo
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from fastapi.exceptions import RequestValidationError
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.loans import load_book, next_emi
@@ -31,12 +31,16 @@ SIP_WINDOW = timedelta(days=DEBIT_SLACK)  # an instalment is debited within this
 TEMPLATE_SPREAD = Decimal("0.10")  # a reminder's payment may differ this much from its amount
 UNITS = Decimal("0.001")
 SIP_UNITS_MESSAGE = "Check the units against your fund statement"
+# An EMI recorded this close to a debit (or in its month) means the period is already paid.
+EMI_PERIOD = timedelta(days=15)
 
 
 class Candidate(TypedDict):
     kind: Literal["emi", "sip", "template"]
     id: int
     label: str
+    # A SIP whose fund has no NAV for the day: the answer has to give one.
+    needs_nav: NotRequired[bool]
 
 
 def rule_template(db: Session, user_id: int, payee_key: str | None) -> int | None:
@@ -83,13 +87,37 @@ def _emis(db: Session, user_id: int, account: Account, amount: Decimal) -> list[
     return found
 
 
+def emis_paid(db: Session, user_id: int, loan_id: int, day: date) -> list[Transaction]:
+    """EMIs to this loan, typed in or from a message, already recorded for the period of a debit
+    on `day`: in the same calendar month, or within `EMI_PERIOD` of it."""
+    month = day.replace(day=1)
+    next_month = (month + timedelta(days=32)).replace(day=1)
+    return list(
+        db.scalars(
+            select(Transaction)
+            .where(
+                Transaction.user_id == user_id,
+                Transaction.type == "emi",
+                Transaction.to_account_id == loan_id,
+                or_(
+                    and_(Transaction.date >= month, Transaction.date < next_month),
+                    and_(
+                        Transaction.date >= day - EMI_PERIOD, Transaction.date <= day + EMI_PERIOD
+                    ),
+                ),
+            )
+            .order_by(Transaction.date, Transaction.id)
+        )
+    )
+
+
 def _sips(
     db: Session, user_id: int, account: Account, amount: Decimal, day: date
 ) -> list[Candidate]:
     """Active SIPs on this account of exactly this amount with an unrecorded debit date within
     `SIP_WINDOW` of the day."""
     rows = db.execute(
-        select(Sip.id, Instrument.name)
+        select(Sip.id, Instrument)
         .join(Instrument, Instrument.id == Sip.instrument_id)
         .where(
             Sip.user_id == user_id,
@@ -102,11 +130,15 @@ def _sips(
     if not rows:
         return []
     due = load_due(db, user_id, day + SIP_WINDOW)
-    return [
-        {"kind": "sip", "id": sip_id, "label": f"{name} SIP"}
-        for sip_id, name in rows
-        if any(abs(d - day) <= SIP_WINDOW for d in due.get(sip_id, []))
-    ]
+    found: list[Candidate] = []
+    for sip_id, fund in rows:
+        if not any(abs(d - day) <= SIP_WINDOW for d in due.get(sip_id, [])):
+            continue
+        candidate: Candidate = {"kind": "sip", "id": sip_id, "label": f"{fund.name} SIP"}
+        if usable_nav(fund_nav(db, user_id, fund, day)) is None:
+            candidate["needs_nav"] = True
+        found.append(candidate)
+    return found
 
 
 def _row(t: RecurringTemplate) -> TemplateRow:
@@ -198,6 +230,10 @@ def _active(db: Session, user_id: int, id_: int) -> Account | None:
     )
 
 
+def usable_nav(nav: Decimal | None) -> Decimal | None:
+    return nav if nav is not None and nav > 0 else None
+
+
 def _wait(entry: SmsEntry, candidate: Candidate) -> bool:
     """Nothing recorded: the entry asks the owner about this plan."""
     review(entry, "expected", f"Is this your {candidate['label']}?")
@@ -253,14 +289,17 @@ def fund_nav(db: Session, user_id: int, fund: Instrument, day: date) -> Decimal 
     )
 
 
-def _apply_sip(db: Session, user_id: int, entry: SmsEntry, candidate: Candidate) -> bool:
-    """A fund purchase at the day's NAV, its units worked out and marked estimated."""
+def _apply_sip(
+    db: Session, user_id: int, entry: SmsEntry, candidate: Candidate, given: Decimal | None
+) -> bool:
+    """A fund purchase at the day's NAV (or the one the owner gave), its units worked out and
+    marked estimated."""
     sip = db.scalar(select(Sip).where(Sip.id == candidate["id"], Sip.user_id == user_id))
     fund = None if sip is None else db.get(Instrument, sip.instrument_id)
     if sip is None or fund is None or entry.amount is None:
         return _wait(entry, candidate)
-    nav = fund_nav(db, user_id, fund, entry.occurred_on)
-    if nav is None or nav <= 0:
+    nav = usable_nav(given) or usable_nav(fund_nav(db, user_id, fund, entry.occurred_on))
+    if nav is None:
         return _wait(entry, candidate)
     values = {
         "fund_id": fund.id,
@@ -317,11 +356,13 @@ def _apply_template(db: Session, user_id: int, entry: SmsEntry, candidate: Candi
     return record(db, user_id, entry, values) and _recorded(entry)
 
 
-def apply_expected(db: Session, user_id: int, entry: SmsEntry, candidate: Candidate) -> bool:
-    """Records the entry's debit as `candidate`. False when nothing was recorded; the entry then
-    says why in its review reason."""
+def apply_expected(
+    db: Session, user_id: int, entry: SmsEntry, candidate: Candidate, nav: Decimal | None = None
+) -> bool:
+    """Records the entry's debit as `candidate`; a SIP at `nav` when the owner gave one. False
+    when nothing was recorded; the entry then says why in its review reason."""
     if candidate["kind"] == "emi":
         return _apply_emi(db, user_id, entry, candidate)
     if candidate["kind"] == "sip":
-        return _apply_sip(db, user_id, entry, candidate)
+        return _apply_sip(db, user_id, entry, candidate, nav)
     return _apply_template(db, user_id, entry, candidate)

@@ -24,13 +24,13 @@ from app.api.routes.trades import MAX_QUANTITY, stock_columns, stock_save_checks
 from app.api.routes.transactions import lock_accounts, save_checks
 from app.api.trade_checks import lock_trade, require_active
 from app.models.account import Account
-from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade
+from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade, Sip
 from app.models.market import MarketCode
 from app.models.recurring import RecurringTemplate
 from app.models.sms import AccountIdentifier, PayeeRule, SmsEntry
 from app.models.transaction import Transaction
 from app.sms import ingest
-from app.sms.expected import Candidate, apply_expected
+from app.sms.expected import Candidate, apply_expected, fund_nav, usable_nav
 from app.sms.recording import link, record
 
 OPEN = ("review", "draft")
@@ -41,7 +41,8 @@ ANSWERS: dict[str, set[str]] = {
     "maybe_duplicate": {"same", "new"},
     "maybe_transfer": {"transfer", "category"},
     "card_payment": {"account", "transfer"},
-    "expected": {"expected", "category"},
+    # "same": an EMI already recorded for the period, suggested as a transaction.
+    "expected": {"expected", "same", "category"},
     "sip_units": {"units", "units_ok"},
     "demat": {"trade"},
     "balance": {"retry"},
@@ -403,10 +404,15 @@ def _card_paid_from(db: Session, user_id: int, entry: SmsEntry, account_id: int)
 
 
 def same(db: Session, user_id: int, entry: SmsEntry, transaction_id: int) -> None:
-    """The message is a transaction the owner typed in."""
+    """The message is a transaction already recorded: one the owner typed in, or (for an
+    expected payment) an EMI already recorded for the period. Spending recorded from this
+    message meanwhile goes. A transaction a message on the same side already tells of makes
+    this one a second telling of it, so it is kept as a duplicate."""
     _candidate(
         entry, "transaction", transaction_id, "transaction_id", "Choose one of the suggestions."
     )
+    if entry.transaction_id is not None:
+        _drop_own_expense(db, user_id, entry, [entry.account_id])
     tx = db.scalar(
         select(Transaction).where(Transaction.id == transaction_id, Transaction.user_id == user_id)
     )
@@ -417,11 +423,15 @@ def same(db: Session, user_id: int, entry: SmsEntry, transaction_id: int) -> Non
             SmsEntry.user_id == user_id,
             SmsEntry.transaction_id == tx.id,
             SmsEntry.id != entry.id,
+            SmsEntry.kind.in_(ingest.side_of(entry.kind)),
         )
     )
-    if taken is not None:
+    if taken is None:
+        link(entry, tx.id)
+    elif entry.reason == "expected":
+        entry.status, entry.reason, entry.message, entry.candidates = "duplicate", None, None, None
+    else:
         _conflict("That transaction already belongs to another message.")
-    link(entry, tx.id)
 
 
 def new(db: Session, user_id: int, entry: SmsEntry) -> None:
@@ -531,12 +541,59 @@ def _card_paid_by(db: Session, user_id: int, entry: SmsEntry, transaction_id: in
     _link_waiting(db, user_id, tx.id)
 
 
+def _drop_own_expense(db: Session, user_id: int, entry: SmsEntry, also: list[int | None]) -> None:
+    """Deletes the uncategorised expense this message recorded while it waited, so something
+    else can take its place. Its accounts and `also` are locked first."""
+    own_id = entry.transaction_id
+    assert own_id is not None
+    txs, _ = _lock_transactions(db, user_id, [own_id], also)
+    tx = txs.get(own_id)
+    if tx is None:
+        _conflict(_OWN_GONE)
+    if tx.type != "expense" or tx.recurring_template_id is not None:
+        _conflict("This payment was changed since. Edit it in Transactions instead.")
+    shared = db.scalar(
+        select(SmsEntry.id).where(
+            SmsEntry.user_id == user_id,
+            SmsEntry.transaction_id == tx.id,
+            SmsEntry.id != entry.id,
+        )
+    )
+    if shared is not None:  # replacing it would leave that message pointing at nothing
+        _conflict("Another message is linked to this payment. Edit it in Transactions.")
+    entry.transaction_id = None
+    db.flush()
+    db.delete(tx)
+    db.flush()
+
+
+def _sip_nav_known(db: Session, user_id: int, sip_id: int, entry: SmsEntry) -> bool:
+    fund = db.scalar(
+        select(Instrument)
+        .join(Sip, Sip.instrument_id == Instrument.id)
+        .where(Sip.id == sip_id, Sip.user_id == user_id)
+    )
+    if fund is None:  # the SIP is gone: applying it says so
+        return True
+    return usable_nav(fund_nav(db, user_id, fund, entry.occurred_on)) is not None
+
+
 def expected(
-    db: Session, user_id: int, entry: SmsEntry, kind: str, id_: int, remember: bool
+    db: Session,
+    user_id: int,
+    entry: SmsEntry,
+    kind: str,
+    id_: int,
+    remember: bool,
+    nav: Decimal | None = None,
 ) -> None:
     """The debit was this EMI, SIP or reminder. The uncategorised expense recorded meanwhile
-    is replaced by it."""
+    is replaced by it. A SIP whose fund has no NAV for the day takes the NAV from the answer."""
     candidate = _candidate(entry, kind, id_, "id", "Choose one of the suggested payments.")
+    if nav is not None and kind != "sip":
+        _invalid("nav", "Only a SIP takes a NAV.")
+    if kind == "sip" and nav is None and not _sip_nav_known(db, user_id, id_, entry):
+        _invalid("nav", "There's no NAV for this fund on that day. Enter it from your statement.")
     also: list[int | None] = [entry.account_id]
     if kind == "emi":
         also.append(id_)
@@ -551,36 +608,18 @@ def expected(
     if entry.transaction_id is None:
         lock_accounts(db, user_id, also)
     else:
-        own_id = entry.transaction_id
-        txs, _ = _lock_transactions(db, user_id, [own_id], also)
-        tx = txs.get(own_id)
-        if tx is None:
-            _conflict(_OWN_GONE)
-        if tx.type != "expense" or tx.recurring_template_id is not None:
-            _conflict("This payment was changed since. Edit it in Transactions instead.")
-        shared = db.scalar(
-            select(SmsEntry.id).where(
-                SmsEntry.user_id == user_id,
-                SmsEntry.transaction_id == tx.id,
-                SmsEntry.id != entry.id,
-            )
-        )
-        if shared is not None:  # replacing it would leave that message pointing at nothing
-            _conflict("Another message is linked to this payment. Edit it in Transactions.")
-        entry.transaction_id = None
-        db.flush()
-        db.delete(tx)
-        db.flush()
+        _drop_own_expense(db, user_id, entry, also)
     choice: Candidate = {
         "kind": candidate["kind"],
         "id": candidate["id"],
         "label": candidate["label"],
     }
-    if not apply_expected(db, user_id, entry, choice):
+    if not apply_expected(db, user_id, entry, choice, nav):
         if entry.reason == "balance" and entry.message:
             _invalid("id", entry.message)
         _invalid(
-            "id", f"{choice['label']} can't be recorded from this message. Choose another answer."
+            "nav" if nav is not None else "id",
+            f"{choice['label']} can't be recorded from this message. Choose another answer.",
         )
     if remember and kind == "template" and entry.payee_key is not None:
         _rule(db, user_id, entry).template_id = id_

@@ -127,7 +127,7 @@ class ReviewItem(BaseModel):
     trade_id: int | None
     isin: str | None
     quantity: str | None
-    # Each {"kind": str, "id": int, "label": str}.
+    # Each {"kind": str, "id": int, "label": str}; a SIP may add "needs_nav": true.
     candidates: list[dict[str, Any]] | None
     suggested_price: str | None  # a draft trade's stock price on the day, or the latest before
 
@@ -214,6 +214,8 @@ class ExpectedAnswer(_Answer):
     kind: Literal["emi", "sip", "template"]
     id: StrictId
     remember: Flag = True
+    # Only for a SIP whose fund has no NAV for the day (its candidate says "needs_nav").
+    nav: Nav = None
 
 
 class UnitsAnswer(_Answer):
@@ -277,7 +279,7 @@ def _apply(db: Session, user_id: int, entry: SmsEntry, body: Any) -> None:
         case TransferAnswer():
             review.merge_transfer(db, user_id, entry, body.transaction_id)
         case ExpectedAnswer():
-            review.expected(db, user_id, entry, body.kind, body.id, body.remember)
+            review.expected(db, user_id, entry, body.kind, body.id, body.remember, body.nav)
         case UnitsAnswer():
             review.units(db, user_id, entry, body.units, body.nav)
         case UnitsOkAnswer():

@@ -16,7 +16,7 @@ from app.models.market import MarketCode
 from app.models.sms import AccountIdentifier, PayeeRule
 from tests.test_accounts import Headers, auth
 from tests.test_sms_demat import demat, stock
-from tests.test_sms_expected import fund, nav, reminder, sip, user_id
+from tests.test_sms_expected import fund, loan, nav, reminder, sip, user_id
 from tests.test_sms_ingest import (
     account,
     balance,
@@ -924,3 +924,136 @@ def test_expected_refuses_a_payment_another_message_shares(
     response = answer(headers, saved.id, action="expected", kind="template", id=rent["id"])
     assert response.status_code == 409
     assert stored(db_session, body["hash"]).transaction_id == saved.transaction_id
+
+
+# expected: an EMI already recorded for the period
+
+
+def _second_emi(headers: Headers, db: Session) -> tuple[int, int, int, dict[str, Any]]:
+    """An EMI recorded from one message, then another message of the same EMI."""
+    b = bank(headers, balance="50000.00")
+    home = loan(headers, b, balance="210000.00")
+    send(headers, entry(amount="7500.00", payee="HDFC LOAN ACH", date=days_ago(1)))
+    [emi] = transactions(db)
+    body = entry(amount="7500.00", payee="HDFC LOAN EMI")
+    send(headers, body)
+    assert stored(db, body["hash"]).reason == "expected"
+    return b, home, emi.id, body
+
+
+def test_expected_same_as_the_recorded_emi_drops_the_spending(
+    headers: Headers, db_session: Session
+) -> None:
+    b, _, emi_id, body = _second_emi(headers, db_session)
+    item = item_for(headers, body["hash"], db_session)
+    assert answered(headers, item["id"], action="same", transaction_id=emi_id) is None
+    [tx] = transactions(db_session)
+    assert tx.id == emi_id
+    saved = stored(db_session, body["hash"])
+    # That EMI already has its message: this one is a second telling of it.
+    assert (saved.status, saved.transaction_id) == ("duplicate", None)
+    assert balance(headers, b) == "42500.00"
+
+
+def test_expected_same_as_an_unlinked_emi_links_it(headers: Headers, db_session: Session) -> None:
+    b = bank(headers, balance="50000.00")
+    home = loan(headers, b, balance="210000.00")
+    typed = [
+        manual(
+            headers,
+            type="emi",
+            account_id=b,
+            to_account_id=home,
+            amount="7500.00",
+            date=days_ago(days),
+            interest="2000.00",
+        )
+        for days in (2, 4)
+    ]
+    body = entry(amount="7500.00", payee="HDFC LOAN ACH")
+    send(headers, body)
+    item = item_for(headers, body["hash"], db_session)
+    assert answered(headers, item["id"], action="same", transaction_id=typed[0]) is None
+    assert [t.id for t in transactions(db_session)] == typed
+    saved = stored(db_session, body["hash"])
+    assert (saved.status, saved.transaction_id) == ("recorded", typed[0])
+    assert balance(headers, b) == "35000.00"
+
+
+def test_expected_another_emi_after_all(headers: Headers, db_session: Session) -> None:
+    b, home, _, body = _second_emi(headers, db_session)
+    item = item_for(headers, body["hash"], db_session)
+    assert answered(headers, item["id"], action="expected", kind="emi", id=home) is None
+    assert [t.type for t in transactions(db_session)] == ["emi", "emi"]
+    assert balance(headers, b) == "35000.00"
+
+
+def test_expected_with_a_recorded_emi_takes_a_category(
+    headers: Headers, db_session: Session
+) -> None:
+    _, _, emi_id, body = _second_emi(headers, db_session)
+    item = item_for(headers, body["hash"], db_session)
+    answered(headers, item["id"], action="category", category="Bills", remember=False)
+    emi, spent = transactions(db_session)
+    assert (emi.id, spent.type, spent.category) == (emi_id, "expense", "Bills")
+
+
+def test_same_needs_a_suggested_transaction(headers: Headers, db_session: Session) -> None:
+    _, _, _, body = _sip_or_rent(headers, db_session)
+    saved = stored(db_session, body["hash"])
+    response = answer(headers, saved.id, action="same", transaction_id=saved.transaction_id)
+    assert response.status_code == 422
+    assert len(transactions(db_session)) == 1
+
+
+# expected: a SIP whose NAV isn't known
+
+
+def test_sip_needing_a_nav_says_so_in_the_list(headers: Headers, db_session: Session) -> None:
+    _, _, s, body = _sip_or_rent(headers, db_session)
+    item = item_for(headers, body["hash"], db_session)
+    [chosen] = [c for c in item["candidates"] if c["kind"] == "sip"]
+    assert chosen == {
+        "kind": "sip",
+        "id": s,
+        "label": "Parag Parikh Flexi Cap SIP",
+        "needs_nav": True,
+    }
+
+
+def test_expected_sip_with_the_nav_given(headers: Headers, db_session: Session) -> None:
+    b, _, s, body = _sip_or_rent(headers, db_session)  # the fund has no NAV
+    id_ = stored(db_session, body["hash"]).id
+    got = answered(headers, id_, action="expected", kind="sip", id=s, nav="40.0000")
+    assert got is not None and got["reason"] == "sip_units"
+    assert transactions(db_session) == []  # the spending recorded meanwhile is replaced
+    [trade] = db_session.scalars(select(InvestmentTrade)).all()
+    assert (trade.sip_id, trade.price, trade.quantity) == (
+        s,
+        Decimal("40.0000"),
+        Decimal("125.000"),
+    )
+    assert trade.estimated is True
+    assert balance(headers, b) == "45000.00"
+
+
+def test_expected_sip_without_a_nav_asks_for_it(headers: Headers, db_session: Session) -> None:
+    b, _, s, body = _sip_or_rent(headers, db_session)
+    id_ = stored(db_session, body["hash"]).id
+    response = answer(headers, id_, action="expected", kind="sip", id=s)
+    assert response.status_code == 422
+    assert [e["loc"][-1] for e in response.json()["detail"]] == ["nav"]
+    assert len(transactions(db_session)) == 1
+    assert balance(headers, b) == "45000.00"
+
+
+def test_expected_nav_only_fits_a_sip(headers: Headers, db_session: Session) -> None:
+    b = bank(headers, balance="50000.00")
+    rent = reminder(headers, b)
+    body = entry(amount="10000.00", payee="Landlord Sharma")
+    send(headers, body)
+    id_ = stored(db_session, body["hash"]).id
+    response = answer(headers, id_, action="expected", kind="template", id=rent["id"], nav="40")
+    assert response.status_code == 422
+    assert [e["loc"][-1] for e in response.json()["detail"]] == ["nav"]
+    assert len(transactions(db_session)) == 1
