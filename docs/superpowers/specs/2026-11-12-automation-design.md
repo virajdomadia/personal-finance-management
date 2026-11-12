@@ -1,6 +1,6 @@
 # Automation: transactions from bank SMS, and prices every night
 
-Date: 2026-11-12. Status: approved by the owner.
+Date: 2026-11-12. Status: Builds 2 and 3 implemented (branch sms).
 
 ## Why
 

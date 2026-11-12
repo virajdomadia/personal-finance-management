@@ -104,6 +104,22 @@ npx eas-cli@latest init    # links the project and adds its ID to app.json
 
 Both builds produce an APK to install directly. Rebuild the development app only when native dependencies change; JavaScript changes reload from the dev server.
 
+## SMS transactions
+
+The Android app can fill in transactions from bank SMS. It is off until the owner turns on "Fill in transactions from bank SMS" in the profile screen, which asks for Android's `READ_SMS` permission.
+
+- **What the phone reads.** Only messages from known bank, card and depository (CDSL, NSDL) senders, and only when the app is opened or brought to the front. Messages from anyone else are never opened.
+- **What the server gets.** The phone parses each SMS and sends only the fields (kind, amount, date, last 4 digits, payee, reference, balance) plus a hash of the text. The raw SMS stays on the phone. The one exception is "Send sample": after an explicit tap, one masked message (digits and names replaced) goes to `POST /api/sms/samples`.
+- **Where the parsers are.** `mobile/src/lib/sms/`: `senders.ts` maps a sender header to a bank, `parse.ts` holds the per-bank patterns and a general reader for any other bank, `fixtures.mjs` has the sample messages and what each should parse to. The native inbox reader is the local Expo module `mobile/modules/sms-inbox`. The server side is `backend/app/sms/` and `backend/app/api/routes/sms.py`.
+- **Adding a bank from a "Send sample".** Read the masked sample on the website's To review page (Samples), add it to `fixtures.mjs` with its expected fields, add the sender header to `senders.ts` and a pattern to `parse.ts` if the general reader gets it wrong, run `npm run test` in `mobile/`, then ship it with `npx eas-cli@latest update` (parsers are JavaScript, so no new APK).
+- **To review.** An SMS is recorded straight away when the account and amount are known, so balances match the bank. To review (website and app) asks only for what is missing: a category for a new payee (with "always use this for this payee" ticked by default, which saves a payee rule), the account for an unknown last 4, or whether an SMS is one of several manual entries or a transfer between your accounts. CDSL share movements are drafts until confirmed. Payee rules can be edited on their own page.
+
+Deploy notes:
+
+- The migration `e3b81f46a0d7` (add SMS tables) must be run on Neon by hand before merging, as in "Production database commands" above. Merging deploys the API.
+- The app needs a new APK (`npx eas-cli@latest build -p android --profile production`), because of the native `sms-inbox` module and the new `expo-crypto` and `expo-clipboard` dependencies. `eas update` alone is not enough for this release.
+- `READ_SMS` is a restricted permission, so the app can't be listed on the Play Store. It is installed as an APK.
+
 ## Scripts
 
 | Command        | What it does                         |

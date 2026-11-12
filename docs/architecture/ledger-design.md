@@ -254,6 +254,19 @@ For a liability, "Account +x" lowers what's owed, following the sign convention.
 - **Nesting.** One level: a parent and its children. Parent totals include the children's.
 - **Seeding.** Each user gets the current default list as rows. Free-text categories already in use are backfilled as rows, with case-insensitive duplicates collapsed using the existing "known spelling" rule.
 
+## Transactions from SMS
+
+Transactions the phone reads from bank SMS have `source="sms"`. They are ordinary transactions with the same lines as any other.
+
+- **The one exception to "income and expenses have a category".** An SMS expense or income may have no category yet. Summaries show it as "Uncategorised". Nothing else may omit a category, and the transaction gets one when the owner answers in To review (editing it while it is still uncategorised is allowed too).
+- **Record straight away, ask only for the missing piece.** When the account and amount are known the transaction is recorded at once, so balances match the bank. To review asks only for what is missing: a category, an account for an unknown last 4, or a confirmation. If the account is unknown nothing is recorded yet.
+- **Never counting twice.** Checked in this order:
+  1. The same SMS hash for the same user is ignored.
+  2. The same reference number already recorded for that account is ignored.
+  3. A manual transaction in the same account with the same amount and type within one day, not already linked to an SMS: if exactly one, the SMS links to it and nothing new is created; if several, To review asks "Is this one of these?".
+  4. The two sides of a transfer (a debit in one account and a credit of the same amount in another within 3 days) merge into one transfer only with evidence: a card "payment received" SMS, the same reference on both sides, or a payee rule pointing at the other account. Otherwise both are recorded and To review asks.
+- Deleting a transaction that came from an SMS marks that SMS ignored, so it is not brought back.
+
 ## Opening balances
 
 An account's opening balance is the balance the owner entered when creating it, valid at `opening_date`.
