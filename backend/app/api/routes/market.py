@@ -20,7 +20,7 @@ from app.models.investment import Instrument, InstrumentPrice
 from app.models.market import MarketCode
 from app.prices.fetch import default_fetcher
 from app.prices.parse import Quote, parse_coin_search
-from app.prices.refresh import _upsert_quotes, apply_to_users, refresh_market
+from app.prices.refresh import _upsert_quotes, apply_to_users, refresh_market, sync_user_prices
 
 router = APIRouter(
     prefix="/investments", tags=["investments"], dependencies=[Depends(get_current_user)]
@@ -102,6 +102,12 @@ class UnlinkedResponse(BaseModel):
 
 class RefreshedResponse(BaseModel):
     refreshed: bool
+
+
+class SyncResponse(BaseModel):
+    synced_at: str
+    updated: dict[str, int]
+    failed: dict[str, str]
 
 
 def _market_response(row: MarketCode) -> MarketCodeResponse:
@@ -235,3 +241,17 @@ def refresh_coins(user: CurrentUser, db: DbSession) -> RefreshedResponse:
     apply_to_users(db, only_kind="crypto", user_id=user.id)
     db.commit()
     return RefreshedResponse(refreshed=True)
+
+
+@router.post("/prices/sync")
+def sync_prices(user: CurrentUser, db: DbSession) -> SyncResponse:
+    """The Sync prices button. Only this user's holdings; a source that is down is reported in
+    `failed`, never as an error, and what is stored stays."""
+    now = datetime.now(UTC)
+    with default_fetcher() as fetcher:
+        report = sync_user_prices(db, fetcher, user.id, today_india(), now)
+    return SyncResponse(
+        synced_at=now.isoformat().replace("+00:00", "Z"),
+        updated=report.updated,
+        failed=report.failed,
+    )

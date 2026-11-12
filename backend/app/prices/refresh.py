@@ -9,10 +9,10 @@ import logging
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models.investment import Instrument, InstrumentPrice
@@ -94,15 +94,16 @@ def _set_prices(
     return count
 
 
-def _linked_codes(db: Session, kind: str) -> list[str]:
-    return list(
-        db.scalars(
-            select(Instrument.source_code)
-            .where(Instrument.kind == kind, Instrument.source_code.is_not(None))
-            .distinct()
-            .order_by(Instrument.source_code)
-        )
+def _linked_codes(db: Session, kind: str, user_id: int | None = None) -> list[str]:
+    query = (
+        select(Instrument.source_code)
+        .where(Instrument.kind == kind, Instrument.source_code.is_not(None))
+        .distinct()
+        .order_by(Instrument.source_code)
     )
+    if user_id is not None:
+        query = query.where(Instrument.user_id == user_id)
+    return list(db.scalars(query))
 
 
 def _refresh_funds(db: Session, fetcher: Fetcher) -> int:
@@ -116,11 +117,16 @@ Clock = Callable[[], float]
 
 
 def _yahoo_closes(
-    db: Session, fetcher: Fetcher, deadline: float, clock: Clock, notes: list[str]
+    db: Session,
+    fetcher: Fetcher,
+    deadline: float,
+    clock: Clock,
+    notes: list[str],
+    user_id: int | None = None,
 ) -> dict[str, tuple[Decimal, date]]:
     closes: dict[str, tuple[Decimal, date]] = {}
     errors: list[str] = []
-    symbols = _linked_codes(db, "stock")
+    symbols = _linked_codes(db, "stock", user_id)
     for i, symbol in enumerate(symbols):
         if clock() >= deadline:
             skipped = symbols[i:]
@@ -308,4 +314,109 @@ def run_nightly(
     for kind, message in report.failed.items():
         log.warning("price source %s failed: %s", kind, message)
     log.info("nightly prices: updated=%s written=%d", report.updated, written)
+    return report
+
+
+SYNC_FRESH = timedelta(seconds=60)  # a kind synced this recently is not fetched again
+FUNDS_MAX_AGE = timedelta(hours=6)  # AMFI's big file is daily
+SYNC_BUDGET_SECONDS = 45
+
+
+def _newest_update(db: Session, kind: str, user_id: int) -> datetime | None:
+    """When the newest of the user's linked codes of `kind` was last fetched."""
+    newest = db.scalar(
+        select(func.max(MarketCode.updated_at))
+        .join(
+            Instrument,
+            (Instrument.kind == MarketCode.kind) & (Instrument.source_code == MarketCode.code),
+        )
+        .where(Instrument.user_id == user_id, Instrument.kind == kind)
+    )
+    if newest is not None and newest.tzinfo is None:  # SQLite hands back naive UTC
+        newest = newest.replace(tzinfo=UTC)
+    return newest
+
+
+def _sync_crypto(db: Session, fetcher: Fetcher, today: date, user_id: int) -> int:
+    ids = _linked_codes(db, "crypto", user_id)
+    prices = parse_simple_price(fetcher.simple_price(ids))
+    return _set_prices(db, "crypto", {c: (p, today) for c, p in prices.items()}, True)
+
+
+def _sync_stocks(
+    db: Session,
+    fetcher: Fetcher,
+    user_id: int,
+    deadline: float,
+    clock: Clock,
+    report: RefreshReport,
+) -> int:
+    notes: list[str] = []
+    quotes = _yahoo_closes(db, fetcher, deadline, clock, notes, user_id)
+    known = _existing(db, "stock")
+    # An older quote never replaces a newer price (say, the official close already stored).
+    fresh = {
+        c: q
+        for c, q in quotes.items()
+        if c in known and (known[c].price_date is None or q[1] >= known[c].price_date)
+    }
+    count = _set_prices(db, "stock", fresh, create_missing=False)
+    if notes:
+        report.failed["stock"] = "; ".join(notes)
+    return count
+
+
+def _sync_funds(db: Session, fetcher: Fetcher, user_id: int) -> int:
+    count = _refresh_funds(db, fetcher)
+    codes = _linked_codes(db, "mutual_fund", user_id)
+    # The file is fetched, even if a NAV did not change: those funds are fresh now.
+    db.execute(
+        update(MarketCode)
+        .where(MarketCode.kind == "mutual_fund", MarketCode.code.in_(codes))
+        .values(updated_at=func.now())
+    )
+    return count
+
+
+def sync_user_prices(
+    db: Session,
+    fetcher: Fetcher,
+    user_id: int,
+    today: date,
+    now: datetime,
+    clock: Clock = time.monotonic,
+) -> RefreshReport:
+    """The Sync button: fetch the latest for one user's linked holdings, and write only theirs.
+
+    A kind fetched under a minute ago is skipped (funds: under six hours, as the file is large
+    and daily). Stocks use Yahoo's latest quote, which is intraday while the market is open; the
+    nightly official close replaces it. Commits each kind. What time ran out on goes in `failed`.
+    """
+    report = RefreshReport()
+    deadline = clock() + SYNC_BUDGET_SECONDS
+    for kind in KINDS:
+        if not _linked_codes(db, kind, user_id):
+            continue
+        newest = _newest_update(db, kind, user_id)
+        max_age = FUNDS_MAX_AGE if kind == "mutual_fund" else SYNC_FRESH
+        if newest is not None and now - newest < max_age:
+            continue
+        if clock() >= deadline:
+            report.failed[kind] = "time ran out before this could be fetched"
+            continue
+        jobs = {
+            "crypto": lambda: _sync_crypto(db, fetcher, today, user_id),
+            "stock": lambda: _sync_stocks(db, fetcher, user_id, deadline, clock, report),
+            "mutual_fund": lambda: _sync_funds(db, fetcher, user_id),
+        }
+        try:
+            with db.begin_nested():
+                report.updated[kind] = jobs[kind]()
+        except SourceError as exc:
+            report.failed[kind] = str(exc)
+        except Exception as exc:
+            log.exception("price sync of %s crashed", kind)
+            report.failed[kind] = f"unexpected {exc.__class__.__name__}"
+        apply_to_users(db, only_kind=kind, user_id=user_id)
+        db.commit()
     return report

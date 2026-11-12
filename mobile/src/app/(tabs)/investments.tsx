@@ -12,7 +12,7 @@ import { type GoalTag, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type CoinTotal, type CryptoTradeMode, formatCoinAverage, formatCoinPrice, formatCoinQty } from "@/lib/crypto";
 import { type FundTotal, type FundTradeMode, type Sip, dueText, formatNav, formatUnits } from "@/lib/funds";
-import { type DepositRow, type DepositsPortfolio, type Portfolio, type StockTotal, type Totals, type Unlinked, formatSigned, tone } from "@/lib/investments";
+import { type DepositRow, type DepositsPortfolio, type Portfolio, type StockTotal, type SyncResult, type SyncState, type Totals, type Unlinked, formatSigned, syncOutcome, syncStatusText, tone } from "@/lib/investments";
 import { accountEmoji, investmentEmoji, investmentSticker } from "@/lib/fun";
 import { useSession } from "@/lib/session";
 import { BRAND, INPUT_RADIUS, SHADOW_OFFSET_SM } from "@/lib/theme";
@@ -87,6 +87,20 @@ export default function InvestmentsScreen() {
       };
     }, [load, token]),
   );
+
+  // Sync prices: fetch this user's latest prices on the server, then reload. Never blocks the tab.
+  const [sync, setSync] = useState<SyncState>({ status: "idle" });
+  const syncPrices = useCallback(async () => {
+    setSync({ status: "syncing" });
+    try {
+      const result = await apiFetch<SyncResult>("/investments/prices/sync", { method: "POST", token: token ?? undefined });
+      setSync(syncOutcome(result));
+      void load();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) void logOut();
+      else setSync(syncOutcome(null));
+    }
+  }, [token, load, logOut]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -370,7 +384,24 @@ export default function InvestmentsScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScreenHeader title="Investments" />
+      <ScreenHeader
+        title="Investments"
+        right={
+          <ChunkyButton
+            compact
+            variant="alt"
+            icon="sync"
+            label="Sync prices"
+            loading={sync.status === "syncing"}
+            onPress={() => void syncPrices()}
+          />
+        }
+      />
+      {sync.status === "idle" ? null : (
+        <Text variant="labelMedium" accessibilityLiveRegion="polite" style={[styles.syncLine, sync.status === "partial" ? styles.error : null]}>
+          {syncStatusText(sync)}
+        </Text>
+      )}
 
       <View style={styles.segments}>
         <Segmented<Segment>
@@ -693,6 +724,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
+  syncLine: { paddingHorizontal: 16, paddingBottom: 4 },
   segments: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 },
   content: { paddingBottom: 112 },
   header: { paddingHorizontal: 16, paddingTop: 8, gap: 12 },

@@ -35,9 +35,13 @@ import {
   type StockTotal,
   type Totals,
   type Trade,
+  type SyncResult,
+  type SyncState,
   type Unlinked,
   holdingKinds,
   settle,
+  syncOutcome,
+  syncStatusText,
 } from "@/lib/investments";
 import { todayIndia } from "@/lib/transactions";
 import { investmentEmoji, investmentSticker } from "@/lib/fun";
@@ -166,6 +170,28 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
       .catch(() => {});
   }, [reload]);
 
+  // The Sync prices button: fetches this user's latest prices, then reloads the portfolio. It never
+  // blocks the page; a failed request just reads as a partial sync.
+  const [sync, setSync] = useState<SyncState>({ status: "idle" });
+  const syncing = useRef(false);
+  const syncPrices = () => {
+    if (syncing.current) return;
+    syncing.current = true;
+    setSync({ status: "syncing" });
+    apiFetch<SyncResult>("/investments/prices/sync", { method: "POST" })
+      .then((res) => {
+        setSync(syncOutcome(res));
+        reload();
+      })
+      .catch((err: unknown) => {
+        if (isUnauthorized(err)) void logout();
+        else setSync(syncOutcome(null));
+      })
+      .finally(() => {
+        syncing.current = false;
+      });
+  };
+
   // A section's "Try again" reloads everything; it shows that it is working until the data lands.
   const retry = () => {
     setRetrying(true);
@@ -197,7 +223,19 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader title="Investments" />
+      <PageHeader
+        title="Investments"
+        action={
+          <>
+            <span role="status" className="text-sm font-bold text-zinc-600">
+              {syncStatusText(sync)}
+            </span>
+            <button type="button" className={SECONDARY} disabled={sync.status === "syncing"} onClick={syncPrices}>
+              {sync.status === "syncing" ? "Syncing…" : "Sync prices"}
+            </button>
+          </>
+        }
+      />
       {data && <Overall portfolio={data.portfolio} />}
 
       <Notice message={notice} />

@@ -266,3 +266,22 @@ export function formatPercent(value: string): string {
   if (isZero(text)) return `${text.replace(/^[-+]/, "")}%`;
   return text.startsWith("-") ? `${MINUS}${text.slice(1)}%` : `+${text.replace(/^\+/, "")}%`;
 }
+
+// The Sync prices button: what POST /investments/prices/sync answers.
+export type SyncResult = { synced_at: string; updated: Record<string, number>; failed: Record<string, string> };
+export type SyncState = { status: "idle" | "syncing" | "done" | "partial" };
+
+export const SYNC_PARTIAL = "Some prices couldn't be fetched. Try again later.";
+
+// The line shown beside the button; nothing before the first sync.
+export function syncStatusText(state: SyncState): string {
+  if (state.status === "syncing") return "Syncing…";
+  if (state.status === "done") return "Updated just now";
+  if (state.status === "partial") return SYNC_PARTIAL;
+  return "";
+}
+
+// A source that failed, or a request that did not get through, is a partial sync.
+export function syncOutcome(result: SyncResult | null): SyncState {
+  return { status: result !== null && Object.keys(result.failed).length === 0 ? "done" : "partial" };
+}

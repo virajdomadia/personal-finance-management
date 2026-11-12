@@ -9,6 +9,8 @@ import {
   marketSearchPath,
   parseDismissed,
   selectedLabel,
+  syncOutcome,
+  syncStatusText,
   shouldShowLinkPrompt,
   changedTrade,
   formatPercent,
@@ -233,4 +235,18 @@ test("parseDismissed ignores missing or broken values", () => {
 
 test("a pick reads as selected, not linked, until it is saved", () => {
   assert.equal(selectedLabel("Bitcoin (BTC)"), "Selected: Bitcoin (BTC)");
+});
+
+test("the sync line says what is happening, and nothing before the first sync", () => {
+  assert.equal(syncStatusText({ status: "idle" }), "");
+  assert.equal(syncStatusText({ status: "syncing" }), "Syncing…");
+  assert.equal(syncStatusText({ status: "done" }), "Updated just now");
+  assert.equal(syncStatusText({ status: "partial" }), "Some prices couldn't be fetched. Try again later.");
+});
+
+test("a sync is done only when no source failed and the request got through", () => {
+  const ok = { synced_at: "2026-11-12T10:00:00Z", updated: { crypto: 2 }, failed: {} };
+  assert.deepEqual(syncOutcome(ok), { status: "done" });
+  assert.deepEqual(syncOutcome({ ...ok, failed: { stock: "down" } }), { status: "partial" });
+  assert.deepEqual(syncOutcome(null), { status: "partial" });
 });

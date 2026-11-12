@@ -12,6 +12,8 @@ import {
   marketSearchPath,
   parseDismissed,
   selectedLabel,
+  syncOutcome,
+  syncStatusText,
   shouldShowLinkPrompt,
   unlinkedIds,
   settle,
@@ -205,4 +207,18 @@ test("the empty search names what to try for each kind", () => {
   assert.equal(NO_MATCH.stock, "No match. Try the company's full name.");
   assert.equal(NO_MATCH.mutual_fund, "No match. Try the fund's full name.");
   assert.equal(NO_MATCH.crypto, "No match. Try the coin's full name.");
+});
+
+test("the sync line says what is happening, and nothing before the first sync", () => {
+  assert.equal(syncStatusText({ status: "idle" }), "");
+  assert.equal(syncStatusText({ status: "syncing" }), "Syncing…");
+  assert.equal(syncStatusText({ status: "done" }), "Updated just now");
+  assert.equal(syncStatusText({ status: "partial" }), "Some prices couldn't be fetched. Try again later.");
+});
+
+test("a sync is done only when no source failed and the request got through", () => {
+  const ok = { synced_at: "2026-11-12T10:00:00Z", updated: { crypto: 2 }, failed: {} };
+  assert.deepEqual(syncOutcome(ok), { status: "done" });
+  assert.deepEqual(syncOutcome({ ...ok, failed: { stock: "down" } }), { status: "partial" });
+  assert.deepEqual(syncOutcome(null), { status: "partial" });
 });
