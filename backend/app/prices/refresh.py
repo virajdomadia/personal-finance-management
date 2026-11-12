@@ -28,6 +28,8 @@ from app.prices.parse import (
 log = logging.getLogger("app.prices")
 
 KINDS = ("mutual_fund", "stock", "crypto")
+NAME_MAX = 160  # MarketCode.name
+CODE_MAX = 40  # MarketCode.code
 
 
 @dataclass
@@ -46,13 +48,16 @@ def _upsert_quotes(db: Session, kind: str, quotes: Iterable[Quote]) -> int:
     known = _existing(db, kind)
     priced = 0
     for q in quotes:
+        if len(q.code) > CODE_MAX:
+            continue  # never store a truncated code
+        name = q.name[:NAME_MAX]
         row = known.get(q.code)
         if row is None:
-            row = known[q.code] = MarketCode(kind=kind, code=q.code, name=q.name, isin=q.isin)
+            row = known[q.code] = MarketCode(kind=kind, code=q.code, name=name, isin=q.isin)
             db.add(row)
         else:
-            if row.name != q.name:
-                row.name = q.name
+            if row.name != name:
+                row.name = name
             if q.isin and row.isin != q.isin:
                 row.isin = q.isin
         if q.price is not None and q.price_date is not None:
@@ -124,7 +129,9 @@ def _refresh_stocks(db: Session, fetcher: Fetcher, today: date) -> int:
     except SourceError:
         text = None  # NSE answers 403 on some holidays; treat it like "no file today"
     try:
-        closes = parse_bhavcopy(text) if text is not None else _yahoo_closes(db, fetcher)
+        closes = parse_bhavcopy(text) if text is not None else {}
+        if not closes:  # no file, or one we can no longer read: fall back to linked stocks
+            closes = _yahoo_closes(db, fetcher)
         count = _set_prices(db, "stock", closes, create_missing=False)
     except SourceError as exc:
         errors.append(str(exc))
@@ -160,6 +167,9 @@ def refresh_market(
                 report.updated[kind] = jobs[kind]()
         except SourceError as exc:
             report.failed[kind] = str(exc)
+        except Exception as exc:
+            log.exception("price source %s crashed", kind)
+            report.failed[kind] = f"unexpected {exc.__class__.__name__}"
     return report
 
 

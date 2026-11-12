@@ -25,28 +25,41 @@ def read(name: str) -> str:
 class FakeFetcher(Fetcher):
     """`fail` names the methods that raise SourceError; `holiday` makes bhavcopy return None."""
 
-    def __init__(self, fail: set[str] | None = None, holiday: bool = False):
+    def __init__(
+        self,
+        fail: set[str] | None = None,
+        holiday: bool = False,
+        crash: set[str] | None = None,
+        texts: dict[str, str] | None = None,
+    ):
         super().__init__(httpx.Client())
         self.fail = fail or set()
         self.holiday = holiday
+        self.crash = crash or set()  # methods that raise a non-SourceError
+        self.texts = texts or {}  # fixture-file name -> replacement text
         self.calls: Counter[str] = Counter()
 
     def _hit(self, method: str) -> None:
         self.calls[method] += 1
         if method in self.fail:
             raise SourceError(f"{method} is down")
+        if method in self.crash:
+            raise RuntimeError(f"{method} blew up")
+
+    def _read(self, name: str) -> str:
+        return self.texts.get(name, read(name))
 
     def navall(self) -> str:
         self._hit("navall")
-        return read("navall.txt")
+        return self._read("navall.txt")
 
     def equity_list(self) -> str:
         self._hit("equity_list")
-        return read("equity_l.csv")
+        return self._read("equity_l.csv")
 
     def bhavcopy(self, day: date) -> str | None:
         self._hit("bhavcopy")
-        return None if self.holiday else read("bhavcopy.csv")
+        return None if self.holiday else self._read("bhavcopy.csv")
 
     def simple_price(self, ids: list[str]) -> dict:
         self._hit("simple_price")

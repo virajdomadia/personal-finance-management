@@ -22,6 +22,7 @@ from tests.price_fakes import (
     STOCK_CODE,
     STOCK_DATE,
     FakeFetcher,
+    read,
 )
 from tests.test_accounts import Headers, auth
 from tests.test_fund_trades import bank, buy, fund
@@ -167,6 +168,8 @@ def test_fund_trade_nav_counts_as_existing(
 def test_holiday_bhavcopy_none_falls_back_to_yahoo(db_session: Session) -> None:
     a = user(db_session, "a@example.com")
     s = link(db_session, a, "stock", STOCK_CODE)
+    f = link(db_session, a, "mutual_fund", FUND_CODE)
+    c = link(db_session, a, "crypto", COIN_ID)
     fetcher = FakeFetcher(holiday=True)
 
     report = run_nightly(db_session, fetcher, TODAY)
@@ -175,6 +178,44 @@ def test_holiday_bhavcopy_none_falls_back_to_yahoo(db_session: Session) -> None:
     assert fetcher.calls["yahoo_chart"] == 1  # only the linked stock
     [row] = rows(db_session, s)
     assert row.source == "auto" and row.price == Decimal("1312.45")
+    assert [r.price for r in rows(db_session, f)] == [FUND_NAV]
+    assert [r.price for r in rows(db_session, c)] == [COIN_PRICE]
+
+
+def test_unreadable_bhavcopy_falls_back_to_yahoo(db_session: Session) -> None:
+    a = user(db_session, "a@example.com")
+    s = link(db_session, a, "stock", STOCK_CODE)
+    fetcher = FakeFetcher(texts={"bhavcopy.csv": "Some,New,Format\n1,2,3\n"})
+    report = run_nightly(db_session, fetcher, TODAY)
+    assert report.failed == {}
+    assert fetcher.calls["yahoo_chart"] == 1
+    assert [r.price for r in rows(db_session, s)] == [STOCK_CLOSE]
+
+
+def test_overlong_name_is_clipped_and_overlong_code_skipped(db_session: Session) -> None:
+    text = read("navall.txt")
+    long_name = "Z" * 200
+    long_line = f"{'9' * 41};-;-;{long_name};10.5;11-Nov-2026"
+    clipped_line = f"777777;-;-;{long_name};10.5;11-Nov-2026"
+    fetcher = FakeFetcher(texts={"navall.txt": text + long_line + "\n" + clipped_line + "\n"})
+    report = refresh_market(db_session, fetcher, TODAY, {"mutual_fund"})
+    assert report.failed == {}
+    assert market(db_session, "mutual_fund", "777777").name == "Z" * 160
+    assert db_session.scalar(select(MarketCode).where(MarketCode.code == "9" * 41)) is None
+
+
+def test_unexpected_error_in_one_source_does_not_block_others(db_session: Session) -> None:
+    a = user(db_session, "a@example.com")
+    f = link(db_session, a, "mutual_fund", FUND_CODE)
+    s = link(db_session, a, "stock", STOCK_CODE)
+    c = link(db_session, a, "crypto", COIN_ID)
+
+    report = run_nightly(db_session, FakeFetcher(crash={"navall"}), TODAY)
+
+    assert list(report.failed) == ["mutual_fund"]
+    assert "RuntimeError" in report.failed["mutual_fund"]
+    assert rows(db_session, f) == []
+    assert len(rows(db_session, s)) == 1 and len(rows(db_session, c)) == 1
 
 
 def test_bhavcopy_error_falls_back_to_yahoo(db_session: Session) -> None:
