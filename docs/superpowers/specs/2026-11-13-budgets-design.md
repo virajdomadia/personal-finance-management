@@ -86,12 +86,11 @@ Every kind reuses its existing due logic: recurring occurrence status (`app.api.
 amount                 # can be negative
 until, payday          # the last day counted; payday: {name, date} or null
 reason                 # "salary" | "month_end"
-lines: [
-  {key: "money",   label, amount, items: [{name, amount}]},     # each bank, cash, wallet
-  {key: "due",     label, amount, items: [{date, name, kind, amount}]},
-  {key: "goals",   label, amount, items: [{name, amount}]},     # by goal
-  {key: "budgets", label, amount, items: [{name, remaining, due, amount}]},
-]
+money, due, goals, budgets                        # the four lines
+money_items:  [{name, amount}]                    # each bank, cash and wallet account
+due_items:    [{date, name, kind, amount, overdue, varies}]
+goal_items:   [{name, amount}]                    # earmarks by goal
+budget_items: [{category_id, name, remaining, due, amount}]   # due: bills already counted above
 ```
 
 The formula and its edge cases are in financial-calculations.md. `amount = money − due − goals − budgets`.
