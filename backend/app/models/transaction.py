@@ -1,7 +1,7 @@
 import datetime as dt
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, func
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -9,6 +9,8 @@ from app.db.base import Base
 
 class Transaction(Base):
     __tablename__ = "transactions"
+    # Month summaries and date-range searches read one user's transactions by date.
+    __table_args__ = (Index("ix_transactions_user_id_date", "user_id", "date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
@@ -20,7 +22,8 @@ class Transaction(Base):
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), index=True)
     # Transfers: the account money enters. EMIs: the loan being repaid.
     to_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), index=True)
-    # Income and expense only; an EMI's is always "Loan interest".
+    # Income and expense only; an EMI's is always "Loan interest". A name from the user's
+    # `categories` (the registry), in its spelling there.
     category: Mapped[str | None] = mapped_column(String(40))
     # EMIs only: the part of `amount` that is interest and charges. The rest repays the loan.
     interest: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))

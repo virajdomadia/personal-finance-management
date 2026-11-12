@@ -4,11 +4,12 @@ import { KeyboardAvoidingView, ScrollView, StyleSheet, Text as NativeText, View 
 import { Checkbox, HelperText, RadioButton, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ChunkyBox, ChunkyButton, Chip, ScreenHeader, Segmented, TONE_SQUARE } from "@/components/chunky";
+import { ChunkyBox, ChunkyButton, ScreenHeader, Segmented, TONE_SQUARE } from "@/components/chunky";
+import { CategoryChips } from "@/components/category-chips";
 import { Banner, LoadingScreen, useBlockBack } from "@/components/form-parts";
 import { type Account, type AccountList, errorMessage, maskLast4, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { categoryEmoji } from "@/lib/fun";
+import { CATEGORIES_PATH, EMPTY_TREE, type CategoryTree, pickerGroups, sameName } from "@/lib/categories";
 import {
   type Action,
   type Candidate,
@@ -30,7 +31,6 @@ import {
 } from "@/lib/review";
 import { useSession } from "@/lib/session";
 import { BRAND, INPUT_RADIUS } from "@/lib/theme";
-import type { CategoryList } from "@/lib/transactions";
 
 // Every field a 422 can name that this screen shows a control for; anything else goes in the banner.
 const FIELDS = [
@@ -49,7 +49,7 @@ const FIELDS = [
   "quantity",
 ] as const;
 
-type Loaded = { item: ReviewItem | null; accounts: Account[]; categories: CategoryList };
+type Loaded = { item: ReviewItem | null; accounts: Account[]; categories: CategoryTree };
 
 export default function ReviewItemScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -66,9 +66,9 @@ export default function ReviewItemScreen() {
         apiFetch<{ items: ReviewItem[] }>("/sms/review", auth),
         apiFetch<AccountList>("/accounts", auth),
         // Only suggestions: without them a category can still be typed.
-        apiFetch<CategoryList>("/transactions/categories", auth).catch((err: unknown) => {
+        apiFetch<CategoryTree>(CATEGORIES_PATH, auth).catch((err: unknown) => {
           if (err instanceof ApiError && err.status === 401) throw err;
-          return { income: [], expense: [] };
+          return EMPTY_TREE;
         }),
       ]);
       setLoaded({ item: list.items.find((i) => String(i.id) === id) ?? null, accounts: accounts.accounts, categories });
@@ -137,7 +137,7 @@ function Gone({ text }: { text: string }) {
 type AnswerProps = {
   item: ReviewItem;
   accounts: Account[]; // active
-  categories: CategoryList;
+  categories: CategoryTree;
   note: string | null;
   onAnswered: (action: Action, next: ReviewItem | null) => void;
 };
@@ -309,19 +309,12 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
         />
         {errorText("category")}
       </View>
-      <View style={styles.chips}>
-        {categories[type].map((c) => (
-          <Chip
-            key={c}
-            label={`${categoryEmoji(c)} ${c}`}
-            accessibilityLabel={c}
-            accessibilityRole="radio"
-            selected={category.trim().toLowerCase() === c.toLowerCase()}
-            disabled={disabled}
-            onPress={() => setCategory(c)}
-          />
-        ))}
-      </View>
+      <CategoryChips
+        groups={pickerGroups(categories[type])}
+        selected={(name) => sameName(category, name)}
+        onPick={setCategory}
+        disabled={disabled}
+      />
       {item.payee !== null ? rememberBox(`Always use this for ${item.payee}`) : null}
     </>
   );
@@ -634,7 +627,6 @@ const styles = StyleSheet.create({
   sectionTitle: { color: BRAND.ink, letterSpacing: 0.6, textTransform: "uppercase" },
   options: { gap: 6 },
   option: { paddingVertical: 4 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   check: { paddingHorizontal: 0 },
   pair: { flexDirection: "row", gap: 10 },
   half: { flex: 1, minWidth: 0 },
