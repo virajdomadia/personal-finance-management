@@ -226,7 +226,7 @@ def _price(values: dict[str, Any]) -> Decimal:
     return values["nav"]
 
 
-def _columns(values: dict[str, Any], price: Decimal) -> dict[str, Any]:
+def fund_columns(values: dict[str, Any], price: Decimal) -> dict[str, Any]:
     return {
         "instrument_id": values["fund_id"],
         "account_id": values["account_id"],
@@ -363,7 +363,7 @@ def _check_amounts(values: dict[str, Any]) -> Decimal:
     return nav
 
 
-def _save_checks(
+def fund_save_checks(
     db: Session,
     user_id: int,
     accounts: dict[int, Account],
@@ -448,8 +448,8 @@ def _defaults(values: dict[str, Any]) -> dict[str, Any]:
 def create_fund_trade(body: FundTradeCreate, user: CurrentUser, db: DbSession) -> FundTrade:
     values = _defaults(body.model_dump())
     accounts = lock_accounts(db, user.id, [values["account_id"]])
-    account, price = _save_checks(db, user.id, accounts, values, existing_id=None)
-    trade = InvestmentTrade(user_id=user.id, **_columns(values, price))
+    account, price = fund_save_checks(db, user.id, accounts, values, existing_id=None)
+    trade = InvestmentTrade(user_id=user.id, **fund_columns(values, price))
     db.add(trade)
     try:
         db.flush()  # gives the trade its id, for its NAV row
@@ -488,9 +488,9 @@ def update_fund_trade(
         **changes,
     }
     require_active(accounts, [trade.account_id, values["account_id"]])
-    account, price = _save_checks(db, user.id, accounts, values, existing_id=trade.id)
+    account, price = fund_save_checks(db, user.id, accounts, values, existing_id=trade.id)
     was = (trade.instrument_id, trade.date, trade.opening)
-    for field, value in _columns(values, price).items():
+    for field, value in fund_columns(values, price).items():
         setattr(trade, field, value)
     try:
         db.flush()

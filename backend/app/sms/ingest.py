@@ -20,8 +20,12 @@ from app.api.routes.transactions import lock_accounts, save_checks
 from app.models.account import Account
 from app.models.sms import AccountIdentifier, PayeeRule, SmsEntry
 from app.models.transaction import Transaction
+from app.sms.expected import apply_expected, expected_candidates, rule_template
 from app.sms.merchants import builtin_category
 from app.sms.payees import display_name, payee_key
+from app.sms.recording import link as _link
+from app.sms.recording import record
+from app.sms.recording import review as _review
 
 if TYPE_CHECKING:
     from app.api.routes.sms import ParsedSms
@@ -97,13 +101,6 @@ def decide(db: Session, user_id: int, sms: "ParsedSms") -> tuple[SmsEntry, bool]
 
 def ingest(db: Session, user_id: int, sms: "ParsedSms") -> SmsEntry:
     return decide(db, user_id, sms)[0]
-
-
-def _review(entry: SmsEntry, reason: str, message: str | None = None) -> SmsEntry:
-    entry.status = "review"
-    entry.reason = reason
-    entry.message = None if message is None else message[:200]
-    return entry
 
 
 # Accounts
@@ -227,42 +224,7 @@ def _typed_by_hand(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | Non
     return entry
 
 
-# Recording
-
-
-def record(db: Session, user_id: int, entry: SmsEntry, values: dict[str, Any]) -> bool:
-    """Saves the transaction under the usual checks and links it to the entry.
-
-    When a check fails (below ₹0, say) nothing is recorded: the entry waits in review with the
-    checker's message.
-    """
-    values = {
-        "to_account_id": None,
-        "interest": None,
-        "note": None,
-        "recurring_template_id": None,
-        **values,
-    }
-    accounts = lock_accounts(db, user_id, [values["account_id"], values["to_account_id"]])
-    try:
-        save_checks(db, user_id, accounts, values, existing_id=None, allow_uncategorised=True)
-    except RequestValidationError as error:
-        _review(entry, "balance", error.errors()[0]["msg"])
-        entry.transaction_id = None
-        return False
-    tx = Transaction(user_id=user_id, source="sms", **values)
-    db.add(tx)
-    db.flush()
-    entry.transaction_id = tx.id
-    return True
-
-
 # Transfers
-
-
-def _link(entry: SmsEntry, tx_id: int) -> None:
-    entry.transaction_id = tx_id
-    entry.status, entry.reason, entry.message, entry.candidates = "recorded", None, None, None
 
 
 def _near(column: Any, day: date) -> Any:
@@ -541,13 +503,16 @@ def _debit_side(db: Session, user_id: int, entry: SmsEntry, account: Account) ->
             _category_for(db, user_id, entry) is None or _bill_like(entry.payee_key, card)
         ):
             return _record_transfer(db, user_id, entry, card.id, waiting[0])
-    other_side = _sms_sides(db, user_id, entry, "credit", "income", SmsEntry.account_id != here)
-    if other_side:
-        _maybe_transfer(db, user_id, entry, other_side)
-    else:
-        _category(db, user_id, entry)
+    # Not a transfer the evidence proves: an EMI, a SIP or a reminder before a guess.
+    if expected_payment(db, user_id, entry, account) is None:
+        other_side = _sms_sides(db, user_id, entry, "credit", "income", SmsEntry.account_id != here)
+        if other_side:
+            _maybe_transfer(db, user_id, entry, other_side)
+        else:
+            _category(db, user_id, entry)
     tx = None if entry.transaction_id is None else db.get(Transaction, entry.transaction_id)
-    if tx is not None:
+    # A plain expense may have paid the card; an EMI or a reminder's payment didn't.
+    if tx is not None and tx.type == "expense" and tx.recurring_template_id is None:
         for card_entry in waiting:
             _offer(card_entry, tx)
     return entry
@@ -639,6 +604,48 @@ def _transfer(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
     return pair_transfer(db, user_id, entry, account)
 
 
+# Expected payments
+
+
+def expected_payment(
+    db: Session, user_id: int, entry: SmsEntry, account: Account
+) -> SmsEntry | None:
+    """A debit that is an EMI, a SIP instalment or a recurring reminder ticks it off.
+
+    One candidate is applied when the evidence is enough: an EMI or SIP (the account and exact
+    amount), or a reminder the payee is tied to by a rule. Otherwise the money is recorded as an
+    uncategorised expense and the owner is asked, with every candidate. Nothing is guessed.
+    """
+    if entry.kind != "debit" or entry.amount is None:
+        return None
+    found = expected_candidates(
+        db, user_id, account, entry.amount, entry.occurred_on, entry.payee_key
+    )
+    if not found:
+        return None
+    if len(found) == 1:
+        only = found[0]
+        tied = rule_template(db, user_id, entry.payee_key) == only["id"]
+        if only["kind"] != "template" or tied:
+            apply_expected(db, user_id, entry, only)
+            return entry
+        message = f"Is this your {only['label']}?"
+    else:
+        message = "Which of your expected payments is this?"
+    values = {
+        "type": "expense",
+        "account_id": entry.account_id,
+        "amount": entry.amount,
+        "date": entry.occurred_on,
+        "category": None,
+        "note": entry.payee,
+    }
+    if record(db, user_id, entry, values):
+        _review(entry, "expected", message)
+        entry.candidates = [dict(c) for c in found]
+    return entry
+
+
 def _category_for(db: Session, user_id: int, entry: SmsEntry) -> str | None:
     """The owner's rule for this payee, else (for money out) the built-in merchant list."""
     if entry.payee_key is None:
@@ -679,7 +686,8 @@ def _category(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
     return entry
 
 
-# The order matters: later tasks insert expected payments before `_category`.
+# The order matters. Expected payments (`expected_payment`) are decided inside `_transfer`, for
+# debits no transfer evidence claimed, before they fall back to `_category`.
 STEPS: list[Step] = [
     _demat,
     _account,
