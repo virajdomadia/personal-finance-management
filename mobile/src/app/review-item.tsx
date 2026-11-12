@@ -24,10 +24,12 @@ import {
   expectedChoices,
   marketPrefill,
   needsNav,
+  rememberLabel,
   reviewDetails,
   reviewFigure,
   reviewTitle,
   tradeBody,
+  whyLine,
 } from "@/lib/review";
 import { useSession } from "@/lib/session";
 import { BRAND, INPUT_RADIUS } from "@/lib/theme";
@@ -160,9 +162,12 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
   const [stale, setStale] = useState<string | null>(null);
-  const [category, setCategory] = useState("");
+  // A draft opens with its payee's usual category (or account) already picked.
+  const [category, setCategory] = useState(item.suggested_category ?? "");
   const [remember, setRemember] = useState(true);
-  const [accountId, setAccountId] = useState("");
+  const [accountId, setAccountId] = useState(
+    item.suggested_account_id !== null ? String(item.suggested_account_id) : "",
+  );
   const [same, setSame] = useState(transactions.length === 1 ? String(transactions[0].id) : "");
   const [transfer, setTransfer] = useState(transactions.length === 1 ? String(transactions[0].id) : "");
   const [expectedKey, setExpectedKey] = useState(expected.length === 1 ? `${expected[0].kind}:${expected[0].id}` : "");
@@ -315,7 +320,7 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
         onPick={setCategory}
         disabled={disabled}
       />
-      {item.payee !== null ? rememberBox(`Always use this for ${item.payee}`) : null}
+      {item.payee !== null ? rememberBox(rememberLabel(item.payee, category)) : null}
     </>
   );
 
@@ -415,6 +420,15 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
             {item.message ? (
               <Text variant="bodyMedium" style={styles.ink}>
                 {item.message}
+              </Text>
+            ) : null}
+            {item.why ? (
+              <Text
+                variant="labelLarge"
+                style={item.confident ? styles.sure : styles.muted}
+                accessibilityLabel={`${item.confident ? "Ready to approve" : "Needs a look"}: ${item.why}`}
+              >
+                {whyLine(item)}
               </Text>
             ) : null}
             <Text variant="bodySmall" style={styles.muted}>
@@ -623,6 +637,7 @@ const styles = StyleSheet.create({
   figure: { color: BRAND.ink, fontVariant: ["tabular-nums"] },
   ink: { color: BRAND.ink },
   muted: { color: BRAND.zinc600 },
+  sure: { color: BRAND.greenStrong, fontWeight: "800" },
   section: { padding: 14, gap: 10 },
   sectionTitle: { color: BRAND.ink, letterSpacing: 0.6, textTransform: "uppercase" },
   options: { gap: 6 },

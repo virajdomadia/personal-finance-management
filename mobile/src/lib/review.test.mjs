@@ -4,6 +4,13 @@ import { test } from "node:test";
 import {
   accountChoices,
   actionsFor,
+  approveBody,
+  approveButtonText,
+  approveResultText,
+  categoryTotalText,
+  confidentTotalsText,
+  rememberLabel,
+  whyLine,
   expectedBody,
   needsNav,
   bankName,
@@ -42,6 +49,13 @@ const item = (o = {}) => ({
   quantity: null,
   candidates: null,
   suggested_price: null,
+  suggested_category: null,
+  suggestion_source: null,
+  history_count: 0,
+  history_total: 0,
+  suggested_account_id: null,
+  confident: false,
+  why: "First time for this payee",
   ...o,
 });
 
@@ -273,4 +287,27 @@ test("needsNav and expectedBody send a NAV only for a SIP that needs one", () =>
   assert.deepEqual(expectedBody(asked, rent, true, "50.1"), { action: "expected", kind: "template", id: 4, remember: true });
   const known = { kind: "sip", id: 3, label: "Flexi Cap SIP" };
   assert.deepEqual(expectedBody(asked, known, true, "50.1"), { action: "expected", kind: "sip", id: 3, remember: false });
+});
+
+test("approveBody sends each confident item with the category it was shown", () => {
+  const sure = item({ id: 4, confident: true, suggested_category: "Groceries" });
+  const unsure = item({ id: 5, suggested_category: "Gift" });
+  assert.deepEqual(approveBody([sure, unsure]), { items: [{ id: 4, category: "Groceries" }] });
+  assert.equal(approveButtonText(2), "Approve 2 confident");
+});
+
+test("confidentTotalsText and categoryTotalText format the server's totals", () => {
+  const summary = (spent, received) => ({ count: 2, spent, received, categories: [] });
+  assert.equal(confidentTotalsText(summary("1240.00", "0.00")), "₹1,240 out");
+  assert.equal(confidentTotalsText(summary("120.75", "5000.00")), "₹120.75 out · ₹5,000 in");
+  assert.equal(categoryTotalText({ category: "Groceries", type: "expense", count: 3, amount: "1240.00" }), "3 × Groceries  ₹1,240");
+});
+
+test("approveResultText and whyLine", () => {
+  assert.equal(approveResultText({ approved: 3, skipped: [], learn: [] }), "Approved 3. All set.");
+  assert.equal(approveResultText({ approved: 3, skipped: [{ id: 1, reason: "x" }], learn: [] }), "Approved 3. 1 still needs you.");
+  assert.equal(whyLine(item({ confident: true, why: "Payee rule: Gift" })), "✓ Payee rule: Gift");
+  assert.equal(whyLine(item()), "First time for this payee");
+  assert.equal(rememberLabel("Ramesh", "Gift"), "Always use Gift for Ramesh");
+  assert.equal(rememberLabel("Ramesh", ""), "Always use this for Ramesh");
 });

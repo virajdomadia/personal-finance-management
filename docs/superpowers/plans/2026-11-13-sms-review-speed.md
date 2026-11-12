@@ -38,12 +38,12 @@ No ingestion changes (`sms/ingest.py` is untouched; its helpers are only importe
 - [x] Tests: approves only listed confident items, skips changed / answered / unconfident ones with
   reasons, per-item atomicity under a failing save check, no rules created, `learn` list, 200 cap,
   other user's ids skipped as not found.
-- [x] `POST /sms/review/approve`; `POST /payee-rules`; `_record_categorised` honours `remember`.
+- [x] `POST /sms/review/approve`; `POST /payee-rules` (`review.remember_category`).
 
 ### Task 3: Website
 
-- [x] `frontend/src/lib/review.ts` types and pure helpers (`approveBody`, `confidentSummaryText`,
-  `rememberLabel`) with tests in `review.test.mjs`.
+- [x] `frontend/src/lib/review.ts` types and pure helpers (`approveBody`, `confidentTotalsText`,
+  `categoryTotalText`, `approveResultText`, `rememberLabel`) with tests in `review.test.mjs`.
 - [x] Approve bar, confirmation dialog and result panel in `review-view.tsx`; `why` chip and prefill
   in `review-card.tsx`.
 
@@ -57,4 +57,8 @@ No ingestion changes (`sms/ingest.py` is untouched; its helpers are only importe
 
 - To review: "Approve N confident" button, confirmation dialog totals, result card, "Always use"
   chips create rules.
-- Review item: category chip and account preselected from history; the `why` line reads well.
+- To review rows: the second meta line (green "✓ ..." when confident) fits beside long amounts.
+- Result card after approving: skipped lines, "Always use" chips turn to a tick when saved, Done
+  closes it; pull-to-refresh still works with the card shown.
+- Review item: category chip and account preselected from history; the `why` line reads well; the
+  "Always use <category> for <payee>" box follows the picked chip.
