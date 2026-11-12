@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { logout } from "@/app/login/actions";
-import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
+import { type Account, type AccountList, cleanMoney, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Select } from "@/components/ui/select";
 import {
@@ -24,6 +24,16 @@ import {
 import { categoryEmoji } from "@/lib/fun";
 import { DueSection } from "@/components/recurring/due-list";
 import {
+  type SearchFilters,
+  activeFilterCount,
+  blankFilters,
+  filtersFromParams,
+  paramsFromFilters,
+  searchQuery,
+  usesRange,
+} from "@/lib/cash-flow";
+import type { CategoryTree } from "@/lib/categories";
+import {
   type Activity,
   TRANSACTION_TYPES,
   type Transaction,
@@ -40,7 +50,7 @@ import {
 
 import { TransactionDialog } from "./transaction-dialog";
 
-type Filters = { month: string; accountId: number | null; type: TransactionType | null };
+type Filters = SearchFilters;
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: TransactionList };
 type Dialog = { kind: "none" } | { kind: "form"; transaction: Transaction | null } | { kind: "delete"; transaction: Transaction };
 type Accounts = { active: Account[]; archived: Account[] };
@@ -55,20 +65,27 @@ const TYPE_TONE: Record<TransactionType, Tone> = { expense: "pink", income: "gre
 
 const PAGE_SIZE = 50;
 
+const INPUT = `w-full rounded-[14px] border-[2.5px] border-ink bg-card px-3 py-2 text-sm font-extrabold outline-none ${FOCUS}`;
+const SMALL_LABEL = "mb-1 block text-[11px] font-black tracking-wide uppercase";
+const SEARCH_DELAY_MS = 300;
+
 function query(filters: Filters, offset: number): string {
-  const params = new URLSearchParams({ month: filters.month, limit: String(PAGE_SIZE), offset: String(offset) });
-  if (filters.accountId !== null) params.set("account_id", String(filters.accountId));
-  if (filters.type !== null) params.set("type", filters.type);
-  return `/transactions?${params}`;
+  return searchQuery(filters, PAGE_SIZE, offset);
 }
 
 function isUnauthorized(err: unknown): boolean {
   return err instanceof ApiError && err.status === 401;
 }
 
-export function TransactionsView({ initialAccountId }: { initialAccountId: number | null }) {
+export function TransactionsView({ initialQuery }: { initialQuery: string }) {
   const [thisMonth] = useState(() => todayIndia().slice(0, 7));
-  const [filters, setFilters] = useState<Filters>({ month: thisMonth, accountId: initialAccountId, type: null });
+  const [filters, setFilters] = useState<Filters>(() =>
+    filtersFromParams(new URLSearchParams(initialQuery), todayIndia().slice(0, 7)),
+  );
+  const [searchText, setSearchText] = useState(filters.q);
+  const [amountKey, setAmountKey] = useState(0); // bumped to reset the amount boxes
+  const [categoryTree, setCategoryTree] = useState<CategoryTree | null>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [accounts, setAccounts] = useState<Accounts | null>(null);
   const [activity, setActivity] = useState<Activity[]>([]);
@@ -127,12 +144,20 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
   useEffect(() => {
     fetchFirstPage(filtersRef.current);
     fetchAccounts();
+    // Only for the category filter's choices: without them the filter just isn't offered.
+    apiFetch<CategoryTree>("/categories")
+      .then(setCategoryTree)
+      .catch(() => {});
   }, [fetchFirstPage, fetchAccounts]);
+
+  useEffect(() => () => clearTimeout(searchTimer.current), []);
 
   const applyFilters = (change: Partial<Filters>) => {
     const next = { ...filtersRef.current, ...change };
     filtersRef.current = next;
     setFilters(next);
+    // Kept in the address, so a search can be bookmarked or linked to from the month report.
+    window.history.replaceState(null, "", `/transactions${paramsFromFilters(next, thisMonth)}`);
     setNotice(null);
     setLoad({ status: "loading" });
     fetchFirstPage(next);
@@ -161,6 +186,27 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
       if (request === latest.current) setLoadingMore(false);
     }
   }
+
+  const typeSearch = (text: string) => {
+    setSearchText(text);
+    clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => applyFilters({ q: text }), SEARCH_DELAY_MS);
+  };
+  const ranged = usesRange(filters);
+  const filtered = activeFilterCount(filters) > 0 || filters.q.trim() !== "";
+  const categoryOptions = [
+    { value: "", label: "All categories" },
+    { value: "Uncategorised", label: "Uncategorised" },
+    ...(["expense", "income"] as const).flatMap((kind) =>
+      (categoryTree?.[kind] ?? [])
+        .filter((c) => !c.archived || c.name === filters.category)
+        .map((c) => ({
+          value: c.name,
+          label: `${c.parent_id === null ? "" : "\u00a0\u00a0– "}${c.name}${kind === "income" ? " (income)" : ""}`,
+        })),
+    ),
+    ...(filters.category ? [{ value: filters.category, label: filters.category }] : []),
+  ].filter((o, i, all) => all.findIndex((x) => x.value === o.value) === i);
 
   const monthWord = (() => {
     const short = formatMonth(filters.month).slice(0, 3);
@@ -191,7 +237,7 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
       />
 
       <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
-        <div className="flex items-center gap-2">
+        <div className={`flex items-center gap-2 ${ranged ? "hidden" : ""}`}>
           <button
             type="button"
             className={MONTH_BUTTON}
@@ -237,6 +283,128 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
         </div>
       </div>
 
+      <div
+        role="search"
+        aria-label="Search transactions"
+        className="mb-5 grid grid-cols-1 gap-3 rounded-[18px] border-[2.5px] border-ink bg-card p-3.5 shadow-chunky-sm sm:grid-cols-2 lg:grid-cols-[2fr_1.4fr_1fr_1fr_0.8fr_0.8fr]"
+      >
+        <div>
+          <label htmlFor="tx-search" className={SMALL_LABEL}>
+            Search
+          </label>
+          <input
+            id="tx-search"
+            type="search"
+            className={INPUT}
+            placeholder="Note, payee or category"
+            maxLength={100}
+            value={searchText}
+            onChange={(e) => typeSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                clearTimeout(searchTimer.current);
+                applyFilters({ q: searchText });
+              }
+            }}
+          />
+        </div>
+        <div>
+          <label htmlFor="tx-category" className={SMALL_LABEL}>
+            Category
+          </label>
+          <Select
+            id="tx-category"
+            value={filters.category}
+            placeholder="All categories"
+            options={categoryOptions}
+            onChange={(value) => applyFilters({ category: value })}
+          />
+        </div>
+        <div>
+          <label htmlFor="tx-from" className={SMALL_LABEL}>
+            From
+          </label>
+          <input
+            id="tx-from"
+            type="date"
+            className={INPUT}
+            value={filters.from}
+            max={filters.to || todayIndia()}
+            onChange={(e) => applyFilters({ from: e.target.value })}
+          />
+        </div>
+        <div>
+          <label htmlFor="tx-to" className={SMALL_LABEL}>
+            To
+          </label>
+          <input
+            id="tx-to"
+            type="date"
+            className={INPUT}
+            value={filters.to}
+            min={filters.from || undefined}
+            max={todayIndia()}
+            onChange={(e) => applyFilters({ to: e.target.value })}
+          />
+        </div>
+        <div key={`min-${amountKey}`}>
+          <label htmlFor="tx-min" className={SMALL_LABEL}>
+            Min ₹
+          </label>
+          <input
+            id="tx-min"
+            inputMode="decimal"
+            className={INPUT}
+            defaultValue={filters.min}
+            onBlur={(e) => {
+              const value = cleanMoney(e.target.value);
+              if (value !== filters.min) applyFilters({ min: value });
+            }}
+          />
+        </div>
+        <div key={`max-${amountKey}`}>
+          <label htmlFor="tx-max" className={SMALL_LABEL}>
+            Max ₹
+          </label>
+          <input
+            id="tx-max"
+            inputMode="decimal"
+            className={INPUT}
+            defaultValue={filters.max}
+            onBlur={(e) => {
+              const value = cleanMoney(e.target.value);
+              if (value !== filters.max) applyFilters({ max: value });
+            }}
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-6">
+          {filtered ? (
+            <>
+              <p className="text-xs font-extrabold text-zinc-600" aria-live="polite">
+                {ranged
+                  ? `Showing ${filters.from ? formatDate(filters.from) : "the first"} to ${filters.to ? formatDate(filters.to) : "today"}, newest first.`
+                  : `Showing matches in ${formatMonth(filters.month)}. Set dates to search further back.`}
+              </p>
+              <button
+                type="button"
+                className={`${ROW_ACTION} uppercase`}
+                onClick={() => {
+                  clearTimeout(searchTimer.current);
+                  setSearchText("");
+                  setAmountKey((k) => k + 1);
+                  applyFilters(blankFilters(filtersRef.current.month));
+                }}
+              >
+                Clear filters
+              </button>
+            </>
+          ) : null}
+          <Link href="/categories" className={`ml-auto rounded text-xs font-black underline ${FOCUS}`}>
+            Manage categories
+          </Link>
+        </div>
+      </div>
+
       {notice ? (
         <p
           role="alert"
@@ -250,7 +418,8 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
         refreshKey={dueKey}
         onChanged={(date) => {
           // A late payment lands in an earlier month: show that month so the owner sees it.
-          if (date && date.slice(0, 7) !== filtersRef.current.month) applyFilters({ month: date.slice(0, 7) });
+          if (date && !usesRange(filtersRef.current) && date.slice(0, 7) !== filtersRef.current.month)
+            applyFilters({ month: date.slice(0, 7) });
           else reload();
         }}
       />
@@ -301,7 +470,9 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
                   </Link>
                 </>
               ) : (
-                <p className="mt-2 text-sm font-extrabold">No transactions match in {formatMonth(filters.month)}.</p>
+                <p className="mt-2 text-sm font-extrabold">
+                  {ranged ? "No transactions match these filters." : `No transactions match in ${formatMonth(filters.month)}.`}
+                </p>
               )}
             </div>
           ) : (
@@ -366,7 +537,8 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
           onSaved={(saved) => {
             closeDialog();
             // Show the month the transaction landed in, or it would seem to have vanished.
-            applyFilters({ month: saved.date.slice(0, 7) });
+            if (usesRange(filtersRef.current)) reload();
+            else applyFilters({ month: saved.date.slice(0, 7) });
             setDueKey((k) => k + 1);
           }}
           onConflict={(message) => {
