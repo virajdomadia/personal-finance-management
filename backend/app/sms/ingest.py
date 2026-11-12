@@ -769,6 +769,16 @@ def _transfer(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
 # Expected payments
 
 
+def _same_emi(db: Session, user_id: int, entry: SmsEntry, tx: Transaction) -> bool:
+    """Whether a recorded EMI is surely this debit: no debit message has it yet, and it is in the
+    debit's calendar month or within the manual window. One further off, across a month end
+    (last month's, typed in late in the month), may be a different instalment: that is asked."""
+    close = (tx.date.year, tx.date.month) == (entry.occurred_on.year, entry.occurred_on.month) or (
+        abs(tx.date - entry.occurred_on) <= MANUAL_WINDOW
+    )
+    return close and not _claimed(db, user_id, entry, tx.id)
+
+
 def expected_payment(
     db: Session, user_id: int, entry: SmsEntry, account: Account
 ) -> SmsEntry | None:
@@ -779,7 +789,8 @@ def expected_payment(
     uncategorised expense and the owner is asked, with every candidate. Nothing is guessed.
 
     An EMI whose period is already paid isn't applied again: the one EMI recorded for it that no
-    debit message has claimed yet is this debit; otherwise the owner is asked, with those EMIs.
+    debit message has claimed yet, in the debit's month or a day from it, is this debit;
+    otherwise the owner is asked, with those EMIs.
     A SIP whose fund has no NAV for the day is asked about too, for the NAV.
     """
     if entry.kind != "debit" or entry.amount is None:
@@ -795,7 +806,7 @@ def expected_payment(
         tied = rule_template(db, user_id, entry.payee_key) == only["id"]
         if only["kind"] == "emi":
             paid = emis_paid(db, user_id, only["id"], entry.occurred_on)
-            if len(paid) == 1 and not _claimed(db, user_id, entry, paid[0].id):
+            if len(paid) == 1 and _same_emi(db, user_id, entry, paid[0]):
                 _link(entry, paid[0].id)
                 return entry
         if (only["kind"] == "template" and tied) or (

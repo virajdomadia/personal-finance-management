@@ -427,15 +427,51 @@ def _typed_emi(headers: Headers, b: int, home: int, days: int) -> int:
 def test_emi_typed_in_days_apart_is_not_recorded_twice(
     headers: Headers, db_session: Session
 ) -> None:
+    # Fixed past days in one month, so the test doesn't depend on today's date.
     b, home = _home_loan(headers)
-    typed = _typed_emi(headers, b, home, 0)
-    body = entry(amount="7500.00", payee="HDFC LOAN ACH", date=_days_ago(3))
+    typed = manual(
+        headers,
+        type="emi",
+        account_id=b,
+        to_account_id=home,
+        amount="7500.00",
+        date="2026-10-12",
+        interest="2000.00",
+    )
+    body = entry(amount="7500.00", payee="HDFC LOAN ACH", date="2026-10-09")
     result = send(headers, body).json()["results"][0]
     assert (result["status"], result["reason"]) == ("recorded", None)
     [tx] = transactions(db_session)
     assert tx.id == typed
     assert stored(db_session, body["hash"]).transaction_id == typed
     assert balance(headers, b) == "42500.00"
+
+
+def test_emi_recorded_last_month_days_before_asks(headers: Headers, db_session: Session) -> None:
+    # The October EMI typed in on the 20th; the 1 November debit is November's EMI, not that one.
+    b, home = _home_loan(headers)
+    typed = manual(
+        headers,
+        type="emi",
+        account_id=b,
+        to_account_id=home,
+        amount="7500.00",
+        date="2026-10-20",
+        interest="2000.00",
+    )
+    body = entry(amount="7500.00", payee="HDFC LOAN ACH", date="2026-11-01")
+    result = send(headers, body).json()["results"][0]
+    assert (result["status"], result["reason"]) == ("review", "expected")
+    emi, spent = transactions(db_session)
+    assert emi.id == typed
+    assert (spent.type, spent.category, spent.account_id) == ("expense", None, b)
+    saved = stored(db_session, body["hash"])
+    assert saved.transaction_id == spent.id
+    assert [(c["kind"], c["id"]) for c in saved.candidates or []] == [
+        ("emi", home),
+        ("transaction", typed),
+    ]
+    assert balance(headers, b) == "35000.00"
 
 
 def test_emi_already_recorded_from_a_message_asks(headers: Headers, db_session: Session) -> None:
