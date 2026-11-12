@@ -59,7 +59,7 @@ Added on branch `automation`, in migration `c7e2a95d1b48`.
 - `market_codes` is unique on (`kind`, `code`) and indexed on (`kind`, `name`) for search.
 - `instruments.source_code` (nullable, 40) links a holding to a `market_codes.code`. Unlinked holdings stay manual.
 - `instrument_prices.source` (10) is `manual` or `auto`, default `manual`. A typed price for the same date always wins over an automatic one.
-- Automatic price rows are removed when the linked stock or fund is deleted.
+- Automatic price rows are removed when the linked stock, fund or coin is deleted.
 
 ## Audit of the current code against these principles
 

@@ -20,9 +20,9 @@ CI (`.github/workflows/backend.yml`) runs both. What the PostgreSQL tests cover 
 
 ## Nightly prices
 
-Vercel Cron calls `GET /api/cron/prices` every day at 18:30 UTC (23:30 IST), set in `vercel.json`. It sends `Authorization: Bearer <CRON_SECRET>`. Set `CRON_SECRET` (any long random string) on the Vercel project; while it is empty the endpoint stays closed.
+Vercel Cron calls `GET /api/cron/prices` every day at 18:00 UTC (23:30 IST), set in `vercel.json`. It sends `Authorization: Bearer <CRON_SECRET>`. Set `CRON_SECRET` (any long random string) on the Vercel project; while it is empty the endpoint stays closed.
 
-The job reads AMFI `NAVAll.txt`, the NSE equity list and bhavcopy (today, then up to 3 earlier weekdays, then Yahoo for linked stocks) and CoinGecko for linked coins. It writes the shared `market_codes` table and copies prices to linked holdings. Coins are also refreshed when opened if their price is over 6 hours old or missing. `COINGECKO_API_KEY` is optional.
+The job reads AMFI `NAVAll.txt`, the NSE equity list and bhavcopy (today, then up to 3 earlier weekdays, then Yahoo for linked stocks) and CoinGecko for linked coins. It writes the shared `market_codes` table and copies prices to linked holdings. Coins are also refreshed when opened if last refreshed over 6 hours ago, or not priced yet. `COINGECKO_API_KEY` is optional.
 
 To run it by hand:
 

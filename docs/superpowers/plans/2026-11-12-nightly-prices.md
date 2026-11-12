@@ -15,7 +15,7 @@
 - Money and prices are `Decimal` / `NUMERIC` end to end. Fetched prices are rounded to 4 decimals with `ROUND_HALF_UP` to fit `instrument_prices.price` (`Numeric(14,4)`). No float ever touches a stored price; parse source text straight to `Decimal`.
 - A price the user typed (`source = "manual"`) is never overwritten or deleted by the job.
 - A failed or empty source never deletes or zeroes anything. The last price stays and shows its date.
-- Run time: 23:30 IST = cron `30 18 * * *` (UTC).
+- Run time: 23:30 IST = cron `0 18 * * *` (UTC). (The plan first said `30 18 * * *`, which is 00:00 IST; corrected.)
 - Crypto refresh-on-open threshold: 6 hours.
 - The cron endpoint is protected by `CRON_SECRET` (Vercel sends `Authorization: Bearer <CRON_SECRET>`). If `cron_secret` is empty, the endpoint always refuses. The **owner sets** `CRON_SECRET` on the `personal-finance-api` Vercel project; Claude never sets Vercel variables.
 - The migration is **run on Neon by the owner before merge** (merge auto-deploys). The PR description must say so in its first line.
@@ -141,7 +141,7 @@
 
 **Interfaces:**
 - Consumes: `run_nightly`, `default_fetcher`, `today_india`.
-- Produces: `GET /api/cron/prices` returns `{"updated": {...}, "failed": {...}}` with 200. It returns 401 `{"detail": "Not authenticated"}` unless `cron_secret` is non-empty and the header is exactly `Bearer <cron_secret>` (`hmac.compare_digest`). `vercel.json`: `{"crons": [{"path": "/api/cron/prices", "schedule": "30 18 * * *"}]}`. The CLI command is `uv run python -m app.cli refresh-prices`, which prints the report.
+- Produces: `GET /api/cron/prices` returns `{"updated": {...}, "failed": {...}}` with 200. It returns 401 `{"detail": "Not authenticated"}` unless `cron_secret` is non-empty and the header is exactly `Bearer <cron_secret>` (`hmac.compare_digest`). `vercel.json`: `{"crons": [{"path": "/api/cron/prices", "schedule": "0 18 * * *"}]}`. The CLI command is `uv run python -m app.cli refresh-prices`, which prints the report.
 
 - [ ] **Step 1: Write failing tests**: `test_cron_no_header_401`, `test_cron_wrong_secret_401`, `test_cron_secret_unset_always_401` (even with `Authorization: Bearer `), `test_cron_runs_job` (monkeypatch `default_fetcher` with the fake from Task 4, then 200 with counts), `test_user_token_is_not_a_cron_secret` (a valid user bearer token gives 401).
 - [ ] **Step 2: Run** `uv run pytest tests/test_cron.py -v`. Expected: FAIL.
