@@ -35,6 +35,9 @@ class Instrument(Base):
     kind: Mapped[str] = mapped_column(String(12))  # "stock", "mutual_fund" or "crypto"
     symbol: Mapped[str] = mapped_column(String(20))
     name: Mapped[str] = mapped_column(String(60))
+    # What the nightly job looks the price up by: an AMFI scheme code for a fund, an NSE symbol
+    # for a stock, a CoinGecko id for a coin. None while the holding isn't linked.
+    source_code: Mapped[str | None] = mapped_column(String(40))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -102,6 +105,7 @@ class InstrumentPrice(Base):
     price: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     # Set when a fund trade recorded this NAV; it follows that trade.
     trade_id: Mapped[int | None] = mapped_column(ForeignKey("investment_trades.id"), index=True)
+    source: Mapped[str] = mapped_column(String(10), server_default="manual")  # "manual" or "auto"
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
