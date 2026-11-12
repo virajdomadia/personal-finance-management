@@ -10,6 +10,7 @@ import { REVIEW_CHANGED, type ReviewItem, type ReviewList, reviewCountText } fro
 import type { CategoryList } from "@/lib/transactions";
 import { Notice, isUnauthorized } from "@/components/investments/shared";
 import { PageHeader, buttonClass } from "@/components/ui/chunky";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ReviewCard } from "@/components/review/review-card";
 
 type Data = { items: ReviewItem[]; accounts: Account[]; categories: CategoryList };
@@ -111,15 +112,17 @@ export function ReviewView() {
       )}
 
       {load.status === "ready" && items.length === 0 && (
-        <div className="flex flex-col items-start gap-2 rounded-[18px] border-[2.5px] border-ink bg-card p-6 shadow-chunky">
-          <p className="text-5xl" aria-hidden="true">
-            🎉
-          </p>
-          <h2 className="text-xl font-black">Nothing to review</h2>
-          <p className="text-sm font-bold text-zinc-600">
-            Bank messages the app can&apos;t sort by itself show up here.
-          </p>
-        </div>
+        <EmptyState
+          emoji="🎉"
+          title="Nothing to review"
+          action={
+            <Link href="/transactions" className={buttonClass("alt")}>
+              SEE TRANSACTIONS
+            </Link>
+          }
+        >
+          When the Android app reads a bank text it can&apos;t sort by itself, it waits here for you to check.
+        </EmptyState>
       )}
 
       {load.status === "ready" && items.length > 0 && (

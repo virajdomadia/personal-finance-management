@@ -23,7 +23,7 @@ export function EmptyState({
       className={
         inset
           ? "px-4 py-6 text-center"
-          : "rounded-[18px] border-[2.5px] border-ink bg-card px-6 py-10 text-center shadow-chunky"
+          : "rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-12 text-center"
       }
     >
       <p className={inset ? "text-3xl" : "text-4xl"} aria-hidden="true">
