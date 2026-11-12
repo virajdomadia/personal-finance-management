@@ -32,7 +32,12 @@ export type NetWorthPoint = {
   estimated: boolean; // worked out from transactions, before snapshots began
 };
 
-export type Change = { amount: string; from_date: string };
+export type Change = {
+  amount: string; // today minus the compared snapshot, signed
+  from_date: string;
+  estimated: boolean; // against an estimate, so both sides leave out stocks, funds and coins
+  on_target: boolean; // from_date is within 3 days of the day it looked for
+};
 
 export type NetWorthRange = "3m" | "6m" | "1y" | "all";
 
@@ -96,11 +101,29 @@ export function changeSpoken(change: Change | null, since: string): string | nul
   return `${way === "up" ? "Up" : "Down"} ${size} ${since}`;
 }
 
+// "since last month", or the date itself when the compared point is an estimate or off the day:
+// "since 30 Sep (estimated)".
+function lastMonthSince(change: Change, spoken: boolean): string {
+  if (!change.estimated && change.on_target) return "since last month";
+  const [, month, day] = change.from_date.split("-");
+  const since = `since ${Number(day)} ${MONTHS[Number(month) - 1]}`;
+  if (!change.estimated) return since;
+  return spoken ? `${since}, estimated` : `${since} (estimated)`;
+}
+
+export function lastMonthText(change: Change | null): string | null {
+  return change === null ? null : changeText(change, lastMonthSince(change, false));
+}
+
+export function lastMonthSpoken(change: Change | null): string | null {
+  return change === null ? null : changeSpoken(change, lastMonthSince(change, true));
+}
+
 // Axis labels the Indian way: ₹40K, ₹5L, ₹1.2Cr.
 export function shortRupees(value: number): string {
   const sign = value < 0 ? "-" : "";
   const size = Math.abs(value);
-  const trim = (n: number) => n.toFixed(1).replace(/\.0$/, "");
+  const trim = (n: number) => n.toFixed(2).replace(/\.?0+$/, "");
   if (size >= 1e7) return `${sign}₹${trim(size / 1e7)}Cr`;
   if (size >= 1e5) return `${sign}₹${trim(size / 1e5)}L`;
   if (size >= 1e3) return `${sign}₹${trim(size / 1e3)}K`;
@@ -119,11 +142,10 @@ export const GAP_DAYS = 45;
 export type Frame = { width: number; height: number; left: number; right: number; top: number; bottom: number };
 
 // Round tick values spanning min..max (about `count` of them).
-export function niceTicks(min: number, max: number, count = 4): number[] {
-  if (!(max > min)) {
-    const pad = Math.abs(min) > 0 ? Math.abs(min) * 0.1 : 1;
-    return niceTicks(min - pad, max + pad, count);
-  }
+// The axis spans at least ₹4 or 4% of the values, so a step is never under ₹1 or 1%: values a few
+// paise apart would otherwise get several ticks with the same label.
+export function niceTicks(low: number, high: number, count = 4): number[] {
+  const [min, max] = widened(low, high);
   const rough = (max - min) / count;
   const power = 10 ** Math.floor(Math.log10(rough));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * power).find((s) => s >= rough) ?? 10 * power;
@@ -131,6 +153,14 @@ export function niceTicks(min: number, max: number, count = 4): number[] {
   const ticks: number[] = [];
   for (let v = first; v < max + step - 1e-9; v += step) ticks.push(Math.round(v * 100) / 100);
   return ticks;
+}
+
+// min..max, widened around its middle to the least span an axis may have (see niceTicks).
+export function widened(min: number, max: number): [number, number] {
+  const least = Math.max(4, Math.max(Math.abs(min), Math.abs(max)) * 0.04);
+  if (max - min >= least) return [min, max];
+  const mid = (min + max) / 2;
+  return [mid - least / 2, mid + least / 2];
 }
 
 export type Scale = {
@@ -148,7 +178,7 @@ export function scale(dates: string[], values: number[], frame: Frame, tight = f
   const span = dayNumber(dates[dates.length - 1]) - first;
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const ticks = tight && max > min ? [min, max] : niceTicks(min, max);
+  const ticks = tight ? widened(min, max) : niceTicks(min, max);
   const low = ticks[0];
   const high = ticks[ticks.length - 1];
   return {

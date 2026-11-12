@@ -19,6 +19,8 @@ import {
   changeText,
   direction,
   estimatedNote,
+  lastMonthSpoken,
+  lastMonthText,
   longDate,
 } from "@/lib/net-worth";
 
@@ -66,25 +68,31 @@ export function NetWorthView() {
 function ChangeTile({
   label,
   change,
-  since,
+  text,
+  spoken,
   showFrom = false,
 }: {
   label: string;
   change: Change | null;
-  since: string;
-  showFrom?: boolean; // name the compared date, when `since` doesn't already
+  text: string | null;
+  spoken: string | null;
+  showFrom?: boolean; // name the compared date, when the text doesn't already
 }) {
-  const text = changeText(change, since);
   const tone = change === null ? "text-zinc-600" : direction(change) === "down" ? "text-loss" : "text-gain";
   return (
     <Tile label={label}>
       <span className={`mt-1 block text-lg leading-tight font-black tabular-nums ${tone}`}>
         <span aria-hidden="true">{text ?? "Not enough history yet"}</span>
-        <span className="sr-only">{changeSpoken(change, since) ?? "Not enough history yet"}</span>
+        <span className="sr-only">{spoken ?? "Not enough history yet"}</span>
       </span>
       {change && showFrom ? (
         <span className="mt-0.5 block text-xs font-bold text-zinc-600">
           Compared with {longDate(change.from_date)}
+        </span>
+      ) : null}
+      {change?.estimated ? (
+        <span className="mt-0.5 block text-xs font-bold text-zinc-600">
+          Against an estimate, so stocks, funds and coins are left out of both sides.
         </span>
       ) : null}
     </Tile>
@@ -112,14 +120,23 @@ function History({ data }: { data: NetWorthHistory }) {
   const today = points[points.length - 1];
   const negative = today.net_worth.startsWith("-");
   const note = estimatedNote(data);
-  const startLabel = data.since_start ? `since ${longDate(data.since_start.from_date)}` : "since the start";
+  const start = data.since_start;
+  const startSince = start ? `since ${longDate(start.from_date)}` : "";
+  const startText = changeText(start, start?.estimated ? `${startSince} (estimated)` : startSince);
+  const startSpoken = changeSpoken(start, start?.estimated ? `${startSince}, estimated` : startSince);
 
   return (
     <div className="flex flex-col gap-3.5">
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
         <Tile tone={negative ? "pink" : "green"} label="Today" value={formatRupees(today.net_worth)} />
-        <ChangeTile label="Since last month" change={data.since_last_month} since="since last month" showFrom />
-        <ChangeTile label="Over this range" change={data.since_start} since={startLabel} />
+        <ChangeTile
+          label="Since last month"
+          change={data.since_last_month}
+          text={lastMonthText(data.since_last_month)}
+          spoken={lastMonthSpoken(data.since_last_month)}
+          showFrom
+        />
+        <ChangeTile label="Over this range" change={start} text={startText} spoken={startSpoken} />
       </div>
 
       <section aria-labelledby="line-title" className={CARD}>

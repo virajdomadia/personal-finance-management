@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { changeSpoken, changeText, estimatedNote, lineRuns, monthRows, monthYear } from "./net-worth.ts";
+import {
+  changeSpoken,
+  changeText,
+  estimatedNote,
+  lastMonthSpoken,
+  lastMonthText,
+  lineRuns,
+  monthRows,
+  monthYear,
+} from "./net-worth.ts";
 
 const pt = (date, worth, estimated = false) => ({
   date,
@@ -86,4 +95,18 @@ test("the estimated note names the day snapshots began", () => {
     "History before 3 Nov 2026 is estimated from your transactions and leaves out stocks, funds and coins.",
   );
   assert.equal(estimatedNote({ ...history, points: [pt("2026-11-13", "2.00")] }), null);
+});
+
+test("last month's change names its date when it is an estimate or off the day", () => {
+  const base = { amount: "22000.00", from_date: "2026-09-30", estimated: false, on_target: true };
+  assert.equal(lastMonthText(base), "▲ ₹22,000 since last month");
+  assert.equal(lastMonthText({ ...base, estimated: true }), "▲ ₹22,000 since 30 Sep (estimated)");
+  assert.equal(lastMonthText({ ...base, on_target: false }), "▲ ₹22,000 since 30 Sep");
+  assert.equal(lastMonthSpoken({ ...base, amount: "-5.00", estimated: true }), "Down ₹5 since 30 Sep, estimated");
+  assert.equal(lastMonthText(null), null);
+});
+
+test("values a few paise apart draw flat, not as a swing", () => {
+  const { dots } = lineRuns([pt("2026-11-12", "500000.00"), pt("2026-11-13", "500000.50")], 100, 50, 0);
+  assert.ok(Math.abs(dots[0].y - dots[1].y) < 1);
 });

@@ -3,6 +3,8 @@ import { test } from "node:test";
 
 import {
   changeSpoken,
+  lastMonthSpoken,
+  lastMonthText,
   changeText,
   estimatedNote,
   lineSegments,
@@ -85,6 +87,9 @@ test("x is spaced by date, so a gap takes room", () => {
   // Tight fits the values exactly, for a sparkline.
   const tight = scale(["2026-01-01", "2026-01-21"], [300, 500], FRAME, true);
   assert.deepEqual([tight.y(500), tight.y(300)], [0, 100]);
+  // Tight still widens values a few paise apart, so they draw as flat, not as a swing.
+  const flatish = scale(["2026-01-01", "2026-01-21"], [500000, 500000.5], FRAME, true);
+  assert.ok(Math.abs(flatish.y(500000) - flatish.y(500000.5)) < 1);
   // A single point sits in the middle.
   assert.equal(scale(["2026-01-01"], [5], FRAME).x("2026-01-01"), 100);
 });
@@ -162,4 +167,36 @@ test("the estimated note names the day snapshots began", () => {
     "History before 13 Nov 2026 is estimated from your transactions and leaves out stocks, funds and coins.",
   );
   assert.equal(estimatedNote({ ...history, points: [pt("2026-11-13", "2.00")] }), null);
+});
+
+test("last month's change names its date when it is an estimate or off the day", () => {
+  const base = { amount: "22000.00", from_date: "2026-09-30", estimated: false, on_target: true };
+  assert.equal(lastMonthText(base), "▲ ₹22,000 since last month");
+  assert.equal(lastMonthText({ ...base, estimated: true, on_target: false }), "▲ ₹22,000 since 30 Sep (estimated)");
+  assert.equal(lastMonthText({ ...base, estimated: true }), "▲ ₹22,000 since 30 Sep (estimated)");
+  assert.equal(lastMonthText({ ...base, on_target: false }), "▲ ₹22,000 since 30 Sep");
+  assert.equal(lastMonthSpoken({ ...base, amount: "-5.00", estimated: true }), "Down ₹5 since 30 Sep, estimated");
+  assert.equal(lastMonthText(null), null);
+  assert.equal(lastMonthSpoken(null), null);
+});
+
+test("ticks never crowd: values a few paise apart still get distinct labels", () => {
+  for (const [low, high] of [
+    [500000, 500000.37],
+    [500000, 500000],
+    [0.1, 0.4],
+    [-1200.5, -1200.49],
+  ]) {
+    const ticks = niceTicks(low, high);
+    assert.ok(ticks[0] <= low && ticks.at(-1) >= high, `${low}..${high} covered`);
+    assert.equal(new Set(ticks).size, ticks.length, "values unique");
+    const labels = ticks.map(shortRupees);
+    assert.equal(new Set(labels).size, labels.length, `labels unique: ${labels}`);
+    assert.ok(ticks[1] - ticks[0] >= 1, "a step of at least ₹1");
+  }
+});
+
+test("axis labels keep two decimals of a lakh when they need them", () => {
+  assert.equal(shortRupees(505000), "₹5.05L");
+  assert.equal(shortRupees(510000), "₹5.1L");
 });

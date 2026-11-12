@@ -11,9 +11,10 @@ import {
   type NetWorthHistory,
   type NetWorthRange,
   RANGES,
-  changeSpoken,
   changeText,
   estimatedNote,
+  lastMonthSpoken,
+  lastMonthText,
   monthRows,
   wholeRupees,
 } from "@/lib/net-worth";
@@ -95,16 +96,16 @@ function History({ data }: { data: NetWorthHistory }) {
         label="Net worth today"
         value={wholeRupees(today.net_worth)}
         size="huge"
-        accessibilityExtra={changeSpoken(monthChange) ?? undefined}
+        accessibilityExtra={lastMonthSpoken(monthChange) ?? undefined}
       >
         <View style={styles.pill}>
           <Text variant="labelMedium" style={styles.pillText}>
-            {changeText(monthChange) ?? "Not enough history yet for last month"}
+            {lastMonthText(monthChange) ?? "Not enough history yet for last month"}
           </Text>
         </View>
         {data.since_start ? (
           <Text variant="bodySmall" style={styles.onTile}>
-            {changeText(data.since_start, startSince)}
+            {changeText(data.since_start, data.since_start.estimated ? `${startSince} (estimated)` : startSince)}
           </Text>
         ) : null}
       </Tile>

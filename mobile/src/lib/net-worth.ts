@@ -15,7 +15,12 @@ export type NetWorthPoint = {
   estimated: boolean; // worked out from transactions, before snapshots began
 };
 
-export type Change = { amount: string; from_date: string };
+export type Change = {
+  amount: string; // today minus the compared snapshot, signed
+  from_date: string;
+  estimated: boolean; // against an estimate, so both sides leave out stocks, funds and coins
+  on_target: boolean; // from_date is within 3 days of the day it looked for
+};
 export type NetWorthRange = "3m" | "6m" | "1y" | "all";
 
 export type NetWorthHistory = {
@@ -60,6 +65,24 @@ export function changeSpoken(change: Change | null, since = "since last month"):
   return `${way === "up" ? "Up" : "Down"} ${wholeRupees(change.amount.replace(/^-/, ""))} ${since}`;
 }
 
+// "since last month", or the date itself when the compared point is an estimate or off the day:
+// "since 30 Sep (estimated)".
+function lastMonthSince(change: Change, spoken: boolean): string {
+  if (!change.estimated && change.on_target) return "since last month";
+  const [, month, day] = change.from_date.split("-");
+  const since = `since ${Number(day)} ${MONTHS[Number(month) - 1].slice(0, 3)}`;
+  if (!change.estimated) return since;
+  return spoken ? `${since}, estimated` : `${since} (estimated)`;
+}
+
+export function lastMonthText(change: Change | null): string | null {
+  return change === null ? null : changeText(change, lastMonthSince(change, false));
+}
+
+export function lastMonthSpoken(change: Change | null): string | null {
+  return change === null ? null : changeSpoken(change, lastMonthSince(change, true));
+}
+
 // "2026-10-31" -> "Oct 2026"
 export function monthYear(iso: string): string {
   const [year, month] = iso.split("-");
@@ -87,8 +110,12 @@ export function lineRuns(
 ): { dots: Dot[]; runs: Run[] } {
   if (points.length === 0) return { dots: [], runs: [] };
   const values = points.map((p) => Number(p.net_worth));
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  // At least ₹4 or 4% of the values from bottom to top, so a few paise never look like a swing.
+  const least = Math.max(4, Math.max(...values.map(Math.abs)) * 0.04);
+  const mid = (Math.min(...values) + Math.max(...values)) / 2;
+  const wide = Math.max(...values) - Math.min(...values) >= least;
+  const min = wide ? Math.min(...values) : mid - least / 2;
+  const max = wide ? Math.max(...values) : mid + least / 2;
   const first = dayNumber(points[0].date);
   const span = dayNumber(points[points.length - 1].date) - first;
   const innerW = Math.max(width - pad * 2, 1);
@@ -96,7 +123,7 @@ export function lineRuns(
   const r = (n: number) => Math.round(n * 10) / 10;
   const dots = points.map((p, i) => ({
     x: r(pad + (span > 0 ? ((dayNumber(p.date) - first) / span) * innerW : innerW / 2)),
-    y: r(max === min ? height / 2 : pad + (1 - (values[i] - min) / (max - min)) * innerH),
+    y: r(pad + (1 - (values[i] - min) / (max - min)) * innerH),
     estimated: p.estimated,
   }));
   const runs: { coords: string[]; estimated: boolean }[] = [];

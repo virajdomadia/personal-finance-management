@@ -5,7 +5,7 @@ import { Text } from "react-native-paper";
 import Svg, { Circle, Polyline } from "react-native-svg";
 
 import { ApiError, apiFetch } from "@/lib/api";
-import { type NetWorthHistory, type NetWorthPoint, type NetWorthRange, changeSpoken, changeText, lineRuns } from "@/lib/net-worth";
+import { type NetWorthHistory, type NetWorthPoint, type NetWorthRange, lastMonthSpoken, lastMonthText, lineRuns } from "@/lib/net-worth";
 import { useSession } from "@/lib/session";
 import { BRAND } from "@/lib/theme";
 
@@ -94,12 +94,12 @@ export function NetWorthTrend() {
   const { data } = useNetWorth("1y");
   if (data === null || data.points.length === 0) return null;
   const change = data.since_last_month;
-  const text = changeText(change) ?? "Your trend starts today";
+  const text = lastMonthText(change) ?? "Your trend starts today";
   return (
     <Pressable
       onPress={() => router.push("/net-worth")}
       accessibilityRole="button"
-      accessibilityLabel={`Net worth trend, ${changeSpoken(change) ?? "your trend starts today"}`}
+      accessibilityLabel={`Net worth trend, ${lastMonthSpoken(change) ?? "your trend starts today"}`}
       accessibilityHint="Opens your net worth history"
       style={({ pressed }) => [styles.trend, pressed ? styles.pressed : null]}
     >
