@@ -178,3 +178,18 @@ def test_coindcx_ticker_keeps_inr_markets_with_real_prices() -> None:
         "BTCINR": Decimal("7426538.7000"),
         "ETHINR": Decimal("205500.1000"),
     }
+
+
+def test_bhavcopy_listings_carry_name_isin_and_close() -> None:
+    from app.prices.parse import parse_bhavcopy_listings
+
+    quotes = parse_bhavcopy_listings(text("bhavcopy.csv"))
+    reliance = next(q for q in quotes if q.code == "RELIANCE")
+    assert (reliance.kind, reliance.name, reliance.isin) == (
+        "stock",
+        "RELIANCE INDUSTRIES LTD",
+        "INE002A01018",
+    )
+    assert reliance.price == Decimal("1312.4500")
+    # Only the equity series, like the closes themselves.
+    assert {q.code for q in quotes} == set(parse_bhavcopy(text("bhavcopy.csv")))

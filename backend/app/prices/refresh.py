@@ -26,6 +26,7 @@ from app.prices.parse import (
     IST,
     Quote,
     parse_bhavcopy,
+    parse_bhavcopy_listings,
     parse_coindcx_ticker,
     parse_equity_list,
     parse_navall,
@@ -255,6 +256,11 @@ def _refresh_stocks(
             if timed_out or not closes:
                 errors += lookback
             errors += skipped
+        if text is not None:
+            # ETFs are in the price file but not on NSE's equity list: add what is missing.
+            known = _existing(db, "stock")
+            extra = [q for q in parse_bhavcopy_listings(text) if q.code not in known]
+            _upsert_quotes(db, "stock", extra)
         count = _set_prices(db, "stock", closes, create_missing=False)
     except SourceError as exc:
         errors += lookback
