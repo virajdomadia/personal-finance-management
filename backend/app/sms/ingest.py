@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session
 from app.api.routes.accounts import rupees
 from app.api.routes.transactions import lock_accounts, save_checks
 from app.models.account import Account
+from app.models.investment import Instrument, InvestmentTrade
+from app.models.market import MarketCode
 from app.models.sms import AccountIdentifier, PayeeRule, SmsEntry
 from app.models.transaction import Transaction
 from app.sms.expected import apply_expected, expected_candidates, rule_template
@@ -127,12 +129,123 @@ def resolve_account(db: Session, user_id: int, kind: str, last4: str | None) -> 
     return list(db.scalars(query))
 
 
+_NAME_NOISE = {"ltd", "limited", "the"}
+SHARE_WINDOW = timedelta(days=2)
+MARKET_CHOICES = 5
+
+
+def _name_words(text: str | None) -> str:
+    """A security name for comparing: casefolded, no punctuation, without Ltd / Limited / The."""
+    words = re.sub(r"[^0-9a-z]+", " ", (text or "").casefold()).split()
+    return " ".join(w for w in words if w not in _NAME_NOISE)
+
+
+def _same_security(sms_name: str, name: str, symbol: str | None = None) -> bool:
+    """Whether a stock's name (or symbol) starts with the SMS name or the SMS name starts with it.
+    The SMS name is cut short by CDSL, so either may be the longer one. A symbol is shorter than
+    any name, so there the SMS name has to continue it at a word."""
+    if not sms_name:
+        return False
+    full = _name_words(name)
+    if full and (full.startswith(sms_name) or sms_name.startswith(full)):
+        return True
+    code = _name_words(symbol)
+    return bool(code) and (code.startswith(sms_name) or sms_name.startswith(code + " "))
+
+
+def _owned_stocks(db: Session, user_id: int, entry: SmsEntry) -> list[Instrument]:
+    stocks = list(
+        db.scalars(
+            select(Instrument)
+            .where(Instrument.user_id == user_id, Instrument.kind == "stock")
+            .order_by(Instrument.id)
+        )
+    )
+    if entry.isin is not None:
+        codes = select(MarketCode.code).where(
+            MarketCode.kind == "stock", MarketCode.isin == entry.isin
+        )
+        by_isin = [s for s in stocks if s.source_code in set(db.scalars(codes))]
+        if by_isin:
+            return by_isin
+    name = _name_words(entry.payee)
+    return [s for s in stocks if _same_security(name, s.name, s.symbol)]
+
+
+def _market_stocks(db: Session, entry: SmsEntry) -> list[MarketCode]:
+    """Public stock listings the SMS could be, to prefill "create this stock"."""
+    if entry.isin is not None:
+        found = list(
+            db.scalars(
+                select(MarketCode)
+                .where(MarketCode.kind == "stock", MarketCode.isin == entry.isin)
+                .order_by(MarketCode.id)
+            )
+        )
+        if found:
+            return found
+    name = _name_words(entry.payee)
+    if not name:
+        return []
+    first = name.split()[0]
+    rows = db.scalars(
+        select(MarketCode)
+        .where(MarketCode.kind == "stock", MarketCode.name.ilike(f"{first}%"))
+        .order_by(MarketCode.name, MarketCode.id)
+    )
+    return [m for m in rows if _same_security(name, m.name, m.code)][:MARKET_CHOICES]
+
+
+def _typed_trade(
+    db: Session, user_id: int, entry: SmsEntry, stocks: list[Instrument]
+) -> InvestmentTrade | None:
+    """The one trade of these stocks the owner already typed in for this share movement."""
+    if not stocks or entry.quantity is None:
+        return None
+    linked = select(SmsEntry.trade_id).where(
+        SmsEntry.user_id == user_id, SmsEntry.trade_id.is_not(None)
+    )
+    found = list(
+        db.scalars(
+            select(InvestmentTrade).where(
+                InvestmentTrade.user_id == user_id,
+                InvestmentTrade.instrument_id.in_([s.id for s in stocks]),
+                InvestmentTrade.opening.is_(False),
+                InvestmentTrade.side == ("sell" if entry.ref == "debit" else "buy"),
+                InvestmentTrade.quantity == entry.quantity,
+                InvestmentTrade.date >= entry.occurred_on - SHARE_WINDOW,
+                InvestmentTrade.date <= entry.occurred_on + SHARE_WINDOW,
+                InvestmentTrade.id.not_in(linked),
+            )
+        )
+    )
+    return found[0] if len(found) == 1 else None
+
+
 def _demat(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
-    """CDSL share movements become drafts; Task 6 fills in the stock."""
+    """A CDSL share movement: a trade the owner typed in already, else a draft for them to
+    confirm. The demat account number isn't a bank account, so no account is looked up. Nothing
+    is recorded."""
     if entry.kind != "demat":
         return None
+    stocks = _owned_stocks(db, user_id, entry)
+    trade = _typed_trade(db, user_id, entry, stocks)
+    if trade is not None:
+        entry.trade_id = trade.id
+        entry.status = "duplicate"
+        return entry
     entry.status = "draft"
     entry.reason = "demat"
+    verb = "Sold" if entry.ref == "debit" else "Bought"
+    quantity = "" if entry.quantity is None else f"{entry.quantity.normalize():f} "
+    entry.message = f"{verb} {quantity}{entry.payee or 'shares'}"[:200]
+    if stocks:
+        entry.candidates = [{"kind": "stock", "id": s.id, "label": s.symbol} for s in stocks]
+    else:
+        entry.candidates = [
+            {"kind": "market", "id": m.id, "label": f"{m.code} · {m.name}"}
+            for m in _market_stocks(db, entry)
+        ]
     return entry
 
 
