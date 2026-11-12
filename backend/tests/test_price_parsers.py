@@ -154,3 +154,10 @@ def test_navall_data_line_with_wrong_field_count_is_skipped() -> None:
 
 def test_navall_unknown_header_yields_nothing() -> None:
     assert parse_navall("Scheme Code;Something Else\n1;2\n") == []
+
+
+def test_navall_does_not_repeat_plan_text_already_in_the_name() -> None:
+    header = "Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Plan;"
+    header += "Option;Net Asset Value;Date"
+    line = "1;INF000000001;-;Fund - Direct Plan - Growth;Direct Plan;Growth;10.5;11-Nov-2026"
+    assert parse_navall(f"{header}\n{line}\n")[0].name == "Fund - Direct Plan - Growth"

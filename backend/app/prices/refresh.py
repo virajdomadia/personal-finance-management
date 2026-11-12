@@ -130,15 +130,17 @@ def _latest_bhavcopy(fetcher: Fetcher, today: date) -> str | None:
             tried += 1
             try:
                 text = fetcher.bhavcopy(day)
-            except SourceError:
-                text = None  # NSE answers 403 on some holidays; treat it like "no file"
+            except SourceError as exc:
+                # NSE answers 403 on some holidays; treat it like "no file", but leave a trace.
+                log.warning("bhavcopy for %s unavailable: %s", day, exc)
+                text = None
             if text is not None:
                 return text
         day -= timedelta(days=1)
     return None
 
 
-def _refresh_stocks(db: Session, fetcher: Fetcher, today: date) -> int:
+def _refresh_stocks(db: Session, fetcher: Fetcher, today: date, report: RefreshReport) -> int:
     errors: list[str] = []
     try:
         listed = parse_equity_list(fetcher.equity_list())
@@ -158,6 +160,9 @@ def _refresh_stocks(db: Session, fetcher: Fetcher, today: date) -> int:
         count = 0
     if errors and not count:
         raise SourceError("; ".join(errors))
+    if errors:  # prices still apply, but a broken listing must not pass unnoticed
+        report.failed["stock"] = "; ".join(errors)
+        log.warning("stock source partly failed: %s", report.failed["stock"])
     return count
 
 
@@ -176,7 +181,7 @@ def refresh_market(
     report = RefreshReport()
     jobs = {
         "mutual_fund": lambda: _refresh_funds(db, fetcher),
-        "stock": lambda: _refresh_stocks(db, fetcher, today),
+        "stock": lambda: _refresh_stocks(db, fetcher, today, report),
         "crypto": lambda: _refresh_crypto(db, fetcher, today),
     }
     for kind in KINDS:

@@ -81,7 +81,7 @@ def parse_navall(text: str) -> list[Quote]:
             continue
         # The newer file splits "Direct Plan" / "Growth" out of the name; keep them in it.
         extras = [fields[columns[c]] for c in ("plan", "option") if c in columns]
-        name = " - ".join(part for part in [name, *extras] if part)
+        name = " - ".join([name, *(e for e in extras if e and e.lower() not in name.lower())])
         price = to_price(nav)
         try:
             price_date = datetime.strptime(nav_date, "%d-%b-%Y").date()

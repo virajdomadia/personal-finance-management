@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 from decimal import Decimal
 
@@ -312,7 +313,7 @@ def test_unreadable_navall_fails_the_fund_source_loudly(db_session: Session) -> 
     report = run_nightly(db_session, fetcher, TODAY)
 
     assert report.failed == {"mutual_fund": "AMFI file format not recognised"}
-    assert report.updated["stock"] > 0 or "stock" in report.updated
+    assert report.updated["stock"] == 2  # the two fixture listings that have a bhavcopy close
 
 
 def test_unreadable_equity_list_is_a_stock_error_when_nothing_is_priced(
@@ -354,3 +355,30 @@ def test_bhavcopy_lookback_skips_weekends_and_gives_up(db_session: Session) -> N
     run_nightly(db_session, Never(), date(2026, 11, 16))  # a Monday
 
     assert asked == [date(2026, 11, 16), date(2026, 11, 13), date(2026, 11, 12), date(2026, 11, 11)]
+
+
+def test_unreadable_equity_list_is_reported_even_when_prices_still_apply(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    db_session.add(MarketCode(kind="stock", code=STOCK_CODE, name="Reliance"))
+    db_session.commit()
+    fetcher = FakeFetcher(texts={"equity_l.csv": "NOT,THE,RIGHT\n1,2,3\n"})
+
+    logging.getLogger("app.prices").disabled = False  # alembic's logging setup can disable it
+    with caplog.at_level("WARNING", logger="app.prices"):
+        report = run_nightly(db_session, fetcher, TODAY)
+
+    assert report.updated["stock"] == 1
+    assert report.failed == {"stock": "NSE equity list format not recognised"}
+    assert market(db_session, "stock", STOCK_CODE).price == STOCK_CLOSE
+    assert "NSE equity list format not recognised" in caplog.text
+
+
+def test_bhavcopy_source_error_is_logged_before_falling_back(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    logging.getLogger("app.prices").disabled = False  # alembic's logging setup can disable it
+    with caplog.at_level("WARNING", logger="app.prices"):
+        run_nightly(db_session, FakeFetcher(fail={"bhavcopy"}), TODAY)
+
+    assert "bhavcopy for 2026-11-12 unavailable" in caplog.text
