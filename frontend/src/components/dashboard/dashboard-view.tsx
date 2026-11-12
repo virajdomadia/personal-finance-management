@@ -8,6 +8,7 @@ import { type Dashboard, formatDueDate, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Signed } from "@/components/investments/shared";
 import { DueSection } from "@/components/recurring/due-list";
+import { MonthCard } from "@/components/dashboard/month-card";
 import {
   FOCUS,
   PageHeader,
@@ -220,6 +221,7 @@ function Content({
           )}
         </div>
       )}
+      {hasAccounts && <MonthCard />}
 
       <div
         className={`grid grid-cols-1 items-start gap-3.5 ${goals.length > 0 ? "sm:grid-cols-2" : ""}`}
