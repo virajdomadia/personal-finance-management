@@ -142,6 +142,30 @@ def parse_bhavcopy(text: str) -> dict[str, tuple[Decimal, date]]:
     return closes
 
 
+def parse_bhavcopy_listings(text: str) -> list[Quote]:
+    """Every security in the price file, with its name and ISIN as NSE prints them.
+
+    ETFs (gold, silver, index funds) trade like shares but are missing from NSE's equity list,
+    so this is how they become searchable.
+    """
+    quotes: list[Quote] = []
+    for row in _rows(text):
+        if row.get("SctySrs") not in EQUITY_SERIES:
+            continue
+        symbol = row.get("TckrSymb", "")
+        price = to_price(row.get("ClsPric", ""))
+        try:
+            trade_date = date.fromisoformat(row.get("TradDt", ""))
+        except ValueError:
+            continue
+        if not symbol or price is None:
+            continue
+        name = (row.get("FinInstrmNm") or "").strip() or symbol
+        isin = (row.get("ISIN") or "").strip() or None
+        quotes.append(Quote("stock", symbol, name, isin, price, trade_date))
+    return quotes
+
+
 def parse_simple_price(data: dict) -> dict[str, Decimal]:
     prices: dict[str, Decimal] = {}
     for coin_id, quote in data.items():

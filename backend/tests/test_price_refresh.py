@@ -372,7 +372,8 @@ def test_unreadable_equity_list_is_reported_even_when_prices_still_apply(
     with caplog.at_level("WARNING", logger="app.prices"):
         report = run_nightly(db_session, fetcher, TODAY)
 
-    assert report.updated["stock"] == 1
+    # Reliance, plus TCS: the price file lists it even though the equity list couldn't be read.
+    assert report.updated["stock"] == 2
     assert report.failed == {"stock": "NSE equity list format not recognised"}
     assert market(db_session, "stock", STOCK_CODE).price == STOCK_CLOSE
     assert "NSE equity list format not recognised" in caplog.text
@@ -567,3 +568,31 @@ def test_crypto_on_coindcx_does_not_ask_coingecko(db_session: Session) -> None:
 
     assert fetcher.calls["simple_price"] == 0
     assert market(db_session, "crypto", COIN_ID).price == Decimal("7426538.7000")
+
+
+ETF_ROW = (
+    "2026-11-11,2026-11-11,CM,NSE,STK,10176,INF204KB14I2,NIFTYBEES,EQ,,,,,"
+    "NIP IND ETF NIFTY BEES,285.00,288.00,284.00,286.54,286.50,285.10,,286.54,,,1,1,1,F1,1,,,,,"
+)
+
+
+def test_etfs_in_the_price_file_become_searchable_stocks(db_session: Session) -> None:
+    from tests.price_fakes import read
+
+    a = user(db_session, "a@example.com")
+    etf = link(db_session, a, "stock", "NIFTYBEES", symbol="NIFTYBEES")
+    bhav = read("bhavcopy.csv").rstrip("\n") + "\n" + ETF_ROW + "\n"
+    fetcher = FakeFetcher(texts={"bhavcopy.csv": bhav})
+
+    report = run_nightly(db_session, fetcher, TODAY)
+
+    assert report.failed == {}
+    row = market(db_session, "stock", "NIFTYBEES")
+    assert (row.name, row.isin, row.price) == (
+        "NIP IND ETF NIFTY BEES",
+        "INF204KB14I2",
+        Decimal("286.5400"),
+    )
+    assert [r.price for r in rows(db_session, etf)] == [Decimal("286.5400")]
+    # A stock on NSE's equity list keeps the list's name, not the price file's short one.
+    assert market(db_session, "stock", STOCK_CODE).name == "Reliance Industries Limited"
