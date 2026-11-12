@@ -14,6 +14,7 @@ IST = timezone(timedelta(hours=5, minutes=30))
 EQUITY_SERIES = {"EQ", "BE"}
 COIN_SEARCH_LIMIT = 20
 _PLACES = Decimal("0.0001")
+_MAX_PRICE = Decimal(10) ** 10  # exclusive: the price column is Numeric(14, 4)
 
 
 @dataclass(frozen=True)
@@ -34,10 +35,10 @@ def to_price(text: str | int | Decimal | None) -> Decimal | None:
         value = Decimal(str(text).strip())
     except InvalidOperation:
         return None
-    if not value.is_finite() or value <= 0:
+    if not value.is_finite() or value <= 0 or value >= _MAX_PRICE:
         return None
     price = value.quantize(_PLACES, rounding=ROUND_HALF_UP)
-    return price if price > 0 else None
+    return price if 0 < price < _MAX_PRICE else None
 
 
 def _isin(value: str) -> str | None:
@@ -57,6 +58,7 @@ def parse_navall(text: str) -> list[Quote]:
             price_date = datetime.strptime(nav_date, "%d-%b-%Y").date()
         except ValueError:
             price_date = None
+            price = None
         quotes.append(
             Quote(
                 kind="mutual_fund",

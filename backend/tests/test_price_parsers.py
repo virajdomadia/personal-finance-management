@@ -108,3 +108,25 @@ def test_yahoo_close_takes_last_non_null() -> None:
 
 def test_yahoo_close_none_when_no_data() -> None:
     assert parse_yahoo_close({"chart": {"result": None, "error": {"code": "Not Found"}}}) is None
+
+
+def test_to_price_rejects_out_of_range() -> None:
+    assert to_price("1E+30") is None
+    assert to_price("10000000000") is None
+    assert to_price("9999999999.99995") is None
+    assert to_price("9999999999.9999") == Decimal("9999999999.9999")
+
+
+def test_navall_bad_date_or_non_positive_nav_gives_no_price() -> None:
+    line = "1;INF000000001;-;Fund A;{nav};{date}"
+    quotes = parse_navall(
+        "\n".join(
+            [
+                line.format(nav="10.5", date="not-a-date"),
+                line.format(nav="0", date="11-Nov-2026"),
+                line.format(nav="-3", date="11-Nov-2026"),
+            ]
+        )
+    )
+    assert len(quotes) == 3
+    assert all(q.price is None and q.price_date is None for q in quotes)
