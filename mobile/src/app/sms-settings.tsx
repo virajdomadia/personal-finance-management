@@ -74,12 +74,22 @@ export default function SmsSettingsScreen() {
   const readNow = useCallback(async () => {
     setReading(true);
     setNotice(null);
+    // Without the permission nothing can be read: show "Allow SMS", not a connection error.
+    const permitted = () => !available || PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS);
     try {
+      if (!(await permitted())) {
+        setRevoked(true);
+        return;
+      }
       const result = await syncSmsNow();
       setNotice({ text: readResultText(result), error: false });
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         void logOut();
+        return;
+      }
+      if (!(err instanceof ApiError) && !(await permitted())) {
+        setRevoked(true);
         return;
       }
       const refused = err instanceof ApiError && err.status === 422;
@@ -91,7 +101,7 @@ export default function SmsSettingsScreen() {
       setReading(false);
       await reload();
     }
-  }, [logOut, reload]);
+  }, [available, logOut, reload]);
 
   async function toggle(on: boolean) {
     if (busy.current) return;
