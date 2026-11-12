@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { Icon, Text } from "react-native-paper";
 import Svg, { Circle, Polyline } from "react-native-svg";
 
-import { ChunkyBox, ChunkyButton, Row, Tile, type Tone } from "@/components/chunky";
+import { ChunkyBox, ChunkyButton, Row, Tag, Tile, type Tone } from "@/components/chunky";
 import { Signed, signedLabel } from "@/components/signed";
 import { formatDate } from "@/lib/transactions";
 import { formatPercent, formatSigned, tone } from "@/lib/investments";
@@ -285,10 +285,11 @@ type TradeProps = {
   archivedLabel: string;
   hint: string;
   onPress: () => void;
+  tag?: string; // a small label under the details, like "estimated"
 };
 
 // One buy or sell. Tapping opens it; one in an archived account is locked until the account is restored.
-export function TradeRow({ emoji, title, details, cash, amount, realised, archived, archivedNote, archivedLabel, hint, onPress }: TradeProps) {
+export function TradeRow({ emoji, title, details, cash, amount, realised, archived, archivedNote, archivedLabel, hint, onPress, tag }: TradeProps) {
   return (
     <View style={styles.rowWrap}>
       <Row
@@ -300,6 +301,7 @@ export function TradeRow({ emoji, title, details, cash, amount, realised, archiv
             <Text variant="bodySmall" style={styles.statNote}>
               {details.join(" · ")}
             </Text>
+            {tag ? <Tag label={tag} tone="due" /> : null}
             {archived ? (
               <Text variant="labelSmall" style={styles.statNote}>
                 {archivedNote}
@@ -311,7 +313,7 @@ export function TradeRow({ emoji, title, details, cash, amount, realised, archiv
         amount={amount}
         sub={realised !== null ? <Signed value={realised} variant="bodySmall" style={styles.signed} /> : undefined}
         onPress={archived ? undefined : onPress}
-        accessibilityLabel={`${title}, ${details.join(", ")}, ${cash} ${amount}${realised !== null ? `, realised ${signedLabel(realised)}` : ""}${archived ? `, ${archivedLabel}` : ""}`}
+        accessibilityLabel={`${title}${tag ? `, ${tag}` : ""}, ${details.join(", ")}, ${cash} ${amount}${realised !== null ? `, realised ${signedLabel(realised)}` : ""}${archived ? `, ${archivedLabel}` : ""}`}
         accessibilityHint={archived ? undefined : hint}
       />
     </View>

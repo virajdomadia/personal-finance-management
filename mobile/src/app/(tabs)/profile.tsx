@@ -35,6 +35,8 @@ export default function ProfileScreen() {
         onRecurring={() => router.push("/recurring")}
         onInsurance={() => router.push("/insurance")}
         onArchived={() => router.push("/archived-accounts")}
+        onSms={() => router.push("/sms-settings")}
+        onPayeeRules={() => router.push("/payee-rules")}
         onLogOut={() => void logOut()}
       />
     </ScrollView>

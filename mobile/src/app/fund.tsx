@@ -400,6 +400,7 @@ export default function FundScreen() {
                 archivedLabel="archived bank account"
                 hint="Opens the transaction to edit or delete"
                 onPress={() => trade({ id: String(t.id) })}
+                tag={t.estimated ? "estimated" : undefined}
               />
             );
           })

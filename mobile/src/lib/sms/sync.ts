@@ -28,6 +28,10 @@ export type SmsSettings = {
   // runs. Each counts once, however often it is retried; three means the server is refusing
   // everything.
   refusedIds: string[];
+  lastSyncAt: number; // epoch ms of the last sync that finished, 0 for never
+  // epoch ms of a sync that stopped on three refusals in a row, 0 when not stopped. The next sync
+  // that finishes clears it.
+  stoppedAt: number;
 };
 
 // The server's field names. Nothing else may be added: the server rejects extra fields.
@@ -82,6 +86,11 @@ export function mergeSmsSettings(current: SmsSettings, patch: Partial<SmsSetting
   const next = { ...current, ...patch };
   if (patch.startDate !== undefined && patch.startDate < current.startDate && patch.lastReadAt === undefined) {
     next.lastReadAt = 0;
+  }
+  // A new start date is a fresh start: the refusal streak, and a stop it caused, begin again.
+  if (patch.startDate !== undefined && patch.startDate !== current.startDate) {
+    if (patch.refusedIds === undefined) next.refusedIds = [];
+    if (patch.stoppedAt === undefined) next.stoppedAt = 0;
   }
   return next;
 }
@@ -182,9 +191,15 @@ export async function syncSms({
     const id = unit.message.id;
     if (!refused.has(id)) {
       refused.add(id);
-      await save((current) => ({ refusedIds: [...new Set([...current.refusedIds, id])] }));
+      // Like the mark: a start date changed meanwhile has cleared the streak, and that stands.
+      await save((current) =>
+        current.startDate === settings.startDate ? { refusedIds: [...new Set([...current.refusedIds, id])] } : null,
+      );
     }
-    if (refused.size >= 3) throw error;
+    if (refused.size >= 3) {
+      await save((current) => (current.startDate === settings.startDate ? { stoppedAt: now.getTime() } : null));
+      throw error;
+    }
     held.push({ unit, refused: true });
   };
   const accepted = async () => {
@@ -317,5 +332,6 @@ export async function syncSms({
     cursor = nextCursor;
   }
 
+  await save(() => ({ lastSyncAt: now.getTime(), stoppedAt: 0 }));
   return { sent, unreadable: unreadableCount, banks: [...banks].sort() };
 }

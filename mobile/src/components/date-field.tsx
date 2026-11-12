@@ -15,6 +15,8 @@ type Props = {
   disabled?: boolean;
   // ISO date the picker can't go past. Pass todayIndia() where the server refuses future dates.
   maxDate?: string;
+  // ISO date the picker can't go before.
+  minDate?: string;
   error?: string | null;
   // Red outline only, for a form whose own wrapper already shows the message under the field.
   invalid?: boolean;
@@ -25,7 +27,7 @@ type Props = {
 
 // One date input for the whole app: shows the date, opens the system date dialog on press, and keeps
 // the Today shortcut. The value stays ISO text, so callers and payloads are unchanged.
-export function DateField({ label, value, onChange, disabled = false, maxDate, error, invalid = false, chips, helper }: Props) {
+export function DateField({ label, value, onChange, disabled = false, maxDate, minDate, error, invalid = false, chips, helper }: Props) {
   const shortcuts = chips ?? [{ label: "Today", value: todayIndia() }];
 
   const open = () => {
@@ -34,6 +36,7 @@ export function DateField({ label, value, onChange, disabled = false, maxDate, e
       value: isoToDate(value, isoToDate(maxDate ?? todayIndia())),
       mode: "date",
       maximumDate: maxDate ? isoToDate(maxDate) : undefined,
+      minimumDate: minDate ? isoToDate(minDate) : undefined,
       onValueChange: (_event, date) => onChange(dateToIso(date)),
     });
   };

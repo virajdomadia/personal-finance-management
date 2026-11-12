@@ -76,7 +76,12 @@ export type Dashboard = {
   goals: GoalCard[];
   // Total have by kind of holding. The values may not add up to total_have.
   asset_split: AssetSplit[];
+  // Bank SMS: messages waiting in To review, and the card bill a statement SMS showed.
+  to_review?: number;
+  card_bill?: CardBill | null;
 };
+
+export type CardBill = { account_id: number; name: string; amount: string; due_date: string };
 
 export type AssetSplit = { group: "bank_cash" | "deposits" | "stocks" | "funds" | "crypto"; value: string };
 

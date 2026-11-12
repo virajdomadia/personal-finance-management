@@ -11,7 +11,7 @@ const DAY = 86_400_000;
 const sha256 = async (text) => createHash("sha256").update(text).digest("hex");
 
 function settings(patch = {}) {
-  return { enabled: true, startDate: "2026-11-01", lastReadAt: 0, unreadable: [], banks: [], refusedIds: [], ...patch };
+  return { enabled: true, startDate: "2026-11-01", lastReadAt: 0, unreadable: [], banks: [], refusedIds: [], lastSyncAt: 0, stoppedAt: 0, ...patch };
 }
 
 // A fake inbox like the native module: messages newer than `since`, oldest first, at most `limit`.
@@ -485,4 +485,55 @@ test("test_moving_start_date_earlier_resets_last_read", () => {
   assert.equal(mergeSmsSettings(current, { startDate: "2026-11-08" }).lastReadAt, 12345);
   assert.equal(mergeSmsSettings(current, { startDate: "2026-11-05" }).lastReadAt, 12345);
   assert.equal(mergeSmsSettings(current, { enabled: false }).lastReadAt, 12345);
+});
+
+test("test_changing_start_date_clears_the_refusal_streak", () => {
+  const current = settings({ startDate: "2026-11-05", lastReadAt: 12345, refusedIds: ["1", "2"], stoppedAt: 99 });
+  for (const startDate of ["2026-10-01", "2026-11-08"]) {
+    const next = mergeSmsSettings(current, { startDate });
+    assert.deepEqual(next.refusedIds, [], startDate);
+    assert.equal(next.stoppedAt, 0, startDate);
+  }
+  const same = mergeSmsSettings(current, { startDate: "2026-11-05" });
+  assert.deepEqual(same.refusedIds, ["1", "2"], "an unchanged start date keeps the streak");
+  assert.equal(same.stoppedAt, 99);
+  assert.deepEqual(mergeSmsSettings(current, { enabled: false }).refusedIds, ["1", "2"]);
+});
+
+test("test_a_systemic_stop_is_recorded_and_cleared_by_the_next_good_sync", async () => {
+  const box = Array.from({ length: 3 }, (_, i) => boiMessage(i, NOW.getTime() - 10_000 + i * 1000));
+  const { read } = inbox(box);
+  const { save, state } = saver(settings());
+
+  await assert.rejects(syncSms({ read, post: refuseExcept([]).post, hash: sha256, settings: state.current, now: NOW, save }), /422/);
+  assert.equal(state.current.stoppedAt, NOW.getTime());
+  assert.equal(state.current.lastSyncAt, 0, "a stopped sync is not a good one");
+
+  // The server is fixed: everything goes through.
+  const later = new Date(NOW.getTime() + 60_000);
+  await syncSms({ read, post: recorder().post, hash: sha256, settings: state.current, now: later, save });
+  assert.equal(state.current.stoppedAt, 0);
+  assert.equal(state.current.lastSyncAt, later.getTime());
+});
+
+test("test_a_network_failure_is_not_a_stop", async () => {
+  const { read } = inbox([boiMessage(0, NOW.getTime() - 10_000)]);
+  const { save, state } = saver(settings());
+  await assert.rejects(syncSms({ read, post: recorder({ failOn: 1 }).post, hash: sha256, settings: state.current, now: NOW, save }));
+  assert.equal(state.current.stoppedAt, 0);
+  assert.equal(state.current.lastSyncAt, 0);
+});
+
+test("test_a_running_sync_does_not_restore_a_cleared_streak", async () => {
+  const box = [boiMessage(0, NOW.getTime() - 10_000)];
+  const { read } = inbox(box);
+  const start = settings({ startDate: "2026-11-10" });
+  const { save, state } = saver(start);
+  const post = async () => {
+    // The owner changes the start date while the refused upload is in flight.
+    await save(() => ({ startDate: "2026-11-01" }));
+    throw Object.assign(new Error("API responded with 422"), { status: 422 });
+  };
+  await syncSms({ read, post, hash: sha256, settings: start, now: NOW, save });
+  assert.deepEqual(state.current.refusedIds, []);
 });
