@@ -435,7 +435,7 @@ function Content({
         <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-12 text-center">
           <p className="font-black">Add your shares</p>
           <p className="mx-auto mt-1 max-w-md text-sm font-bold text-zinc-600">
-            Enter shares you already own, or record a buy. Buys and sells move your broker account&apos;s cash.
+            See every share you own in one place, at today&apos;s price. Add the shares you already have, or record a new buy.
           </p>
           {extra && (
             <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -702,8 +702,8 @@ function Funds({
         <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-12 text-center">
           <p className="font-black">Add your mutual funds</p>
           <p className="mx-auto mt-1 max-w-md text-sm font-bold text-zinc-600">
-            Enter units you already own, or add a SIP and record each instalment with its NAV. Purchases and redemptions move your
-            bank balance.
+            Track your mutual funds and SIPs at today&apos;s NAV. Add the units you already have, or set up a SIP and get a nudge each
+            month.
           </p>
           {canAdd && (
             <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -873,7 +873,7 @@ function Crypto({
         <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-12 text-center">
           <p className="font-black">Add your crypto</p>
           <p className="mx-auto mt-1 max-w-md text-sm font-bold text-zinc-600">
-            Enter coins you already own, or record a buy. Buys and sells move your exchange account&apos;s balance.
+            Keep your coins next to everything else, at today&apos;s price. Add the coins you already have, or record a new buy.
           </p>
           {canAdd && (
             <div className="mt-4 flex flex-wrap justify-center gap-2">

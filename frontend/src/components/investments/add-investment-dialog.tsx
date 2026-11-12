@@ -126,7 +126,7 @@ export function AddInvestmentDialog(props: Props) {
       <AccountDialog
         account={null}
         accounts={props.accounts}
-        initialType={type}
+        start={{ type }}
         onClose={props.onClose}
         onSaved={props.onSaved}
         onConflict={props.onConflict}

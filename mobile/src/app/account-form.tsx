@@ -86,11 +86,13 @@ function blankForm(type: AccountType): AccountForm {
 
 // Finds the account to edit in the list, because the API has no single-account route.
 export default function AccountFormScreen() {
-  // `type` starts a new account as that type (Add investment opens a PPF or RD this way).
+  // `type` (from the first-run checklist, or Add investment for a PPF or RD) starts a new account on that type. A bank starts on kind
+  // Salary, because the checklist asks for the account the salary lands in.
   const { id, type } = useLocalSearchParams<{ id?: string; type?: string }>();
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const editing = id !== undefined;
+  const start = type === "bank" || type === "credit_card" || type === "loan" || type === "ppf" || type === "rd" ? type : null;
   const [account, setAccount] = useState<Account | null>(null);
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "missing" | "failed">(editing ? "loading" : "ready");
@@ -152,8 +154,7 @@ export default function AccountFormScreen() {
     );
   }
 
-  const startType = type === "ppf" || type === "rd" ? type : "bank";
-  return <FormBody account={editing ? account : null} loadedAccounts={editing ? accounts : null} startType={startType} />;
+  return <FormBody account={editing ? account : null} loadedAccounts={editing ? accounts : null} start={editing ? null : start} />;
 }
 
 type FieldInputProps = {
@@ -203,11 +204,11 @@ function FieldInput({
 function FormBody({
   account,
   loadedAccounts,
-  startType,
+  start,
 }: {
   account: Account | null;
   loadedAccounts: Account[] | null;
-  startType: AccountType;
+  start: AccountType | null;
 }) {
   const editing = account !== null;
   const { token, logOut } = useSession();
@@ -228,7 +229,11 @@ function FormBody({
   }, [loadedAccounts, token]);
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [form, setForm] = useState<AccountForm>(() => (account ? formFromAccount(account) : blankForm(startType)));
+  const [form, setForm] = useState<AccountForm>(() => {
+    if (account) return formFromAccount(account);
+    const blank = blankForm(start ?? "bank");
+    return start === "bank" ? { ...blank, bank_kind: "salary" } : blank;
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
   const [conflict, setConflict] = useState<string | null>(null);

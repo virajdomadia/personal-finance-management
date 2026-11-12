@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ChunkyBox,
   ChunkyButton,
+  EmptyState,
   HeaderAction,
   Ring,
   Row,
@@ -466,12 +467,16 @@ export default function GoalScreen() {
         ) : null}
 
         {empty ? (
-          <View style={styles.empty}>
-            <Text variant="titleMedium">The basket is empty</Text>
-            <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
-              Set money aside in a bank, cash or wallet account, or add a fund, stock, coin, PPF or RD you hold.
-            </Text>
-          </View>
+          <EmptyState
+            emoji="🧺"
+            title="The basket is empty"
+            compact
+            body={
+              goal.archived
+                ? "Restore this goal to put money toward it again."
+                : "Use Set aside to label money in a bank, cash or wallet account for this goal, or Add holding for a fund, stock, coin, PPF or RD you own."
+            }
+          />
         ) : null}
 
         {goal.earmarks.length > 0 ? (
@@ -567,7 +572,6 @@ const styles = StyleSheet.create({
   facts: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   fact: { flexGrow: 1, flexBasis: "45%", minWidth: 130 },
   actions: { gap: 8 },
-  empty: { alignItems: "center", gap: 8, paddingVertical: 24 },
   list: { gap: 8 },
   sectionTitle: { color: BRAND.ink, letterSpacing: 0.6, paddingTop: 4 },
   basket: { flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 12, paddingRight: 4, paddingVertical: 6 },

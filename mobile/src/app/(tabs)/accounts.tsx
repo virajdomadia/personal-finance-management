@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, RefreshControl, SectionList, StyleSheet, 
 import { Text, useTheme } from "react-native-paper";
 
 import { AccountRow } from "@/components/account-row";
-import { ChunkyBox, ChunkyButton, HeaderAction, ScreenHeader, Tile } from "@/components/chunky";
+import { ChunkyBox, ChunkyButton, EmptyState, HeaderAction, ScreenHeader, Tile } from "@/components/chunky";
 import {
   type Account,
   type AccountList,
@@ -259,12 +259,12 @@ export default function AccountsScreen() {
             />
           )}
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text variant="titleMedium">Add your first account</Text>
-              <Text variant="bodyMedium" style={styles.emptyText}>
-                Bank accounts, cards, cash, loans and more. Tap + ADD to start.
-              </Text>
-            </View>
+            <EmptyState
+              emoji="👛"
+              title="Add your first account"
+              body="Your bank accounts, cards, cash, wallets and loans live here, so you can see what you have and what you owe."
+              action={{ label: "Add account", onPress: () => open() }}
+            />
           }
         />
       )}
@@ -287,6 +287,4 @@ const styles = StyleSheet.create({
   owe: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginTop: 8 },
   oweAmount: { flexShrink: 1, color: BRAND.ink, textAlign: "right", fontVariant: ["tabular-nums"] },
   sectionHeader: { color: BRAND.ink, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
-  empty: { alignItems: "center", gap: 8, padding: 32 },
-  emptyText: { color: BRAND.zinc600, textAlign: "center" },
 });

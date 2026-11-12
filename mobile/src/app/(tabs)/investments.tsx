@@ -221,7 +221,7 @@ export default function InvestmentsScreen() {
             <View style={styles.empty}>
               <Text variant="titleMedium">Add your shares</Text>
               <Text variant="bodyMedium" style={styles.emptyText}>
-                Enter shares you already own, or record a buy. Buys and sells move your broker account&apos;s cash.
+                See every share you own in one place, at today&apos;s price. Start with the shares you already have.
               </Text>
               <ChunkyButton variant="alt" label="Add existing shares" onPress={() => addTrade("opening")} />
             </View>
@@ -250,8 +250,8 @@ export default function InvestmentsScreen() {
           <View style={styles.empty}>
             <Text variant="titleMedium">No PPF or RD yet</Text>
             <Text variant="bodyMedium" style={styles.emptyText}>
-              Add a PPF or recurring deposit as an account. It shows here with its balance and the interest it has
-              earned so far.
+              Your PPF and recurring deposits show here with their balance and the interest earned so far. Add one
+              from Accounts.
             </Text>
             <ChunkyButton variant="alt" label="Go to Accounts" onPress={() => openAccounts()} />
           </View>
@@ -311,8 +311,8 @@ export default function InvestmentsScreen() {
             <View style={styles.empty}>
               <Text variant="titleMedium">Add your crypto</Text>
               <Text variant="bodyMedium" style={styles.emptyText}>
-                Enter coins you already hold, or record a buy. Link a coin to live prices, or type one in. Until then coins
-                are valued at cost.
+                Keep your coins next to everything else, at today&apos;s price. Start with the coins you already
+                have.
               </Text>
               <ChunkyButton variant="alt" label="Add existing coins" onPress={() => addCoinTrade("opening")} />
             </View>
@@ -371,8 +371,8 @@ export default function InvestmentsScreen() {
             <View style={styles.empty}>
               <Text variant="titleMedium">Add your mutual funds</Text>
               <Text variant="bodyMedium" style={styles.emptyText}>
-                Enter units you already hold, or add a SIP. Each month a SIP shows here as due until you record it with
-                that day&apos;s NAV.
+                Track your mutual funds and SIPs at today&apos;s NAV. Add the units you already have, or set up a SIP
+                and get a nudge each month.
               </Text>
               <ChunkyButton variant="alt" label="Add existing units" onPress={() => addFundTrade("opening")} />
               <ChunkyButton variant="alt" label="Add SIP" onPress={() => go({ pathname: "/sip-form" })} />

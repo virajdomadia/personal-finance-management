@@ -616,7 +616,7 @@ function Transactions({
       </div>
       {data.trades.length === 0 ? (
         <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-4 py-6 text-center text-sm font-extrabold text-zinc-700">
-          <p>No transactions yet.</p>
+          <p>No purchases yet. Start with the units you already own.</p>
           <button type="button" className={`${QUIET} mt-2`} onClick={onAdd}>
             Add existing units
           </button>
@@ -647,7 +647,7 @@ function NavHistory({ navs, trades, onDelete }: { navs: Nav[]; trades: FundTrade
       </h2>
       {navs.length === 0 ? (
         <p className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-4 py-6 text-center text-sm font-extrabold text-zinc-700">
-          No NAV recorded. Until you add one, holdings are valued at cost.
+          No NAV yet. Until there is one, your units are valued at what you paid.
         </p>
       ) : (
         <ul className={LIST}>

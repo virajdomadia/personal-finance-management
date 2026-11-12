@@ -4,6 +4,7 @@ import { StyleSheet, View } from "react-native";
 import { Text } from "react-native-paper";
 
 import { ChunkyBox, ChunkyButton, Row, ScreenHeader, StackedBar, Tile } from "@/components/chunky";
+import { SetupChecklist } from "@/components/setup-checklist";
 import { type AssetSplit, type Dashboard, formatDueDate } from "@/lib/accounts";
 import { cardBillText, reviewCountText } from "@/lib/review";
 import { investmentSticker, streakLabel } from "@/lib/fun";
@@ -102,6 +103,8 @@ export function DashboardView({ data, streak, failed, onOpenAccounts, dueList }:
             We couldn&apos;t load your dashboard. Pull down to try again.
           </Text>
         ) : null}
+
+        <SetupChecklist />
 
         {toReview > 0 ? (
           <Tile

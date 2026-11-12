@@ -7,6 +7,7 @@ import { logout } from "@/app/login/actions";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { Select } from "@/components/ui/select";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Chip,
   EmojiSquare,
@@ -288,22 +289,35 @@ export function TransactionsView({ initialAccountId }: { initialAccountId: numbe
           </div>
 
           {load.data.transactions.length === 0 ? (
-            <div className={`${CARD} px-6 py-10 text-center`}>
-              <p className="text-4xl" aria-hidden="true">
-                {noAccounts ? "👛" : "🫥"}
-              </p>
-              {noAccounts ? (
-                <>
-                  <p className="mt-2 font-black">Add an account first</p>
-                  <p className="mt-1 text-sm font-bold text-zinc-600">Every transaction belongs to an account.</p>
-                  <Link href="/accounts" className={`${PRIMARY} mt-4 inline-block`}>
+            noAccounts ? (
+              <EmptyState
+                emoji="👛"
+                title="Add an account first"
+                action={
+                  <Link href="/accounts" className={PRIMARY}>
                     Go to accounts
                   </Link>
-                </>
-              ) : (
-                <p className="mt-2 text-sm font-extrabold">No transactions match in {formatMonth(filters.month)}.</p>
-              )}
-            </div>
+                }
+              >
+                Every rupee you spend or receive lives here, and each one belongs to an account.
+              </EmptyState>
+            ) : (
+              <EmptyState
+                emoji="🫥"
+                title={`Nothing in ${formatMonth(filters.month)}`}
+                action={
+                  canAdd ? (
+                    <button type="button" className={PRIMARY} onClick={openAdd}>
+                      + Add transaction
+                    </button>
+                  ) : null
+                }
+              >
+                {filters.accountId !== null || filters.type !== null
+                  ? "Nothing matches these filters this month. Try another month or clear a filter."
+                  : "Everything you spend and receive shows up here, month by month. Add one now, or let the Android app read your bank texts."}
+              </EmptyState>
+            )
           ) : (
             <div className="flex flex-col gap-5">
               <div className="relative overflow-x-auto pb-1">

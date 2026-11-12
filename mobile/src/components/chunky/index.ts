@@ -1,6 +1,7 @@
 export { ChunkyBox, TONE_BG, TONE_FG, TONE_SQUARE, type Tone } from "./chunky-box";
 export { ChunkyButton } from "./chunky-button";
 export { Chip } from "./chip";
+export { EmptyState } from "./empty-state";
 export { Logo } from "./logo";
 export { ProgressBar, Ring } from "./progress";
 export { Row } from "./row";

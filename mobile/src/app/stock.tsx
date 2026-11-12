@@ -354,7 +354,7 @@ go({ pathname: "/holding-form", params: { kind: "stock", id: stockId, focus: "li
         ) : null}
         {shown.length === 0 ? (
           <EmptyBox
-            text={filterName ? `No trades in ${filterName} yet.` : "No trades yet."}
+            text={filterName ? `No buys or sells in ${filterName} yet.` : "No buys or sells yet. Start with the shares you already own."}
             action={{ label: "Add existing shares", onPress: () => trade({ opening: "1" }) }}
           />
         ) : (
@@ -387,7 +387,7 @@ go({ pathname: "/holding-form", params: { kind: "stock", id: stockId, focus: "li
 
         <SectionTitle label="Price history" />
         {data.prices.length === 0 ? (
-          <EmptyBox text="No prices recorded. Until you add one, holdings are valued at cost." />
+          <EmptyBox text="No prices yet. Until there is one, your shares are valued at what you paid." />
         ) : (
           data.prices.map((price, index) => (
             <HistoryRow

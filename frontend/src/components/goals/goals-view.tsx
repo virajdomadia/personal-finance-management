@@ -10,6 +10,7 @@ import { ConfirmDelete, LIST, Notice, PRIMARY, QUIET, ROW_ACTION, SECTION_TITLE,
 import { type Goal, type GoalList, efText, paceText, progressText } from "@/lib/goals";
 import { whole } from "@/lib/recurring";
 import { FOCUS, PageHeader, Ring, Sticker } from "@/components/ui/chunky";
+import { EmptyState } from "@/components/ui/empty-state";
 
 import { GoalDialog } from "./goal-dialog";
 
@@ -131,15 +132,18 @@ export function GoalsView() {
       {load.status === "ready" && (
         <div className="flex flex-col gap-10">
           {load.active.length === 0 ? (
-            <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-12 text-center">
-              <p className="font-black">
-                <span aria-hidden="true">🎯 </span>No goals yet
-              </p>
-              <p className="mx-auto mt-1 max-w-md text-sm font-bold text-zinc-600">
-                Start an emergency fund or save toward something. A goal labels money you already have: set some aside in a bank account,
-                or put a fund, stock, coin, PPF or RD in its basket. Nothing moves.
-              </p>
-            </div>
+            <EmptyState
+              emoji="🎯"
+              title="No goals yet"
+              action={
+                <button type="button" className={PRIMARY} onClick={() => setDialog({ kind: "form" })}>
+                  + Add goal
+                </button>
+              }
+            >
+              Save for an emergency fund, a trip or a bike, and watch how close you are. A goal only labels money you already have:
+              nothing moves.
+            </EmptyState>
           ) : (
             <ul className="grid grid-cols-1 items-start gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {load.active.map((goal, i) => (

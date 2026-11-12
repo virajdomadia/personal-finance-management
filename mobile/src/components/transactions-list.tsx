@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl, ScrollView, SectionList, StyleSheet, View } from "react-native";
 import { Text, useTheme } from "react-native-paper";
 
-import { ChunkyButton, Chip, HeaderAction, Row, StackedBar, Tag, Tile } from "@/components/chunky";
+import { ChunkyButton, Chip, EmptyState, HeaderAction, Row, StackedBar, Tag, Tile } from "@/components/chunky";
 
 import { DueList } from "@/components/due-list";
 import type { GoalDue } from "@/lib/goals";
@@ -397,19 +397,24 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
           )}
           ListEmptyComponent={
             noAccounts ? (
-              <View style={styles.empty}>
-                <Text variant="titleMedium">Add an account first</Text>
-                <Text variant="bodyMedium" style={[styles.centerText, styles.muted]}>
-                  Every transaction belongs to an account.
-                </Text>
-                <ChunkyButton label="Go to accounts" onPress={() => router.navigate("/accounts")} />
-              </View>
+              <EmptyState
+                emoji="👛"
+                title="Add an account first"
+                body="Every rupee you spend or receive lives here, and each one belongs to an account."
+                action={{ label: "Go to accounts", onPress: () => router.navigate("/accounts") }}
+              />
             ) : (
-              <View style={styles.empty}>
-                <Text variant="bodyMedium" style={[styles.centerText, styles.muted]}>
-                  No transactions match in {formatMonth(filters.month)}.
-                </Text>
-              </View>
+              <EmptyState
+                emoji="🫥"
+                title={`Nothing in ${formatMonth(filters.month)}`}
+                body={
+                  filters.type !== null || (filters.accountId !== null && fixedAccountId === null)
+                    ? "Nothing matches these filters this month. Try another month or clear a filter."
+                    : canAdd
+                      ? "Everything you spend and receive shows up here, month by month. Tap Add, or turn on Bank SMS to fill it in for you."
+                      : "Everything you spend and receive shows up here, month by month."
+                }
+              />
             )
           }
           ListFooterComponent={
@@ -483,7 +488,6 @@ const styles = StyleSheet.create({
   incomeAmount: { flexShrink: 1, color: BRAND.gain, textAlign: "right", fontVariant: ["tabular-nums"] },
   sectionHeader: { color: BRAND.ink, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4, letterSpacing: 0.6 },
   rowWrap: { paddingHorizontal: 16, paddingVertical: 4 },
-  empty: { alignItems: "center", gap: 8, padding: 32 },
   more: { marginTop: 8, marginHorizontal: 16 },
   activityNote: { paddingHorizontal: 16, paddingTop: 16 },
   fab: { position: "absolute", right: 16, bottom: 16 },

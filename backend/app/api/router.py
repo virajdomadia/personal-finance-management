@@ -16,6 +16,7 @@ from app.api.routes import (
     policies,
     portfolio,
     recurring,
+    setup,
     sips,
     sms,
     stocks,
@@ -31,6 +32,7 @@ api_router.include_router(accounts.router)
 api_router.include_router(deposits.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(streak.router)
+api_router.include_router(setup.router)
 api_router.include_router(transactions.router)
 api_router.include_router(sms.router)
 api_router.include_router(sms.rules_router)

@@ -4,7 +4,7 @@ import { ActivityIndicator, AppState, RefreshControl, ScrollView, StyleSheet, Vi
 import { Button, Dialog, Portal, Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ChunkyBox, ChunkyButton, HeaderAction, Row, ScreenHeader, Tile } from "@/components/chunky";
+import { ChunkyBox, ChunkyButton, EmptyState, HeaderAction, Row, ScreenHeader, Tile } from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
 import { errorMessage } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
@@ -298,14 +298,12 @@ export default function InsuranceScreen() {
           {failed ? <Banner messages={[`${FAILED} Pull down to try again.`]} /> : null}
           {notice !== null ? <Banner messages={[notice]} /> : null}
           {policies.length === 0 ? (
-            <View style={styles.empty}>
-              <Text variant="titleMedium">No policies yet</Text>
-              <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
-                Add your health insurance to get a renewal reminder, see what each year cost, and check your premium fund
-                covers it.
-              </Text>
-              <ChunkyButton label="Add policy" onPress={() => go("/policy-form")} />
-            </View>
+            <EmptyState
+              emoji="🛡️"
+              title="No policies yet"
+              body="Add your health insurance to get a reminder before it renews and see what each year cost."
+              action={{ label: "Add policy", onPress: () => go("/policy-form") }}
+            />
           ) : (
             <>
               <Tile tone="green" emoji="🛡️" label="You're covered for" size="huge" value={whole(String(cover))}>
@@ -403,7 +401,6 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
-  empty: { alignItems: "center", gap: 12, paddingVertical: 32 },
   card: { padding: 14, gap: 12 },
   head: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   square: {
