@@ -40,7 +40,7 @@ A user with no credit card would never finish. So every step except the bank acc
 The checklist has three modes, kept on the device:
 
 - **Open:** the full checklist card at the top of the dashboard. This is the default.
-- **Later** ("Skip for now"): a one-line strip, "Finish setting up · 3 of 6", with **Resume** (back to open) and **Hide** (to hidden).
+- **Later** ("Skip for now" on the web, "Later" on the app): a one-line strip, "Finish setting up · 3 of 6 done", with **Resume** (back to open) and **Don't show again** (to hidden).
 - **Hidden:** gone from the dashboard.
 
 Once every step is done or skipped, the checklist disappears, whatever the mode.
@@ -50,7 +50,7 @@ Once every step is done or skipped, the checklist disappears, whatever the mode.
 - **Website:** one self-contained component, `SetupChecklist`, inserted at the top of the dashboard with one line. It fetches `/api/setup` itself on mount and when the tab regains focus, so steps tick off when the user comes back from adding something.
 - **App:** one self-contained component, `SetupChecklist`, inserted at the top of the dashboard body with one line. It reloads on screen focus (`useFocusEffect`) and reads the SMS setting at the same time.
 
-Web and Android get their own designs. The website shows a chunky card with a progress bar and numbered rows, each a link. The app shows Material-style rows (emoji square, title, one-line hint, a check or a chevron) inside a chunky box, with large tap targets, and "Not for me" as a compact secondary button on the row.
+Web and Android get their own designs. The website shows a chunky card with a progress bar and numbered rows, each a link. The app shows its chunky list rows (emoji square, title, one-line hint; a green tick square once done) inside a chunky box, the whole row tappable, with large tap targets, and "Not for me" as a compact secondary button on the row.
 
 ## Empty states
 
@@ -69,6 +69,9 @@ Investment screens are being reworked by the "Add investment" work in parallel, 
 - **The SIP step also counts recurring reminders** and vice versa (one step: "Salary, rent and SIPs"), so a user who only has a salary reminder isn't nagged about SIPs.
 - **PPF and RD count as investments**, matching the Investments tab where they live.
 - **Existing users see the checklist too** (in Open mode) until they finish, skip or hide it. It costs one tap and they likely have a missing step anyway.
-- **No way back after Hide**, other than clearing site data or reinstalling. "Later" is the resumable option; Hide is meant to be final.
-- **The step order is fixed by the backend**, and the clients add the SMS step last on the app.
+- **No way back after "Don't show again"**, other than clearing site data or reinstalling. "Later" is the resumable option; Hide is meant to be final.
+- **The step order is fixed by the backend**, and the app adds the SMS step last.
+- **The SMS step only appears in an app build that has the SMS reader** (`isAvailable()` from the `sms-inbox` module), so an older build isn't asked for something it can't do.
+- **"Not for me" is also a TalkBack action on the row**, because the row is one accessibility node and the button inside it isn't reachable on its own.
+- **Steps are counted, not money:** the clients count done steps for "3 of 6" and the progress bar. No amounts are involved.
 - **The website dashboard's old "Nothing here yet" box is replaced** by the checklist when there are no accounts and the checklist is showing. The box is passed to the checklist as its `fallback`, so if the user hid the checklist (or it fails to load) the box is still there. On the app, the Net worth tile's small "Add your first account" button stays: it's part of the tile, and changing the tile would collide with the parallel dashboard work.
