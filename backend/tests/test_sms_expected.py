@@ -1,6 +1,6 @@
 """Debits that are an expected payment: an EMI, a SIP instalment or a recurring reminder."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -349,3 +349,34 @@ def test_other_users_plans_are_not_matched(
     bank(other, balance="50000.00")
     result = one(other, amount="7500.00", payee="HDFC LOAN ACH")
     assert result["reason"] == "category"
+
+
+def test_sip_debited_after_a_holiday_settles_its_own_month(
+    headers: Headers, db_session: Session
+) -> None:
+    # Debit day 30; 30 March was a holiday, so the bank debited on 1 April.
+    b = bank(headers, balance="50000.00")
+    f = fund(headers)
+    s = sip(db_session, f, b)
+    row = db_session.get(Sip, s)
+    assert row is not None
+    row.day, row.start_date = 30, date(2026, 3, 30)
+    db_session.commit()
+    for day in (date(2026, 4, 1), date(2026, 4, 30)):
+        db_session.add(
+            InstrumentPrice(user_id=user_id(db_session), instrument_id=f, date=day, price=50)
+        )
+    db_session.commit()
+
+    late = one(headers, amount="5000.00", payee="BSE LIMITED", date="2026-04-01")
+    assert late["reason"] == "sip_units"
+    april = one(headers, amount="5000.00", payee="BSE LIMITED", date="2026-04-30")
+    assert april["reason"] == "sip_units"
+    trades = db_session.scalars(select(InvestmentTrade).order_by(InvestmentTrade.id)).all()
+    assert [(t.date, t.sip_id) for t in trades] == [
+        (date(2026, 4, 1), s),
+        (date(2026, 4, 30), s),
+    ]
+    sips = client.get("/api/investments/sips", headers=headers).json()["sips"]
+    assert "2026-03-30" not in next(x for x in sips if x["id"] == s)["due"]
+    assert "2026-04-30" not in next(x for x in sips if x["id"] == s)["due"]

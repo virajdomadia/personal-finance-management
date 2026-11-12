@@ -17,7 +17,7 @@ from app.api.loans import load_book, next_emi
 from app.api.recurring import TemplateRow, is_recorded, status
 from app.api.routes.fund_trades import fund_columns, fund_save_checks, sync_trade_nav
 from app.api.routes.transactions import lock_accounts
-from app.api.sips import load_due
+from app.api.sips import DEBIT_SLACK, load_due
 from app.models.account import Account
 from app.models.insurance import InsurancePolicy
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade, Sip
@@ -27,7 +27,7 @@ from app.models.sms import PayeeRule, SmsEntry
 from app.models.transaction import Transaction
 from app.sms.recording import record, review
 
-SIP_WINDOW = timedelta(days=3)  # an instalment is debited within this of its debit day
+SIP_WINDOW = timedelta(days=DEBIT_SLACK)  # an instalment is debited within this of its day
 TEMPLATE_SPREAD = Decimal("0.10")  # a reminder's payment may differ this much from its amount
 UNITS = Decimal("0.001")
 SIP_UNITS_MESSAGE = "Check the units against your fund statement"
