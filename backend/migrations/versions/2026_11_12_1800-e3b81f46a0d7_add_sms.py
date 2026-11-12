@@ -156,6 +156,7 @@ def upgrade() -> None:
         op.f("ix_sms_entries_transaction_id"), "sms_entries", ["transaction_id"], unique=False
     )
     op.create_index(op.f("ix_sms_entries_user_id"), "sms_entries", ["user_id"], unique=False)
+    op.create_index(op.f("ix_sms_entries_trade_id"), "sms_entries", ["trade_id"], unique=False)
     op.create_index("ix_sms_entries_user_id_ref", "sms_entries", ["user_id", "ref"], unique=False)
     op.create_index(
         "ix_sms_entries_user_id_status", "sms_entries", ["user_id", "status"], unique=False
@@ -175,6 +176,7 @@ def downgrade() -> None:
     op.drop_column("investment_trades", "estimated")
     op.drop_index("ix_sms_entries_user_id_status", table_name="sms_entries")
     op.drop_index("ix_sms_entries_user_id_ref", table_name="sms_entries")
+    op.drop_index(op.f("ix_sms_entries_trade_id"), table_name="sms_entries")
     op.drop_index(op.f("ix_sms_entries_user_id"), table_name="sms_entries")
     op.drop_index(op.f("ix_sms_entries_transaction_id"), table_name="sms_entries")
     op.drop_table("sms_entries")

@@ -282,6 +282,7 @@ def test_response_shape(headers: Headers) -> None:
         "interest": None,
         "note": "Weekly shop",
         "recurring_template_id": None,
+        "from_sms": False,
         "editable": True,
     }
 
@@ -664,16 +665,70 @@ def test_breakdown_groups_and_sorts(headers: Headers) -> None:
     ]
 
 
-def test_breakdown_uncategorised_is_other(headers: Headers, db_session: Session) -> None:
+def test_breakdown_names_uncategorised(headers: Headers, db_session: Session) -> None:
     a = account(headers)
     expense(headers, a, "100.00", category="Groceries")
+    expense(headers, a, "20.00", category="Other")
     id = expense(headers, a, "30.00").json()["id"]
     tx = db_session.get(Transaction, id)
     assert tx is not None
     tx.category = None
     db_session.commit()
 
-    assert breakdown(headers) == [spend("Groceries", "100.00"), spend("Other", "30.00")]
+    assert breakdown(headers) == [
+        spend("Groceries", "100.00"),
+        spend("Uncategorised", "30.00"),
+        spend("Other", "20.00"),
+    ]
+
+
+# Transactions recorded from SMS
+
+
+def sms_expense(db: Session, headers: Headers, account_id: int, category: str | None) -> int:
+    id = expense(headers, account_id, "40.00").json()["id"]
+    tx = db.get(Transaction, id)
+    assert tx is not None
+    tx.category = category
+    tx.source = "sms"
+    db.commit()
+    return id
+
+
+def test_manual_create_still_needs_category(headers: Headers) -> None:
+    response = post(headers, type="expense", account_id=account(headers), amount="10.00")
+    assert response.status_code == 422
+    assert locs(response) == [["body", "category"]]
+    created = expense(headers, account(headers)).json()
+    assert created["from_sms"] is False
+
+
+def test_editing_note_of_uncategorised_sms_transaction_is_allowed(
+    headers: Headers, db_session: Session
+) -> None:
+    id = sms_expense(db_session, headers, account(headers), None)
+    response = client.patch(f"{URL}/{id}", json={"note": "Chai"}, headers=headers)
+    assert response.status_code == 200, response.json()
+    assert (response.json()["note"], response.json()["category"]) == ("Chai", None)
+    assert response.json()["from_sms"] is True
+
+    response = client.patch(f"{URL}/{id}", json={"category": "Food and dining"}, headers=headers)
+    assert response.json()["category"] == "Food and dining"
+    # Once categorised it can't go back to none.
+    response = client.patch(f"{URL}/{id}", json={"category": None}, headers=headers)
+    assert response.status_code == 422
+
+
+def test_uncategorised_manual_transaction_still_needs_category_on_edit(
+    headers: Headers, db_session: Session
+) -> None:
+    id = expense(headers, account(headers)).json()["id"]
+    tx = db_session.get(Transaction, id)
+    assert tx is not None
+    tx.category = None
+    db_session.commit()
+    response = client.patch(f"{URL}/{id}", json={"note": "Chai"}, headers=headers)
+    assert response.status_code == 422
 
 
 def test_breakdown_emi_interest_only(headers: Headers) -> None:

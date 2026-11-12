@@ -74,7 +74,7 @@ class SmsEntry(Base):
     # A list of {"kind": str, "id": int, "label": str}.
     candidates: Mapped[list | None] = mapped_column(JSON)
     transaction_id: Mapped[int | None] = mapped_column(ForeignKey("transactions.id"), index=True)
-    trade_id: Mapped[int | None] = mapped_column(ForeignKey("investment_trades.id"))
+    trade_id: Mapped[int | None] = mapped_column(ForeignKey("investment_trades.id"), index=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

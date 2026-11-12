@@ -444,6 +444,7 @@ def test_transaction_rows_only_gain_the_new_key(headers: Headers) -> None:
     record(headers, account_id, "2026-10-01")
     [row] = client.get(TX, headers=headers).json()["transactions"]
     assert row.pop("recurring_template_id") is None
+    assert row.pop("from_sms") is False  # added later, by SMS transactions
     assert set(row) == {
         "id",
         "type",

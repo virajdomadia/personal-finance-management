@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -31,6 +31,7 @@ from app.db.session import DbSession
 from app.models.account import Account
 from app.models.insurance import InsurancePolicy
 from app.models.recurring import RecurringTemplate
+from app.models.sms import SmsEntry
 from app.models.transaction import Transaction
 
 router = APIRouter(
@@ -135,10 +136,12 @@ class TransactionResponse(BaseModel):
     account_name: str
     to_account_id: int | None
     to_account_name: str | None
+    # None only on income or an expense recorded from an SMS that isn't categorised yet.
     category: str | None
     interest: str | None
     note: str | None
     recurring_template_id: int | None
+    from_sms: bool
     # False once a linked account is archived; restore the account to change the transaction.
     editable: bool
 
@@ -180,6 +183,7 @@ def _to_response(tx: Transaction, accounts: dict[int, Account]) -> TransactionRe
         interest=None if tx.interest is None else fmt(tx.interest),
         note=tx.note,
         recurring_template_id=tx.recurring_template_id,
+        from_sms=tx.source == "sms",
         editable=account.archived_at is None and (target is None or target.archived_at is None),
     )
 
@@ -215,7 +219,11 @@ def _account_problem(
     return None
 
 
-def validate_transaction_values(values: dict[str, Any], accounts: dict[int, Account]) -> None:
+def validate_transaction_values(
+    values: dict[str, Any], accounts: dict[int, Account], allow_uncategorised: bool = False
+) -> None:
+    """`allow_uncategorised` lets income or an expense have no category: only SMS recording
+    (and editing what it recorded, while still uncategorised) passes it."""
     errors: list[dict[str, Any]] = []
     type_ = values["type"]
     if type_ is None:
@@ -251,7 +259,7 @@ def validate_transaction_values(values: dict[str, Any], accounts: dict[int, Acco
     elif type_ is not None:
         if target is not None:
             errors.append(field_error("to_account_id", "Only a transfer has a second account."))
-        if values["category"] is None:
+        if values["category"] is None and not allow_uncategorised:
             errors.append(field_error("category", "Choose a category."))
 
     if type_ != "emi" and values["interest"] is not None:
@@ -409,13 +417,14 @@ def save_checks(
     values: dict[str, Any],
     existing_id: int | None,
     link_changed: bool = True,
+    allow_uncategorised: bool = False,
 ) -> None:
     """Every rule a transaction is saved under, the balance check included.
 
     `link_changed=False` skips the reminder-link check: an unchanged link is left alone, so a
     policy's payment stays editable, and a policy's renewal checks its own template.
     """
-    validate_transaction_values(values, accounts)
+    validate_transaction_values(values, accounts, allow_uncategorised)
     if link_changed:
         _check_template(db, user_id, values)
     before = load_movements(db, user_id)
@@ -500,13 +509,15 @@ TOP_CATEGORIES = 4
 
 
 def expense_breakdown(matches: list[Transaction]) -> list[CategorySpend]:
-    """Spending (see `_spent`) by category: the top four named, then the rest as "Other"."""
+    """Spending (see `_spent`) by category: the top four named, then the rest as "Other".
+
+    No category (an SMS expense not yet categorised) shows as "Uncategorised"."""
     totals: dict[str, Decimal] = {}
     for tx in matches:
         spent = _spent(tx)
         if spent == 0:
             continue
-        name = "EMI interest" if tx.type == "emi" else tx.category or "Other"
+        name = "EMI interest" if tx.type == "emi" else tx.category or "Uncategorised"
         totals[name] = totals.get(name, Decimal(0)) + spent
     ranked = sorted(totals.items(), key=lambda item: (-item[1], item[0]))
     if len(ranked) > TOP_CATEGORIES + 1:
@@ -615,7 +626,17 @@ def update_transaction(
     link_changed = values["recurring_template_id"] != tx.recurring_template_id
     if link_changed and period_of(db, tx.id) is not None:
         raise RequestValidationError([field_error("recurring_template_id", PERIOD_LINKED)])
-    save_checks(db, user.id, accounts, values, existing_id=tx.id, link_changed=link_changed)
+    # An SMS transaction waiting in review for its category can still be edited meanwhile.
+    uncategorised_sms = tx.category is None and tx.source == "sms"
+    save_checks(
+        db,
+        user.id,
+        accounts,
+        values,
+        existing_id=tx.id,
+        link_changed=link_changed,
+        allow_uncategorised=uncategorised_sms,
+    )
     for field, value in values.items():
         setattr(tx, field, value)
     try:
@@ -638,6 +659,12 @@ def delete_transaction(id: int, user: CurrentUser, db: DbSession) -> dict[str, i
         raise HTTPException(status.HTTP_409_CONFLICT, problem)
     # A policy's latest renewal goes with its payment; an earlier one's payment stays.
     undo_renewal(db, user.id, tx)
+    # The SMS it came from stays known, so sending that message again doesn't bring it back.
+    db.execute(
+        update(SmsEntry)
+        .where(SmsEntry.user_id == user.id, SmsEntry.transaction_id == tx.id)
+        .values(status="ignored", transaction_id=None)
+    )
     db.delete(tx)
     db.commit()
     return {"id": id}

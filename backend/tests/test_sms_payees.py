@@ -39,3 +39,15 @@ def test_builtin_matches_tokens():
 def test_builtin_categories_are_defaults():
     for _, category in MERCHANT_KEYWORDS:
         assert category in DEFAULT_CATEGORIES["expense"]
+
+
+def test_display_phone_number_upi_keeps_the_id():
+    assert display_name("9876543210@ybl") == "9876543210@ybl"
+    assert display_name(" 9876543210@YBL ") == "9876543210@YBL"
+
+
+def test_display_drops_payment_gateway_prefix():
+    assert display_name("RSP*AMITY") == "Amity"
+    assert display_name("RAZ*Swiggy Order") == "Swiggy Order"
+    assert payee_key("RSP*AMITY") == "rsp*amity"
+    assert display_name("*") == "*"
