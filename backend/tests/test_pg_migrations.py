@@ -47,6 +47,7 @@ ALL_TABLES = {
     "goals",
     "goal_earmarks",
     "goal_holdings",
+    "market_codes",
 }
 
 
@@ -235,7 +236,8 @@ def test_downgrade_refuses_fund_data(migrations_db: str) -> None:
 DEPOSITS_REVISION = "3b8f2c61a7d4"
 NEW_REVISION = "5d7e3a90c1f2"
 RECURRING_REVISION = "8e4c1b7a2d95"
-HEAD_REVISION = "a1d4f7c92b36"
+GOALS_REVISION = "a1d4f7c92b36"
+HEAD_REVISION = "c7e2a95d1b48"
 GOAL_TABLES = {"goals", "goal_earmarks", "goal_holdings"}
 RECURRING_TABLES = {
     "recurring_templates",
@@ -364,7 +366,7 @@ def test_recurring_migration_round_trip(migrations_db: str) -> None:
     assert rows(migrations_db, "SELECT recurring_template_id FROM transactions") == [(None,)]
 
     command.downgrade(config, NEW_REVISION)
-    assert tables(migrations_db) == ALL_TABLES - RECURRING_TABLES - GOAL_TABLES
+    assert tables(migrations_db) == ALL_TABLES - RECURRING_TABLES - GOAL_TABLES - {"market_codes"}
     columns = {c["name"] for c in inspect(create_engine(migrations_db)).get_columns("transactions")}
     assert "recurring_template_id" not in columns
     assert rows(migrations_db, "SELECT id FROM transactions") == [(1,)]
@@ -414,7 +416,7 @@ def test_goals_migration_round_trip(migrations_db: str) -> None:
     assert GOAL_TABLES <= tables(migrations_db)
 
     command.downgrade(config, RECURRING_REVISION)
-    assert tables(migrations_db) == ALL_TABLES - GOAL_TABLES
+    assert tables(migrations_db) == ALL_TABLES - GOAL_TABLES - {"market_codes"}
     assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(RECURRING_REVISION,)]
 
     command.upgrade(config, "head")
@@ -482,3 +484,43 @@ def test_goal_indexes_and_checks_on_postgres(migrations_db: str) -> None:
         "INSERT INTO goal_earmarks (id, user_id, goal_id, account_id, amount, date, created_at)"
         " VALUES (1, 1, 3, 1, 0, '2026-10-01', :s)"
     )
+
+
+def test_market_migration_round_trip(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, GOALS_REVISION)
+    seed_investments(migrations_db, "5")
+    run_sql(
+        migrations_db,
+        "INSERT INTO instrument_prices (user_id, instrument_id, date, price, created_at)"
+        " VALUES (1, 1, '2026-11-01', 10, :s)",
+    )
+
+    command.upgrade(config, "head")
+    assert "market_codes" in tables(migrations_db)
+    assert rows(migrations_db, "SELECT source FROM instrument_prices") == [("manual",)]
+    assert rows(migrations_db, "SELECT source_code FROM instruments") == [(None,)]
+
+    command.downgrade(config, GOALS_REVISION)
+    assert "market_codes" not in tables(migrations_db)
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(GOALS_REVISION,)]
+
+    command.upgrade(config, "head")
+    assert tables(migrations_db) == ALL_TABLES
+
+
+def test_market_downgrade_deletes_auto_prices(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, "head")
+    seed_investments(migrations_db, "5")
+    run_sql(
+        migrations_db,
+        "INSERT INTO instrument_prices (user_id, instrument_id, date, price, source, created_at)"
+        " VALUES (1, 1, '2026-11-01', 10, 'manual', :s), (1, 1, '2026-11-02', 11, 'auto', :s)",
+    )
+
+    command.downgrade(config, GOALS_REVISION)
+
+    assert rows(migrations_db, "SELECT date, price FROM instrument_prices") == [
+        (date(2026, 11, 1), Decimal("10.0000"))
+    ]

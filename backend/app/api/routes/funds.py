@@ -6,13 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import fmt_nav, latest_prices
 from app.api.routes.accounts import MAX_ID, clean_text, field_error
+from app.api.routes.market import SourceCode, apply_link, check_source_code, set_link
 from app.api.routes.stocks import Deleted, check_symbol
 from app.api.routes.transactions import Day
 from app.db.session import DbSession
@@ -67,6 +68,7 @@ class FundCreate(BaseModel):
     # Required fields are optional here so that missing ones are reported like any other rule.
     name: FundName = None
     symbol: FundSymbol = None
+    source_code: SourceCode = None
 
 
 class FundUpdate(BaseModel):
@@ -74,6 +76,7 @@ class FundUpdate(BaseModel):
 
     name: FundName = None
     symbol: FundSymbol = None
+    source_code: SourceCode = None
 
 
 class NavCreate(BaseModel):
@@ -89,6 +92,7 @@ class FundResponse(BaseModel):
     name: str
     nav: str | None
     nav_date: str | None
+    source_code: str | None
 
 
 class FundList(BaseModel):
@@ -100,6 +104,7 @@ class NavResponse(BaseModel):
     date: str
     nav: str
     trade_id: int | None
+    source: str
 
 
 class NavList(BaseModel):
@@ -143,6 +148,7 @@ def _response(fund: Instrument, prices: dict[int, tuple[Any, Decimal]]) -> FundR
         name=fund.name,
         nav=None if current is None else fmt_nav(current[1]),
         nav_date=None if current is None else current[0].isoformat(),
+        source_code=fund.source_code,
     )
 
 
@@ -178,22 +184,33 @@ def list_funds(user: CurrentUser, db: DbSession) -> FundList:
 
 @router.post("/funds", status_code=status.HTTP_201_CREATED)
 def create_fund(body: FundCreate, user: CurrentUser, db: DbSession) -> FundResponse:
-    if body.name is None:
-        raise RequestValidationError([field_error("name", _NO_NAME)])
+    errors = [] if body.name is not None else [field_error("name", _NO_NAME)]
+    errors += check_source_code(db, MUTUAL_FUND, body.source_code)
+    if errors:
+        raise RequestValidationError(errors)
+    assert body.name is not None
     taken = _symbols(db, user.id)
     symbol = body.symbol
     if symbol is None:
         symbol = derive_symbol(body.name, taken)
     elif symbol in taken:
         raise _duplicate(symbol)
-    fund = Instrument(user_id=user.id, kind=MUTUAL_FUND, symbol=symbol, name=body.name)
+    fund = Instrument(
+        user_id=user.id,
+        kind=MUTUAL_FUND,
+        symbol=symbol,
+        name=body.name,
+        source_code=body.source_code,
+    )
     db.add(fund)
     try:
+        if body.source_code is not None:
+            apply_link(db, MUTUAL_FUND, user.id)
         db.commit()
     except IntegrityError:  # a concurrent request took the symbol first
         db.rollback()
         raise _duplicate(symbol) from None
-    return _response(fund, {})
+    return _response(fund, latest_prices(db, user.id) if body.source_code else {})
 
 
 @router.patch("/funds/{id}")
@@ -203,6 +220,7 @@ def update_fund(id: int, body: FundUpdate, user: CurrentUser, db: DbSession) -> 
     errors = []
     if "name" in changes and changes["name"] is None:
         errors.append(field_error("name", _NO_NAME))
+    errors += check_source_code(db, MUTUAL_FUND, changes.get("source_code"))
     if errors:
         raise RequestValidationError(errors)
     symbol = changes.get("symbol")
@@ -213,7 +231,11 @@ def update_fund(id: int, body: FundUpdate, user: CurrentUser, db: DbSession) -> 
         fund.symbol = symbol
     if "name" in changes:
         fund.name = changes["name"]
+    if "source_code" in changes:
+        set_link(db, fund, changes["source_code"])
     try:
+        if changes.get("source_code") is not None:
+            apply_link(db, MUTUAL_FUND, user.id)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -224,9 +246,17 @@ def update_fund(id: int, body: FundUpdate, user: CurrentUser, db: DbSession) -> 
 @router.delete("/funds/{id}")
 def delete_fund(id: int, user: CurrentUser, db: DbSession) -> Deleted:
     fund = get_owned_fund(db, user.id, id)
-    for table in (InstrumentPrice, InvestmentTrade, Sip):
-        if db.scalar(select(table.id).where(table.instrument_id == fund.id).limit(1)) is not None:
+    manual = InstrumentPrice.source != "auto"
+    for table, extra in ((InstrumentPrice, manual), (InvestmentTrade, True), (Sip, True)):
+        found = select(table.id).where(table.instrument_id == fund.id, extra).limit(1)
+        if db.scalar(found) is not None:
             raise _in_use()
+    # Automatic NAVs are the market's, not the user's: they go with the fund.
+    db.execute(
+        delete(InstrumentPrice).where(
+            InstrumentPrice.instrument_id == fund.id, InstrumentPrice.source == "auto"
+        )
+    )
     db.delete(fund)
     try:
         db.commit()
@@ -246,7 +276,13 @@ def list_navs(id: int, user: CurrentUser, db: DbSession) -> NavList:
     ).all()
     return NavList(
         navs=[
-            NavResponse(id=n.id, date=n.date.isoformat(), nav=fmt_nav(n.price), trade_id=n.trade_id)
+            NavResponse(
+                id=n.id,
+                date=n.date.isoformat(),
+                nav=fmt_nav(n.price),
+                trade_id=n.trade_id,
+                source=n.source,
+            )
             for n in rows
         ]
     )
@@ -268,7 +304,9 @@ def create_nav(id: int, body: NavCreate, user: CurrentUser, db: DbSession) -> Na
     row = InstrumentPrice(user_id=user.id, instrument_id=fund.id, date=body.date, price=body.nav)
     db.add(row)
     db.commit()
-    return NavResponse(id=row.id, date=row.date.isoformat(), nav=fmt_nav(row.price), trade_id=None)
+    return NavResponse(
+        id=row.id, date=row.date.isoformat(), nav=fmt_nav(row.price), trade_id=None, source="manual"
+    )
 
 
 @router.delete("/navs/{id}")

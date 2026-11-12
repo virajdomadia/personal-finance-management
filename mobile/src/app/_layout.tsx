@@ -44,6 +44,7 @@ function Screens() {
             <Stack.Screen name="fund" />
             <Stack.Screen name="fund-trade-form" />
             <Stack.Screen name="nav-form" />
+            <Stack.Screen name="link-form" />
             <Stack.Screen name="sip-form" />
             <Stack.Screen name="fund-form" />
             <Stack.Screen name="coin" />

@@ -5,7 +5,17 @@ import {
   blankTradeForm,
   formatPercent,
   formatSigned,
+  canSearchMarket,
   holdingKinds,
+  NO_MATCH,
+  linkLabel,
+  marketSearchPath,
+  parseDismissed,
+  selectedLabel,
+  syncOutcome,
+  syncStatusText,
+  shouldShowLinkPrompt,
+  unlinkedIds,
   settle,
   tone,
   tradeFormFrom,
@@ -148,4 +158,67 @@ test("holdingKinds counts stocks, funds, deposits and crypto that have something
   assert.equal(holdingKinds({ ...empty, by_stock: [1], funds: { by_fund: [1], closed: [] }, deposits: { accounts: [1] } }), 3);
   assert.equal(holdingKinds({ ...empty, crypto: { by_coin: [1], closed: [] } }), 1);
   assert.equal(holdingKinds({ ...empty, by_stock: [1], crypto: { by_coin: [], closed: [1] } }), 2);
+});
+
+test("marketSearchPath builds the search URL and encodes the text", () => {
+  assert.equal(marketSearchPath("mutual_fund", "parag"), "/investments/market-codes?kind=mutual_fund&q=parag");
+  assert.equal(marketSearchPath("stock", " Tata & Sons "), "/investments/market-codes?kind=stock&q=Tata%20%26%20Sons");
+});
+
+test("linkLabel names the link or offers one", () => {
+  assert.equal(linkLabel(null), "Link to live prices");
+  assert.equal(linkLabel("INFY"), "Linked to INFY");
+});
+
+test("canSearchMarket needs two characters", () => {
+  assert.equal(canSearchMarket(" a "), false);
+  assert.equal(canSearchMarket("ab"), true);
+});
+
+test("unlinkedIds gathers every kind, sorted", () => {
+  const unlinked = {
+    stocks: [{ id: 9, symbol: "INFY", name: "Infosys" }],
+    funds: [{ id: 2, symbol: "F", name: "Fund" }],
+    coins: [{ id: 5, symbol: "BTC", name: "Bitcoin" }],
+  };
+  assert.deepEqual(unlinkedIds(unlinked), [2, 5, 9]);
+});
+
+test("shouldShowLinkPrompt hides what was dismissed until a new holding appears", () => {
+  assert.equal(shouldShowLinkPrompt([], []), false);
+  assert.equal(shouldShowLinkPrompt([1, 2], []), true);
+  assert.equal(shouldShowLinkPrompt([1, 2], [1, 2]), false);
+  assert.equal(shouldShowLinkPrompt([1], [1, 2]), false); // one was linked since
+  assert.equal(shouldShowLinkPrompt([1, 2, 3], [1, 2]), true);
+});
+
+test("parseDismissed ignores missing or broken values", () => {
+  assert.deepEqual(parseDismissed(null), []);
+  assert.deepEqual(parseDismissed("not json"), []);
+  assert.deepEqual(parseDismissed('{"a":1}'), []);
+  assert.deepEqual(parseDismissed('[1,"x",2.5,3]'), [1, 3]);
+});
+
+test("a pick reads as selected, not linked, until it is saved", () => {
+  assert.equal(selectedLabel("Infosys Limited"), "Selected: Infosys Limited");
+});
+
+test("the empty search names what to try for each kind", () => {
+  assert.equal(NO_MATCH.stock, "No match. Try the company's full name.");
+  assert.equal(NO_MATCH.mutual_fund, "No match. Try the fund's full name.");
+  assert.equal(NO_MATCH.crypto, "No match. Try the coin's full name.");
+});
+
+test("the sync line says what is happening, and nothing before the first sync", () => {
+  assert.equal(syncStatusText({ status: "idle" }), "");
+  assert.equal(syncStatusText({ status: "syncing" }), "Syncing…");
+  assert.equal(syncStatusText({ status: "done" }), "Updated just now");
+  assert.equal(syncStatusText({ status: "partial" }), "Some prices couldn't be fetched. Try again later.");
+});
+
+test("a sync is done only when no source failed and the request got through", () => {
+  const ok = { synced_at: "2026-11-12T10:00:00Z", updated: { crypto: 2 }, failed: {} };
+  assert.deepEqual(syncOutcome(ok), { status: "done" });
+  assert.deepEqual(syncOutcome({ ...ok, failed: { stock: "down" } }), { status: "partial" });
+  assert.deepEqual(syncOutcome(null), { status: "partial" });
 });

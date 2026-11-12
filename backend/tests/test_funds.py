@@ -57,6 +57,7 @@ def test_create_with_and_without_symbol(headers: Headers) -> None:
         "name": PARAG,
         "nav": None,
         "nav_date": None,
+        "source_code": None,
     }
     assert add_fund(headers).json()["symbol"] == "PPFCRG2"
     assert add_fund(headers, "Other", symbol=" mine ").json()["symbol"] == "MINE"
@@ -162,7 +163,13 @@ def test_navs_newest_first_and_list_shows_four_decimals(headers: Headers) -> Non
     navs = client.get(f"{URL}/funds/{fund}/navs", headers=headers).json()["navs"]
     assert [n["date"] for n in navs] == ["2026-11-05", "2026-10-20", "2026-10-01"]
     assert [n["nav"] for n in navs] == ["84.3793", "82.0000", "80.5000"]
-    assert navs[0]["trade_id"] is None and set(navs[0]) == {"id", "date", "nav", "trade_id"}
+    assert navs[0]["trade_id"] is None and set(navs[0]) == {
+        "id",
+        "date",
+        "nav",
+        "trade_id",
+        "source",
+    }
     listed = client.get(f"{URL}/funds", headers=headers).json()["funds"]
     assert [f["name"] for f in listed] == ["alpha", "Zeta"]
     assert listed[0]["nav"] is None

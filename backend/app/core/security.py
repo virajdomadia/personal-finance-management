@@ -70,7 +70,11 @@ def bearer_token(request: Request) -> str:
 
 def _is_authorized(request: Request) -> bool:
     settings = get_settings()
-    public_paths = {f"{settings.api_prefix}/health", f"{settings.api_prefix}/auth/google"}
+    public_paths = {
+        f"{settings.api_prefix}/health",
+        f"{settings.api_prefix}/auth/google",
+        f"{settings.api_prefix}/cron/prices",  # checks its own secret
+    }
     if request.url.path in public_paths:
         return True
 

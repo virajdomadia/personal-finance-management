@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type Account, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import type { MarketMatch } from "@/lib/investments";
 import {
   type Coin,
   type CoinHolding,
@@ -21,6 +22,7 @@ import {
 import { todayIndia } from "@/lib/transactions";
 import { Select } from "@/components/ui/select";
 
+import { LinkField } from "./link-dialog";
 import { DIALOG, INPUT, PRIMARY, QUIET } from "./shared";
 
 const MODES: { value: CryptoTradeMode; label: string }[] = [
@@ -106,6 +108,7 @@ export function CryptoTradeDialog(props: Props) {
   const needFocus = useRef(false);
   const [form, setForm] = useState<Form>(() => startForm(props));
   const [coins, setCoins] = useState<Coin[]>(props.coins);
+  const [source, setSource] = useState<MarketMatch | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -157,7 +160,7 @@ export function CryptoTradeDialog(props: Props) {
         try {
           created = await apiFetch<Coin>("/investments/coins", {
             method: "POST",
-            body: JSON.stringify({ name: form.name, symbol: form.symbol.trim() }),
+            body: JSON.stringify({ name: form.name, symbol: form.symbol.trim(), source_code: source?.code ?? null }),
           });
         } catch (err) {
           if (err instanceof ApiError && err.status === 422) {
@@ -360,6 +363,8 @@ export function CryptoTradeDialog(props: Props) {
                 )}
               </div>
             )}
+
+            {form.coin_id === NEW_COIN && <LinkField kind="crypto" selected={source} onSelect={setSource} disabled={saving} />}
 
             {field(
               "account_id",

@@ -3,6 +3,15 @@ import { test } from "node:test";
 
 import {
   blankTradeForm,
+  canSearchMarket,
+  dismissIds,
+  linkLabel,
+  marketSearchPath,
+  parseDismissed,
+  selectedLabel,
+  syncOutcome,
+  syncStatusText,
+  shouldShowLinkPrompt,
   changedTrade,
   formatPercent,
   formatSigned,
@@ -187,4 +196,57 @@ test("tradeErrors refuses dates that don't exist", () => {
   assert.equal(tradeErrors({ ...form, date: "2026-13-01" }, "2026-11-09").date, "Enter a date like 2026-11-08.");
   assert.equal(tradeErrors({ ...form, date: "2025-02-29" }, "2026-11-09").date, "Enter a date like 2026-11-08.");
   assert.equal(tradeErrors({ ...form, date: "2024-02-29" }, "2026-11-09").date, undefined);
+});
+
+test("marketSearchPath builds the search URL and encodes the text", () => {
+  assert.equal(marketSearchPath("mutual_fund", "parag"), "/investments/market-codes?kind=mutual_fund&q=parag");
+  assert.equal(marketSearchPath("stock", " Tata & Sons "), "/investments/market-codes?kind=stock&q=Tata%20%26%20Sons");
+});
+
+test("linkLabel names the link or offers one", () => {
+  assert.equal(linkLabel(null), "Link to live prices");
+  assert.equal(linkLabel("INFY"), "Linked to INFY");
+});
+
+test("canSearchMarket needs two characters", () => {
+  assert.equal(canSearchMarket(" a "), false);
+  assert.equal(canSearchMarket("ab"), true);
+});
+
+test("shouldShowLinkPrompt hides what was dismissed until a new holding appears", () => {
+  assert.equal(shouldShowLinkPrompt([], []), false);
+  assert.equal(shouldShowLinkPrompt([1, 2], []), true);
+  assert.equal(shouldShowLinkPrompt([1, 2], [1, 2]), false);
+  assert.equal(shouldShowLinkPrompt([1], [1, 2]), false); // one was linked since
+  assert.equal(shouldShowLinkPrompt([1, 2, 3], [1, 2]), true);
+});
+
+test("dismissIds adds a card's ids to those already hidden, sorted", () => {
+  assert.deepEqual(dismissIds([], [5, 2]), [2, 5]);
+  assert.deepEqual(dismissIds([2, 9], [5, 2]), [2, 5, 9]);
+});
+
+test("parseDismissed ignores missing or broken values", () => {
+  assert.deepEqual(parseDismissed(null), []);
+  assert.deepEqual(parseDismissed("not json"), []);
+  assert.deepEqual(parseDismissed('{"a":1}'), []);
+  assert.deepEqual(parseDismissed('[1,"x",2.5,3]'), [1, 3]);
+});
+
+test("a pick reads as selected, not linked, until it is saved", () => {
+  assert.equal(selectedLabel("Bitcoin (BTC)"), "Selected: Bitcoin (BTC)");
+});
+
+test("the sync line says what is happening, and nothing before the first sync", () => {
+  assert.equal(syncStatusText({ status: "idle" }), "");
+  assert.equal(syncStatusText({ status: "syncing" }), "Syncing…");
+  assert.equal(syncStatusText({ status: "done" }), "Updated just now");
+  assert.equal(syncStatusText({ status: "partial" }), "Some prices couldn't be fetched. Try again later.");
+});
+
+test("a sync is done only when no source failed and the request got through", () => {
+  const ok = { synced_at: "2026-11-12T10:00:00Z", updated: { crypto: 2 }, failed: {} };
+  assert.deepEqual(syncOutcome(ok), { status: "done" });
+  assert.deepEqual(syncOutcome({ ...ok, failed: { stock: "down" } }), { status: "partial" });
+  assert.deepEqual(syncOutcome(null), { status: "partial" });
 });

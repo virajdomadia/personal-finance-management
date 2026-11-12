@@ -35,8 +35,13 @@ import {
   type StockTotal,
   type Totals,
   type Trade,
+  type SyncResult,
+  type SyncState,
+  type Unlinked,
   holdingKinds,
   settle,
+  syncOutcome,
+  syncStatusText,
 } from "@/lib/investments";
 import { todayIndia } from "@/lib/transactions";
 import { investmentEmoji, investmentSticker } from "@/lib/fun";
@@ -56,6 +61,7 @@ import {
   Signed,
   TradeRow,
   TradesTable,
+  CoinGeckoCredit,
   archivedIds,
   goalsByInstrument,
   isUnauthorized,
@@ -64,6 +70,7 @@ import {
 import { CryptoTradeDialog } from "./crypto-trade-dialog";
 import { FundTradeDialog } from "./fund-trade-dialog";
 import { DueSips } from "./fund-view";
+import { LinkPrompt } from "./link-prompt";
 import { SipDialog } from "./sip-dialog";
 import { TradeDialog, type TradeKind } from "./trade-dialog";
 
@@ -75,6 +82,7 @@ type Data = {
   funds: Part<{ funds: Fund[]; sips: Sip[] }>;
   coins: Part<{ coins: Coin[] }>;
   accounts: Part<{ active: Account[]; archived: Account[] }>;
+  unlinked: Part<Unlinked>;
 };
 type StocksExtra = { stocks: Stock[]; trades: Trade[] | null; active: Account[]; archived: Account[] };
 type FundsExtra = { funds: Fund[]; sips: Sip[] };
@@ -89,7 +97,7 @@ type Dialog =
   | { kind: "sip" };
 
 async function fetchData(brokerId: number | null): Promise<Data> {
-  const [portfolio, stocks, funds, coins, accounts] = await Promise.all([
+  const [portfolio, stocks, funds, coins, accounts, unlinked] = await Promise.all([
     apiFetch<Portfolio>("/investments/portfolio"),
     settle(
       Promise.all([
@@ -115,8 +123,10 @@ async function fetchData(brokerId: number | null): Promise<Data> {
       })),
       isUnauthorized,
     ),
+    // The prompt is a nicety: if this fails the page carries on without it.
+    settle(apiFetch<Unlinked>("/investments/unlinked"), isUnauthorized),
   ]);
-  return { portfolio, stocks, funds, coins, accounts };
+  return { portfolio, stocks, funds, coins, accounts, unlinked };
 }
 
 export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
@@ -147,6 +157,41 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // Once per visit, ask for fresh coin prices (the server only fetches if they are stale). It never
+  // blocks the page, and any failure is ignored: the prices already shown stay.
+  const refreshedCoins = useRef(false);
+  useEffect(() => {
+    if (refreshedCoins.current) return;
+    refreshedCoins.current = true;
+    apiFetch<{ refreshed: boolean }>("/investments/coins/refresh", { method: "POST" })
+      .then((res) => {
+        if (res.refreshed) reload();
+      })
+      .catch(() => {});
+  }, [reload]);
+
+  // The Sync prices button: fetches this user's latest prices, then reloads the portfolio. It never
+  // blocks the page; a failed request just reads as a partial sync.
+  const [sync, setSync] = useState<SyncState>({ status: "idle" });
+  const syncing = useRef(false);
+  const syncPrices = () => {
+    if (syncing.current) return;
+    syncing.current = true;
+    setSync({ status: "syncing" });
+    apiFetch<SyncResult>("/investments/prices/sync", { method: "POST" })
+      .then((res) => {
+        setSync(syncOutcome(res));
+        reload();
+      })
+      .catch((err: unknown) => {
+        if (isUnauthorized(err)) void logout();
+        else setSync(syncOutcome(null));
+      })
+      .finally(() => {
+        syncing.current = false;
+      });
+  };
 
   // A section's "Try again" reloads everything; it shows that it is working until the data lands.
   const retry = () => {
@@ -179,7 +224,19 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader title="Investments" />
+      <PageHeader
+        title="Investments"
+        action={
+          <>
+            <span role="status" className={`text-sm font-bold ${sync.status === "partial" ? "text-loss" : "text-zinc-600"}`}>
+              {sync.status === "syncing" ? "" : syncStatusText(sync)}
+            </span>
+            <button type="button" className={SECONDARY} disabled={sync.status === "syncing"} onClick={syncPrices}>
+              {sync.status === "syncing" ? "Syncing…" : "Sync prices"}
+            </button>
+          </>
+        }
+      />
       {data && <Overall portfolio={data.portfolio} />}
 
       <Notice message={notice} />
@@ -208,6 +265,7 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
 
       {data && (
         <div className="flex flex-col gap-10">
+          {data.unlinked.status === "ready" && <LinkPrompt unlinked={data.unlinked.data} />}
           {fundsExtra && <DueSips sips={data.portfolio.funds.due_sips} onRecord={recordSip} />}
           <Content
             portfolio={data.portfolio}
@@ -944,6 +1002,7 @@ function Crypto({
               </ul>
             </details>
           )}
+          <CoinGeckoCredit />
         </>
       )}
     </section>

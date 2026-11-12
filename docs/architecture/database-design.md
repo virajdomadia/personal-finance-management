@@ -48,6 +48,19 @@ Constraints and indexes:
 - Indexes on `goals.user_id`, `goal_earmarks.goal_id` and `account_id`, and `goal_holdings.goal_id`.
 - Deleting a goal is allowed only with no earmark entries (its holdings go with it); otherwise archive it.
 
+### Market prices tables and columns
+
+Added on branch `automation`, in migration `c7e2a95d1b48`.
+
+| Table | Columns that matter |
+|---|---|
+| `market_codes` | `kind` (`mutual_fund`, `stock`, `crypto`), `code` (AMFI scheme code, NSE symbol or CoinGecko id), `name` (160), `isin`, `price NUMERIC(14,4)`, `price_date`, `updated_at`. Shared by all users, not per user. |
+
+- `market_codes` is unique on (`kind`, `code`) and indexed on (`kind`, `name`) for search.
+- `instruments.source_code` (nullable, 40) links a holding to a `market_codes.code`. Unlinked holdings stay manual.
+- `instrument_prices.source` (10) is `manual` or `auto`, default `manual`. A typed price for the same date always wins over an automatic one.
+- Automatic price rows are removed when the linked stock, fund or coin is deleted.
+
 ## Audit of the current code against these principles
 
 | Area | Finding | Severity | Action |

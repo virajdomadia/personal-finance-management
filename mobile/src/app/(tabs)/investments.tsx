@@ -5,13 +5,15 @@ import { FAB, Icon, Text, useTheme } from "react-native-paper";
 
 import { ChunkyBox, ChunkyButton, Chip, Row, ScreenHeader, Segmented } from "@/components/chunky";
 import { GoalTagLine } from "@/components/goal-tag";
+import { CoinGeckoCredit } from "@/components/coingecko-credit";
+import { LinkPrompt } from "@/components/link-prompt";
 import { GainPill, TileLine, WorthTile } from "@/components/investment-parts";
 import { Signed, signedLabel } from "@/components/signed";
 import { type GoalTag, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type CoinTotal, type CryptoTradeMode, formatCoinAverage, formatCoinPrice, formatCoinQty } from "@/lib/crypto";
 import { type FundTotal, type FundTradeMode, type Sip, dueText, formatNav, formatUnits } from "@/lib/funds";
-import { type DepositRow, type DepositsPortfolio, type Portfolio, type StockTotal, type Totals, formatSigned, tone } from "@/lib/investments";
+import { type DepositRow, type DepositsPortfolio, type Portfolio, type StockTotal, type SyncResult, type SyncState, type Totals, type Unlinked, formatSigned, syncOutcome, syncStatusText, tone } from "@/lib/investments";
 import { accountEmoji, investmentEmoji, investmentSticker } from "@/lib/fun";
 import { useSession } from "@/lib/session";
 import { BRAND, INPUT_RADIUS, SHADOW_OFFSET_SM } from "@/lib/theme";
@@ -32,6 +34,7 @@ export default function InvestmentsScreen() {
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
+  const [unlinked, setUnlinked] = useState<Unlinked | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [fabOpen, setFabOpen] = useState(false);
@@ -45,11 +48,15 @@ export default function InvestmentsScreen() {
 
   const load = useCallback(async () => {
     const mine = ++latest.current;
+    // The link prompt is a nicety: if its list fails, the tab works without it.
+    const unlinkedRequest = apiFetch<Unlinked>("/investments/unlinked", { token: token ?? undefined }).catch(() => null);
     try {
       const result = await apiFetch<Portfolio>("/investments/portfolio", { token: token ?? undefined });
       if (mine !== latest.current) return;
       setPortfolio(result);
       setError(null);
+      const list = await unlinkedRequest;
+      if (mine === latest.current && list) setUnlinked(list);
     } catch (err) {
       if (mine !== latest.current) return;
       if (err instanceof ApiError && err.status === 401) {
@@ -66,12 +73,40 @@ export default function InvestmentsScreen() {
       navigating.current = false;
       setFocused(true);
       void load();
+      // Once per focus: fetch fresh coin prices if the server says they are stale, then reload.
+      // A failure is ignored; the tab keeps what it has.
+      let current = true;
+      apiFetch<{ refreshed: boolean }>("/investments/coins/refresh", { method: "POST", token: token ?? undefined })
+        .then((result) => {
+          if (current && result.refreshed) void load();
+        })
+        .catch(() => undefined);
       return () => {
+        current = false;
         setFocused(false);
         setFabOpen(false);
       };
-    }, [load]),
+    }, [load, token]),
   );
+
+  // Sync prices: fetch this user's latest prices on the server, then reload. Never blocks the tab.
+  const [sync, setSync] = useState<SyncState>({ status: "idle" });
+  const syncing = useRef(false);
+  const syncPrices = useCallback(async () => {
+    if (syncing.current) return;
+    syncing.current = true;
+    setSync({ status: "syncing" });
+    try {
+      const result = await apiFetch<SyncResult>("/investments/prices/sync", { method: "POST", token: token ?? undefined });
+      setSync(syncOutcome(result));
+      void load();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) void logOut();
+      else setSync(syncOutcome(null));
+    } finally {
+      syncing.current = false;
+    }
+  }, [token, load, logOut]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -155,6 +190,10 @@ export default function InvestmentsScreen() {
           <View style={styles.header}>
             {errorLine}
             {dueCards}
+            <LinkPrompt
+              items={(unlinked?.stocks ?? []).map((x) => ({ id: x.id, text: x.symbol }))}
+              onOpen={(item) => go({ pathname: "/stock", params: { id: String(item.id), symbol: item.text } })}
+            />
             {empty ? null : <SummaryTile totals={portfolio.totals} kind="stock" />}
             {portfolio.by_stock.length > 0 ? <SectionTitle label="Holdings" /> : null}
           </View>
@@ -234,12 +273,17 @@ export default function InvestmentsScreen() {
         ListHeaderComponent={
           <View style={styles.header}>
             {errorLine}
+            <LinkPrompt
+              items={(unlinked?.coins ?? []).map((x) => ({ id: x.id, text: x.symbol }))}
+              onOpen={(item) => go({ pathname: "/coin", params: { id: String(item.id), symbol: item.text } })}
+            />
             {empty ? null : <SummaryTile totals={crypto.totals} kind="crypto" />}
             {crypto.by_coin.length > 0 ? <SectionTitle label="Coins" /> : null}
           </View>
         }
         ListFooterComponent={
-          crypto.closed.length > 0 ? (
+          <>
+          {crypto.closed.length > 0 ? (
             <ClosedSection
               title={`Sold (${crypto.closed.length})`}
               expanded={coinsSoldOpen}
@@ -257,7 +301,9 @@ export default function InvestmentsScreen() {
                 />
               ))}
             </ClosedSection>
-          ) : undefined
+          ) : null}
+          {empty ? null : <CoinGeckoCredit />}
+          </>
         }
         renderItem={({ item }) => (
           <CoinRow row={item} goal={coinGoals.get(item.coin_id)} onPress={() => openCoin(item)} />
@@ -267,8 +313,8 @@ export default function InvestmentsScreen() {
             <View style={styles.empty}>
               <Text variant="titleMedium">Add your crypto</Text>
               <Text variant="bodyMedium" style={styles.emptyText}>
-                Enter coins you already hold, or record a buy. Prices are typed in by hand, so until you add one coins are
-                valued at cost.
+                Enter coins you already hold, or record a buy. Link a coin to live prices, or type one in. Until then coins
+                are valued at cost.
               </Text>
               <ChunkyButton variant="alt" label="Add existing coins" onPress={() => addCoinTrade("opening")} />
             </View>
@@ -290,6 +336,10 @@ export default function InvestmentsScreen() {
           <View style={styles.header}>
             {errorLine}
             {dueCards}
+            <LinkPrompt
+              items={(unlinked?.funds ?? []).map((x) => ({ id: x.id, text: x.name }))}
+              onOpen={(item) => go({ pathname: "/fund", params: { id: String(item.id) } })}
+            />
             {empty ? null : <SummaryTile totals={funds.totals} kind="mutual_fund" />}
             {funds.by_fund.length > 0 ? <SectionTitle label="Funds" /> : null}
           </View>
@@ -343,7 +393,24 @@ export default function InvestmentsScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
-      <ScreenHeader title="Investments" />
+      <ScreenHeader
+        title="Investments"
+        right={
+          <ChunkyButton
+            compact
+            variant="alt"
+            icon="sync"
+            label="Sync prices"
+            loading={sync.status === "syncing"}
+            onPress={() => void syncPrices()}
+          />
+        }
+      />
+      {sync.status === "idle" ? null : (
+        <Text variant="labelMedium" accessibilityLiveRegion="polite" style={[styles.syncLine, sync.status === "partial" ? styles.error : null]}>
+          {syncStatusText(sync)}
+        </Text>
+      )}
 
       <View style={styles.segments}>
         <Segmented<Segment>
@@ -666,6 +733,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
+  syncLine: { paddingHorizontal: 16, paddingBottom: 4 },
   segments: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 },
   content: { paddingBottom: 112 },
   header: { paddingHorizontal: 16, paddingTop: 8, gap: 12 },

@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     token_secret: str = ""
     # The web OAuth client ID; both the website and the phone app's ID tokens are issued for it.
     google_client_id: str = ""
+    # Optional CoinGecko demo key; sent only on CoinGecko requests.
+    coingecko_api_key: str = ""
+    # Vercel Cron sends this as a bearer token to the nightly price job. Empty keeps it closed.
+    cron_secret: str = ""
 
     @field_validator("database_url")
     @classmethod

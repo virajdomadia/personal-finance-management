@@ -9,9 +9,10 @@ export type Fund = {
   name: string;
   nav: string | null;
   nav_date: string | null;
+  source_code: string | null;
 };
 
-export type Nav = { id: number; date: string; nav: string; trade_id: number | null };
+export type Nav = { id: number; date: string; nav: string; trade_id: number | null; source: "manual" | "auto" };
 
 export type FundTrade = {
   id: number;

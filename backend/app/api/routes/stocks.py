@@ -7,13 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import latest_prices
 from app.api.routes.accounts import MAX_ID, Money, clean_text, field_error, fmt
+from app.api.routes.market import SourceCode, apply_link, check_source_code, set_link
 from app.api.routes.transactions import Day
 from app.db.session import DbSession
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade
@@ -48,6 +49,7 @@ class StockCreate(BaseModel):
     # Required fields are optional here so that missing ones are reported like any other rule.
     symbol: Symbol = None
     name: StockName = None
+    source_code: SourceCode = None
 
 
 class StockUpdate(BaseModel):
@@ -55,6 +57,7 @@ class StockUpdate(BaseModel):
 
     symbol: Symbol = None
     name: StockName = None
+    source_code: SourceCode = None
 
 
 class PriceCreate(BaseModel):
@@ -70,6 +73,7 @@ class StockResponse(BaseModel):
     name: str
     price: str | None
     price_date: str | None
+    source_code: str | None
 
 
 class StockList(BaseModel):
@@ -80,6 +84,7 @@ class PriceResponse(BaseModel):
     id: int
     date: str
     price: str
+    source: str
 
 
 class PriceList(BaseModel):
@@ -113,6 +118,7 @@ def _response(stock: Instrument, prices: dict[int, tuple[date, Decimal]]) -> Sto
         name=stock.name,
         price=None if current is None else fmt(current[1]),
         price_date=None if current is None else current[0].isoformat(),
+        source_code=stock.source_code,
     )
 
 
@@ -155,19 +161,28 @@ def create_stock(body: StockCreate, user: CurrentUser, db: DbSession) -> StockRe
         errors.append(field_error("symbol", _BAD_SYMBOL))
     if body.name is None:
         errors.append(field_error("name", "Enter a name."))
+    errors += check_source_code(db, STOCK, body.source_code)
     if errors:
         raise RequestValidationError(errors)
     assert body.symbol is not None and body.name is not None
     if _taken(db, user.id, body.symbol):
         raise _duplicate(body.symbol)
-    stock = Instrument(user_id=user.id, kind=STOCK, symbol=body.symbol, name=body.name)
+    stock = Instrument(
+        user_id=user.id,
+        kind=STOCK,
+        symbol=body.symbol,
+        name=body.name,
+        source_code=body.source_code,
+    )
     db.add(stock)
     try:
+        if body.source_code is not None:
+            apply_link(db, STOCK, user.id)
         db.commit()
     except IntegrityError:  # a concurrent request took the symbol first
         db.rollback()
         raise _duplicate(body.symbol) from None
-    return _response(stock, {})
+    return _response(stock, latest_prices(db, user.id) if body.source_code else {})
 
 
 @router.patch("/stocks/{id}")
@@ -179,6 +194,7 @@ def update_stock(id: int, body: StockUpdate, user: CurrentUser, db: DbSession) -
         errors.append(field_error("symbol", _BAD_SYMBOL))
     if "name" in changes and changes["name"] is None:
         errors.append(field_error("name", "Enter a name."))
+    errors += check_source_code(db, STOCK, changes.get("source_code"))
     if errors:
         raise RequestValidationError(errors)
     symbol = changes.get("symbol")
@@ -189,7 +205,11 @@ def update_stock(id: int, body: StockUpdate, user: CurrentUser, db: DbSession) -
         stock.symbol = symbol
     if "name" in changes:
         stock.name = changes["name"]
+    if "source_code" in changes:
+        set_link(db, stock, changes["source_code"])
     try:
+        if changes.get("source_code") is not None:
+            apply_link(db, STOCK, user.id)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -201,13 +221,21 @@ def update_stock(id: int, body: StockUpdate, user: CurrentUser, db: DbSession) -
 def delete_stock(id: int, user: CurrentUser, db: DbSession) -> Deleted:
     stock = get_owned_stock(db, user.id, id)
     has_price = db.scalar(
-        select(InstrumentPrice.id).where(InstrumentPrice.instrument_id == stock.id).limit(1)
+        select(InstrumentPrice.id)
+        .where(InstrumentPrice.instrument_id == stock.id, InstrumentPrice.source != "auto")
+        .limit(1)
     )
     has_trade = db.scalar(
         select(InvestmentTrade.id).where(InvestmentTrade.instrument_id == stock.id).limit(1)
     )
     if has_price is not None or has_trade is not None:
         raise _in_use()
+    # Automatic prices are the market's, not the user's: they go with the stock.
+    db.execute(
+        delete(InstrumentPrice).where(
+            InstrumentPrice.instrument_id == stock.id, InstrumentPrice.source == "auto"
+        )
+    )
     db.delete(stock)
     try:
         db.commit()
@@ -226,7 +254,10 @@ def list_prices(id: int, user: CurrentUser, db: DbSession) -> PriceList:
         .order_by(InstrumentPrice.date.desc(), InstrumentPrice.id.desc())
     ).all()
     return PriceList(
-        prices=[PriceResponse(id=p.id, date=p.date.isoformat(), price=fmt(p.price)) for p in rows]
+        prices=[
+            PriceResponse(id=p.id, date=p.date.isoformat(), price=fmt(p.price), source=p.source)
+            for p in rows
+        ]
     )
 
 
@@ -250,7 +281,9 @@ def create_price(id: int, body: PriceCreate, user: CurrentUser, db: DbSession) -
     )
     db.add(price)
     db.commit()
-    return PriceResponse(id=price.id, date=price.date.isoformat(), price=fmt(price.price))
+    return PriceResponse(
+        id=price.id, date=price.date.isoformat(), price=fmt(price.price), source="manual"
+    )
 
 
 @router.delete("/prices/{id}")

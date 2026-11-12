@@ -6,10 +6,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type Account, type AccountList, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import type { Holding, Portfolio, Price, Stock, Trade } from "@/lib/investments";
+import { type Holding, type Portfolio, type Price, type Stock, type Trade, linkLabel } from "@/lib/investments";
 import { formatDate } from "@/lib/transactions";
 import { Select } from "@/components/ui/select";
 
+import { LinkDialog } from "./link-dialog";
 import { PriceDialog } from "./price-dialog";
 import { Tile } from "@/components/ui/chunky";
 import { investmentSticker } from "@/lib/fun";
@@ -24,6 +25,7 @@ import {
   BUY,
   SELL,
   PlainSigned,
+  AutoBadge,
   PriceCard,
   TradeRow,
   TradesTable,
@@ -53,6 +55,7 @@ type Dialog =
   | { kind: "price" }
   | { kind: "deletePrice"; price: Price }
   | { kind: "rename" }
+  | { kind: "link" }
   | { kind: "deleteStock" };
 
 async function fetchData(stockId: number): Promise<Data | null> {
@@ -128,6 +131,9 @@ export function StockView({ stockId }: { stockId: number }) {
           <div className="flex flex-wrap gap-2">
             <button type="button" className={QUIET} onClick={() => setDialog({ kind: "rename" })}>
               Rename
+            </button>
+            <button type="button" className={QUIET} onClick={() => setDialog({ kind: "link" })}>
+              {linkLabel(data.stock.source_code)}
             </button>
             <button type="button" className={QUIET} onClick={() => setDialog({ kind: "deleteStock" })}>
               Delete stock
@@ -221,6 +227,18 @@ export function StockView({ stockId }: { stockId: number }) {
 
       {dialog.kind === "rename" && data && (
         <StockDialog stock={data.stock} onClose={closeDialog} onSaved={() => done(null)} onConflict={done} />
+      )}
+
+      {dialog.kind === "link" && data && (
+        <LinkDialog
+          kind="stock"
+          path={`/investments/stocks/${data.stock.id}`}
+          title={`${data.stock.symbol}: live prices`}
+          linkedCode={data.stock.source_code}
+          onClose={closeDialog}
+          onSaved={() => done(null)}
+          onConflict={done}
+        />
       )}
 
       {dialog.kind === "deleteStock" && data && (
@@ -406,6 +424,7 @@ function PriceHistory({ prices, onDelete }: { prices: Price[]; onDelete: (price:
               <p className="flex-1 text-sm">
                 {formatDate(price.date)}
                 {index === 0 && <span className="ml-2 text-xs font-bold text-zinc-600">current</span>}
+                {price.source === "auto" && <AutoBadge />}
               </p>
               <p className="text-sm font-extrabold tabular-nums">{formatRupees(price.price)}</p>
               <div className="flex w-24 shrink-0 justify-end">

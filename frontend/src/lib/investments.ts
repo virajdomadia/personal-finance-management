@@ -11,9 +11,68 @@ export type Stock = {
   name: string;
   price: string | null;
   price_date: string | null;
+  source_code: string | null;
 };
 
-export type Price = { id: number; date: string; price: string };
+// "auto" prices come from the nightly fetch, "manual" ones were typed in.
+export type PriceSource = "manual" | "auto";
+
+export type Price = { id: number; date: string; price: string; source: PriceSource };
+
+export type MarketKind = "stock" | "mutual_fund" | "crypto";
+export type MarketMatch = { code: string; name: string; isin: string | null; price: string | null; price_date: string | null };
+export type Unlinked = {
+  stocks: { id: number; symbol: string; name: string }[];
+  funds: { id: number; symbol: string; name: string }[];
+  coins: { id: number; symbol: string; name: string }[];
+};
+
+export const MIN_SEARCH = 2;
+
+export function canSearchMarket(q: string): boolean {
+  return q.trim().length >= MIN_SEARCH;
+}
+
+export function marketSearchPath(kind: MarketKind, q: string): string {
+  return `/investments/market-codes?kind=${kind}&q=${encodeURIComponent(q.trim())}`;
+}
+
+export function linkLabel(code: string | null): string {
+  return code ? `Linked to ${code}` : "Link to live prices";
+}
+
+// A match picked in the search but not saved yet; "Linked to" is only for a saved link.
+export function selectedLabel(name: string): string {
+  return `Selected: ${name}`;
+}
+
+export const NO_MATCH: Record<MarketKind, string> = {
+  stock: "No match. Try the company's full name.",
+  mutual_fund: "No match. Try the fund's full name.",
+  crypto: "No match. Try the coin's full name.",
+};
+
+// The ids of every unlinked holding, sorted. Stocks, funds and coins share one id space.
+export function unlinkedIds(unlinked: Unlinked): number[] {
+  return [...unlinked.stocks, ...unlinked.funds, ...unlinked.coins].map((h) => h.id).sort((a, b) => a - b);
+}
+
+// "Not now" remembers the unlinked ids it hid; the prompt comes back only for a new one.
+export function shouldShowLinkPrompt(unlinked: number[], dismissed: number[]): boolean {
+  const hidden = new Set(dismissed);
+  return unlinked.some((id) => !hidden.has(id));
+}
+
+// What was stored at dismissal, or nothing if it is missing or not a list of ids.
+export function parseDismissed(raw: string | null): number[] {
+  if (!raw) return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value) ? value.filter((v): v is number => Number.isInteger(v)) : [];
+  } catch {
+    return [];
+  }
+}
 
 export type Trade = {
   id: number;
@@ -206,4 +265,23 @@ export function formatPercent(value: string): string {
   const text = value.trim();
   if (isZero(text)) return `${text.replace(/^[-+]/, "")}%`;
   return text.startsWith("-") ? `${MINUS}${text.slice(1)}%` : `+${text.replace(/^\+/, "")}%`;
+}
+
+// The Sync prices button: what POST /investments/prices/sync answers.
+export type SyncResult = { synced_at: string; updated: Record<string, number>; failed: Record<string, string> };
+export type SyncState = { status: "idle" | "syncing" | "done" | "partial" };
+
+export const SYNC_PARTIAL = "Some prices couldn't be fetched. Try again later.";
+
+// The line shown beside the button; nothing before the first sync.
+export function syncStatusText(state: SyncState): string {
+  if (state.status === "syncing") return "Syncing…";
+  if (state.status === "done") return "Updated just now";
+  if (state.status === "partial") return SYNC_PARTIAL;
+  return "";
+}
+
+// A source that failed, or a request that did not get through, is a partial sync.
+export function syncOutcome(result: SyncResult | null): SyncState {
+  return { status: result !== null && Object.keys(result.failed).length === 0 ? "done" : "partial" };
 }

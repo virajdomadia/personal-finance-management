@@ -10,7 +10,7 @@ import { Banner } from "@/components/form-parts";
 import { EmptyBox, GainPill, HeldRow, HistoryRow, PriceLine, SectionTitle, StatLine, StatsCard, TradeRow, WorthTile } from "@/components/investment-parts";
 import { type Account, type AccountList, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { type Portfolio, type Price, type Stock, type Trade, tradeTitle } from "@/lib/investments";
+import { type Portfolio, type Price, type Stock, type Trade, linkLabel, tradeTitle } from "@/lib/investments";
 import { investmentEmoji, investmentSticker } from "@/lib/fun";
 import { useSession } from "@/lib/session";
 import { BRAND } from "@/lib/theme";
@@ -286,6 +286,17 @@ export default function StockScreen() {
             label="Update price"
             onPress={() => go({ pathname: "/price-form", params: { stockId } })}
           />
+          <ChunkyButton
+            variant="alt"
+            icon="link-variant"
+            label={linkLabel(stock.source_code)}
+            onPress={() =>
+              go({
+                pathname: "/link-form",
+                params: { kind: "stock", id: stockId, title: stock.symbol, ...(stock.source_code ? { code: stock.source_code } : {}) },
+              })
+            }
+          />
           <View style={styles.tradeButtons}>
             {sellable.length > 0 ? (
               <ChunkyButton
@@ -388,6 +399,7 @@ export default function StockScreen() {
               value={formatRupees(price.price)}
               note={index === 0 ? "Current" : undefined}
               deleteLabel={`Delete the price on ${formatDate(price.date)}`}
+              auto={price.source === "auto"}
               onDelete={() => setDeletingPrice(price)}
             />
           ))

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type Account, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import type { MarketMatch } from "@/lib/investments";
 import {
   type Fund,
   type FundHolding,
@@ -23,6 +24,7 @@ import {
 import { todayIndia } from "@/lib/transactions";
 import { Select } from "@/components/ui/select";
 
+import { LinkField } from "./link-dialog";
 import { DIALOG, INPUT, PRIMARY, QUIET } from "./shared";
 
 const MODES: { value: FundTradeMode; label: string }[] = [
@@ -141,6 +143,7 @@ export function FundTradeDialog(props: Props) {
   const needFocus = useRef(false);
   const [form, setForm] = useState<Form>(() => startForm(props));
   const [funds, setFunds] = useState<Fund[]>(props.funds);
+  const [source, setSource] = useState<MarketMatch | null>(null);
   // Units and stamp duty follow the amount and NAV until the owner types them by hand.
   const [unitsByHand, setUnitsByHand] = useState(editing);
   const [chargesByHand, setChargesByHand] = useState(editing);
@@ -257,7 +260,7 @@ export function FundTradeDialog(props: Props) {
           const symbol = form.symbol.trim();
           created = await apiFetch<Fund>("/investments/funds", {
             method: "POST",
-            body: JSON.stringify({ name: form.name, symbol: symbol === "" ? null : symbol }),
+            body: JSON.stringify({ name: form.name, symbol: symbol === "" ? null : symbol, source_code: source?.code ?? null }),
           });
         } catch (err) {
           if (err instanceof ApiError && err.status === 422) {
@@ -455,6 +458,8 @@ export function FundTradeDialog(props: Props) {
                 )}
               </div>
             )}
+
+            {form.fund_id === NEW_FUND && <LinkField kind="mutual_fund" selected={source} onSelect={setSource} disabled={saving} />}
 
             {mode === "sip" &&
               form.fund_id !== "" &&

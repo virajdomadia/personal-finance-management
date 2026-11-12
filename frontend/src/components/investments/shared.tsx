@@ -81,6 +81,30 @@ export function PlainSigned({ value, percent }: { value: string; percent?: strin
   );
 }
 
+// Marks a price the nightly fetch recorded, as opposed to one typed in.
+export function AutoBadge() {
+  return (
+    <span className="ml-2 rounded-full border-[1.5px] border-ink bg-yellow px-2 py-px text-[11px] font-black text-ink">auto</span>
+  );
+}
+
+// CoinGecko's free API plan requires this credit wherever its crypto prices are shown.
+export function CoinGeckoCredit() {
+  return (
+    <p className="text-xs font-bold text-zinc-600">
+      Crypto prices by{" "}
+      <a
+        href="https://www.coingecko.com/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`rounded underline ${FOCUS}`}
+      >
+        CoinGecko
+      </a>
+    </p>
+  );
+}
+
 export function Notice({ message }: { message: string | null }) {
   if (!message) return null;
   return (

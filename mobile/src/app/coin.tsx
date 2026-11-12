@@ -21,9 +21,11 @@ import {
   formatCoinQty,
 } from "@/lib/crypto";
 import { investmentEmoji, investmentSticker } from "@/lib/fun";
+import { linkLabel } from "@/lib/investments";
 import { useSession } from "@/lib/session";
 import { BRAND } from "@/lib/theme";
 import { formatDate } from "@/lib/transactions";
+import { CoinGeckoCredit } from "@/components/coingecko-credit";
 
 type Data = {
   coin: Coin;
@@ -251,6 +253,17 @@ export default function CoinScreen() {
             label="Update price"
             onPress={() => go({ pathname: "/coin-price-form", params: { coinId } })}
           />
+          <ChunkyButton
+            variant="alt"
+            icon="link-variant"
+            label={linkLabel(coin.source_code)}
+            onPress={() =>
+              go({
+                pathname: "/link-form",
+                params: { kind: "crypto", id: coinId, title: coin.symbol, ...(coin.source_code ? { code: coin.source_code } : {}) },
+              })
+            }
+          />
           <View style={styles.tradeButtons}>
             {sellable.length > 0 ? (
               <ChunkyButton
@@ -335,10 +348,12 @@ export default function CoinScreen() {
               value={formatCoinPrice(price.price)}
               note={index === 0 ? "Current" : undefined}
               deleteLabel={`Delete the price on ${formatDate(price.date)}`}
+              auto={price.source === "auto"}
               onDelete={() => setDeletingPrice(price)}
             />
           ))
         )}
+        <CoinGeckoCredit />
       </ScrollView>
 
       <Portal>
