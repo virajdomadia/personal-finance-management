@@ -248,14 +248,12 @@ export async function syncSms({
         sent += entries.length;
       } catch (error) {
         if (!isRefused(error)) throw error;
-        // The server refused something in this batch: send each message on its own. A refusal
-        // among accepted messages is that message's own problem; it is kept on the phone so it
-        // doesn't block everything after it. When nothing is accepted, or three in a row are
-        // refused, the server is refusing everything (say, a contract change the phone hasn't
-        // caught up with): stop without moving past them, and try again next time.
-        let accepted = 0;
+        // The server refused something in this batch: send each message on its own. One or two
+        // refused messages are their own problem; they are kept on the phone so they don't block
+        // everything after them. Three refused in a row means the server is refusing everything
+        // (say, a contract change the phone hasn't caught up with): stop without moving past them
+        // or keeping them, and try again next time. Refusals are held until that is known.
         let refusedInARow = 0;
-        let lastRefusal: unknown = error;
         let held: { unit: Unit; refused: boolean }[] = [];
         const settle = async () => {
           await keep(held.filter((h) => h.refused).map((h) => ({ ...h.unit.message })));
@@ -268,14 +266,12 @@ export async function syncSms({
               await postLines(unit.entries);
             } catch (single) {
               if (!isRefused(single)) throw single;
-              lastRefusal = single;
               refusedInARow += 1;
               if (refusedInARow >= 3) throw single;
               held.push({ unit, refused: true });
               continue;
             }
             sent += unit.entries.length;
-            accepted += 1;
             refusedInARow = 0;
             await settle();
             await advance(unit.safe);
@@ -285,10 +281,7 @@ export async function syncSms({
             await advance(unit.safe);
           }
         }
-        if (held.length > 0) {
-          if (accepted === 0) throw lastRefusal;
-          await settle();
-        }
+        await settle();
       }
       await advance(batch[batch.length - 1].safe);
     }

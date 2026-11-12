@@ -285,8 +285,34 @@ test("test_every_message_refused_is_systemic_and_keeps_the_mark", async () => {
   assert.deepEqual(state.current.unreadable, [], "nothing dumped into the phone list");
 });
 
-test("test_a_single_refused_message_alone_is_systemic", async () => {
+test("test_a_lone_refused_message_is_kept_on_phone_and_skipped", async () => {
   const messages = [boiMessage(0, NOW.getTime() - 1000)];
+  const { read } = inbox(messages);
+  const { post } = recorder({ refuse: () => true });
+  const { save, state } = saver(settings());
+
+  const result = await syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save });
+
+  assert.equal(result.sent, 0);
+  assert.equal(result.unreadable, 1);
+  assert.deepEqual(state.current.unreadable.map((m) => m.id), ["0"]);
+  assert.equal(state.current.lastReadAt, messages[0].date, "a sync of one bad message doesn't stall");
+});
+
+test("test_two_refused_none_accepted_is_isolated", async () => {
+  const messages = Array.from({ length: 2 }, (_, i) => boiMessage(i, NOW.getTime() - 10_000 + i * 1000));
+  const { read } = inbox(messages);
+  const { post } = recorder({ refuse: () => true });
+  const { save, state } = saver(settings());
+
+  await syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save });
+
+  assert.equal(state.current.unreadable.length, 2);
+  assert.equal(state.current.lastReadAt, messages[1].date);
+});
+
+test("test_three_refused_none_accepted_is_systemic", async () => {
+  const messages = Array.from({ length: 3 }, (_, i) => boiMessage(i, NOW.getTime() - 10_000 + i * 1000));
   const { read } = inbox(messages);
   const { post } = recorder({ refuse: () => true });
   const { save, state } = saver(settings());
