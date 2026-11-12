@@ -12,8 +12,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as clock_time
 from decimal import Decimal
+from typing import NamedTuple
 
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.models.investment import Instrument, InstrumentPrice
@@ -46,32 +49,87 @@ class RefreshReport:
     failed: dict[str, str] = field(default_factory=dict)
 
 
-def _existing(db: Session, kind: str) -> dict[str, MarketCode]:
-    return {m.code: m for m in db.scalars(select(MarketCode).where(MarketCode.kind == kind))}
+class _Known(NamedTuple):
+    name: str
+    isin: str | None
+    price: Decimal | None
+    price_date: date | None
+
+
+def _existing(db: Session, kind: str) -> dict[str, _Known]:
+    """What is stored for each code of `kind`, as plain tuples (no ORM objects to track)."""
+    m = MarketCode
+    rows = db.execute(select(m.code, m.name, m.isin, m.price, m.price_date).where(m.kind == kind))
+    return {code: _Known(name, isin, price, day) for code, name, isin, price, day in rows}
+
+
+UPSERT_CHUNK = 500  # rows per statement: well under SQLite's and PostgreSQL's parameter limits
+
+
+def _upsert(db: Session, kind: str, rows: dict[str, dict]) -> None:
+    """Write many market codes in a few statements: INSERT ... ON CONFLICT DO UPDATE in chunks.
+
+    Thousands of rows one at a time took minutes once the database was a long round trip away
+    (the API in one region, Neon in another). A row whose price is None keeps the stored price
+    and date; a None isin keeps the stored isin. Every written row gets a fresh updated_at.
+    """
+    if not rows:
+        return
+    db.flush()
+    values = [
+        {
+            "kind": kind,
+            "code": code,
+            "name": row["name"],
+            "isin": row.get("isin"),
+            "price": row.get("price"),
+            "price_date": row.get("price_date"),
+        }
+        for code, row in rows.items()
+    ]
+    insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
+    for start in range(0, len(values), UPSERT_CHUNK):
+        stmt = insert(MarketCode).values(values[start : start + UPSERT_CHUNK])
+        new = stmt.excluded
+        keep_price = new.price.is_(None)
+        db.execute(
+            stmt.on_conflict_do_update(
+                index_elements=[MarketCode.kind, MarketCode.code],
+                set_={
+                    "name": new.name,
+                    "isin": func.coalesce(new.isin, MarketCode.isin),
+                    "price": case((keep_price, MarketCode.price), else_=new.price),
+                    "price_date": case((keep_price, MarketCode.price_date), else_=new.price_date),
+                    "updated_at": func.now(),
+                },
+            )
+        )
+    # Market codes loaded as ORM objects earlier in this session would now be stale.
+    db.expire_all()
 
 
 def _upsert_quotes(db: Session, kind: str, quotes: Iterable[Quote]) -> int:
     """Add or refresh names and prices in bulk. A quote without a price never clears one."""
     known = _existing(db, kind)
+    changed: dict[str, dict] = {}
     priced = 0
     for q in quotes:
         if len(q.code) > CODE_MAX:
             continue  # never store a truncated code
         name = q.name[:NAME_MAX]
-        row = known.get(q.code)
-        if row is None:
-            row = known[q.code] = MarketCode(kind=kind, code=q.code, name=name, isin=q.isin)
-            db.add(row)
-        else:
-            if row.name != name:
-                row.name = name
-            if q.isin and row.isin != q.isin:
-                row.isin = q.isin
-        if q.price is not None and q.price_date is not None:
-            if (row.price, row.price_date) != (q.price, q.price_date):
-                row.price, row.price_date = q.price, q.price_date
+        has_price = q.price is not None and q.price_date is not None
+        if has_price:
             priced += 1
-    db.flush()
+        row = known.get(q.code)
+        price, day = (q.price, q.price_date) if has_price else (None, None)
+        if (
+            row is None
+            or row.name != name
+            or (q.isin and row.isin != q.isin)
+            or (has_price and (row.price, row.price_date) != (price, day))
+        ):
+            changed[q.code] = {"name": name, "isin": q.isin, "price": price, "price_date": day}
+    _upsert(db, kind, changed)
     return priced
 
 
@@ -79,21 +137,20 @@ def _set_prices(
     db: Session, kind: str, prices: dict[str, tuple[Decimal, date]], create_missing: bool
 ) -> int:
     known = _existing(db, kind)
-    count = 0
+    rows: dict[str, dict] = {}
     for code, (price, day) in prices.items():
         row = known.get(code)
-        if row is None:
-            if not create_missing:
-                continue
-            row = MarketCode(kind=kind, code=code, name=code)
-            db.add(row)
-        if (row.price, row.price_date) != (price, day):
-            row.price, row.price_date = price, day
-        # Fetched just now, even if unchanged: a steady price is fresh, not stale.
-        row.updated_at = func.now()
-        count += 1
-    db.flush()
-    return count
+        if row is None and not create_missing:
+            continue
+        # Written even if unchanged: a steady price was fetched just now, so it is fresh.
+        rows[code] = {
+            "name": code if row is None else row.name,
+            "isin": None,
+            "price": price,
+            "price_date": day,
+        }
+    _upsert(db, kind, rows)
+    return len(rows)
 
 
 def _linked_codes(db: Session, kind: str, user_id: int | None = None) -> list[str]:

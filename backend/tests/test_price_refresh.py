@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.api.portfolio import latest_prices
@@ -484,3 +484,41 @@ def test_apply_to_users_can_be_limited_to_one_user(db_session: Session) -> None:
 
     assert apply_to_users(db_session, only_kind="mutual_fund", user_id=a) == 1
     assert len(rows(db_session, mine)) == 1 and rows(db_session, theirs) == []
+
+
+NOV_11 = date(2026, 11, 11)
+
+
+def test_market_codes_are_written_in_a_few_statements(db_session: Session) -> None:
+    """Thousands of codes must not mean thousands of round trips: the production API and its
+    database sit in different regions, and one statement per row ran past the time limit."""
+    from sqlalchemy import event
+
+    from app.prices.parse import Quote
+    from app.prices.refresh import UPSERT_CHUNK, _upsert_quotes
+
+    quotes = [
+        Quote(
+            "mutual_fund", str(100000 + i), f"Fund {i}", None, Decimal("10.5"), date(2026, 11, 11)
+        )
+        for i in range(1200)
+    ]
+    writes: list[str] = []
+
+    def count(conn, cursor, statement, *args) -> None:  # noqa: ANN001
+        if statement.lstrip().upper().startswith(("INSERT", "UPDATE")):
+            writes.append(statement)
+
+    engine = db_session.get_bind()
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        assert _upsert_quotes(db_session, "mutual_fund", quotes) == 1200
+        # Same quotes again: nothing changed, so nothing is written.
+        assert _upsert_quotes(db_session, "mutual_fund", quotes) == 1200
+    finally:
+        event.remove(engine, "before_cursor_execute", count)
+    assert len(writes) == -(-1200 // UPSERT_CHUNK)  # ceil: 3 chunks, then none
+    stored = db_session.scalar(
+        select(func.count()).select_from(MarketCode).where(MarketCode.kind == "mutual_fund")
+    )
+    assert stored == 1200
