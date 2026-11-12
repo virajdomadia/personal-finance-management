@@ -71,3 +71,38 @@ def test_another_active_sip_of_the_fund_keeps_its_own_account_buys():
     assert date(2027, 1, 5) in due_dates(mine, buys, date(2027, 1, 20), [mine, theirs])
     stopped = theirs._replace(active=False)
     assert date(2027, 1, 5) not in due_dates(mine, buys, date(2027, 1, 20), [mine, stopped])
+
+
+def test_linked_buy_after_a_holiday_settles_the_debit_month():
+    # Debit day 30; 30 March is a holiday, so the bank debits on 1 April.
+    s = sip(day=30, start=date(2027, 1, 30))
+    buys = [linked(date(2027, 1, 30)), linked(date(2027, 2, 28)), linked(date(2027, 4, 1))]
+    assert due_dates(s, buys, date(2027, 4, 30)) == [date(2027, 4, 30)]
+    # The real April debit then settles April.
+    buys.append(linked(date(2027, 4, 30)))
+    assert due_dates(s, buys, date(2027, 4, 30)) == []
+
+
+def test_linked_buy_debited_early_settles_the_next_month():
+    # Debit day 1; 1 May is a holiday and the bank debits on 29 April, after April's buy.
+    s = sip(day=1, start=date(2027, 4, 1))
+    buys = [linked(date(2027, 4, 1)), linked(date(2027, 4, 29))]
+    assert due_dates(s, buys, date(2027, 5, 3)) == []
+
+
+def test_linked_buy_takes_its_own_month_when_the_near_one_is_settled():
+    # Two linked buys a day apart: the second can't take the month the first settled.
+    s = sip(day=30, start=date(2027, 3, 30))
+    buys = [linked(date(2027, 4, 1)), linked(date(2027, 4, 2))]
+    assert due_dates(s, buys, date(2027, 4, 30)) == []
+
+
+def test_linked_buy_far_from_any_debit_date_settles_its_own_month():
+    s = sip(day=5, start=date(2026, 5, 5))
+    assert date(2026, 5, 5) not in due_dates(s, [linked(date(2026, 5, 20))], TODAY)
+
+
+def test_unlinked_buy_keeps_the_same_month_rule():
+    s = sip(day=30, start=date(2027, 3, 30))
+    unlinked = BuyRow(1, 2, date(2027, 4, 1), False, None)
+    assert due_dates(s, [unlinked], date(2027, 4, 30)) == [date(2027, 3, 30)]

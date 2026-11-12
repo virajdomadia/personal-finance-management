@@ -85,6 +85,8 @@ class InvestmentTrade(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     # Bought before the app was used, so no cash moves.
     opening: Mapped[bool] = mapped_column(Boolean, server_default=false())
+    # SIP units worked out from an SMS, until the owner confirms them.
+    estimated: Mapped[bool] = mapped_column(Boolean, server_default=false())
     note: Mapped[str | None] = mapped_column(String(200))
     sip_id: Mapped[int | None] = mapped_column(ForeignKey("sips.id"), index=True)
     created_at: Mapped[dt.datetime] = mapped_column(

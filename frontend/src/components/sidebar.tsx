@@ -2,15 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import { logout } from "@/app/login/actions";
 import { FOCUS } from "@/components/ui/chunky";
 import { Logo } from "@/components/ui/logo";
 import { StreakBox } from "@/components/streak-box";
+import { apiFetch } from "@/lib/api";
+import { REVIEW_CHANGED, type ReviewList } from "@/lib/review";
 
 const LINKS = [
   { href: "/", emoji: "🏠", label: "Dashboard" },
+  { href: "/review", emoji: "📥", label: "To review" },
   { href: "/accounts", emoji: "👛", label: "Accounts" },
   { href: "/transactions", emoji: "💸", label: "Transactions" },
   { href: "/investments", emoji: "📈", label: "Investments" },
@@ -25,7 +28,31 @@ function CurrentLinks() {
   return <Links pathname={usePathname()} />;
 }
 
+// How many SMS messages wait in To review. It reloads on navigation and after each answer; a failed
+// call just hides the count.
+function useReviewCount(pathname: string | null): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    let current = true;
+    const load = () => {
+      apiFetch<ReviewList>("/sms/review")
+        .then((data) => {
+          if (current) setCount(data.items.length);
+        })
+        .catch(() => {});
+    };
+    load();
+    window.addEventListener(REVIEW_CHANGED, load);
+    return () => {
+      current = false;
+      window.removeEventListener(REVIEW_CHANGED, load);
+    };
+  }, [pathname]);
+  return count;
+}
+
 function Links({ pathname }: { pathname: string | null }) {
+  const reviewCount = useReviewCount(pathname);
   return (
     <nav aria-label="Main" className="flex flex-col gap-1">
       {LINKS.map(({ href, emoji, label }) => {
@@ -41,6 +68,12 @@ function Links({ pathname }: { pathname: string | null }) {
           >
             <span aria-hidden="true">{emoji}</span>
             {label}
+            {href === "/review" && reviewCount > 0 ? (
+              <span className="ml-auto rounded-full border-2 border-ink bg-pink-strong px-1.5 text-[11px] leading-4 font-black text-white tabular-nums">
+                {reviewCount}
+                <span className="sr-only"> waiting</span>
+              </span>
+            ) : null}
           </Link>
         );
       })}

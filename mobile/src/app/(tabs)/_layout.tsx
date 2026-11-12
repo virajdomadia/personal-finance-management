@@ -6,10 +6,12 @@ import { ChunkyTabBar } from "@/components/chunky-tab-bar";
 
 import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
+import { useSmsSync } from "@/lib/sms/use-sms-sync";
 
 export default function TabsLayout() {
   const { token, logOut } = useSession();
   const { colors } = useTheme();
+  useSmsSync();
 
   useEffect(() => {
     // The stored token can be revoked or expire, and only the API can tell.

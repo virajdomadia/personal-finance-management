@@ -1,10 +1,11 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.api.balances import balance_of
 from app.api.dates import clamped_date, today_india
@@ -24,6 +25,8 @@ from app.api.routes.accounts import fmt, list_sort_key, totals
 from app.api.routes.recurring import DueItem, due_items
 from app.db.session import DbSession
 from app.models.account import Account
+from app.models.sms import SmsEntry
+from app.models.transaction import Transaction
 
 router = APIRouter(
     prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(get_current_user)]
@@ -42,6 +45,13 @@ def next_due_date(due_day: int, today: date) -> date:
 class NextCardDue(BaseModel):
     account_id: int
     name: str
+    due_date: str
+
+
+class CardBill(BaseModel):
+    account_id: int
+    name: str
+    amount: str  # what is still to pay of the latest statement
     due_date: str
 
 
@@ -85,6 +95,66 @@ class DashboardResponse(BaseModel):
     goals_due: list[GoalDue]
     goals: list[GoalCard]
     asset_split: list[AssetSlice]
+    # SMS entries waiting for the owner (review or draft).
+    to_review: int
+    card_bill: CardBill | None
+
+
+# A statement's bill stays on the dashboard this long after its due date.
+BILL_GRACE = timedelta(days=3)
+
+
+def _to_review(db: Session, user_id: int) -> int:
+    return (
+        db.scalar(
+            select(func.count())
+            .select_from(SmsEntry)
+            .where(SmsEntry.user_id == user_id, SmsEntry.status.in_(("review", "draft")))
+        )
+        or 0
+    )
+
+
+def card_bill(db: Session, user_id: int, cards: list[Account], today: date) -> CardBill | None:
+    """The unpaid card bill due soonest: each card's latest statement SMS, less what was
+    transferred into the card after the statement's date. Shown until 3 days past due."""
+    bills: list[tuple[date, int, CardBill]] = []
+    for card in cards:
+        statement = db.scalar(
+            select(SmsEntry)
+            .where(
+                SmsEntry.user_id == user_id,
+                SmsEntry.account_id == card.id,
+                SmsEntry.kind == "card_statement",
+                SmsEntry.status == "recorded",
+                SmsEntry.amount.is_not(None),
+                SmsEntry.due_date.is_not(None),
+            )
+            .order_by(SmsEntry.occurred_on.desc(), SmsEntry.id.desc())
+            .limit(1)
+        )
+        if statement is None or statement.amount is None or statement.due_date is None:
+            continue
+        if statement.due_date < today - BILL_GRACE:
+            continue
+        paid = db.scalar(
+            select(func.coalesce(func.sum(Transaction.amount), 0)).where(
+                Transaction.user_id == user_id,
+                Transaction.type == "transfer",
+                Transaction.to_account_id == card.id,
+                Transaction.date > statement.occurred_on,
+            )
+        )
+        left = statement.amount - Decimal(paid or 0)
+        if left > 0:
+            bill = CardBill(
+                account_id=card.id,
+                name=card.name,
+                amount=fmt(left),
+                due_date=statement.due_date.isoformat(),
+            )
+            bills.append((statement.due_date, card.id, bill))
+    return min(bills, key=lambda b: (b[0], b[1]))[2] if bills else None
 
 
 @router.get("")
@@ -164,6 +234,8 @@ def get_dashboard(user: CurrentUser, db: DbSession) -> DashboardResponse:
         recurring=due_items(db, user.id, today),
         asset_split=[AssetSlice(group=g, value=fmt(v)) for g, v in split if v > 0],
         goals_due=goals_due(db, user.id, today, goal_book),
+        to_review=_to_review(db, user.id),
+        card_bill=card_bill(db, user.id, cards, today),
         goals=[
             GoalCard(
                 id=r.id,

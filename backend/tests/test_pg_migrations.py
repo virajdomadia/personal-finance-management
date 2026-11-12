@@ -48,6 +48,10 @@ ALL_TABLES = {
     "goal_earmarks",
     "goal_holdings",
     "market_codes",
+    "account_identifiers",
+    "sms_entries",
+    "payee_rules",
+    "sms_samples",
 }
 
 
@@ -237,7 +241,9 @@ DEPOSITS_REVISION = "3b8f2c61a7d4"
 NEW_REVISION = "5d7e3a90c1f2"
 RECURRING_REVISION = "8e4c1b7a2d95"
 GOALS_REVISION = "a1d4f7c92b36"
-HEAD_REVISION = "c7e2a95d1b48"
+MARKET_REVISION = "c7e2a95d1b48"
+HEAD_REVISION = "e3b81f46a0d7"
+SMS_TABLES = {"account_identifiers", "sms_entries", "payee_rules", "sms_samples"}
 GOAL_TABLES = {"goals", "goal_earmarks", "goal_holdings"}
 RECURRING_TABLES = {
     "recurring_templates",
@@ -366,7 +372,9 @@ def test_recurring_migration_round_trip(migrations_db: str) -> None:
     assert rows(migrations_db, "SELECT recurring_template_id FROM transactions") == [(None,)]
 
     command.downgrade(config, NEW_REVISION)
-    assert tables(migrations_db) == ALL_TABLES - RECURRING_TABLES - GOAL_TABLES - {"market_codes"}
+    assert tables(migrations_db) == ALL_TABLES - RECURRING_TABLES - GOAL_TABLES - SMS_TABLES - {
+        "market_codes"
+    }
     columns = {c["name"] for c in inspect(create_engine(migrations_db)).get_columns("transactions")}
     assert "recurring_template_id" not in columns
     assert rows(migrations_db, "SELECT id FROM transactions") == [(1,)]
@@ -416,7 +424,7 @@ def test_goals_migration_round_trip(migrations_db: str) -> None:
     assert GOAL_TABLES <= tables(migrations_db)
 
     command.downgrade(config, RECURRING_REVISION)
-    assert tables(migrations_db) == ALL_TABLES - GOAL_TABLES - {"market_codes"}
+    assert tables(migrations_db) == ALL_TABLES - GOAL_TABLES - SMS_TABLES - {"market_codes"}
     assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(RECURRING_REVISION,)]
 
     command.upgrade(config, "head")
@@ -524,3 +532,26 @@ def test_market_downgrade_deletes_auto_prices(migrations_db: str) -> None:
     assert rows(migrations_db, "SELECT date, price FROM instrument_prices") == [
         (date(2026, 11, 1), Decimal("10.0000"))
     ]
+
+
+def test_sms_migration_round_trip(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, MARKET_REVISION)
+    seed_investments(migrations_db, "5")
+    run_sql(
+        migrations_db,
+        "INSERT INTO transactions (user_id, type, amount, date, account_id, created_at, updated_at)"
+        " VALUES (1, 'expense', 10, '2026-11-01', 1, :s, :s)",
+    )
+
+    command.upgrade(config, "head")
+    assert SMS_TABLES <= tables(migrations_db)
+    assert rows(migrations_db, "SELECT source FROM transactions") == [("manual",)]
+    assert rows(migrations_db, "SELECT estimated FROM investment_trades") == [(False,)]
+
+    command.downgrade(config, MARKET_REVISION)
+    assert not SMS_TABLES & tables(migrations_db)
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(MARKET_REVISION,)]
+
+    command.upgrade(config, "head")
+    assert tables(migrations_db) == ALL_TABLES

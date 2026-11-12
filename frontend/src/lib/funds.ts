@@ -28,6 +28,7 @@ export type FundTrade = {
   sip_id: number | null;
   note: string | null;
   realised: string | null;
+  estimated?: boolean; // units estimated from an SMS, not yet checked
 };
 
 export type Sip = {

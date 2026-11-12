@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -41,6 +41,7 @@ from app.api.trade_checks import (
 from app.db.session import DbSession
 from app.models.account import Account
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade, Sip
+from app.models.sms import SmsEntry
 
 router = APIRouter(
     prefix="/investments", tags=["investments"], dependencies=[Depends(get_current_user)]
@@ -132,6 +133,8 @@ class FundTrade(BaseModel):
     sip_id: int | None
     note: str | None
     realised: str | None  # redemptions only
+    # Units worked out from an SMS debit at the day's NAV, not yet checked by the owner.
+    estimated: bool
 
 
 class FundTradeList(BaseModel):
@@ -226,7 +229,7 @@ def _price(values: dict[str, Any]) -> Decimal:
     return values["nav"]
 
 
-def _columns(values: dict[str, Any], price: Decimal) -> dict[str, Any]:
+def fund_columns(values: dict[str, Any], price: Decimal) -> dict[str, Any]:
     return {
         "instrument_id": values["fund_id"],
         "account_id": values["account_id"],
@@ -262,6 +265,7 @@ def _response(
         sip_id=t.sip_id,
         note=t.note,
         realised=None if gain is None else fmt(gain),
+        estimated=t.estimated,
     )
 
 
@@ -363,7 +367,7 @@ def _check_amounts(values: dict[str, Any]) -> Decimal:
     return nav
 
 
-def _save_checks(
+def fund_save_checks(
     db: Session,
     user_id: int,
     accounts: dict[int, Account],
@@ -448,8 +452,8 @@ def _defaults(values: dict[str, Any]) -> dict[str, Any]:
 def create_fund_trade(body: FundTradeCreate, user: CurrentUser, db: DbSession) -> FundTrade:
     values = _defaults(body.model_dump())
     accounts = lock_accounts(db, user.id, [values["account_id"]])
-    account, price = _save_checks(db, user.id, accounts, values, existing_id=None)
-    trade = InvestmentTrade(user_id=user.id, **_columns(values, price))
+    account, price = fund_save_checks(db, user.id, accounts, values, existing_id=None)
+    trade = InvestmentTrade(user_id=user.id, **fund_columns(values, price))
     db.add(trade)
     try:
         db.flush()  # gives the trade its id, for its NAV row
@@ -488,10 +492,23 @@ def update_fund_trade(
         **changes,
     }
     require_active(accounts, [trade.account_id, values["account_id"]])
-    account, price = _save_checks(db, user.id, accounts, values, existing_id=trade.id)
+    account, price = fund_save_checks(db, user.id, accounts, values, existing_id=trade.id)
     was = (trade.instrument_id, trade.date, trade.opening)
-    for field, value in _columns(values, price).items():
+    for field, value in fund_columns(values, price).items():
         setattr(trade, field, value)
+    if trade.estimated and ("units" in changes or "nav" in changes):
+        # The owner typed the units or NAV in: no longer an estimate, nor a question.
+        trade.estimated = False
+        db.execute(
+            update(SmsEntry)
+            .where(
+                SmsEntry.user_id == user.id,
+                SmsEntry.trade_id == trade.id,
+                SmsEntry.status == "review",
+                SmsEntry.reason == "sip_units",
+            )
+            .values(status="recorded", reason=None, message=None, candidates=None)
+        )
     try:
         db.flush()
         sync_trade_nav(db, trade)
@@ -513,6 +530,12 @@ def delete_fund_trade(id: int, user: CurrentUser, db: DbSession) -> dict[str, in
     check_delete(db, user.id, accounts, trade, FUND_SHORT)
     # Its auto-recorded NAV goes with it; NAVs entered by hand stay.
     db.execute(delete(InstrumentPrice).where(InstrumentPrice.trade_id == trade.id))
+    # The SMS it came from stays known, so sending that message again doesn't bring it back.
+    db.execute(
+        update(SmsEntry)
+        .where(SmsEntry.user_id == user.id, SmsEntry.trade_id == trade.id)
+        .values(status="ignored", trade_id=None)
+    )
     fund_id, day, opening = trade.instrument_id, trade.date, trade.opening
     db.delete(trade)
     if not opening:

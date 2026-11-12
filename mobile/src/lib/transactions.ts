@@ -19,6 +19,7 @@ export type Transaction = {
   note: string | null;
   recurring_template_id: number | null;
   editable: boolean;
+  from_sms?: boolean; // recorded from a bank SMS
 };
 
 export type TransactionList = {

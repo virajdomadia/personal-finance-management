@@ -8,4 +8,5 @@ export { HeaderAction, ScreenHeader } from "./screen-header";
 export { Segmented } from "./segmented";
 export { StackedBar } from "./stacked-bar";
 export { Sticker } from "./sticker";
+export { Tag } from "./tag";
 export { Tile } from "./tile";

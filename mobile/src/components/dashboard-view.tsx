@@ -5,6 +5,7 @@ import { Text } from "react-native-paper";
 
 import { ChunkyBox, ChunkyButton, Row, ScreenHeader, StackedBar, Tile } from "@/components/chunky";
 import { type AssetSplit, type Dashboard, formatDueDate } from "@/lib/accounts";
+import { cardBillText, reviewCountText } from "@/lib/review";
 import { investmentSticker, streakLabel } from "@/lib/fun";
 import { tileGoal } from "@/lib/goals";
 import { formatPercent } from "@/lib/investments";
@@ -63,7 +64,10 @@ type Props = {
 
 // The dashboard's content, without any loading or fetching, so it can be shown with fixture data.
 export function DashboardView({ data, streak, failed, onOpenAccounts, dueList }: Props) {
-  const due = data.next_card_due;
+  const bill = data.card_bill ?? null;
+  // The statement's bill says more than the card's due day, so the card isn't listed twice.
+  const due = data.next_card_due && data.next_card_due.account_id !== bill?.account_id ? data.next_card_due : null;
+  const toReview = data.to_review ?? 0;
   const used = data.credit_used;
   const negative = data.net_worth.startsWith("-");
   const picked = tileGoal(data.goals ?? []);
@@ -97,6 +101,21 @@ export function DashboardView({ data, streak, failed, onOpenAccounts, dueList }:
           <Text variant="bodyMedium" accessibilityRole="alert" style={styles.error}>
             We couldn&apos;t load your dashboard. Pull down to try again.
           </Text>
+        ) : null}
+
+        {toReview > 0 ? (
+          <Tile
+            tone="orange"
+            emoji="📩"
+            label="To review"
+            value={String(toReview)}
+            accessibilityExtra={reviewCountText(toReview)}
+            onPress={() => router.push("/review")}
+          >
+            <Text variant="labelMedium" style={styles.hint}>
+              {reviewCountText(toReview)} from your bank SMS
+            </Text>
+          </Tile>
         ) : null}
 
         <Tile tone={negative ? "pink" : "green"} label="Net worth" value={whole(data.net_worth)} size="huge">
@@ -147,11 +166,21 @@ export function DashboardView({ data, streak, failed, onOpenAccounts, dueList }:
 
         {dueList}
 
-        {due || used ? (
+        {bill || due || used ? (
           <View style={styles.group}>
             <Text variant="titleSmall" accessibilityRole="header" style={styles.groupTitle}>
               Needs attention
             </Text>
+            {bill ? (
+              <Row
+                emoji="🧾"
+                tone="orange"
+                title={cardBillText(bill)}
+                highlight
+                onPress={onOpenAccounts}
+                accessibilityLabel={cardBillText(bill)}
+              />
+            ) : null}
             {due ? (
               <Row
                 emoji="💳"

@@ -76,6 +76,8 @@ export type Dashboard = {
   goals: GoalCard[];
   // What is held in each group. The values need not add up to total_have: a group at or below zero is left out of the bar.
   asset_split: { group: "bank_cash" | "deposits" | "stocks" | "funds" | "crypto"; value: string }[];
+  to_review?: number; // SMS messages waiting in To review
+  card_bill?: { account_id: number; name: string; amount: string; due_date: string } | null; // the unpaid card bill due soonest
 };
 
 export type AccountForm = {

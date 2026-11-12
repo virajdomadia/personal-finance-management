@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl, ScrollView, SectionList, StyleSheet, View } from "react-native";
 import { Text, useTheme } from "react-native-paper";
 
-import { ChunkyButton, Chip, HeaderAction, Row, StackedBar, Tile } from "@/components/chunky";
+import { ChunkyButton, Chip, HeaderAction, Row, StackedBar, Tag, Tile } from "@/components/chunky";
 
 import { DueList } from "@/components/due-list";
 import type { GoalDue } from "@/lib/goals";
@@ -55,7 +55,8 @@ export function TransactionRow({
   viewedAccountId: number | null;
   onPress: () => void;
 }) {
-  const title = tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? `EMI · ${tx.to_account_name}` : tx.category;
+  // An SMS can record money before its category is known; To review asks for it.
+  const title = tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? `EMI · ${tx.to_account_name}` : (tx.category ?? "Uncategorised");
   const accounts =
     tx.type === "transfer"
       ? `${tx.account_name} → ${tx.to_account_name}`
@@ -72,9 +73,18 @@ export function TransactionRow({
         meta={tx.note ? `${accounts} · ${tx.note}` : accounts}
         amount={amount}
         amountTone={amountTone(amount)}
-        sub={tx.editable ? undefined : "Archived"}
+        sub={
+          tx.from_sms ? (
+            <>
+              {tx.editable ? null : <Text variant="bodySmall" style={styles.archived}>Archived</Text>}
+              <Tag label="SMS" />
+            </>
+          ) : tx.editable ? undefined : (
+            "Archived"
+          )
+        }
         onPress={tx.editable ? onPress : undefined}
-        accessibilityLabel={`${title}, ${amount}, ${accounts}`}
+        accessibilityLabel={`${title}, ${amount}, ${accounts}${tx.from_sms ? ", from a bank SMS" : ""}`}
       />
     </View>
   );
@@ -467,6 +477,7 @@ const styles = StyleSheet.create({
   dueEmpty: { paddingHorizontal: 16 },
   error: { color: BRAND.loss },
   muted: { color: BRAND.zinc600 },
+  archived: { color: BRAND.zinc600, fontSize: 12, lineHeight: 16, textAlign: "right" },
   incomeLine: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginTop: 4 },
   incomeLabel: { color: BRAND.zinc600 },
   incomeAmount: { flexShrink: 1, color: BRAND.gain, textAlign: "right", fontVariant: ["tabular-nums"] },

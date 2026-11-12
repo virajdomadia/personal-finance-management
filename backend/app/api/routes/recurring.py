@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
@@ -36,6 +36,7 @@ from app.db.session import DbSession
 from app.models.account import Account
 from app.models.insurance import InsurancePolicy
 from app.models.recurring import RecurringSkip, RecurringTemplate
+from app.models.sms import PayeeRule
 from app.models.transaction import Transaction
 
 router = APIRouter(
@@ -456,6 +457,12 @@ def delete_template(id: int, user: CurrentUser, db: DbSession) -> Deleted:
             )
         ):
             db.delete(skip)
+        # A payee tied to this reminder keeps its rule, just without the reminder.
+        db.execute(
+            update(PayeeRule)
+            .where(PayeeRule.user_id == user.id, PayeeRule.template_id == template.id)
+            .values(template_id=None)
+        )
         db.delete(template)
         db.commit()
     except IntegrityError:  # a transaction or a policy was linked after all
