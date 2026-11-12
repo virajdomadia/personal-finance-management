@@ -12,5 +12,6 @@ from app.models.investment import (  # noqa: F401
 from app.models.market import MarketCode  # noqa: F401
 from app.models.recurring import RecurringSkip, RecurringTemplate  # noqa: F401
 from app.models.sms import AccountIdentifier, PayeeRule, SmsEntry, SmsSample  # noqa: F401
+from app.models.snapshot import NetWorthSnapshot  # noqa: F401
 from app.models.transaction import Transaction  # noqa: F401
 from app.models.user import User  # noqa: F401
