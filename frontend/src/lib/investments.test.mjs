@@ -7,8 +7,13 @@ import {
   formatSigned,
   canSearchMarket,
   holdingKinds,
+  NO_MATCH,
   linkLabel,
   marketSearchPath,
+  parseDismissed,
+  selectedLabel,
+  shouldShowLinkPrompt,
+  unlinkedIds,
   settle,
   tone,
   tradeFormFrom,
@@ -166,4 +171,38 @@ test("linkLabel names the link or offers one", () => {
 test("canSearchMarket needs two characters", () => {
   assert.equal(canSearchMarket(" a "), false);
   assert.equal(canSearchMarket("ab"), true);
+});
+
+test("unlinkedIds gathers every kind, sorted", () => {
+  const unlinked = {
+    stocks: [{ id: 9, symbol: "INFY", name: "Infosys" }],
+    funds: [{ id: 2, symbol: "F", name: "Fund" }],
+    coins: [{ id: 5, symbol: "BTC", name: "Bitcoin" }],
+  };
+  assert.deepEqual(unlinkedIds(unlinked), [2, 5, 9]);
+});
+
+test("shouldShowLinkPrompt hides what was dismissed until a new holding appears", () => {
+  assert.equal(shouldShowLinkPrompt([], []), false);
+  assert.equal(shouldShowLinkPrompt([1, 2], []), true);
+  assert.equal(shouldShowLinkPrompt([1, 2], [1, 2]), false);
+  assert.equal(shouldShowLinkPrompt([1], [1, 2]), false); // one was linked since
+  assert.equal(shouldShowLinkPrompt([1, 2, 3], [1, 2]), true);
+});
+
+test("parseDismissed ignores missing or broken values", () => {
+  assert.deepEqual(parseDismissed(null), []);
+  assert.deepEqual(parseDismissed("not json"), []);
+  assert.deepEqual(parseDismissed('{"a":1}'), []);
+  assert.deepEqual(parseDismissed('[1,"x",2.5,3]'), [1, 3]);
+});
+
+test("a pick reads as selected, not linked, until it is saved", () => {
+  assert.equal(selectedLabel("Infosys Limited"), "Selected: Infosys Limited");
+});
+
+test("the empty search names what to try for each kind", () => {
+  assert.equal(NO_MATCH.stock, "No match. Try the company's full name.");
+  assert.equal(NO_MATCH.mutual_fund, "No match. Try the fund's full name.");
+  assert.equal(NO_MATCH.crypto, "No match. Try the coin's full name.");
 });

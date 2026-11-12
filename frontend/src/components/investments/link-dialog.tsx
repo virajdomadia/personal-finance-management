@@ -5,7 +5,15 @@ import { useEffect, useId, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { errorMessage, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { type MarketKind, type MarketMatch, canSearchMarket, linkLabel, marketSearchPath } from "@/lib/investments";
+import {
+  type MarketKind,
+  type MarketMatch,
+  NO_MATCH,
+  canSearchMarket,
+  linkLabel,
+  marketSearchPath,
+  selectedLabel,
+} from "@/lib/investments";
 
 import { DIALOG, INPUT, PRIMARY, QUIET, ROW_ACTION } from "./shared";
 
@@ -22,7 +30,7 @@ const PLACEHOLDER: Record<MarketKind, string> = {
 type Outcome = { text: string; results: MarketMatch[]; message: string | null };
 
 // A search box for the market's codes: type, pick a match. `selected` is the pick (or null), and it
-// shows as "Linked to CODE" with a way to clear it. Arrow keys move through the matches, and Enter
+// shows as "Selected: NAME" (it is saved only by the form around it) with a way to clear it. Arrow keys move through the matches, and Enter
 // picks the first one (it never submits the form around it).
 export function MarketSearch({
   kind,
@@ -73,8 +81,8 @@ export function MarketSearch({
     return (
       <div className="flex items-center gap-2 rounded-[14px] border-[2.5px] border-ink bg-card px-3 py-2">
         <p className="min-w-0 flex-1 text-sm font-extrabold [overflow-wrap:anywhere]">
-          {linkLabel(selected.code)}
-          <span className="block text-xs font-bold text-zinc-600">{selected.name}</span>
+          {selectedLabel(selected.name)}
+          <span className="block text-xs font-bold text-zinc-600">{selected.code}</span>
         </p>
         <button type="button" className={ROW_ACTION} disabled={disabled} onClick={() => onSelect(null)}>
           Clear
@@ -116,7 +124,7 @@ export function MarketSearch({
         {searching && !current && <p className="mt-1 text-xs font-bold text-zinc-600">Searching...</p>}
         {current?.message && <p className="mt-1 text-xs font-extrabold text-loss">{current.message}</p>}
         {current && !current.message && results.length === 0 && (
-          <p className="mt-1 text-xs font-bold text-zinc-700">No match. Try the fund&apos;s full name.</p>
+          <p className="mt-1 text-xs font-bold text-zinc-700">{NO_MATCH[kind]}</p>
         )}
       </div>
       {results.length > 0 && (

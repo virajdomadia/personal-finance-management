@@ -4,8 +4,12 @@ import { test } from "node:test";
 import {
   blankTradeForm,
   canSearchMarket,
+  dismissIds,
   linkLabel,
   marketSearchPath,
+  parseDismissed,
+  selectedLabel,
+  shouldShowLinkPrompt,
   changedTrade,
   formatPercent,
   formatSigned,
@@ -205,4 +209,28 @@ test("linkLabel names the link or offers one", () => {
 test("canSearchMarket needs two characters", () => {
   assert.equal(canSearchMarket(" a "), false);
   assert.equal(canSearchMarket("ab"), true);
+});
+
+test("shouldShowLinkPrompt hides what was dismissed until a new holding appears", () => {
+  assert.equal(shouldShowLinkPrompt([], []), false);
+  assert.equal(shouldShowLinkPrompt([1, 2], []), true);
+  assert.equal(shouldShowLinkPrompt([1, 2], [1, 2]), false);
+  assert.equal(shouldShowLinkPrompt([1], [1, 2]), false); // one was linked since
+  assert.equal(shouldShowLinkPrompt([1, 2, 3], [1, 2]), true);
+});
+
+test("dismissIds adds a card's ids to those already hidden, sorted", () => {
+  assert.deepEqual(dismissIds([], [5, 2]), [2, 5]);
+  assert.deepEqual(dismissIds([2, 9], [5, 2]), [2, 5, 9]);
+});
+
+test("parseDismissed ignores missing or broken values", () => {
+  assert.deepEqual(parseDismissed(null), []);
+  assert.deepEqual(parseDismissed("not json"), []);
+  assert.deepEqual(parseDismissed('{"a":1}'), []);
+  assert.deepEqual(parseDismissed('[1,"x",2.5,3]'), [1, 3]);
+});
+
+test("a pick reads as selected, not linked, until it is saved", () => {
+  assert.equal(selectedLabel("Bitcoin (BTC)"), "Selected: Bitcoin (BTC)");
 });

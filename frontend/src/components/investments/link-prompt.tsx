@@ -1,12 +1,36 @@
 import Link from "next/link";
+import { useState } from "react";
 
-import type { Unlinked } from "@/lib/investments";
+import { type Unlinked, parseDismissed, shouldShowLinkPrompt, unlinkedIds } from "@/lib/investments";
 
-import { SECTION_TITLE } from "./shared";
+import { QUIET, SECTION_TITLE } from "./shared";
+
+// Per browser: the unlinked ids hidden by "Not now". Storage can be missing or blocked.
+const DISMISSED_KEY = "gullak.linkPrompt.dismissed";
+
+function readDismissed(): number[] {
+  try {
+    return parseDismissed(window.localStorage.getItem(DISMISSED_KEY));
+  } catch {
+    return [];
+  }
+}
+
+function writeDismissed(ids: number[]): void {
+  try {
+    window.localStorage.setItem(DISMISSED_KEY, JSON.stringify(ids));
+  } catch {
+    // Not remembered, then; it still hides for now.
+  }
+}
 
 // Shown while some holdings have no live-price link. Each one opens its page, where "Link to live
-// prices" is.
+// prices" is. "Not now" hides it until a holding that wasn't there then is unlinked. Only rendered
+// after the client has loaded the list, so reading storage while rendering is safe.
 export function LinkPrompt({ unlinked }: { unlinked: Unlinked }) {
+  const [dismissed, setDismissed] = useState(readDismissed);
+  const ids = unlinkedIds(unlinked);
+  if (!shouldShowLinkPrompt(ids, dismissed)) return null;
   const groups = [
     { label: "Stocks", base: "/investments", items: unlinked.stocks.map((s) => ({ id: s.id, text: s.symbol })) },
     { label: "Funds", base: "/investments/funds", items: unlinked.funds.map((f) => ({ id: f.id, text: f.name })) },
@@ -15,9 +39,21 @@ export function LinkPrompt({ unlinked }: { unlinked: Unlinked }) {
   if (groups.length === 0) return null;
   return (
     <section aria-labelledby="link-prompt-title" className="rounded-[18px] border-[2.5px] border-ink bg-yellow p-4 text-ink shadow-chunky">
-      <h2 id="link-prompt-title" className="text-lg font-black">
-        Let Gullak fetch your prices
-      </h2>
+      <div className="flex items-start justify-between gap-3">
+        <h2 id="link-prompt-title" className="text-lg font-black">
+          Let Gullak fetch your prices
+        </h2>
+        <button
+          type="button"
+          className={`${QUIET} shrink-0 !px-3 !py-1 text-xs`}
+          onClick={() => {
+            writeDismissed(ids);
+            setDismissed(ids);
+          }}
+        >
+          Not now
+        </button>
+      </div>
       <p className="mt-0.5 text-sm font-bold">Link each holding once and its price updates every night.</p>
       <div className="mt-3 flex flex-col gap-2">
         {groups.map((g) => (

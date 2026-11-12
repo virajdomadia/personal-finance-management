@@ -290,8 +290,8 @@ export default function InvestmentsScreen() {
             <View style={styles.empty}>
               <Text variant="titleMedium">Add your crypto</Text>
               <Text variant="bodyMedium" style={styles.emptyText}>
-                Enter coins you already hold, or record a buy. Prices are typed in by hand, so until you add one coins are
-                valued at cost.
+                Enter coins you already hold, or record a buy. Link a coin to live prices, or type one in. Until then coins
+                are valued at cost.
               </Text>
               <ChunkyButton variant="alt" label="Add existing coins" onPress={() => addCoinTrade("opening")} />
             </View>

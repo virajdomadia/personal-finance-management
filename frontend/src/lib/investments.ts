@@ -41,6 +41,39 @@ export function linkLabel(code: string | null): string {
   return code ? `Linked to ${code}` : "Link to live prices";
 }
 
+// A match picked in the search but not saved yet; "Linked to" is only for a saved link.
+export function selectedLabel(name: string): string {
+  return `Selected: ${name}`;
+}
+
+export const NO_MATCH: Record<MarketKind, string> = {
+  stock: "No match. Try the company's full name.",
+  mutual_fund: "No match. Try the fund's full name.",
+  crypto: "No match. Try the coin's full name.",
+};
+
+// The ids of every unlinked holding, sorted. Stocks, funds and coins share one id space.
+export function unlinkedIds(unlinked: Unlinked): number[] {
+  return [...unlinked.stocks, ...unlinked.funds, ...unlinked.coins].map((h) => h.id).sort((a, b) => a - b);
+}
+
+// "Not now" remembers the unlinked ids it hid; the prompt comes back only for a new one.
+export function shouldShowLinkPrompt(unlinked: number[], dismissed: number[]): boolean {
+  const hidden = new Set(dismissed);
+  return unlinked.some((id) => !hidden.has(id));
+}
+
+// What was stored at dismissal, or nothing if it is missing or not a list of ids.
+export function parseDismissed(raw: string | null): number[] {
+  if (!raw) return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value) ? value.filter((v): v is number => Number.isInteger(v)) : [];
+  } catch {
+    return [];
+  }
+}
+
 export type Trade = {
   id: number;
   stock_id: number;

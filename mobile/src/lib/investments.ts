@@ -45,6 +45,34 @@ export function linkLabel(code: string | null): string {
   return code ? `Linked to ${code}` : "Link to live prices";
 }
 
+// A match picked in the search but not saved yet; "Linked to" is only for a saved link.
+export function selectedLabel(name: string): string {
+  return `Selected: ${name}`;
+}
+
+// "Not now" on a link card remembers the unlinked ids it hid; a card comes back only for a new
+// one. Stocks, funds and coins share one id space.
+export function shouldShowLinkPrompt(unlinked: number[], dismissed: number[]): boolean {
+  const hidden = new Set(dismissed);
+  return unlinked.some((id) => !hidden.has(id));
+}
+
+// Each kind has its own card, so a dismissal adds its ids to those already hidden. Sorted.
+export function dismissIds(dismissed: number[], shown: number[]): number[] {
+  return [...new Set([...dismissed, ...shown])].sort((a, b) => a - b);
+}
+
+// What was stored, or nothing if it is missing or not a list of ids.
+export function parseDismissed(raw: string | null): number[] {
+  if (!raw) return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value) ? value.filter((v): v is number => Number.isInteger(v)) : [];
+  } catch {
+    return [];
+  }
+}
+
 export type Trade = {
   id: number;
   stock_id: number;

@@ -8,7 +8,7 @@ import { ChunkyBox, ChunkyButton, ScreenHeader } from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
 import { errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { type MarketKind, type MarketMatch, canSearchMarket, linkLabel, marketSearchPath } from "@/lib/investments";
+import { type MarketKind, type MarketMatch, canSearchMarket, linkLabel, marketSearchPath, selectedLabel } from "@/lib/investments";
 import { useSession } from "@/lib/session";
 import { BRAND } from "@/lib/theme";
 
@@ -167,9 +167,9 @@ export default function LinkFormScreen() {
           {pick ? (
             <ChunkyBox radius={14} offset={3} style={styles.picked}>
               <View style={styles.pickedText}>
-                <Text variant="titleMedium">{linkLabel(pick.code)}</Text>
+                <Text variant="titleMedium">{selectedLabel(pick.name)}</Text>
                 <Text variant="bodySmall" style={{ color: BRAND.zinc600 }}>
-                  {pick.name}
+                  {pick.code}
                 </Text>
               </View>
               <ChunkyButton compact variant="alt" label="Clear" disabled={busy} accessibilityLabel="Clear the chosen match" onPress={() => setPick(null)} />

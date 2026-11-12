@@ -619,7 +619,7 @@ function FormBody(props: Loaded & { defaults: Defaults }) {
                 "symbol",
                 input("symbol", "Ticker, like BTC", { maxLength: 20, autoCapitalize: "characters" }),
                 <HelperText type="info" visible>
-                  The coin&apos;s short code. Prices are typed in by hand.
+                  The coin&apos;s short code. Type a price, or link the coin to live prices.
                 </HelperText>,
               )}
             </>
