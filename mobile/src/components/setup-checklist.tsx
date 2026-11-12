@@ -1,7 +1,7 @@
 import { type Href, router, useFocusEffect } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { useCallback, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Text } from "react-native-paper";
 
 import { ChunkyBox, ChunkyButton, ProgressBar, Row } from "@/components/chunky";
@@ -10,33 +10,35 @@ import { useSession } from "@/lib/session";
 import {
   type ChecklistStep,
   type Mode,
-  SETUP_KEY,
   type ServerStep,
   type SetupResponse,
   type SetupState,
   checklistSteps,
+  loadingShown,
   parseSetupState,
   progressOf,
   progressText,
+  setupKey,
   shownAs,
   statusText,
+  userIdFromToken,
   withNone,
 } from "@/lib/setup";
 import { loadSmsSettings } from "@/lib/sms/settings";
 import { BRAND } from "@/lib/theme";
 import { isAvailable } from "../../modules/sms-inbox";
 
-function readState(): SetupState {
+function readState(key: string): SetupState {
   try {
-    return parseSetupState(SecureStore.getItem(SETUP_KEY));
+    return parseSetupState(SecureStore.getItem(key));
   } catch {
     return parseSetupState(null);
   }
 }
 
-function saveState(state: SetupState): void {
+function saveState(key: string, state: SetupState): void {
   try {
-    SecureStore.setItem(SETUP_KEY, JSON.stringify(state));
+    SecureStore.setItem(key, JSON.stringify(state));
   } catch {
     // Not remembered, then; the change still shows until the app restarts.
   }
@@ -45,11 +47,13 @@ function saveState(state: SetupState): void {
 // The new-user checklist at the top of the dashboard. It loads its own data each time the
 // dashboard comes into focus, so a step ticks off when the user comes back from adding something.
 // Bank SMS is a step only in an app that can read SMS, and it's done when reading is on.
+// Skip and hide are kept per signed-in user, since family members may share a phone.
 export function SetupChecklist() {
   const { token } = useSession();
+  const key = setupKey(userIdFromToken(token) ?? 0);
   const [server, setServer] = useState<ServerStep[] | null>(null);
   const [smsOn, setSmsOn] = useState<boolean | null>(null);
-  const [state, setState] = useState<SetupState>(readState);
+  const [state, setState] = useState<SetupState>(() => readState(key));
   const latest = useRef(0);
 
   useFocusEffect(
@@ -59,23 +63,38 @@ export function SetupChecklist() {
       Promise.all([apiFetch<SetupResponse>("/setup", { token: token ?? undefined }), sms])
         .then(([data, on]) => {
           if (mine !== latest.current) return;
+          const stored = readState(key);
+          // Remembered so the next app start holds the right space while this loads.
+          const last = shownAs(checklistSteps(data.steps, on, stored.none), stored.mode);
+          const next = stored.last === last ? stored : { ...stored, last };
+          if (next !== stored) saveState(key, next);
           setServer(data.steps);
           setSmsOn(on);
-          setState(readState());
+          setState(next);
         })
         .catch(() => {
           // The dashboard says when it can't load; the checklist just stays as it was.
         });
-    }, [token]),
+    }, [token, key]),
   );
 
   const update = (next: SetupState) => {
-    saveState(next);
+    saveState(key, next);
     setState(next);
   };
   const setMode = (mode: Mode) => update({ ...state, mode });
 
-  if (server === null) return null;
+  if (server === null) {
+    if (loadingShown(state) === "nothing") return null;
+    return (
+      <ChunkyBox radius={14} offset={3} style={[styles.strip, styles.loading]}>
+        <ActivityIndicator size="small" color={BRAND.ink} accessibilityLabel="Loading your setup" />
+        <Text variant="titleSmall" style={styles.ink}>
+          Checking your setup...
+        </Text>
+      </ChunkyBox>
+    );
+  }
   const steps = checklistSteps(server, smsOn, state.none);
   const shown = shownAs(steps, state.mode);
   if (shown === "nothing") return null;
@@ -166,6 +185,7 @@ const styles = StyleSheet.create({
   sub: { color: BRAND.zinc600 },
   progress: { flexDirection: "row", alignItems: "center", gap: 10 },
   bar: { flex: 1 },
+  loading: { flexDirection: "row", alignItems: "center" },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   rowActions: { flexDirection: "row", justifyContent: "flex-end", marginTop: 8 },
 });

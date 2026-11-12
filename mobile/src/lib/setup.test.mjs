@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { checklistSteps, parseSetupState, progressText, shownAs, statusText, withNone } from "./setup.ts";
+import {
+  checklistSteps,
+  loadingShown,
+  parseSetupState,
+  progressText,
+  setupKey,
+  shownAs,
+  statusText,
+  userIdFromToken,
+  withNone,
+} from "./setup.ts";
 
 const server = (done = []) =>
   ["bank", "cards", "loans", "recurring", "investments"].map((key) => ({
@@ -11,7 +21,7 @@ const server = (done = []) =>
   }));
 
 test("a stored state that is missing or junk starts open with nothing skipped", () => {
-  const fresh = { mode: "open", none: [] };
+  const fresh = { mode: "open", none: [], last: "open" };
   assert.deepEqual(parseSetupState(null), fresh);
   assert.deepEqual(parseSetupState("{oops"), fresh);
   assert.deepEqual(parseSetupState("null"), fresh);
@@ -19,9 +29,10 @@ test("a stored state that is missing or junk starts open with nothing skipped", 
 });
 
 test("a stored state keeps its mode and only known skipped steps", () => {
-  assert.deepEqual(parseSetupState('{"mode":"later","none":["sms","nope","cards"]}'), {
+  assert.deepEqual(parseSetupState('{"mode":"later","none":["sms","nope","cards"],"last":"nothing"}'), {
     mode: "later",
     none: ["cards", "sms"],
+    last: "nothing",
   });
 });
 
@@ -87,7 +98,22 @@ test("row text: how many were added, skipped, or why it's worth doing", () => {
 });
 
 test("marking and unmarking a step as not for me", () => {
-  const on = withNone({ mode: "later", none: ["sms"] }, "loans", true);
-  assert.deepEqual(on, { mode: "later", none: ["sms", "loans"] });
+  const on = withNone({ mode: "later", none: ["sms"], last: "later" }, "loans", true);
+  assert.deepEqual(on, { mode: "later", none: ["sms", "loans"], last: "later" });
   assert.deepEqual(withNone(on, "sms", false).none, ["loans"]);
+});
+
+test("each signed-in user has their own stored state, keyed by the id in their token", () => {
+  assert.equal(setupKey(7), "gullak.setup.7");
+  assert.equal(userIdFromToken("42.3.1790000000.c2lnbmF0dXJl"), 42);
+  assert.equal(userIdFromToken(null), null);
+  assert.equal(userIdFromToken("garbage"), null);
+  assert.equal(userIdFromToken("0.1.2.3"), null);
+});
+
+test("while loading, space is held unless the checklist was gone last time or is hidden", () => {
+  assert.equal(loadingShown(parseSetupState(null)), "placeholder");
+  assert.equal(loadingShown({ mode: "later", none: [], last: "later" }), "placeholder");
+  assert.equal(loadingShown({ mode: "open", none: [], last: "nothing" }), "nothing");
+  assert.equal(loadingShown({ mode: "hidden", none: [], last: "open" }), "nothing");
 });

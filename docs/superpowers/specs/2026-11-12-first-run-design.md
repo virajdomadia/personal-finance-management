@@ -26,7 +26,7 @@ The first five come from `GET /api/setup`. The last is phone state, so the app d
 `GET /api/setup` returns
 
 ```json
-{"steps": [{"key": "bank", "done": true, "count": 1}, {"key": "cards", "done": false, "count": 0}, ...]}
+{"user_id": 7, "steps": [{"key": "bank", "done": true, "count": 1}, {"key": "cards", "done": false, "count": 0}, ...]}
 ```
 
 in the order above. `count` is how many of that thing the user has (accounts, reminders plus SIPs, holdings plus deposits), so a client can say "2 added". Every query is scoped to the user. No money crosses this endpoint, and nothing is written.
@@ -63,7 +63,8 @@ Investment screens are being reworked by the "Add investment" work in parallel, 
 
 ## Design calls made by Claude
 
-- **Skipping and hiding are stored on the device, not in the database.** Web uses `localStorage` (key `gullak.setup`), the app uses `expo-secure-store` (same key), which it already uses for small preferences. No migration. A user on a second device sees the checklist again there; that's acceptable for a one-time helper.
+- **Skipping and hiding are stored on the device, not in the database**, per signed-in user, because family members may share a phone or browser: key `gullak.setup.<userId>`. Web uses `localStorage` and takes the id from the `user_id` that `/api/setup` now returns; the app uses `expo-secure-store` and takes the id from its token (`userId.sessionVersion.expiry.signature`). No migration. A user on a second device sees the checklist again there; that's acceptable for a one-time helper.
+- **While `/api/setup` loads**, the website shows the dashboard's own "Nothing here yet" box (the fallback), so a new user never sees a blank gap. The app holds the space with a small "Checking your setup..." strip, unless the checklist was gone last time or is hidden (it remembers what it last showed, per user).
 - **"Not for me" is also stored on the device**, for the same reason.
 - **Any bank account counts as "main bank account"**, not only one marked Salary, because many people get paid into a savings account. The add form starts on kind Salary as a hint.
 - **The SIP step also counts recurring reminders** and vice versa (one step: "Salary, rent and SIPs"), so a user who only has a salary reminder isn't nagged about SIPs.

@@ -5,12 +5,14 @@
 export type ServerKey = "bank" | "cards" | "loans" | "recurring" | "investments";
 export type StepKey = ServerKey | "sms";
 export type ServerStep = { key: ServerKey; done: boolean; count: number };
-export type SetupResponse = { steps: ServerStep[] };
+export type SetupResponse = { user_id: number; steps: ServerStep[] };
 
 // open: the full card. later: a one-line strip with Resume. hidden: gone.
 export type Mode = "open" | "later" | "hidden";
-// `none`: the steps the user said "Not for me" to.
-export type SetupState = { mode: Mode; none: StepKey[] };
+export type Shown = "open" | "later" | "nothing";
+// `none`: the steps the user said "Not for me" to. `last`: what the dashboard showed last time,
+// so the next app start can hold the right space (or none) while the checklist loads.
+export type SetupState = { mode: Mode; none: StepKey[]; last: Shown };
 
 export type StepStatus = "done" | "none" | "todo";
 export type Target = { pathname: string; params?: Record<string, string> };
@@ -25,7 +27,16 @@ export type ChecklistStep = {
   canSkip: boolean;
 };
 
-export const SETUP_KEY = "gullak.setup";
+// Kept per signed-in user, because family members may share a phone.
+export function setupKey(userId: number): string {
+  return `gullak.setup.${userId}`;
+}
+
+// The user id from the API's token ("userId.sessionVersion.expiry.signature"), or null.
+export function userIdFromToken(token: string | null): number | null {
+  const first = token?.split(".")[0] ?? "";
+  return /^[1-9]\d{0,14}$/.test(first) ? Number(first) : null;
+}
 
 const KEYS: StepKey[] = ["bank", "cards", "loans", "recurring", "investments", "sms"];
 
@@ -68,7 +79,7 @@ const STEPS: Record<StepKey, { title: string; hint: string; emoji: string; targe
   },
 };
 
-const BLANK: SetupState = { mode: "open", none: [] };
+const BLANK: SetupState = { mode: "open", none: [], last: "open" };
 
 // What was stored on this phone, or a fresh start if it's missing or unreadable.
 export function parseSetupState(raw: string | null): SetupState {
@@ -76,10 +87,11 @@ export function parseSetupState(raw: string | null): SetupState {
   try {
     const value: unknown = JSON.parse(raw);
     if (typeof value !== "object" || value === null) return BLANK;
-    const { mode, none } = value as { mode?: unknown; none?: unknown };
+    const { mode, none, last } = value as { mode?: unknown; none?: unknown; last?: unknown };
     return {
       mode: mode === "later" || mode === "hidden" ? mode : "open",
       none: Array.isArray(none) ? KEYS.filter((key) => none.includes(key)) : [],
+      last: last === "later" || last === "nothing" ? last : "open",
     };
   } catch {
     return BLANK;
@@ -120,7 +132,7 @@ export function progressText(steps: { status: StepStatus }[]): string {
 }
 
 // What the dashboard shows: nothing once every step is done or skipped, or once hidden.
-export function shownAs(steps: { status: StepStatus }[], mode: Mode): "open" | "later" | "nothing" {
+export function shownAs(steps: { status: StepStatus }[], mode: Mode): Shown {
   const { finished, total } = progressOf(steps);
   if (total === 0 || finished === total || mode === "hidden") return "nothing";
   return mode;
@@ -136,4 +148,9 @@ export function statusText(step: ChecklistStep): string {
 export function withNone(state: SetupState, key: StepKey, on: boolean): SetupState {
   const rest = state.none.filter((k) => k !== key);
   return { ...state, none: on ? [...rest, key] : rest };
+}
+
+// While loading: nothing if the checklist was gone last time (or is hidden), else a placeholder.
+export function loadingShown(state: SetupState): "placeholder" | "nothing" {
+  return state.mode === "hidden" || state.last === "nothing" ? "nothing" : "placeholder";
 }
