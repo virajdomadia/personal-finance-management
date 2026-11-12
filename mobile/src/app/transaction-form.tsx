@@ -23,11 +23,11 @@ import { ChunkyBox, ChunkyButton, Chip, HeaderAction, ScreenHeader } from "@/com
 import { DateField } from "@/components/date-field";
 import { Banner } from "@/components/form-parts";
 import { TransactionTypePicker } from "@/components/transaction-type-picker";
-import { categoryEmoji } from "@/lib/fun";
+import { CategoryChips } from "@/components/category-chips";
+import { CATEGORIES_PATH, EMPTY_TREE, type CategoryTree, pickerGroups, restrictGroups, sameName } from "@/lib/categories";
 import { BRAND, FONT } from "@/lib/theme";
 import { useSession } from "@/lib/session";
 import {
-  type CategoryList,
   TRANSACTION_TYPES,
   type Transaction,
   type FieldKey,
@@ -62,7 +62,7 @@ const FROM_LABELS: Record<TransactionType, string> = {
 
 type Loaded = {
   accounts: Account[];
-  categories: CategoryList;
+  categories: CategoryTree;
   transaction: Transaction | null;
   template: Template | null;
 };
@@ -97,9 +97,9 @@ export default function TransactionFormScreen() {
     Promise.all([
       apiFetch<AccountList>("/accounts", auth),
       // Only suggestions: if this fails the user can still type a category.
-      apiFetch<CategoryList>("/transactions/categories", auth).catch((err: unknown) => {
+      apiFetch<CategoryTree>(CATEGORIES_PATH, auth).catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 401) throw err;
-        return { income: [], expense: [] };
+        return EMPTY_TREE;
       }),
       editing ? apiFetch<Transaction>(`/transactions/${id}`, auth) : Promise.resolve(null),
       !editing && templateId !== undefined
@@ -498,12 +498,17 @@ function FormBody({
   const today = todayIndia();
   const yesterday = previousDay(today);
   const typeLabel = TRANSACTION_TYPES.find((t) => t.value === type)?.label;
-  const suggestions = type === "transfer" || type === "emi" ? [] : categories[type];
+  // Live categories, with subcategories under their parent; archived ones are left out.
+  const kindCategories = type === "transfer" || type === "emi" ? [] : categories[type];
+  const groups = pickerGroups(kindCategories);
+  const suggestions = kindCategories.filter((c) => !c.archived).map((c) => c.name);
   const loans = accounts.filter((a) => a.type === "loan");
   const types = TRANSACTION_TYPES.filter((t) => t.value !== "emi" || loans.length > 0);
   // Expenses and EMIs can't be paid from a PPF or RD, and a deposit only moves money with a bank.
   const payers = fromOptions(type, accounts, form);
-    const categoryChoices = type === "income" ? incomeCategories(accounts, form, suggestions) : suggestions;
+  // Income into a PPF or RD can only be interest, so only that is offered.
+  const allowed = type === "income" ? incomeCategories(accounts, form, suggestions) : suggestions;
+  const categoryGroups = allowed === suggestions ? groups : restrictGroups(groups, allowed);
   const interestOnly = type === "income" && isDeposit(accounts.find((a) => String(a.id) === form.account_id));
   const principal = subtractMoney(cleanMoney(form.amount), cleanMoney(form.interest));
 
@@ -615,11 +620,12 @@ function FormBody({
                 "category",
                 <>
                   {interestOnly ? heading("Category") : input("category", "Category", { maxLength: 40 })}
-                  <View style={styles.chips}>
-                    {categoryChoices.map((name) =>
-                      choice(name, form.category.trim().toLowerCase() === name.toLowerCase(), () => set("category", name), name, categoryEmoji(name)),
-                    )}
-                  </View>
+                  <CategoryChips
+                    groups={categoryGroups}
+                    selected={(name) => sameName(form.category, name)}
+                    onPick={(name) => set("category", name)}
+                    disabled={busy}
+                  />
                 </>,
               )}
 

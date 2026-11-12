@@ -5,10 +5,12 @@ import { Switch, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ChunkyBox, ChunkyButton, ScreenHeader } from "@/components/chunky";
+import { CategoryChips } from "@/components/category-chips";
 import { DateField } from "@/components/date-field";
 import { Banner, Choice, Heading, LoadingScreen, useBlockBack, useFieldScroll } from "@/components/form-parts";
 import { type Account, type AccountList, errorMessage, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { CATEGORIES_PATH, EMPTY_TREE, type CategoryTree, pickerGroups, sameName } from "@/lib/categories";
 import {
   type Frequency,
   type Template,
@@ -22,7 +24,7 @@ import {
 } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
 import { BRAND } from "@/lib/theme";
-import { type CategoryList, isDeposit, todayIndia } from "@/lib/transactions";
+import { isDeposit, todayIndia } from "@/lib/transactions";
 
 const MONEY_MAX_LENGTH = 24;
 const TYPES: { value: TemplateType; label: string }[] = [
@@ -39,7 +41,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const POLICY_FIELDS = new Set(["name", "note", "remind_days"]);
 
 type Key = keyof TemplateForm;
-type Loaded = { accounts: Account[]; categories: CategoryList; template: Template | null };
+type Loaded = { accounts: Account[]; categories: CategoryTree; template: Template | null };
 
 export default function TemplateFormScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -55,9 +57,9 @@ export default function TemplateFormScreen() {
     Promise.all([
       apiFetch<AccountList>("/accounts", auth),
       // Only suggestions: if this fails the user can still type a category.
-      apiFetch<CategoryList>("/transactions/categories", auth).catch((err: unknown) => {
+      apiFetch<CategoryTree>(CATEGORIES_PATH, auth).catch((err: unknown) => {
         if (err instanceof ApiError && err.status === 401) throw err;
-        return { income: [], expense: [] };
+        return EMPTY_TREE;
       }),
       editing ? apiFetch<{ templates: Template[] }>("/recurring", auth) : Promise.resolve(null),
     ])
@@ -246,7 +248,8 @@ function FormBody({ accounts, categories, template }: Loaded) {
   );
   const toAccounts = accounts.filter((a) => String(a.id) === form.to_account_id || String(a.id) !== form.account_id);
   const fromLabel = form.type === "income" ? "Received in" : form.type === "transfer" ? "From account" : "Paid from";
-  const suggestions = form.type === "transfer" ? [] : categories[form.type];
+  // Live categories, with subcategories under their parent; archived ones are left out.
+  const categoryGroups = form.type === "transfer" ? [] : pickerGroups(categories[form.type]);
   const today = todayIndia();
 
   return (
@@ -324,17 +327,12 @@ function FormBody({ accounts, categories, template }: Loaded) {
                 "category",
                 <>
                   {input("category", "Category", { maxLength: 40 })}
-                  <View style={styles.chips}>
-                    {suggestions.map((name) => (
-                      <Choice
-                        key={name}
-                        label={name}
-                        selected={form.category.trim().toLowerCase() === name.toLowerCase()}
-                        disabled={locked("category")}
-                        onPress={() => set("category", name)}
-                      />
-                    ))}
-                  </View>
+                  <CategoryChips
+                    groups={categoryGroups}
+                    selected={(name) => sameName(form.category, name)}
+                    onPick={(name) => set("category", name)}
+                    disabled={locked("category")}
+                  />
                 </>,
                 errors.category,
               )}
