@@ -60,6 +60,7 @@ function Screens() {
             <Stack.Screen name="review" />
             <Stack.Screen name="review-item" />
             <Stack.Screen name="payee-rules" />
+            <Stack.Screen name="net-worth" />
           </Stack.Protected>
           <Stack.Protected guard={!loggedIn}>
             <Stack.Screen name="login" />
