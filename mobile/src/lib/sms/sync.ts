@@ -51,7 +51,9 @@ export type SyncDeps = {
   hash: (text: string) => Promise<string>;
   settings: SmsSettings;
   now: Date;
-  save: (patch: Partial<SmsSettings>) => Promise<void>;
+  // Applies a change to the stored settings as one read-modify-write against what is stored now,
+  // so a settings screen saving at the same time isn't overwritten. null means no change.
+  save: (update: (current: SmsSettings) => Partial<SmsSettings> | null) => Promise<void>;
   parse?: typeof parseSms;
   pageSize?: number;
 };
@@ -139,8 +141,6 @@ export async function syncSms({
   const today = istDay(now);
   let cursor = Math.max(settings.lastReadAt, startMillis(settings.startDate, now) - 1);
   let mark = settings.lastReadAt;
-  let stored = settings.unreadable;
-  let storedBanks = settings.banks;
   const seen = new Set<string>();
   const banks = new Set<string>();
   let sent = 0;
@@ -149,16 +149,20 @@ export async function syncSms({
   const keep = async (messages: RawSms[]) => {
     if (messages.length === 0) return;
     unreadableCount += messages.length;
-    const ids = new Set<string>();
-    stored = [...[...messages].reverse(), ...stored]
-      .filter((m) => (ids.has(m.id) ? false : (ids.add(m.id), true)))
-      .slice(0, MAX_UNREADABLE);
-    await save({ unreadable: stored });
+    await save((current) => {
+      const ids = new Set<string>();
+      const unreadable = [...[...messages].reverse(), ...current.unreadable]
+        .filter((m) => (ids.has(m.id) ? false : (ids.add(m.id), true)))
+        .slice(0, MAX_UNREADABLE);
+      return { unreadable };
+    });
   };
+  // The mark is written only while the start date is the one this sync began with: moving it
+  // earlier resets the mark, and a sync already running must not undo that.
   const advance = async (to: number) => {
     if (to <= mark) return;
     mark = to;
-    await save({ lastReadAt: mark });
+    await save((current) => (current.startDate === settings.startDate ? { lastReadAt: to } : null));
   };
   // Posts one message's lines, at most a batch per request.
   const postLines = async (entries: SmsEntry[]) => {
@@ -217,11 +221,10 @@ export async function syncSms({
       units.push({ message, entries, safe });
     }
 
-    const allBanks = [...new Set([...storedBanks, ...banks])].sort();
-    if (allBanks.length !== storedBanks.length) {
-      storedBanks = allBanks;
-      await save({ banks: allBanks });
-    }
+    await save((current) => {
+      const all = [...new Set([...current.banks, ...banks])].sort();
+      return all.length === current.banks.length ? null : { banks: all };
+    });
     await keep(unreadable);
 
     // Whole messages per request, up to a batch of lines; a message with more lines goes alone.
@@ -245,19 +248,46 @@ export async function syncSms({
         sent += entries.length;
       } catch (error) {
         if (!isRefused(error)) throw error;
-        // The server refused something in this batch: send each message on its own, and keep
-        // the ones it still refuses on the phone so they don't block everything after them.
+        // The server refused something in this batch: send each message on its own. A refusal
+        // among accepted messages is that message's own problem; it is kept on the phone so it
+        // doesn't block everything after it. When nothing is accepted, or three in a row are
+        // refused, the server is refusing everything (say, a contract change the phone hasn't
+        // caught up with): stop without moving past them, and try again next time.
+        let accepted = 0;
+        let refusedInARow = 0;
+        let lastRefusal: unknown = error;
+        let held: { unit: Unit; refused: boolean }[] = [];
+        const settle = async () => {
+          await keep(held.filter((h) => h.refused).map((h) => ({ ...h.unit.message })));
+          if (held.length > 0) await advance(held[held.length - 1].unit.safe);
+          held = [];
+        };
         for (const unit of batch) {
           if (unit.entries.length > 0) {
             try {
               await postLines(unit.entries);
-              sent += unit.entries.length;
             } catch (single) {
               if (!isRefused(single)) throw single;
-              await keep([{ ...unit.message }]);
+              lastRefusal = single;
+              refusedInARow += 1;
+              if (refusedInARow >= 3) throw single;
+              held.push({ unit, refused: true });
+              continue;
             }
+            sent += unit.entries.length;
+            accepted += 1;
+            refusedInARow = 0;
+            await settle();
+            await advance(unit.safe);
+          } else if (held.length > 0) {
+            held.push({ unit, refused: false });
+          } else {
+            await advance(unit.safe);
           }
-          await advance(unit.safe);
+        }
+        if (held.length > 0) {
+          if (accepted === 0) throw lastRefusal;
+          await settle();
         }
       }
       await advance(batch[batch.length - 1].safe);

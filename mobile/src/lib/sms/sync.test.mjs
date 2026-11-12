@@ -40,8 +40,10 @@ function recorder({ failOn, refuse } = {}) {
 
 function saver(initial) {
   const state = { current: initial };
-  const save = async (patch) => {
-    state.current = { ...state.current, ...patch };
+  // Like updateSmsSettings: the update sees what is stored now.
+  const save = async (update) => {
+    const patch = update(state.current);
+    if (patch !== null) state.current = mergeSmsSettings(state.current, patch);
   };
   return { save, state };
 }
@@ -268,6 +270,61 @@ test("test_refused_batch_is_split_and_the_refused_message_kept_on_phone", async 
   const again = recorder();
   await syncSms({ read, post: again.post, hash: sha256, settings: state.current, now: NOW, save });
   assert.equal(again.batches.length, 0);
+});
+
+test("test_every_message_refused_is_systemic_and_keeps_the_mark", async () => {
+  const messages = Array.from({ length: 5 }, (_, i) => boiMessage(i, NOW.getTime() - 10_000 + i * 1000));
+  const { read } = inbox(messages);
+  const { post } = recorder({ refuse: () => true });
+  const start = settings({ startDate: "2026-11-12" });
+  const { save, state } = saver(start);
+
+  await assert.rejects(syncSms({ read, post, hash: sha256, settings: start, now: NOW, save }), /422/);
+
+  assert.equal(state.current.lastReadAt, 0, "nothing moved past");
+  assert.deepEqual(state.current.unreadable, [], "nothing dumped into the phone list");
+});
+
+test("test_a_single_refused_message_alone_is_systemic", async () => {
+  const messages = [boiMessage(0, NOW.getTime() - 1000)];
+  const { read } = inbox(messages);
+  const { post } = recorder({ refuse: () => true });
+  const { save, state } = saver(settings());
+
+  await assert.rejects(syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save }), /422/);
+  assert.equal(state.current.lastReadAt, 0);
+  assert.deepEqual(state.current.unreadable, []);
+});
+
+test("test_three_refused_in_a_row_is_systemic_after_earlier_successes", async () => {
+  const messages = Array.from({ length: 6 }, (_, i) => boiMessage(i, NOW.getTime() - 10_000 + i * 1000));
+  const { read } = inbox(messages);
+  // Messages 0 and 1 go through; from 2 on the server refuses everything.
+  const { post } = recorder({ refuse: (e) => Number(e.amount) >= 1002 });
+  const { save, state } = saver(settings());
+
+  await assert.rejects(syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save }), /422/);
+
+  assert.equal(state.current.lastReadAt, messages[1].date);
+  assert.deepEqual(state.current.unreadable, []);
+});
+
+test("test_start_date_reset_during_a_sync_is_not_undone", async () => {
+  const messages = Array.from({ length: 3 }, (_, i) => boiMessage(i, NOW.getTime() - 10_000 + i * 1000));
+  const { read } = inbox(messages);
+  const start = settings({ startDate: "2026-11-10", lastReadAt: 5 });
+  const { save, state } = saver(start);
+  let resetDone = false;
+  const post = async () => {
+    // The owner moves the start date earlier while the upload is in flight.
+    if (!resetDone) await save(() => ({ startDate: "2026-11-01" }));
+    resetDone = true;
+  };
+
+  await syncSms({ read, post, hash: sha256, settings: start, now: NOW, save });
+
+  assert.equal(state.current.startDate, "2026-11-01");
+  assert.equal(state.current.lastReadAt, 0, "the reset stands");
 });
 
 test("test_network_failure_while_splitting_still_stops", async () => {

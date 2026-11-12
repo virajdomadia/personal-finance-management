@@ -6,7 +6,7 @@ import { apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { isAvailable, readInbox } from "../../../modules/sms-inbox";
 
-import { loadSmsSettings, saveSmsSettings } from "./settings";
+import { loadSmsSettings, updateSmsSettings } from "./settings";
 import { type SmsEntry, type SyncResult, syncSms } from "./sync";
 
 const MIN_GAP_MS = 30_000;
@@ -32,8 +32,8 @@ function runSync(token: string): Promise<SyncResult | null> {
         hash: (text) => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text),
         settings,
         now: new Date(),
-        save: async (patch) => {
-          await saveSmsSettings(patch);
+        save: async (update) => {
+          await updateSmsSettings(update);
         },
       });
     } finally {

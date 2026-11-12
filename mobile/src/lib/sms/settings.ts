@@ -52,13 +52,20 @@ export async function loadSmsSettings(): Promise<SmsSettings> {
 // other's changes with a stale copy.
 let queue: Promise<unknown> = Promise.resolve();
 
-export function saveSmsSettings(patch: Partial<SmsSettings>): Promise<SmsSettings> {
+export function updateSmsSettings(update: (current: SmsSettings) => Partial<SmsSettings> | null): Promise<SmsSettings> {
   const run = queue.then(async () => {
+    const current = await loadSmsSettings();
+    const patch = update(current);
+    if (patch === null) return current;
     // Moving the start date earlier resets lastReadAt, so the earlier days are read.
-    const next = mergeSmsSettings(await loadSmsSettings(), patch);
+    const next = mergeSmsSettings(current, patch);
     await SecureStore.setItemAsync(KEY, JSON.stringify(next));
     return next;
   });
   queue = run.catch(() => undefined);
   return run;
+}
+
+export function saveSmsSettings(patch: Partial<SmsSettings>): Promise<SmsSettings> {
+  return updateSmsSettings(() => patch);
 }
