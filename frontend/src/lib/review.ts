@@ -24,9 +24,27 @@ export type ReviewItem = {
   quantity: string | null;
   candidates: Candidate[] | null;
   suggested_price: string | null;
+  // The category the payee's rule ("rule") or history ("history": history_count of the latest
+  // history_total) suggests, the account an unknown-account message's payee used, and whether the
+  // item can be approved with the others. `why` is the short reason either way.
+  suggested_category: string | null;
+  suggestion_source: "rule" | "history" | null;
+  history_count: number;
+  history_total: number;
+  suggested_account_id: number | null;
+  confident: boolean;
+  why: string;
 };
 
-export type ReviewList = { items: ReviewItem[] };
+// Mirrors ConfidentSummary: the server's totals for every confident item.
+export type CategoryTotal = { category: string; type: "income" | "expense"; count: number; amount: string };
+export type ConfidentSummary = { count: number; spent: string; received: string; categories: CategoryTotal[] };
+
+export type ReviewList = { items: ReviewItem[]; confident: ConfidentSummary };
+
+// Mirrors ApproveResult from POST /sms/review/approve.
+export type Learnable = { entry_id: number; payee: string; category: string };
+export type ApproveResult = { approved: number; skipped: { id: number; reason: string }[]; learn: Learnable[] };
 
 // The answers POST /sms/review/{id} takes.
 export type Action =
@@ -190,6 +208,47 @@ export function ruleText(rule: PayeeRule): string {
   if (rule.to_account_id !== null) parts.push(`Transfer to ${rule.to_account_name ?? "an account"}`);
   if (rule.template_id !== null) parts.push(`Ticks off ${rule.template_name ?? "a reminder"}`);
   return parts.join(" · ");
+}
+
+// The body for POST /sms/review/approve: each confident item with the category the owner was shown,
+// so the server skips any whose suggestion changed since.
+export function approveBody(items: ReviewItem[]) {
+  return {
+    items: items
+      .filter((i) => i.confident && i.suggested_category !== null)
+      .map((i) => ({ id: i.id, category: i.suggested_category as string })),
+  };
+}
+
+export function approveButtonText(count: number): string {
+  return `Approve ${count} confident`;
+}
+
+const isZero = (money: string) => /^0+(\.0+)?$/.test(money);
+
+// "₹1,240 spent · ₹5,000 received", leaving out a side with nothing on it.
+export function confidentTotalsText(summary: ConfidentSummary): string {
+  const parts: string[] = [];
+  if (!isZero(summary.spent)) parts.push(`${whole(summary.spent)} spent`);
+  if (!isZero(summary.received)) parts.push(`${whole(summary.received)} received`);
+  return parts.join(" · ");
+}
+
+// "Groceries · 3 · ₹1,240", one line per category in the confirmation.
+export function categoryTotalText(total: CategoryTotal): string {
+  return `${total.category} · ${total.count} · ${whole(total.amount)}`;
+}
+
+export function approveResultText(result: ApproveResult): string {
+  const done = `Approved ${result.approved} ${result.approved === 1 ? "message" : "messages"}.`;
+  const skipped = result.skipped.length;
+  return skipped === 0 ? done : `${done} ${skipped} left to check.`;
+}
+
+// The "Always use" box names the category it will remember once one is picked.
+export function rememberLabel(payee: string, category: string): string {
+  const picked = category.trim();
+  return picked ? `Always use ${picked} for ${payee}` : `Always use this for ${payee}`;
 }
 
 // Fired on window when an answer changes what's waiting, so the sidebar's count can reload.

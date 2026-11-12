@@ -4,6 +4,12 @@ import { test } from "node:test";
 import {
   accountChoices,
   actionsFor,
+  approveBody,
+  approveButtonText,
+  approveResultText,
+  categoryTotalText,
+  confidentTotalsText,
+  rememberLabel,
   expectedBody,
   needsNav,
   cardBillText,
@@ -33,6 +39,13 @@ const item = (o = {}) => ({
   quantity: null,
   candidates: null,
   suggested_price: null,
+  suggested_category: null,
+  suggestion_source: null,
+  history_count: 0,
+  history_total: 0,
+  suggested_account_id: null,
+  confident: false,
+  why: "First time for this payee",
   ...o,
 });
 
@@ -209,4 +222,38 @@ test("needsNav and expectedBody send a NAV only for a SIP that needs one", () =>
   assert.deepEqual(expectedBody(asked, rent, true, "50.1"), { action: "expected", kind: "template", id: 4, remember: true });
   const known = { kind: "sip", id: 3, label: "Flexi Cap SIP" };
   assert.deepEqual(expectedBody(asked, known, true, "50.1"), { action: "expected", kind: "sip", id: 3, remember: false });
+});
+
+test("approveBody sends each confident item with the category it was shown", () => {
+  const sure = item({ id: 4, confident: true, suggested_category: "Groceries" });
+  const unsure = item({ id: 5, suggested_category: "Gift" });
+  const ruleOnly = item({ id: 6, confident: true, suggested_category: "Gift", suggestion_source: "rule" });
+  assert.deepEqual(approveBody([sure, unsure, ruleOnly]), {
+    items: [
+      { id: 4, category: "Groceries" },
+      { id: 6, category: "Gift" },
+    ],
+  });
+  assert.equal(approveButtonText(3), "Approve 3 confident");
+});
+
+test("confidentTotalsText leaves out a side with nothing on it", () => {
+  const summary = (spent, received) => ({ count: 2, spent, received, categories: [] });
+  assert.equal(confidentTotalsText(summary("1240.00", "0.00")), "₹1,240 spent");
+  assert.equal(confidentTotalsText(summary("120.75", "5000.00")), "₹120.75 spent · ₹5,000 received");
+  assert.equal(confidentTotalsText(summary("0.00", "5000.00")), "₹5,000 received");
+  assert.equal(categoryTotalText({ category: "Groceries", type: "expense", count: 3, amount: "1240.00" }), "Groceries · 3 · ₹1,240");
+});
+
+test("approveResultText says what was approved and what is left", () => {
+  assert.equal(approveResultText({ approved: 1, skipped: [], learn: [] }), "Approved 1 message.");
+  assert.equal(
+    approveResultText({ approved: 4, skipped: [{ id: 2, reason: "Its suggestion changed" }], learn: [] }),
+    "Approved 4 messages. 1 left to check.",
+  );
+});
+
+test("rememberLabel names the category once one is picked", () => {
+  assert.equal(rememberLabel("Ramesh", " Groceries "), "Always use Groceries for Ramesh");
+  assert.equal(rememberLabel("Ramesh", "  "), "Always use this for Ramesh");
 });

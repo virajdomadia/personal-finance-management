@@ -15,6 +15,7 @@ import {
   expectedBody,
   marketPrefill,
   needsNav,
+  rememberLabel,
   reviewTitle,
 } from "@/lib/review";
 import { type CategoryList, formatDate } from "@/lib/transactions";
@@ -72,9 +73,12 @@ export function ReviewCard({ item, accounts, categories, onAnswered, onStale }: 
   const busyRef = useRef(false);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [category, setCategory] = useState("");
+  // A draft arrives with its payee's usual category (or account) already picked.
+  const [category, setCategory] = useState(item.suggested_category ?? "");
   const [remember, setRemember] = useState(true);
-  const [accountId, setAccountId] = useState("");
+  const [accountId, setAccountId] = useState(
+    item.suggested_account_id !== null ? String(item.suggested_account_id) : "",
+  );
   const [units, setUnits] = useState("");
   const [nav, setNav] = useState("");
   const [stock, setStock] = useState(firstChoice);
@@ -184,7 +188,7 @@ export function ReviewCard({ item, accounts, categories, onAnswered, onStale }: 
             onChange={(e) => setRemember(e.target.checked)}
             className={`size-4 accent-ink ${FOCUS}`}
           />
-          Always use this for {item.payee}
+          {rememberLabel(item.payee, category)}
         </label>
       )}
     </>
@@ -273,6 +277,19 @@ export function ReviewCard({ item, accounts, categories, onAnswered, onStale }: 
           </p>
           {accountLine && <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">{accountLine}</p>}
           {item.message && <p className="mt-1 text-sm font-bold [overflow-wrap:anywhere]">{item.message}</p>}
+          {item.why && (
+            <p
+              className={`mt-2 inline-flex max-w-full items-center gap-1 rounded-full border-[2px] px-2.5 py-0.5 text-xs font-extrabold [overflow-wrap:anywhere] ${
+                item.confident ? "border-ink bg-green/25 text-ink" : "border-zinc-400 bg-zinc-100 text-zinc-700"
+              }`}
+            >
+              <span aria-hidden="true">{item.confident ? "✓" : "?"}</span>
+              <span>
+                <span className="sr-only">{item.confident ? "Confident: " : "Needs a look: "}</span>
+                {item.why}
+              </span>
+            </p>
+          )}
         </div>
 
         {has("same") && (
