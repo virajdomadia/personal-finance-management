@@ -5,6 +5,7 @@ import { FAB, Icon, Text, useTheme } from "react-native-paper";
 
 import { ChunkyBox, ChunkyButton, Chip, Row, ScreenHeader, Segmented } from "@/components/chunky";
 import { GoalTagLine } from "@/components/goal-tag";
+import { CoinGeckoCredit } from "@/components/coingecko-credit";
 import { LinkPrompt } from "@/components/link-prompt";
 import { GainPill, TileLine, WorthTile } from "@/components/investment-parts";
 import { Signed, signedLabel } from "@/components/signed";
@@ -281,7 +282,8 @@ export default function InvestmentsScreen() {
           </View>
         }
         ListFooterComponent={
-          crypto.closed.length > 0 ? (
+          <>
+          {crypto.closed.length > 0 ? (
             <ClosedSection
               title={`Sold (${crypto.closed.length})`}
               expanded={coinsSoldOpen}
@@ -299,7 +301,9 @@ export default function InvestmentsScreen() {
                 />
               ))}
             </ClosedSection>
-          ) : undefined
+          ) : null}
+          {empty ? null : <CoinGeckoCredit />}
+          </>
         }
         renderItem={({ item }) => (
           <CoinRow row={item} goal={coinGoals.get(item.coin_id)} onPress={() => openCoin(item)} />

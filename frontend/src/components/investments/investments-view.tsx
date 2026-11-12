@@ -61,6 +61,7 @@ import {
   Signed,
   TradeRow,
   TradesTable,
+  CoinGeckoCredit,
   archivedIds,
   goalsByInstrument,
   isUnauthorized,
@@ -1001,6 +1002,7 @@ function Crypto({
               </ul>
             </details>
           )}
+          <CoinGeckoCredit />
         </>
       )}
     </section>

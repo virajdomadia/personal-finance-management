@@ -46,6 +46,7 @@ import {
   archivedIds,
   isUnauthorized,
   GoalTagLink,
+  CoinGeckoCredit,
 } from "./shared";
 
 type Data = {
@@ -481,6 +482,9 @@ function PriceHistory({ prices, onDelete }: { prices: CoinPrice[]; onDelete: (pr
           ))}
         </ul>
       )}
+      <div className="mt-2">
+        <CoinGeckoCredit />
+      </div>
     </section>
   );
 }

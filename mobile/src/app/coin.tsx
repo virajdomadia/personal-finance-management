@@ -25,6 +25,7 @@ import { linkLabel } from "@/lib/investments";
 import { useSession } from "@/lib/session";
 import { BRAND } from "@/lib/theme";
 import { formatDate } from "@/lib/transactions";
+import { CoinGeckoCredit } from "@/components/coingecko-credit";
 
 type Data = {
   coin: Coin;
@@ -352,6 +353,7 @@ export default function CoinScreen() {
             />
           ))
         )}
+        <CoinGeckoCredit />
       </ScrollView>
 
       <Portal>
