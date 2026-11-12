@@ -7,7 +7,7 @@ clears anything already stored. Manual prices are never overwritten or deleted.
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -27,6 +27,7 @@ from app.prices.parse import (
 
 log = logging.getLogger("app.prices")
 
+BHAVCOPY_LOOKBACK_DAYS = 3  # weekdays tried before today's
 KINDS = ("mutual_fund", "stock", "crypto")
 NAME_MAX = 160  # MarketCode.name
 CODE_MAX = 40  # MarketCode.code
@@ -99,7 +100,10 @@ def _linked_codes(db: Session, kind: str) -> list[str]:
 
 
 def _refresh_funds(db: Session, fetcher: Fetcher) -> int:
-    return _upsert_quotes(db, "mutual_fund", parse_navall(fetcher.navall()))
+    quotes = parse_navall(fetcher.navall())
+    if not quotes:
+        raise SourceError("AMFI file format not recognised")
+    return _upsert_quotes(db, "mutual_fund", quotes)
 
 
 def _yahoo_closes(db: Session, fetcher: Fetcher) -> dict[str, tuple[Decimal, date]]:
@@ -118,16 +122,32 @@ def _yahoo_closes(db: Session, fetcher: Fetcher) -> dict[str, tuple[Decimal, dat
     return closes
 
 
+def _latest_bhavcopy(fetcher: Fetcher, today: date) -> str | None:
+    """Today's file, or the last one NSE published: it posts the day's file after the close."""
+    day, tried = today, 0
+    while tried <= BHAVCOPY_LOOKBACK_DAYS:
+        if day.weekday() < 5:
+            tried += 1
+            try:
+                text = fetcher.bhavcopy(day)
+            except SourceError:
+                text = None  # NSE answers 403 on some holidays; treat it like "no file"
+            if text is not None:
+                return text
+        day -= timedelta(days=1)
+    return None
+
+
 def _refresh_stocks(db: Session, fetcher: Fetcher, today: date) -> int:
     errors: list[str] = []
     try:
-        _upsert_quotes(db, "stock", parse_equity_list(fetcher.equity_list()))
+        listed = parse_equity_list(fetcher.equity_list())
+        if not listed:
+            raise SourceError("NSE equity list format not recognised")
+        _upsert_quotes(db, "stock", listed)
     except SourceError as exc:
         errors.append(str(exc))
-    try:
-        text = fetcher.bhavcopy(today)
-    except SourceError:
-        text = None  # NSE answers 403 on some holidays; treat it like "no file today"
+    text = _latest_bhavcopy(fetcher, today)
     try:
         closes = parse_bhavcopy(text) if text is not None else {}
         if not closes:  # no file, or one we can no longer read: fall back to linked stocks

@@ -130,3 +130,27 @@ def test_navall_bad_date_or_non_positive_nav_gives_no_price() -> None:
     )
     assert len(quotes) == 3
     assert all(q.price is None and q.price_date is None for q in quotes)
+
+
+def test_navall_v2_reads_columns_by_header_and_survives_resent_header() -> None:
+    quotes = parse_navall(text("navall_v2.txt"))
+    assert [q.code for q in quotes] == ["135762", "135765", "135759", "135763", "135761"]
+    assert quotes[0] == Quote(
+        kind="mutual_fund",
+        code="135762",
+        name="Axis Children's Fund - Direct Plan - Growth Option",
+        isin="INF846K01WO1",
+        price=Decimal("31.0915"),
+        price_date=date(2026, 11, 11),
+    )
+    assert quotes[1].isin == "INF846K01WP8"
+
+
+def test_navall_data_line_with_wrong_field_count_is_skipped() -> None:
+    header = "Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Plan;"
+    header += "Option;Net Asset Value;Date"
+    assert parse_navall(f"{header}\n1;INF000000001;-;Fund;10.5;11-Nov-2026\n") == []
+
+
+def test_navall_unknown_header_yields_nothing() -> None:
+    assert parse_navall("Scheme Code;Something Else\n1;2\n") == []

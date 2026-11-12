@@ -304,3 +304,53 @@ def test_apply_to_users_only_kind(db_session: Session) -> None:
 
 def test_report_shape() -> None:
     assert RefreshReport(updated={}, failed={}).failed == {}
+
+
+def test_unreadable_navall_fails_the_fund_source_loudly(db_session: Session) -> None:
+    fetcher = FakeFetcher(texts={"navall.txt": "Scheme Code;Brand New Layout\n1;2\n"})
+
+    report = run_nightly(db_session, fetcher, TODAY)
+
+    assert report.failed == {"mutual_fund": "AMFI file format not recognised"}
+    assert report.updated["stock"] > 0 or "stock" in report.updated
+
+
+def test_unreadable_equity_list_is_a_stock_error_when_nothing_is_priced(
+    db_session: Session,
+) -> None:
+    fetcher = FakeFetcher(texts={"equity_l.csv": "NOT,THE,RIGHT\n1,2,3\n"}, holiday=True)
+
+    report = run_nightly(db_session, fetcher, TODAY)
+
+    assert report.failed == {"stock": "NSE equity list format not recognised"}
+
+
+def test_missing_bhavcopy_today_uses_the_previous_trading_day(db_session: Session) -> None:
+    a = user(db_session, "a@example.com")
+    s = link(db_session, a, "stock", STOCK_CODE)
+    asked: list[date] = []
+
+    class Late(FakeFetcher):
+        def bhavcopy(self, day: date) -> str | None:
+            asked.append(day)
+            return None if day >= date(2026, 11, 11) else super().bhavcopy(day)
+
+    fetcher = Late()
+    run_nightly(db_session, fetcher, TODAY)
+
+    assert asked == [date(2026, 11, 12), date(2026, 11, 11), date(2026, 11, 10)]
+    assert fetcher.calls["yahoo_chart"] == 0
+    assert [r.price for r in rows(db_session, s)] == [STOCK_CLOSE]
+
+
+def test_bhavcopy_lookback_skips_weekends_and_gives_up(db_session: Session) -> None:
+    asked: list[date] = []
+
+    class Never(FakeFetcher):
+        def bhavcopy(self, day: date) -> str | None:
+            asked.append(day)
+            return None
+
+    run_nightly(db_session, Never(), date(2026, 11, 16))  # a Monday
+
+    assert asked == [date(2026, 11, 16), date(2026, 11, 13), date(2026, 11, 12), date(2026, 11, 11)]

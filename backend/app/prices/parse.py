@@ -46,13 +46,42 @@ def _isin(value: str) -> str | None:
     return None if value in ("", "-") else value
 
 
+_NAVALL_OLD_HEADER = [
+    "scheme code",
+    "isin div payout/ isin growth",
+    "isin div reinvestment",
+    "scheme name",
+    "net asset value",
+    "date",
+]
+
+
+def _navall_columns(header: list[str]) -> dict[str, int]:
+    return {name.strip().lower(): i for i, name in enumerate(header)}
+
+
 def parse_navall(text: str) -> list[Quote]:
+    """Columns are found by name from the header, which AMFI re-sends and has changed before."""
+    columns = _navall_columns(_NAVALL_OLD_HEADER)
+    width = len(_NAVALL_OLD_HEADER)
     quotes: list[Quote] = []
     for line in text.splitlines():
         fields = [f.strip() for f in line.split(";")]
-        if len(fields) != 6 or not fields[0].isdigit():
+        if fields[0].lower() == "scheme code":
+            columns, width = _navall_columns(fields), len(fields)
             continue
-        code, isin_growth, _reinvest, name, nav, nav_date = fields
+        if len(fields) != width or not fields[0].isdigit():
+            continue
+        try:
+            nav_date = fields[columns["date"]]
+            nav = fields[columns["net asset value"]]
+            name = fields[columns["scheme name"]]
+            isin_growth = fields[columns["isin div payout/ isin growth"]]
+        except KeyError:
+            continue
+        # The newer file splits "Direct Plan" / "Growth" out of the name; keep them in it.
+        extras = [fields[columns[c]] for c in ("plan", "option") if c in columns]
+        name = " - ".join(part for part in [name, *extras] if part)
         price = to_price(nav)
         try:
             price_date = datetime.strptime(nav_date, "%d-%b-%Y").date()
@@ -62,7 +91,7 @@ def parse_navall(text: str) -> list[Quote]:
         quotes.append(
             Quote(
                 kind="mutual_fund",
-                code=code,
+                code=fields[columns["scheme code"]],
                 name=name,
                 isin=_isin(isin_growth),
                 price=price,
