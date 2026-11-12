@@ -1,0 +1,1 @@
+{"coins": [{"id": "bitcoin", "name": "Bitcoin", "api_symbol": "bitcoin", "symbol": "BTC", "market_cap_rank": 1, "thumb": "https://example.com/btc.png"}, {"id": "bitcoin-cash", "name": "Bitcoin Cash", "api_symbol": "bitcoin-cash", "symbol": "BCH", "market_cap_rank": 20, "thumb": "https://example.com/bch.png"}], "exchanges": [], "categories": []}
