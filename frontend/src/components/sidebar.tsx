@@ -17,6 +17,7 @@ const LINKS = [
   { href: "/review", emoji: "📥", label: "To review" },
   { href: "/accounts", emoji: "👛", label: "Accounts" },
   { href: "/transactions", emoji: "💸", label: "Transactions" },
+  { href: "/cash-flow", emoji: "🗓️", label: "Cash flow" },
   { href: "/investments", emoji: "📈", label: "Investments" },
   { href: "/recurring", emoji: "🔁", label: "Recurring" },
   { href: "/insurance", emoji: "🛡️", label: "Insurance" },

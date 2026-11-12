@@ -73,11 +73,35 @@ Net worth is always computed from asset and liability accounts only. Income, exp
 net cash flow = income − expenses
 ```
 
-**Current.** The transactions list returns `total_income` and `total_expense` over every transaction matching its filters, not just the current page. Transfers count in neither. A refund is currently recorded as income, so it raises that month's income rather than lowering its spending.
+**Current.** The transactions list returns `total_income` and `total_expense` over every transaction matching its filters (search included), not just the current page. Transfers count in neither, and an EMI counts its interest as spending. A refund is currently recorded as income, so it raises that month's income rather than lowering its spending.
 
 **Decided, comes with the ledger.** A refund is its own type. It links to the original expense and reduces that expense's category spending, in the month of the refund. An unlinked refund names an expense category. The refunds linked to one expense can't add up to more than it.
 
-**Planned.** Investment purchases, loan principal repayments and transfers stay out of cash flow. Loan interest and fees are expenses. Principal repayment only reduces the liability.
+### Monthly cash flow
+
+**Built on branch `cash-flow`.** See the [design](../superpowers/specs/2026-11-12-cash-flow-design.md). `GET /cash-flow?month=YYYY-MM` returns a month's figures.
+
+```
+income    = Σ amount of income transactions in the window
+spending  = Σ amount of expense transactions + Σ interest of EMI transactions, in the window
+net       = income − spending
+```
+
+| Movement | Income | Spending |
+|---|---|---|
+| `income` (salary, interest, dividends, refunds) | amount | — |
+| `expense` (any account, cards included, when the purchase is made) | — | amount |
+| `emi` | — | `interest` only; the principal only lowers the loan |
+| `transfer` (between own accounts, card bill payments, PPF/RD deposits and withdrawals) | — | — |
+| Stock, fund and coin trades (`investment_trades`) | — | — |
+
+- **The window** runs from the 1st of the month to the cut-off day: today (India's date) in the current month, the last day for a past month. A future month is refused.
+- **Previous month at the same day**: the month before, from its 1st to the same day number, clamped to its length. 12 November compares with 1–12 October; 30 March with 1–28 February. On a month's last day the month counts as whole, so 31 March (like any later day) compares with the whole of February, and 30 April with the whole of March. A whole past month compares with the whole month before. The change is `this − previous`, and its percent is `change ÷ previous × 100` rounded half up to a whole number, with no percent when the previous figure is 0.
+- **By category**: income and spending are grouped by category. A subcategory's figure also counts in its parent's (one level). Each group's share is `group ÷ total × 100`, rounded half up to a whole percent. A transaction without a category (SMS, not yet answered) is "Uncategorised"; an EMI's interest is "Loan interest". The top 3 are the three biggest spending groups, ties by name.
+- **Daily spending**: each day's spending, and its bar height as `day ÷ the biggest day × 100`, rounded half up. Days after today have no figure.
+- Refunds are income until they get their own type (below).
+
+Example, November up to the 12th: salary ₹80,000; groceries ₹6,000; a Swiggy order ₹1,200 under Food and dining → Dining; an EMI of ₹12,000 with ₹3,000 interest; ₹20,000 paid to the credit card; ₹10,000 into a fund. Income ₹80,000, spending ₹6,000 + ₹1,200 + ₹3,000 = **₹10,200**, net **₹69,800**. The card payment, the fund purchase and the ₹9,000 principal are not spending.
 
 ## Investment returns (built for stocks and mutual funds)
 

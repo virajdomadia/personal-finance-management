@@ -5,7 +5,7 @@ owe and asset split, and whether the row is a backfilled estimate. Downgrading r
 any snapshot exists (past days can't be worked out again), then drops the table.
 
 Revision ID: 4f9a2c7e1b30
-Revises: e3b81f46a0d7
+Revises: 2d46fef3dab4
 Create Date: 2026-11-13 12:00:00.000000
 
 """
@@ -17,7 +17,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "4f9a2c7e1b30"
-down_revision: str | Sequence[str] | None = "e3b81f46a0d7"
+down_revision: str | Sequence[str] | None = "2d46fef3dab4"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -5,6 +5,7 @@ import { Text } from "react-native-paper";
 
 import { ChunkyBox, ChunkyButton, Row, ScreenHeader, StackedBar, Tile } from "@/components/chunky";
 import { SetupChecklist } from "@/components/setup-checklist";
+import { MonthCard } from "@/components/month-card";
 import { type AssetSplit, type Dashboard, formatDueDate } from "@/lib/accounts";
 import { cardBillText, reviewCountText } from "@/lib/review";
 import { investmentSticker, streakLabel } from "@/lib/fun";
@@ -163,6 +164,7 @@ export function DashboardView({ data, streak, failed, onOpenAccounts, dueList, t
           ]}
         </Grid>
 
+        <MonthCard />
         {hasSplit ? (
           <Tile label="Where it is" emoji="🧭">
             <StackedBar items={split} label="Where your money is" />

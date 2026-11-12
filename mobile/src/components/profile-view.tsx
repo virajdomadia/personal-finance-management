@@ -13,11 +13,12 @@ type Props = {
   onArchived: () => void;
   onSms: () => void;
   onPayeeRules: () => void;
+  onCategories: () => void;
   onLogOut: () => void;
 };
 
 // The profile tab's content, without the session or fetching.
-export function ProfileView({ streak, onGoals, onRecurring, onInsurance, onArchived, onSms, onPayeeRules, onLogOut }: Props) {
+export function ProfileView({ streak, onGoals, onRecurring, onInsurance, onArchived, onSms, onPayeeRules, onCategories, onLogOut }: Props) {
   return (
     <View>
       <ScreenHeader title="You" right={<StreakPill days={streak} />} />
@@ -34,6 +35,7 @@ export function ProfileView({ streak, onGoals, onRecurring, onInsurance, onArchi
           <Row emoji="🔁" tone="blue" title="Recurring" meta="Rent, salary and other regular payments" amount="›" onPress={onRecurring} accessibilityLabel="Recurring" accessibilityHint="Opens Recurring" />
           <Row emoji="🛡️" tone="green" title="Insurance" meta="Health policies and renewals" amount="›" onPress={onInsurance} accessibilityLabel="Insurance" accessibilityHint="Opens Insurance" />
           <Row emoji="📩" tone="orange" title="Bank SMS" meta="Fill in transactions from your bank's messages" amount="›" onPress={onSms} accessibilityLabel="Bank SMS" accessibilityHint="Opens Bank SMS settings" />
+          <Row emoji="🗂️" tone="green" title="Categories" meta="Rename, nest, merge and colour your categories" amount="›" onPress={onCategories} accessibilityLabel="Categories" accessibilityHint="Opens Categories" />
           <Row emoji="🏷️" tone="yellow" title="Payee rules" meta="Categories and numbers learned from your answers" amount="›" onPress={onPayeeRules} accessibilityLabel="Payee rules" accessibilityHint="Opens Payee rules" />
           <Row emoji="🗄️" tone="card" title="Archived accounts" amount="›" onPress={onArchived} accessibilityLabel="Archived accounts" accessibilityHint="Opens Archived accounts" />
           <Row emoji="🚪" tone="pink" title="Log out" onPress={onLogOut} accessibilityLabel="Log out" />
