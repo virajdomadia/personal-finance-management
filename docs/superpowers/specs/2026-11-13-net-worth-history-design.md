@@ -89,7 +89,7 @@ Web-native: hover and keyboard tooltips, wide charts, a page of its own.
 
 Android-native: a glanceable sparkline, a tap through to a simple screen.
 
-- **Dashboard:** under the net worth figure, inside the green tile, a white sparkline (react-native-svg, already a dependency) and "▲ ₹22,000 since last month" (or ▼, or "Your trend starts today" when there is no comparison). The tile becomes pressable and opens the history screen. The history loads separately from the dashboard, so a failure only hides the sparkline.
+- **Dashboard:** under the net worth figure, inside the green tile, a white sparkline (react-native-svg, already a dependency) and "▲ ₹22,000 since last month" (or ▼, or "Your trend starts today" when there is no comparison). The sparkline and its change pill are one button that opens the history screen. They load on their own (passed into the dashboard view as a slot, like the due list), so a failure only hides them. *My call:* the trend is the tap target rather than the whole tile, so the tile keeps its plain figure and screen readers hear the change as part of the button.
 - **History screen** (`/net-worth`): back header, `Segmented` range (3M / 6M / 1Y / All), a big chunky change tile, a larger line chart with estimated points hollow and dashed, a list of month-end values below it, the estimated note, and pull to refresh. *My call:* the list replaces tap-and-hold scrubbing, which is fiddly on a phone and hard to make accessible.
 - No new native modules.
 
