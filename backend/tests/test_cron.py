@@ -69,7 +69,7 @@ def test_user_token_is_not_a_cron_secret(
 def test_cron_writes_snapshots_after_prices(
     secret: str, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from datetime import date
+    from datetime import UTC, date, datetime
     from decimal import Decimal
 
     from sqlalchemy import select
@@ -82,6 +82,7 @@ def test_cron_writes_snapshots_after_prices(
 
     today = date(2026, 11, 13)
     monkeypatch.setattr(cron, "today_india", lambda: today)
+    monkeypatch.setattr(cron, "utc_now", lambda: datetime(2026, 11, 13, 18, 5, tzinfo=UTC))
     monkeypatch.setattr(cron, "default_fetcher", lambda: FakeFetcher())
     user = User(email="me@example.com")
     db_session.add(user)
@@ -115,3 +116,31 @@ def test_cron_writes_snapshots_after_prices(
     # Valued at tonight's close, which the job applied first, not at cost.
     assert (row.date, row.stocks) == (today, 2 * STOCK_CLOSE)
     assert row.net_worth == 2 * STOCK_CLOSE
+
+
+@pytest.mark.parametrize("minute", [5, 45])  # 23:35 IST, and 00:15 IST the next day
+def test_cron_dates_the_snapshot_by_its_evening(
+    secret: str, db_session: Session, monkeypatch: pytest.MonkeyPatch, minute: int
+) -> None:
+    from datetime import UTC, date, datetime
+    from decimal import Decimal
+
+    from sqlalchemy import select
+
+    from app.models.account import Account
+    from app.models.snapshot import NetWorthSnapshot
+    from app.models.user import User
+
+    moment = datetime(2026, 11, 13, 18, minute, tzinfo=UTC)
+    monkeypatch.setattr(cron, "utc_now", lambda: moment)
+    monkeypatch.setattr(cron, "today_india", lambda: date(2026, 11, 13 if minute < 30 else 14))
+    monkeypatch.setattr(cron, "default_fetcher", lambda: FakeFetcher())
+    user = User(email="me@example.com")
+    db_session.add(user)
+    db_session.commit()
+    db_session.add(Account(user_id=user.id, type="cash", name="Cash", opening_balance=Decimal(5)))
+    db_session.commit()
+
+    assert client.get(URL, headers={"Authorization": f"Bearer {secret}"}).status_code == 200
+    [row] = db_session.scalars(select(NetWorthSnapshot)).all()
+    assert row.date == date(2026, 11, 13)
