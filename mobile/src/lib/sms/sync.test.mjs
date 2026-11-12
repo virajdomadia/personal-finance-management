@@ -11,7 +11,7 @@ const DAY = 86_400_000;
 const sha256 = async (text) => createHash("sha256").update(text).digest("hex");
 
 function settings(patch = {}) {
-  return { enabled: true, startDate: "2026-11-01", lastReadAt: 0, unreadable: [], banks: [], ...patch };
+  return { enabled: true, startDate: "2026-11-01", lastReadAt: 0, unreadable: [], banks: [], refusedIds: [], ...patch };
 }
 
 // A fake inbox like the native module: messages newer than `since`, oldest first, at most `limit`.
@@ -285,30 +285,93 @@ test("test_every_message_refused_is_systemic_and_keeps_the_mark", async () => {
   assert.deepEqual(state.current.unreadable, [], "nothing dumped into the phone list");
 });
 
-test("test_a_lone_refused_message_is_kept_on_phone_and_skipped", async () => {
-  const messages = [boiMessage(0, NOW.getTime() - 1000)];
-  const { read } = inbox(messages);
-  const { post } = recorder({ refuse: () => true });
+// Refuses every entry except those of the messages whose ids are listed as good.
+function refuseExcept(good) {
+  return recorder({ refuse: (e) => !good.includes(String(Number(e.amount) - 1000)) });
+}
+
+test("test_a_lone_refused_message_is_held_then_kept_once_a_later_one_is_accepted", async () => {
+  const lone = boiMessage(0, NOW.getTime() - 10_000);
+  const box = [lone];
+  const { read } = inbox(box);
   const { save, state } = saver(settings());
 
-  const result = await syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save });
+  // Run 1: the only new message is refused. It is held: not skipped, not kept, the mark stays.
+  const first = await syncSms({ read, post: refuseExcept([]).post, hash: sha256, settings: state.current, now: NOW, save });
+  assert.equal(first.unreadable, 0);
+  assert.equal(state.current.lastReadAt, 0, "the mark doesn't pass an undecided message");
+  assert.deepEqual(state.current.unreadable, []);
+  assert.deepEqual(state.current.refusedIds, ["0"]);
 
-  assert.equal(result.sent, 0);
+  // Run 2: a new message arrives and is accepted, so the lone refusal was the message's own problem.
+  const next = boiMessage(1, NOW.getTime() - 5_000);
+  box.push(next);
+  const second = refuseExcept(["1"]);
+  const result = await syncSms({ read, post: second.post, hash: sha256, settings: state.current, now: NOW, save });
+  assert.equal(result.sent, 1);
   assert.equal(result.unreadable, 1);
   assert.deepEqual(state.current.unreadable.map((m) => m.id), ["0"]);
-  assert.equal(state.current.lastReadAt, messages[0].date, "a sync of one bad message doesn't stall");
+  assert.equal(state.current.lastReadAt, next.date, "the mark moves past both");
+  assert.deepEqual(state.current.refusedIds, []);
 });
 
-test("test_two_refused_none_accepted_is_isolated", async () => {
-  const messages = Array.from({ length: 2 }, (_, i) => boiMessage(i, NOW.getTime() - 10_000 + i * 1000));
-  const { read } = inbox(messages);
-  const { post } = recorder({ refuse: () => true });
+test("test_one_refused_per_run_over_three_runs_is_systemic", async () => {
+  const box = [];
+  const { read } = inbox(box);
+  const { save, state } = saver(settings());
+  const { post } = refuseExcept([]);
+
+  // A contract mismatch: every open brings one new bank SMS, and the server refuses each.
+  for (let run = 0; run < 2; run += 1) {
+    box.push(boiMessage(run, NOW.getTime() - 10_000 + run * 1000));
+    await syncSms({ read, post, hash: sha256, settings: state.current, now: NOW, save });
+    assert.equal(state.current.lastReadAt, 0);
+    assert.deepEqual(state.current.unreadable, []);
+  }
+  assert.deepEqual(state.current.refusedIds, ["0", "1"], "a retried message counts once");
+
+  box.push(boiMessage(2, NOW.getTime() - 8_000));
+  await assert.rejects(syncSms({ read, post, hash: sha256, settings: state.current, now: NOW, save }), /422/);
+  assert.equal(state.current.lastReadAt, 0, "mark unchanged");
+  assert.deepEqual(state.current.unreadable, [], "nothing drained into the phone list");
+
+  // Still systemic on later opens, until the server accepts something.
+  await assert.rejects(syncSms({ read, post, hash: sha256, settings: state.current, now: NOW, save }), /422/);
+  assert.deepEqual(state.current.unreadable, []);
+});
+
+test("test_refused_refused_then_accepted_across_runs_keeps_both", async () => {
+  const box = [boiMessage(0, NOW.getTime() - 10_000), boiMessage(1, NOW.getTime() - 9_000)];
+  const { read } = inbox(box);
   const { save, state } = saver(settings());
 
-  await syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save });
+  await syncSms({ read, post: refuseExcept([]).post, hash: sha256, settings: state.current, now: NOW, save });
+  assert.deepEqual(state.current.refusedIds, ["0", "1"]);
+  assert.equal(state.current.lastReadAt, 0);
+  assert.deepEqual(state.current.unreadable, []);
 
-  assert.equal(state.current.unreadable.length, 2);
-  assert.equal(state.current.lastReadAt, messages[1].date);
+  // An ignored message (an OTP) in between neither resets nor adds to the streak.
+  const otp = { id: "5", address: "VM-HDFCBK-S", body: "123456 is your OTP for login. Do not share it with anyone.", date: NOW.getTime() - 8_000 };
+  const good = boiMessage(2, NOW.getTime() - 7_000);
+  box.push(otp, good);
+  const result = await syncSms({ read, post: refuseExcept(["2"]).post, hash: sha256, settings: state.current, now: NOW, save });
+
+  assert.equal(result.sent, 1);
+  assert.deepEqual(state.current.unreadable.map((m) => m.id).sort(), ["0", "1"]);
+  assert.equal(state.current.lastReadAt, good.date);
+  assert.deepEqual(state.current.refusedIds, [], "the streak is back to 0");
+});
+
+test("test_ignored_messages_between_refusals_do_not_reset_the_streak", async () => {
+  const otp = (id, date) => ({ id, address: "VM-HDFCBK-S", body: "123456 is your OTP for login. Do not share it with anyone.", date });
+  const t = NOW.getTime() - 10_000;
+  const box = [boiMessage(0, t), otp("10", t + 1000), boiMessage(1, t + 2000), otp("11", t + 3000), boiMessage(2, t + 4000)];
+  const { read } = inbox(box);
+  const { save, state } = saver(settings());
+
+  await assert.rejects(syncSms({ read, post: refuseExcept([]).post, hash: sha256, settings: state.current, now: NOW, save }), /422/);
+  assert.equal(state.current.lastReadAt, 0, "the ignored messages wait behind the held refusal");
+  assert.deepEqual(state.current.unreadable, []);
 });
 
 test("test_three_refused_none_accepted_is_systemic", async () => {

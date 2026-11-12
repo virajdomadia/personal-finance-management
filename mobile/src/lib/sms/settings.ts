@@ -10,7 +10,7 @@ const KEY = "sms-settings";
 
 function defaults(): SmsSettings {
   // Off by default; the first read starts today.
-  return { enabled: false, startDate: istDay(new Date()), lastReadAt: 0, unreadable: [], banks: [] };
+  return { enabled: false, startDate: istDay(new Date()), lastReadAt: 0, unreadable: [], banks: [], refusedIds: [] };
 }
 
 function isSms(value: unknown): value is RawSms {
@@ -35,6 +35,7 @@ function clean(stored: unknown): SmsSettings {
     lastReadAt: typeof s.lastReadAt === "number" && Number.isFinite(s.lastReadAt) ? s.lastReadAt : base.lastReadAt,
     unreadable: Array.isArray(s.unreadable) ? s.unreadable.filter(isSms) : base.unreadable,
     banks: Array.isArray(s.banks) ? s.banks.filter((b): b is string => typeof b === "string") : base.banks,
+    refusedIds: Array.isArray(s.refusedIds) ? s.refusedIds.filter((b): b is string => typeof b === "string") : base.refusedIds,
   };
 }
 

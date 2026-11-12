@@ -24,6 +24,10 @@ export type SmsSettings = {
   lastReadAt: number; // epoch ms of the newest message already handled
   unreadable: RawSms[]; // newest first, phone only
   banks: string[]; // bank keys seen so far, for the settings screen
+  // The refusal streak: ids of messages the server refused since it last accepted one, across
+  // runs. Each counts once, however often it is retried; three means the server is refusing
+  // everything.
+  refusedIds: string[];
 };
 
 // The server's field names. Nothing else may be added: the server rejects extra fields.
@@ -164,6 +168,40 @@ export async function syncSms({
     mark = to;
     await save((current) => (current.startDate === settings.startDate ? { lastReadAt: to } : null));
   };
+  // A refused message is held: the mark stays below it and it isn't kept yet, because one refusal
+  // alone can't tell a malformed message from a server that refuses everything (say, a contract
+  // change the phone hasn't caught up with). The next accepted message, in this run or a later
+  // one, shows it was the message's own problem: it is kept on the phone and the mark moves past
+  // it. Three refused with none accepted in between, across runs, means the server refuses
+  // everything: stop with the mark and the list untouched; the held messages are read again next
+  // time (the server answers ones it already has as duplicates). Held messages that weren't
+  // refused (ignored ones after a refusal) wait with them, so the mark never passes an undecided one.
+  const refused = new Set(settings.refusedIds);
+  let held: { unit: Unit; refused: boolean }[] = [];
+  const refuse = async (unit: Unit, error: unknown) => {
+    const id = unit.message.id;
+    if (!refused.has(id)) {
+      refused.add(id);
+      await save((current) => ({ refusedIds: [...new Set([...current.refusedIds, id])] }));
+    }
+    if (refused.size >= 3) throw error;
+    held.push({ unit, refused: true });
+  };
+  const accepted = async () => {
+    const decided = held;
+    held = [];
+    if (refused.size > 0) {
+      refused.clear();
+      await save((current) => (current.refusedIds.length === 0 ? null : { refusedIds: [] }));
+    }
+    await keep(decided.filter((h) => h.refused).map((h) => ({ ...h.unit.message })));
+    if (decided.length > 0) await advance(decided[decided.length - 1].unit.safe);
+  };
+  // A message with nothing to send: handled, unless it waits behind a held refusal.
+  const pass = async (unit: Unit) => {
+    if (held.length > 0) held.push({ unit, refused: false });
+    else await advance(unit.safe);
+  };
   // Posts one message's lines, at most a batch per request.
   const postLines = async (entries: SmsEntry[]) => {
     for (let i = 0; i < entries.length; i += BATCH_SIZE) await post(entries.slice(i, i + BATCH_SIZE));
@@ -242,47 +280,36 @@ export async function syncSms({
     for (const batch of batches) {
       if (batch.length === 0) continue;
       const entries = batch.flatMap((u) => u.entries);
+      if (entries.length === 0) {
+        for (const unit of batch) await pass(unit);
+        continue;
+      }
       try {
         if (entries.length > BATCH_SIZE) await postLines(entries);
-        else if (entries.length > 0) await post(entries);
-        sent += entries.length;
+        else await post(entries);
       } catch (error) {
         if (!isRefused(error)) throw error;
-        // The server refused something in this batch: send each message on its own. One or two
-        // refused messages are their own problem; they are kept on the phone so they don't block
-        // everything after them. Three refused in a row means the server is refusing everything
-        // (say, a contract change the phone hasn't caught up with): stop without moving past them
-        // or keeping them, and try again next time. Refusals are held until that is known.
-        let refusedInARow = 0;
-        let held: { unit: Unit; refused: boolean }[] = [];
-        const settle = async () => {
-          await keep(held.filter((h) => h.refused).map((h) => ({ ...h.unit.message })));
-          if (held.length > 0) await advance(held[held.length - 1].unit.safe);
-          held = [];
-        };
+        // The server refused something in this batch: send each message on its own.
         for (const unit of batch) {
-          if (unit.entries.length > 0) {
-            try {
-              await postLines(unit.entries);
-            } catch (single) {
-              if (!isRefused(single)) throw single;
-              refusedInARow += 1;
-              if (refusedInARow >= 3) throw single;
-              held.push({ unit, refused: true });
-              continue;
-            }
-            sent += unit.entries.length;
-            refusedInARow = 0;
-            await settle();
-            await advance(unit.safe);
-          } else if (held.length > 0) {
-            held.push({ unit, refused: false });
-          } else {
-            await advance(unit.safe);
+          if (unit.entries.length === 0) {
+            await pass(unit);
+            continue;
           }
+          try {
+            await postLines(unit.entries);
+          } catch (single) {
+            if (!isRefused(single)) throw single;
+            await refuse(unit, single);
+            continue;
+          }
+          sent += unit.entries.length;
+          await accepted();
+          await advance(unit.safe);
         }
-        await settle();
+        continue;
       }
+      sent += entries.length;
+      await accepted();
       await advance(batch[batch.length - 1].safe);
     }
 
