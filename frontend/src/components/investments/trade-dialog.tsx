@@ -12,16 +12,19 @@ import {
   type Stock,
   type Trade,
   type TradeForm,
+  asFirstTrade,
   blankTradeForm,
+  prefillFromMatch,
   tradeFormFrom,
   tradePayload,
   tradeTotal,
+  withTradePath,
 } from "@/lib/investments";
 import { todayIndia } from "@/lib/transactions";
 import { Select } from "@/components/ui/select";
 
 import { LinkField } from "./link-dialog";
-import { DIALOG, INPUT, PRIMARY, QUIET, sideLabel } from "./shared";
+import { BackButton, DIALOG, INPUT, PRIMARY, QUIET, StepLine, sideLabel, useAddFlow } from "./shared";
 
 export type TradeKind = "buy" | "sell" | "opening";
 
@@ -35,7 +38,7 @@ const NEW_STOCK = "new";
 const QUANTITY_RULE = "Enter a whole number of shares, from 1 to 10,00,00,000.";
 const MAX_QUANTITY = 100_000_000;
 const MONEY = /^\d+(?:\.\d{1,2})?$/;
-const RENDERED = ["stock_id", "account_id", "date", "quantity", "price", "charges", "note"] as const;
+const RENDERED = ["stock_id", "symbol", "name", "account_id", "date", "quantity", "price", "charges", "note"] as const;
 
 type Form = TradeForm & { symbol: string; name: string };
 type Key = keyof Omit<Form, "side" | "opening">;
@@ -54,14 +57,14 @@ type Props = {
   onStockCreated: (stock: Stock) => void;
 };
 
-function startForm(props: Props): Form {
+function startForm(props: Props, adding: boolean): Form {
   if (props.trade) return { ...tradeFormFrom(props.trade), symbol: "", name: "" };
   const base = blankTradeForm(props.kind === "sell" ? "sell" : "buy", todayIndia(), props.kind === "opening");
   const stockId = props.defaultStockId ?? null;
   const accountId = props.defaultAccountId ?? (props.brokers.length === 1 ? props.brokers[0].id : null);
   return {
     ...base,
-    stock_id: stockId !== null ? String(stockId) : props.stocks.length === 0 && props.kind !== "sell" ? NEW_STOCK : "",
+    stock_id: stockId !== null ? String(stockId) : (props.stocks.length === 0 || adding) && props.kind !== "sell" ? NEW_STOCK : "",
     account_id: accountId !== null && props.brokers.some((b) => b.id === accountId) ? String(accountId) : "",
     symbol: "",
     name: "",
@@ -106,8 +109,10 @@ export function TradeDialog(props: Props) {
   const savingRef = useRef(false);
   const submitRef = useRef<HTMLButtonElement>(null);
   const needFocus = useRef(false);
-  const [form, setForm] = useState<Form>(() => startForm(props));
-  const [stocks, setStocks] = useState<Stock[]>(props.stocks);
+  // In the Add investment flow this is a first purchase: a new stock, bought or already held.
+  const adding = useAddFlow();
+  const [form, setForm] = useState<Form>(() => startForm(props, adding));
+  const stocks = props.stocks;
   const [source, setSource] = useState<MarketMatch | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -128,6 +133,13 @@ export function TradeDialog(props: Props) {
 
   const kind = kindOf(form);
   const set = (key: Key, value: string) => setForm((f) => ({ ...f, [key]: value }));
+  // A match from the search fills in the symbol and name, unless they were already typed.
+  const pickSource = (match: MarketMatch | null) => {
+    setSource(match);
+    if (!match) return;
+    const fill = prefillFromMatch("stock", match);
+    setForm((f) => ({ ...f, symbol: f.symbol.trim() || fill.symbol, name: f.name.trim() || fill.name }));
+  };
 
   const changeKind = (next: TradeKind) => {
     setErrors({});
@@ -160,29 +172,19 @@ export function TradeDialog(props: Props) {
     setErrors({});
     setFormError(null);
     try {
-      let current: TradeForm = form;
+      const current: TradeForm = form;
       if (!editing && form.stock_id === NEW_STOCK) {
-        let created: Stock;
-        try {
-          created = await apiFetch<Stock>("/investments/stocks", {
-            method: "POST",
-            body: JSON.stringify({ symbol: form.symbol, name: form.name, source_code: source?.code ?? null }),
-          });
-        } catch (err) {
-          if (err instanceof ApiError && err.status === 422) {
-            needFocus.current = true;
-            const { fields, general } = splitErrors(err.body, ["symbol", "name"]);
-            setErrors(fields);
-            if (general.length > 0) setFormError(general.join(" "));
-            return;
-          }
-          throw err;
-        }
-        // The stock exists now. If the trade below fails, it stays chosen so a retry doesn't add it twice.
-        setStocks((list) => [...list, created].sort((a, b) => a.symbol.localeCompare(b.symbol)));
-        setForm((f) => ({ ...f, stock_id: String(created.id), symbol: "", name: "" }));
-        onStockCreated(created);
-        current = { ...form, stock_id: String(created.id) };
+        // The new stock and its first trade are saved together: if the trade is refused, no stock is left behind.
+        const saved = await apiFetch<{ stock: Stock; trade: Trade }>(withTradePath("stock"), {
+          method: "POST",
+          body: JSON.stringify({
+            stock: { symbol: form.symbol, name: form.name, source_code: source?.code ?? null },
+            trade: asFirstTrade(tradePayload(current, "create")),
+          }),
+        });
+        onStockCreated(saved.stock);
+        onSaved(saved.trade);
+        return;
       }
 
       if (editing) {
@@ -281,6 +283,7 @@ export function TradeDialog(props: Props) {
         <div>
           <h2 id="trade-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
+            <StepLine />
           </h2>
           <div className="px-5 py-4">
             <p className="text-sm font-extrabold">Add a broker account first</p>
@@ -289,6 +292,7 @@ export function TradeDialog(props: Props) {
             </p>
           </div>
           <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
+            <BackButton disabled={saving} />
             {closeButton}
             <Link href="/accounts" className={PRIMARY}>
               Go to accounts
@@ -299,6 +303,7 @@ export function TradeDialog(props: Props) {
         <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
           <h2 id="trade-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
+            <StepLine />
           </h2>
           <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
             {editing ? (
@@ -310,7 +315,7 @@ export function TradeDialog(props: Props) {
               <fieldset disabled={saving}>
                 <legend className="mb-1 block text-xs font-black tracking-wide uppercase">Type</legend>
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
-                  {KINDS.map((option) => (
+                  {KINDS.filter((option) => !adding || option.value !== "sell").map((option) => (
                     <label key={option.value} className="flex items-center gap-1.5 text-sm font-extrabold">
                       <input
                         type="radio"
@@ -336,6 +341,8 @@ export function TradeDialog(props: Props) {
               ) : null,
             )}
 
+            {form.stock_id === NEW_STOCK && <LinkField kind="stock" selected={source} onSelect={pickSource} disabled={saving} />}
+
             {form.stock_id === NEW_STOCK && (
               <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-4">
                 {field(
@@ -346,8 +353,6 @@ export function TradeDialog(props: Props) {
                 {field("name", "Company name", <input {...props_("name")} type="text" autoComplete="off" maxLength={60} placeholder="Infosys" />)}
               </div>
             )}
-
-            {form.stock_id === NEW_STOCK && <LinkField kind="stock" selected={source} onSelect={setSource} disabled={saving} />}
 
             {field(
               "account_id",
@@ -408,6 +413,7 @@ export function TradeDialog(props: Props) {
             ) : null}
           </div>
           <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
+            <BackButton disabled={saving} />
             {closeButton}
             <button ref={submitRef} type="submit" disabled={saving} className={PRIMARY}>
               {saving ? "Saving..." : editing ? "Save changes" : kind === "opening" ? "Add shares" : kind === "buy" ? "Buy" : "Sell"}

@@ -222,3 +222,36 @@ test("a sync is done only when no source failed and the request got through", ()
   assert.deepEqual(syncOutcome({ ...ok, failed: { stock: "down" } }), { status: "partial" });
   assert.deepEqual(syncOutcome(null), { status: "partial" });
 });
+
+test("prefillFromMatch fills what each kind's match can tell", async () => {
+  const { prefillFromMatch } = await import("./investments.ts");
+  const match = (code, name) => ({ code, name, isin: null, price: null, price_date: null });
+  assert.deepEqual(prefillFromMatch("stock", match("RELIANCE", "Reliance Industries Limited")), {
+    name: "Reliance Industries Limited",
+    symbol: "RELIANCE",
+  });
+  assert.deepEqual(prefillFromMatch("crypto", match("bitcoin", "Bitcoin (BTC)")), { name: "Bitcoin", symbol: "BTC" });
+  assert.deepEqual(prefillFromMatch("crypto", match("odd", "Odd coin")), { name: "Odd coin", symbol: "" });
+  assert.deepEqual(prefillFromMatch("mutual_fund", match("119551", "Banking Fund - Direct Growth")), {
+    name: "Banking Fund - Direct Growth",
+    symbol: "",
+  });
+  const long = "A".repeat(59) + " Fund Direct Plan Growth";
+  assert.equal(prefillFromMatch("mutual_fund", match("1", long)).name, "A".repeat(59));
+});
+
+test("withTradePath names each kind's create-with-first-trade route", async () => {
+  const { withTradePath } = await import("./investments.ts");
+  assert.equal(withTradePath("stock"), "/investments/stocks/with-trade");
+  assert.equal(withTradePath("mutual_fund"), "/investments/funds/with-trade");
+  assert.equal(withTradePath("crypto"), "/investments/coins/with-trade");
+});
+
+test("asFirstTrade drops what the first trade of a new holding can't carry", async () => {
+  const { asFirstTrade } = await import("./investments.ts");
+  assert.deepEqual(
+    asFirstTrade({ fund_id: 0, account_id: 3, side: "buy", date: "2026-01-15", units: "1.000", sip_id: null, note: null }),
+    { account_id: 3, date: "2026-01-15", units: "1.000", note: null },
+  );
+  assert.deepEqual(asFirstTrade({ stock_id: 1, coin_id: 2, quantity: 5 }), { quantity: 5 });
+});
