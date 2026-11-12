@@ -160,6 +160,7 @@ def test_purchase_debits_the_bank_and_records_its_nav(
         "sip_id": plan,
         "note": "first",
         "realised": None,
+        "estimated": False,
     }
     assert balance(headers, account) == "47000.00"
     assert navs(headers, ppfcf) == [

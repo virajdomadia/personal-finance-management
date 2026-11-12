@@ -1,15 +1,19 @@
+import hashlib
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.routes import coins, crypto_trades, dashboard, fund_trades, funds, sips
 from app.api.routes.accounts import fmt
 from app.api.routes.dashboard import next_due_date
 from app.main import app
+from app.models.sms import SmsEntry
+from app.models.user import User
 from tests.test_accounts import Headers, auth, make
 from tests.test_coins import add_coin_price
 from tests.test_crypto_trades import coin, exchange
@@ -36,6 +40,8 @@ EMPTY = {
     "goals_due": [],
     "goals": [],
     "asset_split": [],
+    "to_review": 0,
+    "card_bill": None,
 }
 
 
@@ -288,3 +294,117 @@ def test_asset_split_sums_to_total_have(headers: Headers, monkeypatch: pytest.Mo
     values = [Decimal(s["value"]) for s in body["asset_split"]]
     assert all(v > 0 for v in values)  # in particular bank_cash is never negative
     assert fmt(sum(values, Decimal(0))) == body["total_have"]
+
+
+# SMS: what's waiting for review, and the card bill a statement asked for
+
+
+def _sms(db: Session, user_id: int, seed: str, **fields: Any) -> None:
+    db.add(
+        SmsEntry(
+            user_id=user_id,
+            hash=hashlib.sha256(seed.encode()).hexdigest(),
+            sender="HDFCBK",
+            bank="hdfc",
+            **fields,
+        )
+    )
+    db.commit()
+
+
+def test_dashboard_to_review_and_card_bill(headers: Headers, db_session: Session) -> None:
+    uid = db_session.scalar(select(User.id))
+    assert uid is not None
+    bank_id = make(headers, type="bank", name="SBI", bank_kind="savings", balance="50000.00")
+    bank_id = bank_id.json()["id"]
+    regalia = card(headers, name="Regalia")
+    old = card(headers, name="Old card")
+    statement = {"kind": "card_statement", "status": "recorded"}
+    _sms(
+        db_session,
+        uid,
+        "s1",
+        **statement,
+        account_id=regalia,
+        amount=Decimal("9000.00"),
+        occurred_on=date(2026, 10, 3),
+        due_date=date(2026, 10, 23),
+    )
+    _sms(
+        db_session,
+        uid,
+        "s2",
+        **statement,
+        account_id=regalia,
+        amount=Decimal("12000.00"),
+        occurred_on=date(2026, 11, 3),
+        due_date=date(2026, 11, 13),
+    )
+    # Due more than 3 days ago: no longer shown.
+    _sms(
+        db_session,
+        uid,
+        "s3",
+        **statement,
+        account_id=old,
+        amount=Decimal("500.00"),
+        occurred_on=date(2026, 10, 10),
+        due_date=date(2026, 11, 4),
+    )
+    _sms(
+        db_session,
+        uid,
+        "r1",
+        kind="debit",
+        status="review",
+        reason="category",
+        amount=Decimal("10.00"),
+        occurred_on=date(2026, 11, 7),
+    )
+    _sms(
+        db_session,
+        uid,
+        "r2",
+        kind="demat",
+        status="draft",
+        reason="demat",
+        occurred_on=date(2026, 11, 7),
+    )
+    _sms(
+        db_session,
+        uid,
+        "r3",
+        kind="debit",
+        status="recorded",
+        amount=Decimal("10.00"),
+        occurred_on=date(2026, 11, 7),
+    )
+
+    body = get(headers)
+    assert body["to_review"] == 2
+    assert body["card_bill"] == {
+        "account_id": regalia,
+        "name": "Regalia",
+        "amount": "12000.00",
+        "due_date": "2026-11-13",
+    }
+
+    def pay(amount: str, day: str) -> None:
+        response = client.post(
+            "/api/transactions",
+            json={
+                "type": "transfer",
+                "account_id": bank_id,
+                "to_account_id": regalia,
+                "amount": amount,
+                "date": day,
+            },
+            headers=headers,
+        )
+        assert response.status_code == 201, response.json()
+
+    pay("5000.00", "2026-11-02")  # before the statement: doesn't count
+    pay("4000.00", "2026-11-05")
+    assert get(headers)["card_bill"]["amount"] == "8000.00"
+    pay("8000.00", "2026-11-06")
+    assert get(headers)["card_bill"] is None

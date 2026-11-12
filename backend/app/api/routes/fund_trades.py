@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -41,6 +41,7 @@ from app.api.trade_checks import (
 from app.db.session import DbSession
 from app.models.account import Account
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade, Sip
+from app.models.sms import SmsEntry
 
 router = APIRouter(
     prefix="/investments", tags=["investments"], dependencies=[Depends(get_current_user)]
@@ -132,6 +133,8 @@ class FundTrade(BaseModel):
     sip_id: int | None
     note: str | None
     realised: str | None  # redemptions only
+    # Units worked out from an SMS debit at the day's NAV, not yet checked by the owner.
+    estimated: bool
 
 
 class FundTradeList(BaseModel):
@@ -262,6 +265,7 @@ def _response(
         sip_id=t.sip_id,
         note=t.note,
         realised=None if gain is None else fmt(gain),
+        estimated=t.estimated,
     )
 
 
@@ -513,6 +517,12 @@ def delete_fund_trade(id: int, user: CurrentUser, db: DbSession) -> dict[str, in
     check_delete(db, user.id, accounts, trade, FUND_SHORT)
     # Its auto-recorded NAV goes with it; NAVs entered by hand stay.
     db.execute(delete(InstrumentPrice).where(InstrumentPrice.trade_id == trade.id))
+    # The SMS it came from stays known, so sending that message again doesn't bring it back.
+    db.execute(
+        update(SmsEntry)
+        .where(SmsEntry.user_id == user.id, SmsEntry.trade_id == trade.id)
+        .values(status="ignored", trade_id=None)
+    )
     fund_id, day, opening = trade.instrument_id, trade.date, trade.opening
     db.delete(trade)
     if not opening:

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.api.dates import today_india
@@ -31,6 +31,7 @@ from app.api.trade_checks import (
 from app.db.session import DbSession
 from app.models.account import Account
 from app.models.investment import Instrument, InvestmentTrade
+from app.models.sms import SmsEntry
 
 router = APIRouter(
     prefix="/investments", tags=["investments"], dependencies=[Depends(get_current_user)]
@@ -131,7 +132,7 @@ class TradeList(BaseModel):
     trades: list[TradeResponse]
 
 
-def _columns(values: dict[str, Any]) -> dict[str, Any]:
+def stock_columns(values: dict[str, Any]) -> dict[str, Any]:
     """A stock trade's API fields as model columns, with the amount it moved worked out."""
     columns = {k: v for k, v in values.items() if k != "stock_id"}
     columns["instrument_id"] = values["stock_id"]
@@ -220,7 +221,7 @@ def _stock_and_account(
     return stock, account
 
 
-def _save_checks(
+def stock_save_checks(
     db: Session,
     user_id: int,
     accounts: dict[int, Account],
@@ -294,8 +295,8 @@ def create_trade(body: TradeCreate, user: CurrentUser, db: DbSession) -> TradeRe
     values = body.model_dump()
     values["charges"] = values["charges"] if values["charges"] is not None else Decimal(0)
     accounts = lock_accounts(db, user.id, [values["account_id"]])
-    _, account = _save_checks(db, user.id, accounts, values, existing_id=None)
-    trade = InvestmentTrade(user_id=user.id, **_columns(values))
+    _, account = stock_save_checks(db, user.id, accounts, values, existing_id=None)
+    trade = InvestmentTrade(user_id=user.id, **stock_columns(values))
     db.add(trade)
     db.commit()
     return _saved_response(db, user.id, trade, account)
@@ -322,8 +323,8 @@ def update_trade(id: int, body: TradeUpdate, user: CurrentUser, db: DbSession) -
         **changes,
     }
     require_active(accounts, [trade.account_id, values["account_id"]])
-    _, account = _save_checks(db, user.id, accounts, values, existing_id=trade.id)
-    for field, value in _columns(values).items():
+    _, account = stock_save_checks(db, user.id, accounts, values, existing_id=trade.id)
+    for field, value in stock_columns(values).items():
         setattr(trade, field, value)
     db.commit()
     return _saved_response(db, user.id, trade, account)
@@ -333,6 +334,12 @@ def update_trade(id: int, body: TradeUpdate, user: CurrentUser, db: DbSession) -
 def delete_trade(id: int, user: CurrentUser, db: DbSession) -> dict[str, int]:
     trade, accounts = lock_trade(db, user.id, id, STOCK)
     check_delete(db, user.id, accounts, trade, STOCK_SHORT)
+    # The SMS it came from stays known, so sending that message again doesn't bring it back.
+    db.execute(
+        update(SmsEntry)
+        .where(SmsEntry.user_id == user.id, SmsEntry.trade_id == trade.id)
+        .values(status="ignored", trade_id=None)
+    )
     db.delete(trade)
     db.commit()
     return {"id": id}
