@@ -143,10 +143,33 @@ export function paramsFromFilters(f: SearchFilters, thisMonth: string): string {
   return text ? `?${text}` : "";
 }
 
+// The type to filter by when a category of the month is opened, so the list adds up to the
+// report. Spending usually needs none (an EMI's interest counts as spending too), but when income
+// has a category of the same name this month, like "Other" or "Uncategorised", "expense" keeps the
+// two apart. Mirrors sliceType in mobile/src/lib/cash-flow.ts.
+export function sliceType(
+  kind: "income" | "expense",
+  name: string,
+  data: Pick<CashFlowMonth, "income_by_category">,
+): "income" | "expense" | null {
+  if (kind === "income") return "income";
+  const lower = name.toLowerCase();
+  const clash = data.income_by_category.some(
+    (s) => s.name.toLowerCase() === lower || s.children.some((c) => c.name.toLowerCase() === lower),
+  );
+  return clash ? "expense" : null;
+}
+
 // A link from the month report to that category's transactions in the month.
-export function categoryLink(month: string, category: string, kind: "income" | "expense"): string {
+export function categoryLink(
+  month: string,
+  category: string,
+  kind: "income" | "expense",
+  data: Pick<CashFlowMonth, "income_by_category">,
+): string {
   const params = new URLSearchParams({ month, category });
-  if (kind === "income") params.set("type", "income");
+  const type = sliceType(kind, category, data);
+  if (type !== null) params.set("type", type);
   return `/transactions?${params}`;
 }
 

@@ -11,6 +11,7 @@ import {
   paramsFromFilters,
   searchQuery,
   shortDate,
+  sliceType,
 } from "./cash-flow.ts";
 
 const previous = { month: "2026-10", start: "2026-10-01", through: "2026-10-12", income: "0", spending: "0", net: "0" };
@@ -71,8 +72,23 @@ test("filters round-trip through the address and drop bad values", () => {
 });
 
 test("categoryLink and activeFilterCount", () => {
-  assert.equal(categoryLink("2026-11", "Food and dining", "expense"), "/transactions?month=2026-11&category=Food+and+dining");
-  assert.equal(categoryLink("2026-11", "Other", "income"), "/transactions?month=2026-11&category=Other&type=income");
+  const none = { income_by_category: [] };
+  assert.equal(categoryLink("2026-11", "Food and dining", "expense", none), "/transactions?month=2026-11&category=Food+and+dining");
+  assert.equal(categoryLink("2026-11", "Other", "income", none), "/transactions?month=2026-11&category=Other&type=income");
   assert.equal(activeFilterCount(blankFilters("2026-11")), 0);
   assert.equal(activeFilterCount({ ...blankFilters("2026-11"), q: "x", min: "1", to: "2026-01-01" }), 2);
+});
+
+test("sliceType keeps spending apart from income of the same name", () => {
+  const slice = (name, children = []) => ({ id: null, name, icon: null, colour: null, amount: "1.00", percent: 100, direct: "1.00", children });
+  const data = { income_by_category: [slice("Other"), slice("Salary", [slice("Bonus")]), slice("Uncategorised")] };
+  assert.equal(sliceType("expense", "Other", data), "expense");
+  assert.equal(sliceType("expense", "uncategorised", data), "expense");
+  assert.equal(sliceType("expense", "Bonus", data), "expense");
+  assert.equal(sliceType("expense", "Loan interest", data), null);
+  assert.equal(sliceType("income", "Salary", data), "income");
+  assert.equal(
+    categoryLink("2026-11", "Other", "expense", data),
+    "/transactions?month=2026-11&category=Other&type=expense",
+  );
 });
