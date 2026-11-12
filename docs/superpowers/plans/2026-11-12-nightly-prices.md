@@ -214,3 +214,31 @@
   1. Run `alembic upgrade head` on Neon before merging.
   2. Set `CRON_SECRET` (any long random string) on the `personal-finance-api` Vercel project. Optionally set `COINGECKO_API_KEY`.
   3. After the deploy, link your holdings once on the website.
+
+### Task 10: Sync prices button (added at the owner's request)
+
+Spec: section 7, "Sync button". Runs after the final-review fix wave, so it builds on its per-kind commits, the `user_id` filter on `apply_to_users`, the NSE timeouts and the stock time budget.
+
+**Files:**
+- Modify: `backend/app/prices/refresh.py` (a user-scoped sync), `backend/app/api/routes/market.py` (endpoint), `backend/app/prices/fetch.py` only if Yahoo needs an intraday parameter
+- Modify: `frontend/src/components/investments/investments-view.tsx` + `frontend/src/lib/investments.ts`; `mobile/src/app/(tabs)/investments.tsx` + `mobile/src/lib/investments.ts`
+- Test: `backend/tests/test_price_sync.py`, the web and app `investments.test.mjs`
+
+**Interfaces:**
+- Produces: `sync_user_prices(db: Session, fetcher: Fetcher, user_id: int, today: date, now: datetime) -> RefreshReport`. For each kind the user has linked holdings of, it skips the kind if the newest `market_codes.updated_at` among that user's linked codes is under 60 s old. Crypto: `simple_price` for the user's linked coin ids. Stocks: `yahoo_chart` for the user's linked NSE symbols, so the latest quote (intraday during market hours) lands as that day's price. Funds: a full AMFI refresh only if the user's linked funds were refreshed over 6 h ago. Then `apply_to_users(db, only_kind=kind, user_id=user_id)` and commit, per kind. The overall budget is about 45 s; whatever is skipped goes into `failed`.
+- Produces: `POST /api/investments/prices/sync` (user auth) returns 200 `{"synced_at": "<ISO UTC>", "updated": {...}, "failed": {...}}`. A source failure never gives a non-200. Remove or keep `POST /coins/refresh` as the open-time crypto refresh, unchanged.
+- Rule: an intraday stock price is an `"auto"` row for today. The nightly run's official close then replaces it in place (the existing lone-auto-row update), and a typed price still wins.
+- Copy: button "Sync prices"; while running "Syncing…"; done "Updated just now"; partial failure "Some prices couldn't be fetched. Try again later."
+
+- [ ] **Step 1: Failing backend tests**:
+  - `test_sync_updates_only_this_users_holdings`
+  - `test_sync_skips_kind_refreshed_under_a_minute_ago` (the fetcher call counter stays 0)
+  - `test_sync_stock_intraday_then_nightly_close_replaces_it`
+  - `test_sync_manual_price_today_still_wins`
+  - `test_sync_funds_not_refetched_within_6h`
+  - `test_sync_source_failure_is_200_with_failed`
+  - `test_sync_requires_auth`
+- [ ] **Step 2: Implement the backend**, then run focused tests on SQLite and PG, and the full suite once.
+- [ ] **Step 3: Failing web/app helper tests** for `syncStatusText(state)`, then implement the button on both platforms in their own native style. After a sync, reload the portfolio. Show the result text, and never block the page.
+- [ ] **Step 4: Run** lint, typecheck and tests for all three parts. Expected: PASS.
+- [ ] **Step 5: Commit** `git commit -m "Add a Sync prices button"`

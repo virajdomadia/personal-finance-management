@@ -128,6 +128,7 @@ A scheduled job on the server runs every night at about **23:30 IST** *(Claude's
 - **Linking holdings to sources.** Each instrument gets a link to its source: an AMFI scheme code, an NSE symbol, or a CoinGecko id. New instruments are linked when created, with a search box. Existing ones get a one-time "link your holdings" prompt.
 - **Saving.** Fetched prices go into the existing `instrument_prices` table, marked as automatic. A price the owner typed in for the same day always wins and is never overwritten.
 - **Failures.** If a source fails, the last price stays and is shown with its date ("price from 12 Nov"). A failure never deletes or zeroes anything. Failures are logged.
+- **Sync button** (added 2026-11-12 at the owner's request, alongside the nightly run, not instead of it). A "Sync prices" button on the Investments page (website) and Investments tab (app) refreshes the user's own linked holdings on demand: crypto live, stocks near-live (Yahoo, about 15 minutes delayed, during market hours) and funds' latest published NAV (AMFI publishes once a day, so a daytime sync can't be newer than last night). A source is not fetched again if that user's prices for it were refreshed in the last minute, so repeated taps don't get Gullak blocked. The nightly run later replaces a day's synced stock price with the official close.
 - The same fetched data also gives the NAV for SIP instalments (section 5) and the closing price for CDSL drafts (section 6).
 
 ### 8. What the owner sees
