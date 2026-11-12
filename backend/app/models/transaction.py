@@ -29,6 +29,8 @@ class Transaction(Base):
     recurring_template_id: Mapped[int | None] = mapped_column(
         ForeignKey("recurring_templates.id"), index=True
     )
+    # "manual", or "sms" when it was recorded from a bank message.
+    source: Mapped[str] = mapped_column(String(10), server_default="manual")
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
