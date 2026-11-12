@@ -3,6 +3,9 @@ import { test } from "node:test";
 
 import {
   blankTradeForm,
+  canSearchMarket,
+  linkLabel,
+  marketSearchPath,
   changedTrade,
   formatPercent,
   formatSigned,
@@ -187,4 +190,19 @@ test("tradeErrors refuses dates that don't exist", () => {
   assert.equal(tradeErrors({ ...form, date: "2026-13-01" }, "2026-11-09").date, "Enter a date like 2026-11-08.");
   assert.equal(tradeErrors({ ...form, date: "2025-02-29" }, "2026-11-09").date, "Enter a date like 2026-11-08.");
   assert.equal(tradeErrors({ ...form, date: "2024-02-29" }, "2026-11-09").date, undefined);
+});
+
+test("marketSearchPath builds the search URL and encodes the text", () => {
+  assert.equal(marketSearchPath("mutual_fund", "parag"), "/investments/market-codes?kind=mutual_fund&q=parag");
+  assert.equal(marketSearchPath("stock", " Tata & Sons "), "/investments/market-codes?kind=stock&q=Tata%20%26%20Sons");
+});
+
+test("linkLabel names the link or offers one", () => {
+  assert.equal(linkLabel(null), "Link to live prices");
+  assert.equal(linkLabel("INFY"), "Linked to INFY");
+});
+
+test("canSearchMarket needs two characters", () => {
+  assert.equal(canSearchMarket(" a "), false);
+  assert.equal(canSearchMarket("ab"), true);
 });

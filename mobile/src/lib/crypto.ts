@@ -8,9 +8,10 @@ export type Coin = {
   name: string;
   price: string | null;
   price_date: string | null;
+  source_code: string | null;
 };
 
-export type CoinPrice = { id: number; date: string; price: string };
+export type CoinPrice = { id: number; date: string; price: string; source: "manual" | "auto" };
 
 export type CryptoTrade = {
   id: number;

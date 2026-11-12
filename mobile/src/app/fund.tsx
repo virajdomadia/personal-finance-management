@@ -19,7 +19,7 @@ import {
   formatUnits,
   fundTradeTitle,
 } from "@/lib/funds";
-import type { Portfolio } from "@/lib/investments";
+import { type Portfolio, linkLabel } from "@/lib/investments";
 import { investmentEmoji, investmentSticker } from "@/lib/fun";
 import { useSession } from "@/lib/session";
 import { BRAND } from "@/lib/theme";
@@ -284,6 +284,17 @@ export default function FundScreen() {
             label="Update NAV"
             onPress={() => go({ pathname: "/nav-form", params: { fundId } })}
           />
+          <ChunkyButton
+            variant="alt"
+            icon="link-variant"
+            label={linkLabel(fund.source_code)}
+            onPress={() =>
+              go({
+                pathname: "/link-form",
+                params: { kind: "mutual_fund", id: fundId, title: fund.symbol, ...(fund.source_code ? { code: fund.source_code } : {}) },
+              })
+            }
+          />
           <View style={styles.tradeButtons}>
             {redeemable.length > 0 ? (
               <ChunkyButton
@@ -409,6 +420,7 @@ export default function FundScreen() {
                 value={formatNav(nav.nav)}
                 note={note || undefined}
                 deleteLabel={`Delete the NAV on ${formatDate(nav.date)}`}
+                auto={nav.source === "auto"}
                 onDelete={() => setDeletingNav(nav)}
               />
             );

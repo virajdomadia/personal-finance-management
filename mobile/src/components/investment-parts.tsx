@@ -175,12 +175,14 @@ export function HistoryRow({
   date,
   value,
   note,
+  auto = false,
   onDelete,
   deleteLabel,
 }: {
   date: string;
   value: string;
   note?: string;
+  auto?: boolean;
   onDelete: () => void;
   deleteLabel: string;
 }) {
@@ -188,9 +190,18 @@ export function HistoryRow({
     <View style={styles.rowWrap}>
       <ChunkyBox radius={INPUT_RADIUS} offset={SHADOW_OFFSET_SM} style={styles.history}>
         <View style={styles.historyMain}>
-          <Text variant="titleMedium" style={styles.historyDate}>
-            {formatDate(date)}
-          </Text>
+          <View style={styles.historyTop}>
+            <Text variant="titleMedium" style={styles.historyDate}>
+              {formatDate(date)}
+            </Text>
+            {auto ? (
+              <View style={styles.autoChip} accessible accessibilityLabel="Fetched automatically">
+                <Text variant="labelSmall" style={styles.autoText}>
+                  auto
+                </Text>
+              </View>
+            ) : null}
+          </View>
           {note ? (
             <Text variant="bodySmall" style={styles.statNote}>
               {note}
@@ -340,6 +351,16 @@ const styles = StyleSheet.create({
   rowWrap: { paddingHorizontal: 16, paddingVertical: 4 },
   history: { flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12, paddingRight: 4, paddingVertical: 4 },
   historyMain: { flex: 1, minWidth: 0 },
+  historyTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+  autoChip: {
+    backgroundColor: BRAND.due,
+    borderWidth: 2,
+    borderColor: BRAND.ink,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 1,
+  },
+  autoText: { color: BRAND.ink, fontSize: 11, lineHeight: 15 },
   historyDate: { color: BRAND.ink, fontSize: 16, lineHeight: 22 },
   historyValue: { color: BRAND.ink, flexShrink: 0, maxWidth: "50%", textAlign: "right", fontVariant: ["tabular-nums"] },
   delete: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
