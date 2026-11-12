@@ -436,6 +436,15 @@ function InvestmentActivity({ items }: { items: Activity[] }) {
   );
 }
 
+// Marks a transaction recorded from a bank SMS, as opposed to one typed in.
+function SmsChip() {
+  return (
+    <span className="ml-2 inline-block rounded-full border-[1.5px] border-ink bg-blue/20 px-2 py-px align-middle text-[11px] font-black whitespace-nowrap text-ink">
+      from SMS
+    </span>
+  );
+}
+
 function TransactionRow({
   transaction: tx,
   viewedAccountId,
@@ -447,7 +456,8 @@ function TransactionRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const title = tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? `EMI · ${tx.to_account_name}` : tx.category;
+  const category = tx.category ?? "Uncategorised";
+  const title = tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? `EMI · ${tx.to_account_name}` : category;
   const accountText =
     tx.type === "transfer"
       ? `${tx.account_name} → ${tx.to_account_name}`
@@ -467,14 +477,17 @@ function TransactionRow({
         <div className="flex items-center">
           <EmojiSquare emoji={emoji} tone={TYPE_TONE[tx.type]} />
           <div className="min-w-0">
-            <p className="font-extrabold [overflow-wrap:anywhere]">{title}</p>
+            <p className="font-extrabold [overflow-wrap:anywhere]">
+              {title}
+              {tx.from_sms ? <SmsChip /> : null}
+            </p>
             <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere] lg:hidden">{accountText}</p>
             {tx.note ? <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">{tx.note}</p> : null}
           </div>
         </div>
       </td>
       <td className={`${TD} hidden [overflow-wrap:anywhere] lg:table-cell`}>
-        {tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? "EMI" : tx.category}
+        {tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? "EMI" : category}
       </td>
       <td className={`${TD} hidden max-w-56 [overflow-wrap:anywhere] lg:table-cell`}>{accountText}</td>
       <td className={`${TD_NUM} min-w-28 font-black [overflow-wrap:anywhere] ${colour}`}>

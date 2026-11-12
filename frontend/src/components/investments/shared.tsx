@@ -137,8 +137,10 @@ export function TradeTr({
   archived,
   onEdit,
   onDelete,
+  chip,
 }: {
   title: string;
+  chip?: string; // a small mark after the title, such as "estimated"
   date: string;
   details: (string | null)[];
   cashLabel: string;
@@ -152,7 +154,14 @@ export function TradeTr({
     <tr>
       <td className={`${TD} whitespace-nowrap`}>{formatDate(date)}</td>
       <td className={`${TD} min-w-32 [overflow-wrap:anywhere]`}>
-        <span className="block tabular-nums">{title}</span>
+        <span className="block tabular-nums">
+          {title}
+          {chip ? (
+            <span className="ml-2 inline-block rounded-full border-[1.5px] border-ink bg-yellow px-2 py-px align-middle text-[11px] font-black text-ink">
+              {chip}
+            </span>
+          ) : null}
+        </span>
         <span className="block text-xs font-bold text-zinc-600">{details.filter(Boolean).join(" · ")}</span>
       </td>
       <td className={TD_NUM}>

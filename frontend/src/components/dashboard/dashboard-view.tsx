@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/chunky";
 import { investmentSticker } from "@/lib/fun";
 import { progressText } from "@/lib/goals";
+import { cardBillText, reviewCountText } from "@/lib/review";
 
 type Load =
   | { status: "loading" }
@@ -110,7 +111,9 @@ function Content({
   data: Dashboard;
   onChanged: () => void;
 }) {
-  const due = data.next_card_due;
+  const bill = data.card_bill ?? null;
+  // The card's statement bill says more than its due day, so the card isn't listed twice.
+  const due = data.next_card_due && data.next_card_due.account_id !== bill?.account_id ? data.next_card_due : null;
   const used = data.credit_used;
   const investments = data.investments;
   const goals = data.goals ?? [];
@@ -122,6 +125,7 @@ function Content({
   }));
   const hasSplit = split.some((item) => item.value > 0);
   const negative = Number(data.net_worth) < 0;
+  const toReview = data.to_review ?? 0;
 
   const emptyPrompt = (
     <div className="flex flex-col items-start gap-3 rounded-[18px] border-[2.5px] border-ink bg-card p-6 shadow-chunky">
@@ -141,6 +145,7 @@ function Content({
   const hasAccounts = data.has_accounts;
   const showAttention =
     hasAccounts ||
+    !!bill ||
     !!due ||
     !!used ||
     data.recurring.length > 0 ||
@@ -148,6 +153,13 @@ function Content({
 
   return (
     <div className="flex flex-col gap-3.5">
+      {toReview > 0 && (
+        <Tile tone="purple" emoji="📥" label="To review" value={reviewCountText(toReview)} href="/review">
+          <span className="mt-0.5 block text-xs font-extrabold">
+            Bank messages the app couldn&apos;t sort by itself. Answer them to keep your records right.
+          </span>
+        </Tile>
+      )}
       {!hasAccounts && emptyPrompt}
       {(hasAccounts || investments || hasSplit) && (
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-[2fr_1fr_1fr]">
@@ -220,8 +232,15 @@ function Content({
             <h2 id="attention-title" className="mb-1 text-xs font-extrabold">
               <span aria-hidden="true">⏰ </span>Needs attention
             </h2>
-            {(due || used) && (
+            {(bill || due || used) && (
               <ul>
+                {bill && (
+                  <li>
+                    <Link href="/accounts" className={ITEM}>
+                      {cardBillText(bill)}
+                    </Link>
+                  </li>
+                )}
                 {due && (
                   <li>
                     <Link href="/accounts" className={ITEM}>
@@ -245,6 +264,7 @@ function Content({
               embedded
             />
             {hasAccounts &&
+              !bill &&
               !due &&
               !used &&
               data.recurring.length === 0 &&

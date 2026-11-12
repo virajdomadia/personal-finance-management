@@ -142,6 +142,7 @@ function FundTradeRow({
   return (
     <TradeTr
       title={title}
+      chip={trade.estimated ? "estimated" : undefined}
       date={trade.date}
       details={[
         trade.account_name,
