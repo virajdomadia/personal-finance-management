@@ -208,6 +208,27 @@ def _find(db: Session, user_id: int, kind: str, key: str) -> Category | None:
     return found
 
 
+def category_family(db: Session, user_id: int, name: str) -> list[str]:
+    """A category's name (of either kind) with its subcategories' names, for filtering. An old,
+    merged name finds the category it went into; an unknown name finds just itself."""
+    key = name_key(name)
+    names = [name]
+    for kind in KINDS:
+        found = _find(db, user_id, kind, key)
+        if found is None:
+            continue
+        names.append(found.name)
+        children = db.scalars(
+            select(Category.name).where(
+                Category.user_id == user_id,
+                Category.parent_id == found.id,
+                Category.merged_into_id.is_(None),
+            )
+        )
+        names.extend(children)
+    return names
+
+
 # Resolving a typed name
 
 

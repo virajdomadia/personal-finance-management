@@ -1,4 +1,5 @@
 import calendar
+import re
 from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal
@@ -8,12 +9,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.balances import Movement, balance_of, load_movements, net_flows
-from app.api.categories import DEFAULTS, kind_of, picker_names, resolve
+from app.api.categories import (
+    DEFAULTS,
+    UNCATEGORISED,
+    category_family,
+    kind_of,
+    name_key,
+    picker_names,
+    resolve,
+)
 from app.api.dates import iso_date, today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.policy_periods import LINKED as PERIOD_LINKED
@@ -417,6 +426,10 @@ def save_checks(
         )
 
 
+def _query_error(field: str, message: str) -> NoReturn:
+    raise RequestValidationError([{"loc": ("query", field), "msg": message, "type": "value_error"}])
+
+
 def _get_owned(db: Session, user_id: int, id: int) -> Transaction:
     # Ids outside the column's range can't exist; asking the database would be a 500.
     tx = None
@@ -517,8 +530,57 @@ def list_transactions(
     month: Annotated[str | None, Query(pattern=r"^[1-9][0-9]{3}-(0[1-9]|1[0-2])$")] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0, le=MAX_ID)] = 0,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    category: Annotated[str | None, Query(max_length=40)] = None,
+    amount_min: Annotated[Decimal | None, Query(ge=0, lt=MAX_MONEY, decimal_places=2)] = None,
+    amount_max: Annotated[Decimal | None, Query(ge=0, lt=MAX_MONEY, decimal_places=2)] = None,
 ) -> TransactionList:
+    """Newest first. `q` finds text in the note, the SMS payee or the category; `category`
+    includes a parent's subcategories, and "Uncategorised" finds income and expenses without one."""
+    if date_from is not None and date_to is not None and date_from > date_to:
+        _query_error("date_to", "The end date can't be before the start.")
+    if amount_min is not None and amount_max is not None and amount_min > amount_max:
+        _query_error("amount_max", "The highest amount can't be below the lowest.")
     query = select(Transaction).where(Transaction.user_id == user.id)
+    if date_from is not None:
+        query = query.where(Transaction.date >= date_from)
+    if date_to is not None:
+        query = query.where(Transaction.date <= date_to)
+    if amount_min is not None:
+        query = query.where(Transaction.amount >= amount_min)
+    if amount_max is not None:
+        query = query.where(Transaction.amount <= amount_max)
+    text = None if q is None else q.strip()
+    if text:
+        # LIKE's own characters are matched literally.
+        pattern = "%" + re.sub(r"([\\%_])", r"\\\1", text.lower()) + "%"
+        payee = (
+            select(SmsEntry.id)
+            .where(
+                SmsEntry.user_id == user.id,
+                SmsEntry.transaction_id == Transaction.id,
+                func.lower(SmsEntry.payee).like(pattern, escape="\\"),
+            )
+            .exists()
+        )
+        query = query.where(
+            or_(
+                func.lower(Transaction.note).like(pattern, escape="\\"),
+                func.lower(Transaction.category).like(pattern, escape="\\"),
+                payee,
+            )
+        )
+    wanted = None if category is None else category.strip()
+    if wanted:
+        if name_key(wanted) == name_key(UNCATEGORISED):
+            query = query.where(
+                Transaction.category.is_(None), Transaction.type.in_(("income", "expense"))
+            )
+        else:
+            names = category_family(db, user.id, wanted)
+            query = query.where(func.lower(Transaction.category).in_([n.lower() for n in names]))
     if account_id is not None:
         query = query.where(
             or_(Transaction.account_id == account_id, Transaction.to_account_id == account_id)
