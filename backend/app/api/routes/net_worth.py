@@ -4,7 +4,6 @@ The rules are in docs/architecture/financial-calculations.md, "Net worth over ti
 """
 
 from datetime import date
-from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -14,7 +13,15 @@ from sqlalchemy import select
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.routes.accounts import fmt
-from app.api.snapshots import NEAREST_DAYS, Figures, current_figures, ensure_today, months_back
+from app.api.snapshots import (
+    NEAREST_AFTER,
+    NEAREST_BEFORE,
+    ON_TARGET_DAYS,
+    Figures,
+    current_figures,
+    ensure_today,
+    months_back,
+)
 from app.api.worth import GROUPS
 from app.db.session import DbSession
 from app.models.snapshot import NetWorthSnapshot
@@ -47,6 +54,10 @@ class Point(BaseModel):
 class Change(BaseModel):
     amount: str  # today's net worth minus the one on `from_date`; signed
     from_date: str
+    # Compared with an estimate: both sides then leave out stocks, funds and coins.
+    estimated: bool
+    # `from_date` is within 3 days of the day asked for (a month ago, or the range's start).
+    on_target: bool
 
 
 class NetWorthHistory(BaseModel):
@@ -78,16 +89,34 @@ def _figures(row: NetWorthSnapshot) -> Figures:
     )
 
 
-def _change(now: Decimal, row: NetWorthSnapshot | None) -> Change | None:
+def _change(now: Figures, row: NetWorthSnapshot | None, target: date | None) -> Change | None:
+    """Today against `row`. An estimate has no investments, so today's investments are left
+    out as well, to compare like with like."""
     if row is None:
         return None
-    return Change(amount=fmt(now - row.net_worth), from_date=row.date.isoformat())
+    today = now.without_investments() if row.estimated else now.net_worth
+    return Change(
+        amount=fmt(today - row.net_worth),
+        from_date=row.date.isoformat(),
+        estimated=row.estimated,
+        on_target=target is None or abs((row.date - target).days) <= ON_TARGET_DAYS,
+    )
 
 
 def nearest(rows: list[NetWorthSnapshot], target: date) -> NetWorthSnapshot | None:
-    """The snapshot closest to `target` within NEAREST_DAYS; the earlier one on a tie."""
-    close = [r for r in rows if abs((r.date - target).days) <= NEAREST_DAYS]
-    return min(close, key=lambda r: (abs((r.date - target).days), r.date), default=None)
+    """The snapshot closest to `target`, from 16 days before it to 3 after; the earlier one on a
+    tie. A real snapshot is preferred, and an estimate is used only when no real one is close."""
+
+    def close(estimated: bool) -> list[NetWorthSnapshot]:
+        return [
+            r
+            for r in rows
+            if r.estimated == estimated
+            and -NEAREST_BEFORE <= (r.date - target).days <= NEAREST_AFTER
+        ]
+
+    candidates = close(False) or close(True)
+    return min(candidates, key=lambda r: (abs((r.date - target).days), r.date), default=None)
 
 
 @router.get("")
@@ -119,13 +148,14 @@ def get_history(
     start = None if months is None else months_back(today, months)
     shown = [r for r in past if start is None or r.date >= start]
     tracked = next((r.date for r in rows if not r.estimated), None)
+    last_month = months_back(today, 1)
 
     return NetWorthHistory(
         range=range_,
         today=today.isoformat(),
         points=[_point(r.date, _figures(r), r.estimated) for r in shown]
         + [_point(today, now, False)],
-        since_last_month=_change(now.net_worth, nearest(past, months_back(today, 1))),
-        since_start=_change(now.net_worth, shown[0] if shown else None),
+        since_last_month=_change(now, nearest(past, last_month), last_month),
+        since_start=_change(now, shown[0] if shown else None, start),
         tracked_since=None if tracked is None else tracked.isoformat(),
     )

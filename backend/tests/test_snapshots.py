@@ -16,6 +16,7 @@ from app.api.snapshots import (
     month_ends,
     months_back,
     snapshot_all,
+    snapshot_date,
     write_snapshot,
 )
 from app.main import app
@@ -376,3 +377,49 @@ def test_backfill_only_touches_its_own_user(db_session: Session) -> None:
     account(db_session, other, "cash", "500.00", date(2026, 10, 1))
     assert backfill(db_session, me, TODAY) == 0
     assert stored(db_session) == []
+
+
+# The cron's date, and figures that add up
+
+
+@pytest.mark.parametrize(
+    ("moment", "evening"),
+    [
+        (datetime(2026, 11, 13, 18, 0, tzinfo=UTC), date(2026, 11, 13)),  # 23:30 IST on the 13th
+        (datetime(2026, 11, 13, 18, 29, tzinfo=UTC), date(2026, 11, 13)),  # 23:59 IST
+        (datetime(2026, 11, 13, 18, 31, tzinfo=UTC), date(2026, 11, 13)),  # 00:01 IST on the 14th
+        (datetime(2026, 11, 13, 18, 59, tzinfo=UTC), date(2026, 11, 13)),  # 00:29 IST on the 14th
+        (datetime(2026, 12, 31, 18, 45, tzinfo=UTC), date(2026, 12, 31)),  # into the new year
+    ],
+)
+def test_the_nightly_snapshot_is_dated_by_its_evening(moment: datetime, evening: date) -> None:
+    assert snapshot_date(moment) == evening
+
+
+def test_stored_figures_add_up_after_rounding(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api.worth import Worth
+
+    headers = auth(db_session, monkeypatch)
+    make(headers, type="cash", name="Cash", balance="1.00")
+    split = {
+        "bank_cash": Decimal("0"),
+        "deposits": Decimal("0.004"),
+        "stocks": Decimal("100.006"),
+        "funds": Decimal("0.005"),
+        "crypto": Decimal("0"),
+    }
+    split["bank_cash"] = Decimal("200.0149") - sum(split.values(), Decimal(0))
+    worth = Worth(Decimal("200.0149"), Decimal("50.0051"), split, None, None, None, [])  # type: ignore[arg-type]
+    monkeypatch.setattr(snapshots, "worth_of", lambda *args: worth)
+
+    write_snapshot(db_session, user_id(db_session), TODAY)
+    [row] = stored(db_session)
+    assert (row.total_have, row.total_owe, row.net_worth) == (
+        Decimal("200.01"),
+        Decimal("50.01"),
+        Decimal("150.00"),
+    )
+    parts = row.bank_cash + row.deposits + row.stocks + row.funds + row.crypto
+    assert parts == row.total_have

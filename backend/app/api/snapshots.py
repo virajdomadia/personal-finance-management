@@ -5,7 +5,7 @@ The rules are in docs/architecture/financial-calculations.md, "Net worth over ti
 
 import calendar
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import NamedTuple
 
@@ -26,7 +26,16 @@ from app.models.user import User
 log = logging.getLogger("app.snapshots")
 
 BACKFILL_MONTHS = 12
-NEAREST_DAYS = 16  # how far from the same day last month a snapshot may be and still compare
+# How far from the same day last month a snapshot may be and still compare: up to 16 days
+# before it, or 3 after. Within 3 days either side it counts as on the day.
+NEAREST_BEFORE = 16
+NEAREST_AFTER = 3
+ON_TARGET_DAYS = 3
+INVESTMENT_GROUPS = ("stocks", "funds", "crypto")
+PAISE = Decimal("0.01")
+# The nightly run is scheduled for 23:30 India time but can start as late as 00:29. Its snapshot
+# belongs to the evening it was meant for, so the date is taken this long before the run.
+EVENING_SHIFT = timedelta(hours=3)
 
 
 class Figures(NamedTuple):
@@ -34,6 +43,24 @@ class Figures(NamedTuple):
     total_have: Decimal
     total_owe: Decimal
     split: dict[str, Decimal]  # every group in GROUPS
+
+    def without_investments(self) -> Decimal:
+        """Net worth less stocks, funds and coins: what an estimated month-end can compare with."""
+        return self.net_worth - sum((self.split[g] for g in INVESTMENT_GROUPS), Decimal(0))
+
+
+def rounded(have: Decimal, owe: Decimal, split: dict[str, Decimal]) -> Figures:
+    """Figures rounded to paise so they add up exactly as stored: have and owe first, net worth
+    from those, and bank and cash as what is left of have after the other groups."""
+    have, owe = have.quantize(PAISE), owe.quantize(PAISE)
+    parts = {g: split[g].quantize(PAISE) for g in GROUPS if g != "bank_cash"}
+    bank_cash = have - sum(parts.values(), Decimal(0))
+    return Figures(have - owe, have, owe, {"bank_cash": bank_cash, **parts})
+
+
+def snapshot_date(now: datetime) -> date:
+    """The India date of the evening a nightly run belongs to, even one starting after midnight."""
+    return (now.astimezone(INDIA) - EVENING_SHIFT).date()
 
 
 def has_anything(db: Session, user_id: int) -> bool:
@@ -60,7 +87,7 @@ def current_figures(db: Session, user_id: int, today: date) -> Figures | None:
         ).all()
     )
     worth = worth_of(db, user_id, active, today)
-    return Figures(worth.net_worth, worth.have, worth.owe, worth.split)
+    return rounded(worth.have, worth.owe, worth.split)
 
 
 def _row(user_id: int, day: date, figures: Figures, estimated: bool) -> dict:
@@ -202,9 +229,8 @@ def estimate_month_ends(
             (balance_of(a, flows) for a in counted if a.type in DEPOSIT_TYPES), Decimal(0)
         )
         split = dict.fromkeys(GROUPS, Decimal(0))
-        split["bank_cash"] = have - deposits
         split["deposits"] = deposits
-        estimates[end] = Figures(have - owe, have, owe, split)
+        estimates[end] = rounded(have, owe, split)
     return estimates
 
 
