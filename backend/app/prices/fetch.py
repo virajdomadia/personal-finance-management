@@ -3,6 +3,7 @@
 import io
 import json
 import zipfile
+import zlib
 from datetime import date
 from decimal import Decimal
 
@@ -80,8 +81,8 @@ class Fetcher:
                 if len(names) != 1:
                     raise SourceError("bhavcopy zip did not hold exactly one file")
                 raw = archive.read(names[0])
-        except zipfile.BadZipFile as exc:
-            raise SourceError("bhavcopy was not a valid zip") from exc
+        except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError) as exc:
+            raise SourceError("bhavcopy was not a readable zip") from exc
         return raw.decode("utf-8-sig", errors="replace")
 
     def simple_price(self, ids: list[str]) -> dict:

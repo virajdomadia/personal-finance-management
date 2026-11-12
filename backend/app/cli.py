@@ -1,4 +1,5 @@
 """Admin commands for the users table: python -m app.cli <command>."""
+
 import argparse
 import sys
 
@@ -52,9 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     move = commands.add_parser("move-user", help="point a user at a new Google account")
     move.add_argument("old_email")
     move.add_argument("new_email")
-    commands.add_parser("revoke-sessions", help="sign a user out everywhere").add_argument(
-        "email"
-    )
+    commands.add_parser("revoke-sessions", help="sign a user out everywhere").add_argument("email")
     args = parser.parse_args(argv)
 
     try:

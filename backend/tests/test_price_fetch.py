@@ -130,3 +130,16 @@ def test_api_key_only_on_coingecko_requests(monkeypatch):
         assert "x-cg-demo-api-key" not in seen[1].headers
     finally:
         get_settings.cache_clear()
+
+
+def test_corrupt_deflate_member_raises_source_error():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("bhav.csv", b"TckrSymb,ClsPric\n" + b"TCS,4000.5\n" * 200)
+    data = bytearray(buf.getvalue())
+    start = 30 + len("bhav.csv")
+    for i in range(start, start + 20):
+        data[i] ^= 0xFF
+    fetcher, _ = make_fetcher(lambda r: httpx.Response(200, content=bytes(data)))
+    with pytest.raises(SourceError):
+        fetcher.bhavcopy(date(2026, 11, 12))
