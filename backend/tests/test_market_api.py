@@ -353,3 +353,43 @@ def test_cannot_link_other_users_instrument(
     assert link(other, "funds", fund, FUND_CODE).status_code == 404
     assert link(other, "coins", coin, None).status_code == 404
     assert stocks(headers)[0]["source_code"] is None
+
+
+def test_search_coins_crash_is_503(headers: Headers, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(market, "default_fetcher", lambda: FakeFetcher(crash={"coin_search"}))
+    response = search(headers, "crypto", "bitcoin")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Couldn't search coins right now."}
+
+
+def test_search_query_over_60_chars_422(headers: Headers, fetcher: FakeFetcher) -> None:
+    assert search(headers, "stock", "a" * 60).status_code == 200
+    response = search(headers, "crypto", "a" * 61)
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["query", "q"]
+    assert fetcher.calls["coin_search"] == 0
+
+
+def test_linked_stock_and_fund_can_be_deleted(headers: Headers, seeded: None) -> None:
+    stock = add_stock(headers).json()["id"]
+    link(headers, "stocks", stock, STOCK_CODE)
+    assert client.get(f"{URL}/stocks/{stock}/prices", headers=headers).json()["prices"]
+    assert client.delete(f"{URL}/stocks/{stock}", headers=headers).status_code == 200
+    assert stocks(headers) == []
+    fund = add_fund(headers).json()["id"]
+    link(headers, "funds", fund, FUND_CODE)
+    assert client.delete(f"{URL}/funds/{fund}", headers=headers).status_code == 200
+
+
+def test_delete_still_refuses_manual_prices_on_linked_holdings(
+    headers: Headers, seeded: None
+) -> None:
+    stock = add_stock(headers).json()["id"]
+    add_price(headers, stock, "2026-11-01", "100")
+    link(headers, "stocks", stock, STOCK_CODE)
+    assert client.delete(f"{URL}/stocks/{stock}", headers=headers).status_code == 409
+    fund = add_fund(headers).json()["id"]
+    add_nav(headers, fund, "2026-11-01", "80")
+    link(headers, "funds", fund, FUND_CODE)
+    assert client.delete(f"{URL}/funds/{fund}", headers=headers).status_code == 409
+    assert len(fund_navs(headers, fund)) == 2  # the refusal leaves the auto NAV alone

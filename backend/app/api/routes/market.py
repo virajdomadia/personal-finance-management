@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator
 from pydantic_core import PydanticCustomError
 from sqlalchemy import case, func, or_, select
@@ -16,7 +17,7 @@ from app.api.routes.accounts import field_error
 from app.db.session import DbSession
 from app.models.investment import Instrument
 from app.models.market import MarketCode
-from app.prices.fetch import SourceError, default_fetcher
+from app.prices.fetch import default_fetcher
 from app.prices.parse import parse_coin_search
 from app.prices.refresh import _upsert_quotes, apply_to_users, refresh_market
 
@@ -27,6 +28,7 @@ log = logging.getLogger("app.prices")
 
 PICK_A_MATCH = "Pick a match from the search."
 MIN_QUERY = 2
+MAX_QUERY = 60
 RESULT_LIMIT = 20
 COIN_MAX_AGE = timedelta(hours=6)
 
@@ -122,8 +124,8 @@ def _search_table(db: DbSession, kind: str, q: str) -> list[MarketCode]:
 def _search_coins(db: DbSession, q: str) -> list[MarketCode]:
     try:
         quotes = parse_coin_search(default_fetcher().coin_search(q))
-    except SourceError as exc:
-        log.warning("coin search failed: %s", exc)
+    except Exception:  # a source error, or anything the reply throws at the parser
+        log.exception("coin search failed")
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Couldn't search coins right now."
         ) from None
@@ -146,6 +148,11 @@ def search_market_codes(
     q: Annotated[str, Query()] = "",
 ) -> MarketCodeList:
     q = q.strip()
+    if len(q) > MAX_QUERY:
+        message = f"Search for {MAX_QUERY} characters or fewer."
+        raise RequestValidationError(
+            [{"loc": ("query", "q"), "msg": message, "type": "value_error"}]
+        )
     if len(q) < MIN_QUERY:
         return MarketCodeList(results=[])
     rows = _search_coins(db, q) if kind == "crypto" else _search_table(db, kind, q)

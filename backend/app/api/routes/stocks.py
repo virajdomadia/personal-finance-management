@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.dates import today_india
@@ -221,13 +221,21 @@ def update_stock(id: int, body: StockUpdate, user: CurrentUser, db: DbSession) -
 def delete_stock(id: int, user: CurrentUser, db: DbSession) -> Deleted:
     stock = get_owned_stock(db, user.id, id)
     has_price = db.scalar(
-        select(InstrumentPrice.id).where(InstrumentPrice.instrument_id == stock.id).limit(1)
+        select(InstrumentPrice.id)
+        .where(InstrumentPrice.instrument_id == stock.id, InstrumentPrice.source != "auto")
+        .limit(1)
     )
     has_trade = db.scalar(
         select(InvestmentTrade.id).where(InvestmentTrade.instrument_id == stock.id).limit(1)
     )
     if has_price is not None or has_trade is not None:
         raise _in_use()
+    # Automatic prices are the market's, not the user's: they go with the stock.
+    db.execute(
+        delete(InstrumentPrice).where(
+            InstrumentPrice.instrument_id == stock.id, InstrumentPrice.source == "auto"
+        )
+    )
     db.delete(stock)
     try:
         db.commit()

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.api.dates import today_india
@@ -246,9 +246,17 @@ def update_fund(id: int, body: FundUpdate, user: CurrentUser, db: DbSession) -> 
 @router.delete("/funds/{id}")
 def delete_fund(id: int, user: CurrentUser, db: DbSession) -> Deleted:
     fund = get_owned_fund(db, user.id, id)
-    for table in (InstrumentPrice, InvestmentTrade, Sip):
-        if db.scalar(select(table.id).where(table.instrument_id == fund.id).limit(1)) is not None:
+    manual = InstrumentPrice.source != "auto"
+    for table, extra in ((InstrumentPrice, manual), (InvestmentTrade, True), (Sip, True)):
+        found = select(table.id).where(table.instrument_id == fund.id, extra).limit(1)
+        if db.scalar(found) is not None:
             raise _in_use()
+    # Automatic NAVs are the market's, not the user's: they go with the fund.
+    db.execute(
+        delete(InstrumentPrice).where(
+            InstrumentPrice.instrument_id == fund.id, InstrumentPrice.source == "auto"
+        )
+    )
     db.delete(fund)
     try:
         db.commit()
