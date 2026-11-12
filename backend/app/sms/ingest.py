@@ -5,8 +5,9 @@ entry (returns it) or leaves it to the next (returns None). Money is recorded st
 whenever the account and amount are known; whatever is still missing is left as a review reason.
 """
 
+import re
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any
 
 from fastapi.exceptions import RequestValidationError
@@ -31,6 +32,10 @@ CARD_KINDS = {"card_spend", "card_payment", "card_statement"}
 # A debit card's spend lands on its bank through an identifier, so cards count for debits too.
 BANK_SIDE_TYPES = ("bank", "wallet", "credit_card")
 MANUAL_WINDOW = timedelta(days=1)
+PAIR_WINDOW = timedelta(days=3)
+PAYERS = ("bank", "wallet")
+# A payee that is a masked account number, as a payee key: "xx650", "x8650", "a/c xx8650".
+_MASKED = re.compile(r"^(?:a/?c\.?\s*)?x+(\d{3,4})$")
 
 Step = Callable[[Session, int, SmsEntry], SmsEntry | None]
 
@@ -250,25 +255,340 @@ def record(db: Session, user_id: int, entry: SmsEntry, values: dict[str, Any]) -
     return True
 
 
-def _card_payment(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
-    """Which bank paid the card bill is unknown until Task 4 pairs it; ask meanwhile."""
-    if entry.kind != "card_payment":
+# Transfers
+
+
+def _link(entry: SmsEntry, tx_id: int) -> None:
+    entry.transaction_id = tx_id
+    entry.status, entry.reason, entry.message, entry.candidates = "recorded", None, None, None
+
+
+def _near(column: Any, day: date) -> Any:
+    return and_(column >= day - PAIR_WINDOW, column <= day + PAIR_WINDOW)
+
+
+def _closest(
+    rows: list[Any], day: date, day_of: Callable[[Any], date], id_of: Callable[[Any], int]
+) -> list[Any]:
+    return sorted(rows, key=lambda r: (abs((day_of(r) - day).days), id_of(r)))
+
+
+def _active_account(db: Session, user_id: int, id_: int | None) -> int | None:
+    if id_ is None:
         return None
-    card = db.get(Account, entry.account_id)
-    name = "your card" if card is None else card.name
+    return db.scalar(
+        select(Account.id).where(
+            Account.id == id_, Account.user_id == user_id, Account.archived_at.is_(None)
+        )
+    )
+
+
+def _sms_sides(
+    db: Session, user_id: int, entry: SmsEntry, kind: str, tx_type: str, *where: Any
+) -> list[tuple[SmsEntry, Transaction]]:
+    """Other SMS entries of `kind` whose money was recorded as `tx_type` (so not yet paired), of
+    the same amount and within the pair window, closest first."""
+    query = (
+        select(SmsEntry, Transaction)
+        .join(Transaction, Transaction.id == SmsEntry.transaction_id)
+        .where(
+            SmsEntry.user_id == user_id,
+            Transaction.user_id == user_id,
+            SmsEntry.id != entry.id,
+            SmsEntry.kind == kind,
+            SmsEntry.status.not_in(("ignored", "duplicate")),
+            Transaction.type == tx_type,
+            Transaction.account_id == SmsEntry.account_id,
+            Transaction.amount == entry.amount,
+            Transaction.recurring_template_id.is_(None),
+            _near(Transaction.date, entry.occurred_on),
+            *where,
+        )
+    )
+    rows = [(e, tx) for e, tx in db.execute(query)]
+    return _closest(rows, entry.occurred_on, lambda r: r[1].date, lambda r: r[1].id)
+
+
+def _convert(db: Session, user_id: int, tx: Transaction, from_id: int, to_id: int) -> bool:
+    """Turns a recorded expense or income into a transfer, under the usual save checks."""
+    values = {
+        "type": "transfer",
+        "account_id": from_id,
+        "to_account_id": to_id,
+        "amount": tx.amount,
+        "date": tx.date,
+        "category": None,
+        "interest": None,
+        "note": tx.note,
+        "recurring_template_id": None,
+    }
+    # The old accounts are locked too: their balances change as well.
+    accounts = lock_accounts(db, user_id, [tx.account_id, tx.to_account_id, from_id, to_id])
+    try:
+        save_checks(
+            db,
+            user_id,
+            accounts,
+            values,
+            existing_id=tx.id,
+            link_changed=False,
+            allow_uncategorised=True,
+        )
+    except RequestValidationError:
+        return False
+    for field, value in values.items():
+        setattr(tx, field, value)
+    db.flush()
+    return True
+
+
+def _join(
+    db: Session,
+    user_id: int,
+    entry: SmsEntry,
+    sides: list[tuple[SmsEntry, Transaction]],
+    from_id: int | None,
+    to_id: int | None,
+) -> SmsEntry | None:
+    """Makes the first side that passes the checks one transfer with this entry. A `None` end
+    is the other side's account."""
+    for other, tx in sides:
+        source = other.account_id if from_id is None else from_id
+        target = other.account_id if to_id is None else to_id
+        if source is None or target is None:
+            continue
+        if _convert(db, user_id, tx, source, target):
+            _link(entry, tx.id)
+            _link(other, tx.id)
+            return entry
+    return None
+
+
+def _waiting_card_payments(
+    db: Session, user_id: int, entry: SmsEntry, card_id: int | None = None
+) -> list[SmsEntry]:
+    """Card "payment received" messages still asking which account paid, closest first."""
+    active_cards = select(Account.id).where(
+        Account.user_id == user_id,
+        Account.type == "credit_card",
+        Account.archived_at.is_(None),
+    )
+    query = select(SmsEntry).where(
+        SmsEntry.user_id == user_id,
+        SmsEntry.kind == "card_payment",
+        SmsEntry.status == "review",
+        SmsEntry.reason == "card_payment",
+        SmsEntry.transaction_id.is_(None),
+        SmsEntry.amount == entry.amount,
+        _near(SmsEntry.occurred_on, entry.occurred_on),
+        SmsEntry.account_id.in_(active_cards),
+    )
+    if card_id is not None:
+        query = query.where(SmsEntry.account_id == card_id)
+    rows = list(db.scalars(query))
+    return _closest(rows, entry.occurred_on, lambda e: e.occurred_on, lambda e: e.id)
+
+
+def _record_transfer(
+    db: Session, user_id: int, entry: SmsEntry, to_id: int, waiting: SmsEntry | None = None
+) -> SmsEntry:
+    """Records this debit as a transfer to `to_id`; a card payment waiting for it links too."""
+    values = {
+        "type": "transfer",
+        "account_id": entry.account_id,
+        "to_account_id": to_id,
+        "amount": entry.amount,
+        "date": entry.occurred_on,
+        "category": None,
+        "note": entry.payee,
+    }
+    if not record(db, user_id, entry, values):
+        return entry
+    tx_id = entry.transaction_id
+    assert tx_id is not None
+    _link(entry, tx_id)
+    if waiting is None:
+        found = _waiting_card_payments(db, user_id, entry, to_id)
+        waiting = found[0] if found else None
+    if waiting is not None:
+        _link(waiting, tx_id)
+    return entry
+
+
+def _rule_target(db: Session, user_id: int, entry: SmsEntry) -> int | None:
+    if entry.payee_key is None:
+        return None
+    target = db.scalar(
+        select(PayeeRule.to_account_id).where(
+            PayeeRule.user_id == user_id, PayeeRule.payee_key == entry.payee_key
+        )
+    )
+    if target == entry.account_id:
+        return None
+    return _active_account(db, user_id, target)
+
+
+def _masked_target(db: Session, user_id: int, entry: SmsEntry) -> int | None:
+    """The one other account a masked payee such as "XX650" or "A/c XX8650" ends like."""
+    match = _MASKED.match(entry.payee_key or "")
+    if match is None:
+        return None
+    ending = f"%{match.group(1)}"
+    identified = select(AccountIdentifier.account_id).where(
+        AccountIdentifier.user_id == user_id, AccountIdentifier.last4.like(ending)
+    )
+    found = db.scalars(
+        select(Account.id).where(
+            Account.user_id == user_id,
+            Account.archived_at.is_(None),
+            Account.id != entry.account_id,
+            or_(Account.last4.like(ending), Account.id.in_(identified)),
+        )
+    ).all()
+    return found[0] if len(found) == 1 else None
+
+
+def _maybe_transfer(
+    db: Session, user_id: int, entry: SmsEntry, sides: list[tuple[SmsEntry, Transaction]]
+) -> SmsEntry:
+    """Recorded as usual, but asked about: equal amounts alone aren't evidence of a transfer."""
+    _category(db, user_id, entry)
+    if entry.transaction_id is None:
+        return entry
+    _review(entry, "maybe_transfer", "Is this a transfer between your accounts?")
+    entry.candidates = [
+        {"kind": "transaction", "id": tx.id, "label": _label(tx)} for _, tx in sides
+    ]
+    return entry
+
+
+def _pending_transfer_into(db: Session, user_id: int, entry: SmsEntry) -> Transaction | None:
+    """A transfer recorded from the paying side's SMS whose receiving side hasn't come yet."""
+    received = select(SmsEntry.transaction_id).where(
+        SmsEntry.user_id == user_id,
+        SmsEntry.transaction_id.is_not(None),
+        SmsEntry.kind.in_(MONEY_IN | {"card_payment"}),
+    )
+    query = select(Transaction).where(
+        Transaction.user_id == user_id,
+        Transaction.source == "sms",
+        Transaction.type == "transfer",
+        Transaction.to_account_id == entry.account_id,
+        Transaction.amount == entry.amount,
+        _near(Transaction.date, entry.occurred_on),
+        Transaction.id.not_in(received),
+    )
+    rows = _closest(list(db.scalars(query)), entry.occurred_on, lambda t: t.date, lambda t: t.id)
+    return rows[0] if rows else None
+
+
+def _debit_side(db: Session, user_id: int, entry: SmsEntry, account: Account) -> SmsEntry | None:
+    here = account.id
+    if entry.ref is not None:
+        same_ref = _sms_sides(
+            db,
+            user_id,
+            entry,
+            "credit",
+            "income",
+            SmsEntry.ref == entry.ref,
+            SmsEntry.account_id != here,
+        )
+        if _join(db, user_id, entry, same_ref, here, None) is not None:
+            return entry
+    target = _rule_target(db, user_id, entry) or _masked_target(db, user_id, entry)
+    if target is not None:
+        arrived = _sms_sides(db, user_id, entry, "credit", "income", SmsEntry.account_id == target)
+        if _join(db, user_id, entry, arrived, here, target) is not None:
+            return entry
+        return _record_transfer(db, user_id, entry, target)
+    if account.type in PAYERS:
+        waiting = _waiting_card_payments(db, user_id, entry)
+        if waiting and waiting[0].account_id is not None:
+            return _record_transfer(db, user_id, entry, waiting[0].account_id, waiting[0])
+    other_side = _sms_sides(db, user_id, entry, "credit", "income", SmsEntry.account_id != here)
+    if other_side:
+        return _maybe_transfer(db, user_id, entry, other_side)
+    return None
+
+
+def _credit_side(db: Session, user_id: int, entry: SmsEntry, account: Account) -> SmsEntry | None:
+    here = account.id
+    pending = _pending_transfer_into(db, user_id, entry)
+    if pending is not None:
+        _link(entry, pending.id)
+        return entry
+    if entry.ref is not None:
+        same_ref = _sms_sides(
+            db,
+            user_id,
+            entry,
+            "debit",
+            "expense",
+            SmsEntry.ref == entry.ref,
+            SmsEntry.account_id != here,
+        )
+        if _join(db, user_id, entry, same_ref, None, here) is not None:
+            return entry
+    other_side = _sms_sides(db, user_id, entry, "debit", "expense", SmsEntry.account_id != here)
+    if other_side:
+        return _maybe_transfer(db, user_id, entry, other_side)
+    return None
+
+
+def _card_paid(db: Session, user_id: int, entry: SmsEntry, card: Account) -> SmsEntry:
+    """A card "payment received": the bank debit that paid it, else ask which account paid."""
+    pending = _pending_transfer_into(db, user_id, entry)
+    if pending is not None:
+        _link(entry, pending.id)
+        return entry
+    payers = select(Account.id).where(
+        Account.user_id == user_id,
+        Account.archived_at.is_(None),
+        Account.type.in_(PAYERS),
+    )
+    debits = _sms_sides(db, user_id, entry, "debit", "expense", SmsEntry.account_id.in_(payers))
+    if _join(db, user_id, entry, debits, None, card.id) is not None:
+        return entry
     amount = "" if entry.amount is None else f"{rupees(entry.amount)} "
-    _review(entry, "card_payment", f"Which account paid {amount}to {name}?")
-    payers = db.scalars(
+    _review(entry, "card_payment", f"Which account paid {amount}to {card.name}?")
+    accounts = db.scalars(
         select(Account)
         .where(
             Account.user_id == user_id,
             Account.archived_at.is_(None),
-            Account.type.in_(("bank", "wallet")),
+            Account.type.in_(PAYERS),
         )
         .order_by(Account.id)
     )
-    entry.candidates = [{"kind": "account", "id": a.id, "label": a.name} for a in payers]
+    entry.candidates = [{"kind": "account", "id": a.id, "label": a.name} for a in accounts]
     return entry
+
+
+def pair_transfer(db: Session, user_id: int, entry: SmsEntry, account: Account) -> SmsEntry | None:
+    """One transfer from the two sides of a move between the owner's own accounts.
+
+    Sides merge only with evidence: the same reference on both, a payee that is one of the
+    owner's own account numbers, a payee rule pointing at an account, or a card "payment
+    received". Equal amounts alone are recorded as they are and asked about ("maybe_transfer").
+    `account` is the entry's resolved account.
+    """
+    if entry.kind == "card_payment":
+        return _card_paid(db, user_id, entry, account)
+    if entry.amount is None:
+        return None
+    if entry.kind == "debit":
+        return _debit_side(db, user_id, entry, account)
+    if entry.kind in MONEY_IN:
+        return _credit_side(db, user_id, entry, account)
+    return None
+
+
+def _transfer(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
+    account = None if entry.account_id is None else db.get(Account, entry.account_id)
+    if account is None or account.user_id != user_id:
+        return None
+    return pair_transfer(db, user_id, entry, account)
 
 
 def _category(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
@@ -305,13 +625,13 @@ def _category(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
     return entry
 
 
-# The order matters: later tasks insert transfers and expected payments before `_category`.
+# The order matters: later tasks insert expected payments before `_category`.
 STEPS: list[Step] = [
     _demat,
     _account,
     _card_statement,
     _same_ref,
     _typed_by_hand,
-    _card_payment,
+    _transfer,
     _category,
 ]
