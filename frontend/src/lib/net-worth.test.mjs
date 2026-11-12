@@ -82,6 +82,9 @@ test("x is spaced by date, so a gap takes room", () => {
   assert.equal(s.x("2026-01-01"), 0);
   assert.equal(s.x("2026-01-11"), 100);
   assert.equal(s.x("2026-01-21"), 200);
+  // Tight fits the values exactly, for a sparkline.
+  const tight = scale(["2026-01-01", "2026-01-21"], [300, 500], FRAME, true);
+  assert.deepEqual([tight.y(500), tight.y(300)], [0, 100]);
   // A single point sits in the middle.
   assert.equal(scale(["2026-01-01"], [5], FRAME).x("2026-01-01"), 100);
 });

@@ -139,13 +139,16 @@ export type Scale = {
   ticks: number[];
 };
 
-// x spaced by date; y over the ticks that cover the values.
-export function scale(dates: string[], values: number[], frame: Frame): Scale {
+// x spaced by date; y over the ticks that cover the values, or exactly min..max when `tight`
+// (a sparkline has no axis, so round ticks would only flatten it).
+export function scale(dates: string[], values: number[], frame: Frame, tight = false): Scale {
   const innerW = frame.width - frame.left - frame.right;
   const innerH = frame.height - frame.top - frame.bottom;
   const first = dayNumber(dates[0]);
   const span = dayNumber(dates[dates.length - 1]) - first;
-  const ticks = niceTicks(Math.min(...values), Math.max(...values));
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const ticks = tight && max > min ? [min, max] : niceTicks(min, max);
   const low = ticks[0];
   const high = ticks[ticks.length - 1];
   return {

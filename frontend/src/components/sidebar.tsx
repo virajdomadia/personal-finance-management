@@ -13,6 +13,7 @@ import { REVIEW_CHANGED, type ReviewList } from "@/lib/review";
 
 const LINKS = [
   { href: "/", emoji: "🏠", label: "Dashboard" },
+  { href: "/net-worth", emoji: "📊", label: "Net worth" },
   { href: "/review", emoji: "📥", label: "To review" },
   { href: "/accounts", emoji: "👛", label: "Accounts" },
   { href: "/transactions", emoji: "💸", label: "Transactions" },
