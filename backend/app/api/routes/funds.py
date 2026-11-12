@@ -182,21 +182,21 @@ def list_funds(user: CurrentUser, db: DbSession) -> FundList:
     return FundList(funds=[_response(f, prices) for f in funds])
 
 
-@router.post("/funds", status_code=status.HTTP_201_CREATED)
-def create_fund(body: FundCreate, user: CurrentUser, db: DbSession) -> FundResponse:
+def add_fund(db: DbSession, user_id: int, body: FundCreate) -> Instrument:
+    """Validate and add a new fund, flushed so it has an id. The caller commits."""
     errors = [] if body.name is not None else [field_error("name", _NO_NAME)]
     errors += check_source_code(db, MUTUAL_FUND, body.source_code)
     if errors:
         raise RequestValidationError(errors)
     assert body.name is not None
-    taken = _symbols(db, user.id)
+    taken = _symbols(db, user_id)
     symbol = body.symbol
     if symbol is None:
         symbol = derive_symbol(body.name, taken)
     elif symbol in taken:
         raise _duplicate(symbol)
     fund = Instrument(
-        user_id=user.id,
+        user_id=user_id,
         kind=MUTUAL_FUND,
         symbol=symbol,
         name=body.name,
@@ -204,12 +204,27 @@ def create_fund(body: FundCreate, user: CurrentUser, db: DbSession) -> FundRespo
     )
     db.add(fund)
     try:
+        db.flush()
         if body.source_code is not None:
-            apply_link(db, MUTUAL_FUND, user.id)
-        db.commit()
+            apply_link(db, MUTUAL_FUND, user_id)
     except IntegrityError:  # a concurrent request took the symbol first
         db.rollback()
         raise _duplicate(symbol) from None
+    return fund
+
+
+def fund_response(db: DbSession, user_id: int, fund: Instrument) -> FundResponse:
+    return _response(fund, latest_prices(db, user_id))
+
+
+@router.post("/funds", status_code=status.HTTP_201_CREATED)
+def create_fund(body: FundCreate, user: CurrentUser, db: DbSession) -> FundResponse:
+    fund = add_fund(db, user.id, body)
+    try:
+        db.commit()
+    except IntegrityError:  # a concurrent request took the symbol first
+        db.rollback()
+        raise _duplicate(fund.symbol) from None
     return _response(fund, latest_prices(db, user.id) if body.source_code else {})
 
 

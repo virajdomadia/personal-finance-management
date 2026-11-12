@@ -23,8 +23,12 @@ from app.api.routes.coins import (
     MAX_PRICE,
     PRICE_RULE,
     QTY_RULE,
+    CoinCreate,
     CoinPrice,
     CoinQty,
+    CoinResponse,
+    add_coin,
+    coin_response,
     get_owned_coin,
 )
 from app.api.routes.transactions import Day, Note, lock_accounts
@@ -33,6 +37,7 @@ from app.api.trade_checks import (
     ShortMessages,
     check_cash_and_holdings,
     check_delete,
+    create_with_first_trade,
     lock_trade,
     require_active,
 )
@@ -113,6 +118,28 @@ class CryptoTradeUpdate(BaseModel):
     note: Note = None
 
 
+class FirstCryptoTrade(BaseModel):
+    """A new coin's first trade: always a buy, of the coin created with it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: AccountRef = None
+    date: Day = None
+    quantity: CoinQty = None
+    price: CoinPrice = None  # required unless `opening`, and ignored when it is
+    charges: Money = None
+    amount: Money = None
+    opening: Flag = False
+    note: Note = None
+
+
+class NewCoinWithTrade(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    coin: CoinCreate
+    trade: FirstCryptoTrade
+
+
 class CryptoTrade(BaseModel):
     id: int
     coin_id: int
@@ -132,6 +159,11 @@ class CryptoTrade(BaseModel):
 
 class CryptoTradeList(BaseModel):
     trades: list[CryptoTrade]
+
+
+class CoinWithTrade(BaseModel):
+    coin: CoinResponse
+    trade: CryptoTrade
 
 
 def _columns(values: dict[str, Any], price: Decimal) -> dict[str, Any]:
@@ -331,15 +363,44 @@ def _defaults(values: dict[str, Any]) -> dict[str, Any]:
     return values
 
 
+def _add_trade(
+    db: Session, user_id: int, values: dict[str, Any]
+) -> tuple[InvestmentTrade, Account]:
+    accounts = lock_accounts(db, user_id, [values["account_id"]])
+    account, price = _save_checks(db, user_id, accounts, values, existing_id=None)
+    trade = InvestmentTrade(user_id=user_id, **_columns(values, price))
+    db.add(trade)
+    db.commit()
+    return trade, account
+
+
 @router.post("/crypto-trades", status_code=status.HTTP_201_CREATED)
 def create_crypto_trade(body: CryptoTradeCreate, user: CurrentUser, db: DbSession) -> CryptoTrade:
     values = _defaults(body.model_dump())
-    accounts = lock_accounts(db, user.id, [values["account_id"]])
-    account, price = _save_checks(db, user.id, accounts, values, existing_id=None)
-    trade = InvestmentTrade(user_id=user.id, **_columns(values, price))
-    db.add(trade)
-    db.commit()
+    trade, account = _add_trade(db, user.id, values)
     return _saved_response(db, user.id, trade, account)
+
+
+@router.post("/coins/with-trade", status_code=status.HTTP_201_CREATED)
+def create_coin_with_trade(
+    body: NewCoinWithTrade, user: CurrentUser, db: DbSession
+) -> CoinWithTrade:
+    """A new coin and its first buy (or existing coins), saved together or not at all."""
+    values = _defaults({**body.trade.model_dump(), "side": "buy", "coin_id": NEW_ID})
+
+    def save(coin: Instrument) -> tuple[InvestmentTrade, Account]:
+        return _add_trade(db, user.id, {**values, "coin_id": coin.id})
+
+    coin, (trade, account) = create_with_first_trade(
+        db,
+        lambda: _validate_fields(values),
+        lambda: add_coin(db, user.id, body.coin),
+        save,
+    )
+    return CoinWithTrade(
+        coin=coin_response(db, user.id, coin),
+        trade=_saved_response(db, user.id, trade, account),
+    )
 
 
 @router.patch("/crypto-trades/{id}")

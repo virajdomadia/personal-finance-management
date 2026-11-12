@@ -18,13 +18,21 @@ from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import TradeRow, load_trade_rows, replay, stock_amount
 from app.api.routes.accounts import MAX_ID, MAX_MONEY, Flag, Money, field_error, fmt
-from app.api.routes.stocks import STOCK, get_owned_stock
+from app.api.routes.stocks import (
+    STOCK,
+    StockCreate,
+    StockResponse,
+    add_stock,
+    get_owned_stock,
+    stock_response,
+)
 from app.api.routes.transactions import Day, Note, lock_accounts
 from app.api.trade_checks import (
     NEW_ID,
     ShortMessages,
     check_cash_and_holdings,
     check_delete,
+    create_with_first_trade,
     lock_trade,
     require_active,
 )
@@ -111,6 +119,27 @@ class TradeUpdate(BaseModel):
     note: Note = None
 
 
+class FirstTrade(BaseModel):
+    """A new stock's first trade: always a buy, of the stock created with it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: BrokerRef = None
+    date: Day = None
+    quantity: Quantity = None
+    price: Money = None
+    charges: Money = None
+    opening: Flag = False
+    note: Note = None
+
+
+class NewStockWithTrade(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stock: StockCreate
+    trade: FirstTrade
+
+
 class TradeResponse(BaseModel):
     id: int
     stock_id: int
@@ -130,6 +159,11 @@ class TradeResponse(BaseModel):
 
 class TradeList(BaseModel):
     trades: list[TradeResponse]
+
+
+class StockWithTrade(BaseModel):
+    stock: StockResponse
+    trade: TradeResponse
 
 
 def stock_columns(values: dict[str, Any]) -> dict[str, Any]:
@@ -290,16 +324,46 @@ def list_trades(
     )
 
 
+def _add_trade(
+    db: Session, user_id: int, values: dict[str, Any]
+) -> tuple[InvestmentTrade, Account]:
+    accounts = lock_accounts(db, user_id, [values["account_id"]])
+    _, account = stock_save_checks(db, user_id, accounts, values, existing_id=None)
+    trade = InvestmentTrade(user_id=user_id, **stock_columns(values))
+    db.add(trade)
+    db.commit()
+    return trade, account
+
+
 @router.post("/trades", status_code=status.HTTP_201_CREATED)
 def create_trade(body: TradeCreate, user: CurrentUser, db: DbSession) -> TradeResponse:
     values = body.model_dump()
     values["charges"] = values["charges"] if values["charges"] is not None else Decimal(0)
-    accounts = lock_accounts(db, user.id, [values["account_id"]])
-    _, account = stock_save_checks(db, user.id, accounts, values, existing_id=None)
-    trade = InvestmentTrade(user_id=user.id, **stock_columns(values))
-    db.add(trade)
-    db.commit()
+    trade, account = _add_trade(db, user.id, values)
     return _saved_response(db, user.id, trade, account)
+
+
+@router.post("/stocks/with-trade", status_code=status.HTTP_201_CREATED)
+def create_stock_with_trade(
+    body: NewStockWithTrade, user: CurrentUser, db: DbSession
+) -> StockWithTrade:
+    """A new stock and its first buy (or existing shares), saved together or not at all."""
+    values: dict[str, Any] = {**body.trade.model_dump(), "side": "buy", "stock_id": NEW_ID}
+    values["charges"] = values["charges"] if values["charges"] is not None else Decimal(0)
+
+    def save(stock: Instrument) -> tuple[InvestmentTrade, Account]:
+        return _add_trade(db, user.id, {**values, "stock_id": stock.id})
+
+    stock, (trade, account) = create_with_first_trade(
+        db,
+        lambda: _validate_fields(values),
+        lambda: add_stock(db, user.id, body.stock),
+        save,
+    )
+    return StockWithTrade(
+        stock=stock_response(db, user.id, stock),
+        trade=_saved_response(db, user.id, trade, account),
+    )
 
 
 @router.patch("/trades/{id}")
