@@ -140,7 +140,7 @@ function Report({ data, budgets }: { data: CashFlowMonth; budgets: BudgetMonth |
         <CategoryTable
           title="Where it went"
           slices={data.spending_by_category}
-          month={data.month}
+          data={data}
           kind="expense"
           budgets={budgets?.month === data.month ? budgetsById(budgets) : undefined}
           empty="No spending recorded this month."
@@ -148,7 +148,7 @@ function Report({ data, budgets }: { data: CashFlowMonth; budgets: BudgetMonth |
         <CategoryTable
           title="Where it came from"
           slices={data.income_by_category}
-          month={data.month}
+          data={data}
           kind="income"
           empty="No income recorded this month."
         />
@@ -251,14 +251,14 @@ function ShareBar({ slice }: { slice: CategorySlice }) {
 function CategoryTable({
   title,
   slices,
-  month,
+  data,
   kind,
   empty,
   budgets,
 }: {
   title: string;
   slices: CategorySlice[];
-  month: string;
+  data: CashFlowMonth;
   kind: "income" | "expense";
   empty: string;
   budgets?: Map<number, BudgetLine>; // spending only
@@ -272,7 +272,7 @@ function CategoryTable({
           {title}
         </h2>
         {budgets ? (
-          <Link href={`/budgets?month=${month}`} className={`rounded text-xs font-black underline ${FOCUS}`}>
+          <Link href={`/budgets?month=${data.month}`} className={`rounded text-xs font-black underline ${FOCUS}`}>
             Budgets
           </Link>
         ) : null}
@@ -297,7 +297,7 @@ function CategoryTable({
             </thead>
             <tbody>
               {slices.flatMap((slice) => [
-                <Row key={`p-${slice.id ?? slice.name}`} slice={slice} month={month} kind={kind} budget={budgetOf(slice)} />,
+                <Row key={`p-${slice.id ?? slice.name}`} slice={slice} data={data} kind={kind} budget={budgetOf(slice)} />,
                 ...(slice.children.length > 0 && slice.direct !== "0.00"
                   ? [
                       <tr key={`d-${slice.id}`}>
@@ -308,7 +308,7 @@ function CategoryTable({
                     ]
                   : []),
                 ...slice.children.map((child) => (
-                  <Row key={`c-${child.id}`} slice={child} month={month} kind={kind} budget={budgetOf(child)} nested />
+                  <Row key={`c-${child.id}`} slice={child} data={data} kind={kind} budget={budgetOf(child)} nested />
                 )),
               ])}
             </tbody>
@@ -321,13 +321,13 @@ function CategoryTable({
 
 function Row({
   slice,
-  month,
+  data,
   kind,
   budget,
   nested = false,
 }: {
   slice: CategorySlice;
-  month: string;
+  data: CashFlowMonth;
   kind: "income" | "expense";
   budget?: BudgetLine;
   nested?: boolean;
@@ -335,7 +335,7 @@ function Row({
   return (
     <tr>
       <td className={`${TD} w-full min-w-40 ${nested ? "pl-10" : ""}`}>
-        <Link href={categoryLink(month, slice.name, kind)} className={`rounded hover:underline ${FOCUS} ${nested ? "text-sm" : "font-extrabold"}`}>
+        <Link href={categoryLink(data.month, slice.name, kind, data)} className={`rounded hover:underline ${FOCUS} ${nested ? "text-sm" : "font-extrabold"}`}>
           <span aria-hidden="true">{iconEmoji(slice.icon)} </span>
           {slice.name}
         </Link>

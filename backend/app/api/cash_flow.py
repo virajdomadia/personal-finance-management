@@ -54,9 +54,10 @@ def windows(first: date, today: date) -> tuple[date, date, date, date]:
     """(start, through) for the month and for the month before at the same day.
 
     The month runs to today when it is the current month, else to its last day; the month
-    before runs to the same day number, clamped to its own length."""
+    before runs to the same day number, clamped to its own length. On a month's last day the
+    month is whole, so it compares with the whole month before, as it will the day after."""
     last = last_day(first.year, first.month)
-    current = (first.year, first.month) == (today.year, today.month)
+    current = (first.year, first.month) == (today.year, today.month) and today.day < last
     through = today if current else date(first.year, first.month, last)
     before = previous_month(first)
     day = through.day if current else 31  # a whole month compares with the whole month before

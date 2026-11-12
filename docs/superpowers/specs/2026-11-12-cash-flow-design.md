@@ -83,7 +83,8 @@ The code itself writes four names: **Interest** (income, PPF/RD interest), **Ins
 ### Operations
 
 - **Create** with kind, name, optional parent, icon, colour. A name already in use: "You already have Food." (or "... is archived. Restore it instead.").
-- **Rename**: the new name must be free in that kind ("You already have Dining. Merge them instead."). Rewrites transactions, templates and payee rules.
+- **Rename**: the new name must be free in that kind ("You already have Dining. Merge them instead."). Rewrites transactions, templates and payee rules, and leaves the old name behind as an alias (a merged-style row pointing at the category), so anything still sending it (an SMS merchant, a payee rule, an old client) lands on the renamed category.
+- **"Uncategorised" is reserved** for money without a category: it can't be a category's name or be picked.
 - **Merge A into B** (same kind): every transaction, template and payee rule of A moves to B; anything merged into A earlier now points at B; A's subcategories move under B; A is marked `merged_into_id = B` and disappears from lists. Refused when B is archived, merged, A itself, A's own subcategory, or when A has subcategories and B is a subcategory (that would make two levels). *My call*: merging is final in this phase, because the references move. The ledger's "unmerge" needs the lines to keep A, which comes with the ledger.
 - **Archive / restore**. A parent with live subcategories can't be archived until they are moved or archived (*my call*, so nothing is hidden by surprise).
 - **Nest / unnest**: set or clear `parent_id`. The parent must be a live, top-level category of the same kind, not the category itself; a category that has subcategories can't become one.
@@ -100,7 +101,7 @@ There is no delete: archive does that job and keeps history.
 - **Net cash flow** = income − spending.
 - Transfers (card payments and deposits included), investment trades and EMI principal count in neither.
 - **The window**: the 1st of the month to the **cut-off day**: today for the current month, the month's last day for a past month. A future month is refused.
-- **Previous month at the same day**: the previous month from its 1st to the same cut-off day, clamped to its length (12 November compares with 1–12 October; 30 March with 1–28 February; a whole past month with the whole month before). Changes are returned as signed amounts and a whole percent (no percent when the previous figure is 0), worked out on the server.
+- **Previous month at the same day**: the previous month from its 1st to the same cut-off day, clamped to its length (12 November compares with 1–12 October; 30 March with 1–28 February; on its last day, and after it, a month compares whole with the whole month before). Changes are returned as signed amounts and a whole percent (no percent when the previous figure is 0), worked out on the server.
 - **By category with parent rollup**: each top-level category's figure is its own plus its subcategories'. Groups are sorted biggest first, each with its subcategories, its direct amount and its share of the total as a whole percent. No category shows as "Uncategorised". An EMI's interest is under "Loan interest".
 - **Top 3**: the three biggest spending groups.
 - **Daily spending**: one entry per day of the month, a day after today has no figure. Each carries its height as a whole percent of the month's biggest day, so the clients draw bars without doing arithmetic on money.
