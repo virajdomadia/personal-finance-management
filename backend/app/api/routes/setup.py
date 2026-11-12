@@ -28,6 +28,9 @@ class SetupStep(BaseModel):
 
 
 class SetupResponse(BaseModel):
+    # The website keys its on-device skip/hide state by this, since a shared browser may be used
+    # by more than one family member.
+    user_id: int
     steps: list[SetupStep]
 
 
@@ -49,5 +52,6 @@ def get_setup(user: CurrentUser, db: DbSession) -> SetupResponse:
         "investments": count(Instrument) + accounts("ppf", "rd"),
     }
     return SetupResponse(
-        steps=[SetupStep(key=key, done=n > 0, count=n) for key, n in counts.items()]
+        user_id=user.id,
+        steps=[SetupStep(key=key, done=n > 0, count=n) for key, n in counts.items()],
     )

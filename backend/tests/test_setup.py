@@ -70,9 +70,12 @@ def steps(headers: Headers) -> dict[str, dict[str, Any]]:
     return {step["key"]: step for step in response.json()["steps"]}
 
 
-def test_new_user_has_every_step_to_do_in_order(headers: Headers) -> None:
+def test_new_user_has_every_step_to_do_in_order(headers: Headers, db_session: Session) -> None:
     body = client.get(URL, headers=headers).json()
-    assert body == {"steps": [{"key": key, "done": False, "count": 0} for key in ORDER]}
+    assert body == {
+        "user_id": uid(db_session),
+        "steps": [{"key": key, "done": False, "count": 0} for key in ORDER],
+    }
 
 
 def test_needs_sign_in(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -111,6 +114,14 @@ def test_archived_accounts_do_not_count(headers: Headers, db_session: Session) -
     assert steps(headers)["cards"] == {"key": "cards", "done": True, "count": 1}
     account(db_session, "loan", archived_at=datetime(2026, 11, 1, tzinfo=UTC))
     assert steps(headers)["loans"]["done"] is False
+
+
+@pytest.mark.parametrize("type_", ["ppf", "rd"])
+def test_closed_deposit_does_not_tick_investments(
+    headers: Headers, db_session: Session, type_: str
+) -> None:
+    account(db_session, type_, archived_at=datetime(2026, 11, 1, tzinfo=UTC))
+    assert steps(headers)["investments"] == {"key": "investments", "done": False, "count": 0}
 
 
 def test_bank_counts_every_active_bank(headers: Headers, db_session: Session) -> None:
