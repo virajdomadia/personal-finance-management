@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
+from datetime import time as clock_time
 from decimal import Decimal
 
 from sqlalchemy import func, select, update
@@ -19,6 +20,7 @@ from app.models.investment import Instrument, InstrumentPrice
 from app.models.market import MarketCode
 from app.prices.fetch import Fetcher, SourceError, SourceTimeout
 from app.prices.parse import (
+    IST,
     Quote,
     parse_bhavcopy,
     parse_equity_list,
@@ -292,11 +294,17 @@ def apply_to_users(db: Session, only_kind: str | None = None, user_id: int | Non
                 )
             )
             written += 1
-        elif (
-            len(existing) == 1 and existing[0].source == "auto" and existing[0].price != code.price
-        ):
-            existing[0].price = code.price
-            written += 1
+        elif all(row.source == "auto" for row in existing):
+            # Follow the market price on the newest auto row; overlapping runs can leave extras
+            # for a date, which would freeze its price, so they go. Manual rows never get here.
+            keep = max(existing, key=lambda row: row.id)
+            for extra in existing:
+                if extra is not keep:
+                    db.delete(extra)
+                    written += 1
+            if keep.price != code.price:
+                keep.price = code.price
+                written += 1
     db.flush()
     return written
 
@@ -343,6 +351,9 @@ def _sync_crypto(db: Session, fetcher: Fetcher, today: date, user_id: int) -> in
     return _set_prices(db, "crypto", {c: (p, today) for c, p in prices.items()}, True)
 
 
+MARKET_CLOSE_IST = clock_time(16, 0)  # NSE closes 15:30; after 16:00 the stored close is final
+
+
 def _sync_stocks(
     db: Session,
     fetcher: Fetcher,
@@ -350,17 +361,34 @@ def _sync_stocks(
     deadline: float,
     clock: Clock,
     report: RefreshReport,
+    now: datetime,
 ) -> int:
     notes: list[str] = []
     quotes = _yahoo_closes(db, fetcher, deadline, clock, notes, user_id)
     known = _existing(db, "stock")
-    # An older quote never replaces a newer price (say, the official close already stored).
-    fresh = {
-        c: q
-        for c, q in quotes.items()
-        if c in known and (known[c].price_date is None or q[1] >= known[c].price_date)
-    }
+    now_ist = now.astimezone(IST)
+
+    def acceptable(code: str, day: date) -> bool:
+        row = known.get(code)
+        if row is None:
+            return False
+        if row.price_date is None or day > row.price_date:
+            return True
+        # The same date is the stored price: accept only while that day's market may still be
+        # open; after it, the stored one is the official close and a quote must not replace it.
+        return day == row.price_date and now_ist < datetime.combine(day, MARKET_CLOSE_IST, IST)
+
+    fresh = {c: q for c, q in quotes.items() if acceptable(c, q[1])}
     count = _set_prices(db, "stock", fresh, create_missing=False)
+    # Queried codes count as fetched even when their quote was dropped, so a repeat tap within
+    # the minute does not ask Yahoo again.
+    dropped = [c for c in quotes if c in known and c not in fresh]
+    if dropped:
+        db.execute(
+            update(MarketCode)
+            .where(MarketCode.kind == "stock", MarketCode.code.in_(dropped))
+            .values(updated_at=func.now())
+        )
     if notes:
         report.failed["stock"] = "; ".join(notes)
     return count
@@ -400,13 +428,16 @@ def sync_user_prices(
         newest = _newest_update(db, kind, user_id)
         max_age = FUNDS_MAX_AGE if kind == "mutual_fund" else SYNC_FRESH
         if newest is not None and now - newest < max_age:
+            # Fresh enough to skip the fetch, but this user may not hold the price yet.
+            apply_to_users(db, only_kind=kind, user_id=user_id)
+            db.commit()
             continue
         if clock() >= deadline:
             report.failed[kind] = "time ran out before this could be fetched"
             continue
         jobs = {
             "crypto": lambda: _sync_crypto(db, fetcher, today, user_id),
-            "stock": lambda: _sync_stocks(db, fetcher, user_id, deadline, clock, report),
+            "stock": lambda: _sync_stocks(db, fetcher, user_id, deadline, clock, report, now),
             "mutual_fund": lambda: _sync_funds(db, fetcher, user_id),
         }
         try:

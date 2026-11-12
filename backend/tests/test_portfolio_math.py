@@ -84,9 +84,7 @@ def test_trade_cash():
 
 
 def fund(id, side, d, units, nav, amount, charges="0", fund_id=2, account=1):
-    return TradeRow(
-        id, fund_id, account, side, d, D(units), D(nav), D(charges), False, D(amount)
-    )
+    return TradeRow(id, fund_id, account, side, d, D(units), D(nav), D(charges), False, D(amount))
 
 
 def test_fund_buy_cost_is_amount():

@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -12,7 +12,7 @@ from app.main import app
 from app.models.investment import InstrumentPrice
 from app.models.market import MarketCode
 from app.models.user import User
-from app.prices.refresh import refresh_market, run_nightly, sync_user_prices
+from app.prices.refresh import apply_to_users, refresh_market, run_nightly, sync_user_prices
 from tests.price_fakes import (
     COIN_ID,
     COIN_PRICE,
@@ -50,8 +50,8 @@ def seeded(db_session: Session) -> None:
     db_session.commit()
 
 
-def age(db: Session, kind: str, seconds: int) -> None:
-    old = datetime.now(UTC) - timedelta(seconds=seconds)
+def age(db: Session, kind: str, seconds: int, base: datetime | None = None) -> None:
+    old = (base or datetime.now(UTC)).astimezone(UTC) - timedelta(seconds=seconds)
     db.execute(update(MarketCode).where(MarketCode.kind == kind).values(updated_at=old))
     db.commit()
 
@@ -86,8 +86,8 @@ def test_sync_stock_intraday_then_nightly_close_replaces_it(
 ) -> None:
     me = user(db_session, "me@x.com")
     inst = link(db_session, me, "stock", STOCK_CODE, "REL")
-    age(db_session, "stock", 120)
-    report = sync_user_prices(db_session, IntradayFetcher(), me, TODAY, now())
+    age(db_session, "stock", 120, ist(11))
+    report = sync_user_prices(db_session, IntradayFetcher(), me, TODAY, ist(11))
     assert report.updated == {"stock": 1}
     assert [(p.date, p.price, p.source) for p in rows(db_session, inst)] == [
         (STOCK_DATE, INTRADAY, "auto")
@@ -101,14 +101,14 @@ def test_sync_stock_intraday_then_nightly_close_replaces_it(
 def test_sync_manual_price_today_still_wins(db_session: Session, seeded: None) -> None:
     me = user(db_session, "me@x.com")
     inst = link(db_session, me, "stock", STOCK_CODE, "REL")
-    age(db_session, "stock", 120)
+    age(db_session, "stock", 120, ist(11))
     db_session.add(
         InstrumentPrice(
             user_id=me, instrument_id=inst.id, date=STOCK_DATE, price=Decimal("1"), source="manual"
         )
     )
     db_session.commit()
-    sync_user_prices(db_session, IntradayFetcher(), me, TODAY, now())
+    sync_user_prices(db_session, IntradayFetcher(), me, TODAY, ist(11))
     assert [(p.price, p.source) for p in rows(db_session, inst)] == [(Decimal("1"), "manual")]
 
 
@@ -132,8 +132,10 @@ def test_sync_a_failed_kind_clears_nothing_and_others_go_on(
     me = user(db_session, "me@x.com")
     coin = link(db_session, me, "crypto", COIN_ID, "BTC")
     stock = link(db_session, me, "stock", STOCK_CODE, "REL")
-    age(db_session, "stock", 120)
-    report = sync_user_prices(db_session, IntradayFetcher(fail={"simple_price"}), me, TODAY, now())
+    age(db_session, "stock", 120, ist(11))
+    report = sync_user_prices(
+        db_session, IntradayFetcher(fail={"simple_price"}), me, TODAY, ist(11)
+    )
     assert "crypto" in report.failed and report.updated == {"stock": 1}
     assert rows(db_session, coin) == [] and len(rows(db_session, stock)) == 1
 
@@ -180,3 +182,76 @@ def test_sync_endpoint_prices_the_callers_coin(
 
 def test_sync_requires_auth() -> None:
     assert client.post(URL).status_code in (401, 403)
+
+
+def test_sync_by_a_second_user_gets_the_price_the_first_fetched(
+    db_session: Session, seeded: None
+) -> None:
+    a, b = user(db_session, "a@x.com"), user(db_session, "b@x.com")
+    link(db_session, a, "crypto", COIN_ID, "BTC")
+    theirs = link(db_session, b, "crypto", COIN_ID, "BTC")
+    sync_user_prices(db_session, FakeFetcher(), a, TODAY, now())
+    fake = FakeFetcher()
+    sync_user_prices(db_session, fake, b, TODAY, now())
+    assert sum(fake.calls.values()) == 0
+    assert [p.price for p in rows(db_session, theirs)] == [COIN_PRICE]
+
+
+def test_apply_collapses_duplicate_auto_rows_but_never_manual(db_session: Session) -> None:
+    me = user(db_session, "me@x.com")
+    inst = link(db_session, me, "crypto", COIN_ID, "BTC")
+    db_session.add(
+        MarketCode(kind="crypto", code=COIN_ID, name="b", price=COIN_PRICE, price_date=TODAY)
+    )
+    for price in ("1", "2"):
+        db_session.add(
+            InstrumentPrice(
+                user_id=me, instrument_id=inst.id, date=TODAY, price=Decimal(price), source="auto"
+            )
+        )
+    db_session.commit()
+    apply_to_users(db_session, user_id=me)
+    db_session.commit()
+    assert [(p.price, p.source) for p in rows(db_session, inst)] == [(COIN_PRICE, "auto")]
+    inst2 = link(db_session, me, "crypto", COIN_ID, "BTC2")
+    for source in ("auto", "manual"):
+        db_session.add(
+            InstrumentPrice(
+                user_id=me, instrument_id=inst2.id, date=TODAY, price=Decimal("5"), source=source
+            )
+        )
+    db_session.commit()
+    apply_to_users(db_session, user_id=me)
+    db_session.commit()
+    assert sorted((p.price, p.source) for p in rows(db_session, inst2)) == [
+        (Decimal("5"), "auto"),
+        (Decimal("5"), "manual"),
+    ]
+
+
+def ist(h: int, m: int = 0) -> datetime:
+    return datetime(2026, 11, 11, h, m, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+
+
+def test_sync_same_date_quote_only_before_the_close(db_session: Session, seeded: None) -> None:
+    me = user(db_session, "me@x.com")
+    inst = link(db_session, me, "stock", STOCK_CODE, "REL")
+    age(db_session, "stock", 120, ist(11))
+    sync_user_prices(db_session, IntradayFetcher(), me, TODAY, ist(11))
+    assert [p.price for p in rows(db_session, inst)] == [INTRADAY]
+    run_nightly(db_session, FakeFetcher(), TODAY)
+    age(db_session, "stock", 120, ist(17))
+    sync_user_prices(db_session, IntradayFetcher(), me, TODAY, ist(17))
+    assert [p.price for p in rows(db_session, inst)] == [STOCK_CLOSE]
+
+
+def test_sync_a_dropped_stock_quote_still_counts_as_fetched(
+    db_session: Session, seeded: None
+) -> None:
+    me = user(db_session, "me@x.com")
+    link(db_session, me, "stock", STOCK_CODE, "REL")
+    age(db_session, "stock", 120, ist(17))
+    sync_user_prices(db_session, IntradayFetcher(), me, TODAY, ist(17))  # dropped: same date, late
+    fake = IntradayFetcher()
+    sync_user_prices(db_session, fake, me, TODAY, ist(17))
+    assert fake.calls["yahoo_chart"] == 0

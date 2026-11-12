@@ -90,7 +90,10 @@ export default function InvestmentsScreen() {
 
   // Sync prices: fetch this user's latest prices on the server, then reload. Never blocks the tab.
   const [sync, setSync] = useState<SyncState>({ status: "idle" });
+  const syncing = useRef(false);
   const syncPrices = useCallback(async () => {
+    if (syncing.current) return;
+    syncing.current = true;
     setSync({ status: "syncing" });
     try {
       const result = await apiFetch<SyncResult>("/investments/prices/sync", { method: "POST", token: token ?? undefined });
@@ -99,6 +102,8 @@ export default function InvestmentsScreen() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) void logOut();
       else setSync(syncOutcome(null));
+    } finally {
+      syncing.current = false;
     }
   }, [token, load, logOut]);
 

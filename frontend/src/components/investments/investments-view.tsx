@@ -227,8 +227,8 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
         title="Investments"
         action={
           <>
-            <span role="status" className="text-sm font-bold text-zinc-600">
-              {syncStatusText(sync)}
+            <span role="status" className={`text-sm font-bold ${sync.status === "partial" ? "text-loss" : "text-zinc-600"}`}>
+              {sync.status === "syncing" ? "" : syncStatusText(sync)}
             </span>
             <button type="button" className={SECONDARY} disabled={sync.status === "syncing"} onClick={syncPrices}>
               {sync.status === "syncing" ? "Syncing…" : "Sync prices"}
