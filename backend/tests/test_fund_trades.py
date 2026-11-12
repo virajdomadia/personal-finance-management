@@ -163,7 +163,13 @@ def test_purchase_debits_the_bank_and_records_its_nav(
     }
     assert balance(headers, account) == "47000.00"
     assert navs(headers, ppfcf) == [
-        {"id": navs(headers, ppfcf)[0]["id"], "date": DAY, "nav": "84.3793", "trade_id": body["id"]}
+        {
+            "id": navs(headers, ppfcf)[0]["id"],
+            "date": DAY,
+            "nav": "84.3793",
+            "trade_id": body["id"],
+            "source": "manual",
+        }
     ]
     assert trades(headers) == [body]
 

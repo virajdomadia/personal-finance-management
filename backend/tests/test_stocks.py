@@ -121,7 +121,7 @@ def test_record_and_list_prices(headers: Headers) -> None:
         ("2026-01-15", "1500.50"),
         ("2026-01-10", "1400.00"),
     ]
-    assert set(prices[0]) == {"id", "date", "price"}
+    assert set(prices[0]) == {"id", "date", "price", "source"}
     assert stocks(headers)[0]["price"] == "1500.50"
     assert stocks(headers)[0]["price_date"] == "2026-01-15"
 

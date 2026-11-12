@@ -53,6 +53,7 @@ def test_create_upper_cases_symbol(headers: Headers) -> None:
         "name": "Bitcoin",
         "price": None,
         "price_date": None,
+        "source_code": None,
     }
     assert coin_list(headers) == [response.json()]
 
@@ -183,7 +184,12 @@ def test_prices_listed_newest_first_with_four_decimals(headers: Headers) -> None
     coin = add_coin(headers).json()["id"]
     first = add_coin_price(headers, coin, "2026-11-01", "7504827.5")
     assert first.status_code == 201
-    assert first.json() == {"id": first.json()["id"], "date": "2026-11-01", "price": "7504827.5000"}
+    assert first.json() == {
+        "id": first.json()["id"],
+        "date": "2026-11-01",
+        "price": "7504827.5000",
+        "source": "manual",
+    }
     add_coin_price(headers, coin, "2026-11-05", "7600000")
     prices = client.get(f"{URL}/coins/{coin}/prices", headers=headers).json()["prices"]
     assert [(p["date"], p["price"]) for p in prices] == [

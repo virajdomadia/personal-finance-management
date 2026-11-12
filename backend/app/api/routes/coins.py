@@ -14,6 +14,7 @@ from app.api.deps import CurrentUser, get_current_user
 from app.api.portfolio import fmt_price, latest_prices
 from app.api.routes.accounts import MAX_ID, clean_text, field_error
 from app.api.routes.funds import decimal_input
+from app.api.routes.market import SourceCode, apply_link, check_source_code
 from app.api.routes.stocks import Deleted
 from app.api.routes.transactions import Day
 from app.db.session import DbSession
@@ -53,6 +54,7 @@ class CoinCreate(BaseModel):
     # Required fields are optional here so that missing ones are reported like any other rule.
     symbol: CoinSymbol = None
     name: CoinName = None
+    source_code: SourceCode = None
 
 
 class CoinUpdate(BaseModel):
@@ -60,6 +62,7 @@ class CoinUpdate(BaseModel):
 
     symbol: CoinSymbol = None
     name: CoinName = None
+    source_code: SourceCode = None
 
 
 class CoinPriceCreate(BaseModel):
@@ -75,6 +78,7 @@ class CoinResponse(BaseModel):
     name: str
     price: str | None
     price_date: str | None
+    source_code: str | None
 
 
 class CoinList(BaseModel):
@@ -85,6 +89,7 @@ class CoinPriceResponse(BaseModel):
     id: int
     date: str
     price: str
+    source: str
 
 
 class CoinPriceList(BaseModel):
@@ -113,6 +118,7 @@ def _response(coin: Instrument, prices: dict[int, tuple[Any, Decimal]]) -> CoinR
         name=coin.name,
         price=None if current is None else fmt_price(current[1]),
         price_date=None if current is None else current[0].isoformat(),
+        source_code=coin.source_code,
     )
 
 
@@ -151,19 +157,28 @@ def create_coin(body: CoinCreate, user: CurrentUser, db: DbSession) -> CoinRespo
         errors.append(field_error("symbol", TICKER_RULE))
     if body.name is None:
         errors.append(field_error("name", _NO_NAME))
+    errors += check_source_code(db, CRYPTO, body.source_code)
     if errors:
         raise RequestValidationError(errors)
     assert body.symbol is not None and body.name is not None
     if body.symbol in _symbols(db, user.id):
         raise _duplicate(body.symbol)
-    coin = Instrument(user_id=user.id, kind=CRYPTO, symbol=body.symbol, name=body.name)
+    coin = Instrument(
+        user_id=user.id,
+        kind=CRYPTO,
+        symbol=body.symbol,
+        name=body.name,
+        source_code=body.source_code,
+    )
     db.add(coin)
     try:
+        if body.source_code is not None:
+            apply_link(db, CRYPTO)
         db.commit()
     except IntegrityError:  # a concurrent request took the symbol first
         db.rollback()
         raise _duplicate(body.symbol) from None
-    return _response(coin, {})
+    return _response(coin, latest_prices(db, user.id) if body.source_code else {})
 
 
 @router.patch("/coins/{id}")
@@ -175,6 +190,7 @@ def update_coin(id: int, body: CoinUpdate, user: CurrentUser, db: DbSession) -> 
         errors.append(field_error("symbol", TICKER_RULE))
     if "name" in changes and changes["name"] is None:
         errors.append(field_error("name", _NO_NAME))
+    errors += check_source_code(db, CRYPTO, changes.get("source_code"))
     if errors:
         raise RequestValidationError(errors)
     symbol = changes.get("symbol")
@@ -185,7 +201,11 @@ def update_coin(id: int, body: CoinUpdate, user: CurrentUser, db: DbSession) -> 
         coin.symbol = symbol
     if "name" in changes:
         coin.name = changes["name"]
+    if "source_code" in changes:
+        coin.source_code = changes["source_code"]
     try:
+        if changes.get("source_code") is not None:
+            apply_link(db, CRYPTO)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -220,7 +240,9 @@ def list_coin_prices(id: int, user: CurrentUser, db: DbSession) -> CoinPriceList
     ).all()
     return CoinPriceList(
         prices=[
-            CoinPriceResponse(id=p.id, date=p.date.isoformat(), price=fmt_price(p.price))
+            CoinPriceResponse(
+                id=p.id, date=p.date.isoformat(), price=fmt_price(p.price), source=p.source
+            )
             for p in rows
         ]
     )
@@ -244,7 +266,9 @@ def create_coin_price(
     row = InstrumentPrice(user_id=user.id, instrument_id=coin.id, date=body.date, price=body.price)
     db.add(row)
     db.commit()
-    return CoinPriceResponse(id=row.id, date=row.date.isoformat(), price=fmt_price(row.price))
+    return CoinPriceResponse(
+        id=row.id, date=row.date.isoformat(), price=fmt_price(row.price), source="manual"
+    )
 
 
 @router.delete("/coin-prices/{id}")
