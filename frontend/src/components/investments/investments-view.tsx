@@ -35,6 +35,7 @@ import {
   type StockTotal,
   type Totals,
   type Trade,
+  type Unlinked,
   holdingKinds,
   settle,
 } from "@/lib/investments";
@@ -64,6 +65,7 @@ import {
 import { CryptoTradeDialog } from "./crypto-trade-dialog";
 import { FundTradeDialog } from "./fund-trade-dialog";
 import { DueSips } from "./fund-view";
+import { LinkPrompt } from "./link-prompt";
 import { SipDialog } from "./sip-dialog";
 import { TradeDialog, type TradeKind } from "./trade-dialog";
 
@@ -75,6 +77,7 @@ type Data = {
   funds: Part<{ funds: Fund[]; sips: Sip[] }>;
   coins: Part<{ coins: Coin[] }>;
   accounts: Part<{ active: Account[]; archived: Account[] }>;
+  unlinked: Part<Unlinked>;
 };
 type StocksExtra = { stocks: Stock[]; trades: Trade[] | null; active: Account[]; archived: Account[] };
 type FundsExtra = { funds: Fund[]; sips: Sip[] };
@@ -89,7 +92,7 @@ type Dialog =
   | { kind: "sip" };
 
 async function fetchData(brokerId: number | null): Promise<Data> {
-  const [portfolio, stocks, funds, coins, accounts] = await Promise.all([
+  const [portfolio, stocks, funds, coins, accounts, unlinked] = await Promise.all([
     apiFetch<Portfolio>("/investments/portfolio"),
     settle(
       Promise.all([
@@ -115,8 +118,10 @@ async function fetchData(brokerId: number | null): Promise<Data> {
       })),
       isUnauthorized,
     ),
+    // The prompt is a nicety: if this fails the page carries on without it.
+    settle(apiFetch<Unlinked>("/investments/unlinked"), isUnauthorized),
   ]);
-  return { portfolio, stocks, funds, coins, accounts };
+  return { portfolio, stocks, funds, coins, accounts, unlinked };
 }
 
 export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
@@ -146,6 +151,19 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
 
   useEffect(() => {
     reload();
+  }, [reload]);
+
+  // Once per visit, ask for fresh coin prices (the server only fetches if they are stale). It never
+  // blocks the page, and any failure is ignored: the prices already shown stay.
+  const refreshedCoins = useRef(false);
+  useEffect(() => {
+    if (refreshedCoins.current) return;
+    refreshedCoins.current = true;
+    apiFetch<{ refreshed: boolean }>("/investments/coins/refresh", { method: "POST" })
+      .then((res) => {
+        if (res.refreshed) reload();
+      })
+      .catch(() => {});
   }, [reload]);
 
   // A section's "Try again" reloads everything; it shows that it is working until the data lands.
@@ -208,6 +226,7 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
 
       {data && (
         <div className="flex flex-col gap-10">
+          {data.unlinked.status === "ready" && <LinkPrompt unlinked={data.unlinked.data} />}
           {fundsExtra && <DueSips sips={data.portfolio.funds.due_sips} onRecord={recordSip} />}
           <Content
             portfolio={data.portfolio}

@@ -8,6 +8,7 @@ import { type Account, cleanMoney, errorMessage, formatRupees, splitErrors } fro
 import { ApiError, apiFetch } from "@/lib/api";
 import {
   type Holding,
+  type MarketMatch,
   type Stock,
   type Trade,
   type TradeForm,
@@ -19,6 +20,7 @@ import {
 import { todayIndia } from "@/lib/transactions";
 import { Select } from "@/components/ui/select";
 
+import { LinkField } from "./link-dialog";
 import { DIALOG, INPUT, PRIMARY, QUIET, sideLabel } from "./shared";
 
 export type TradeKind = "buy" | "sell" | "opening";
@@ -106,6 +108,7 @@ export function TradeDialog(props: Props) {
   const needFocus = useRef(false);
   const [form, setForm] = useState<Form>(() => startForm(props));
   const [stocks, setStocks] = useState<Stock[]>(props.stocks);
+  const [source, setSource] = useState<MarketMatch | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -163,7 +166,7 @@ export function TradeDialog(props: Props) {
         try {
           created = await apiFetch<Stock>("/investments/stocks", {
             method: "POST",
-            body: JSON.stringify({ symbol: form.symbol, name: form.name }),
+            body: JSON.stringify({ symbol: form.symbol, name: form.name, source_code: source?.code ?? null }),
           });
         } catch (err) {
           if (err instanceof ApiError && err.status === 422) {
@@ -343,6 +346,8 @@ export function TradeDialog(props: Props) {
                 {field("name", "Company name", <input {...props_("name")} type="text" autoComplete="off" maxLength={60} placeholder="Infosys" />)}
               </div>
             )}
+
+            {form.stock_id === NEW_STOCK && <LinkField kind="stock" selected={source} onSelect={setSource} disabled={saving} />}
 
             {field(
               "account_id",

@@ -11,9 +11,35 @@ export type Stock = {
   name: string;
   price: string | null;
   price_date: string | null;
+  source_code: string | null;
 };
 
-export type Price = { id: number; date: string; price: string };
+// "auto" prices come from the nightly fetch, "manual" ones were typed in.
+export type PriceSource = "manual" | "auto";
+
+export type Price = { id: number; date: string; price: string; source: PriceSource };
+
+export type MarketKind = "stock" | "mutual_fund" | "crypto";
+export type MarketMatch = { code: string; name: string; isin: string | null; price: string | null; price_date: string | null };
+export type Unlinked = {
+  stocks: { id: number; symbol: string; name: string }[];
+  funds: { id: number; symbol: string; name: string }[];
+  coins: { id: number; symbol: string; name: string }[];
+};
+
+export const MIN_SEARCH = 2;
+
+export function canSearchMarket(q: string): boolean {
+  return q.trim().length >= MIN_SEARCH;
+}
+
+export function marketSearchPath(kind: MarketKind, q: string): string {
+  return `/investments/market-codes?kind=${kind}&q=${encodeURIComponent(q.trim())}`;
+}
+
+export function linkLabel(code: string | null): string {
+  return code ? `Linked to ${code}` : "Link to live prices";
+}
 
 export type Trade = {
   id: number;

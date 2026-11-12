@@ -6,11 +6,13 @@ import { useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type Account, cleanMoney, errorMessage, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import type { MarketMatch } from "@/lib/investments";
 import { type Fund, type Sip, type SipForm, blankSipForm, sipFormFrom, sipPayload } from "@/lib/funds";
 import { todayIndia } from "@/lib/transactions";
 import { Select } from "@/components/ui/select";
 
 import { NEW_FUND } from "./fund-trade-dialog";
+import { LinkField } from "./link-dialog";
 import { DIALOG, INPUT, PRIMARY, QUIET } from "./shared";
 
 const MONEY = /^\d+(?:\.\d{1,2})?$/;
@@ -78,6 +80,7 @@ export function SipDialog(props: Props) {
   const submitRef = useRef<HTMLButtonElement>(null);
   const needFocus = useRef(false);
   const [form, setForm] = useState<Form>(() => startForm(props));
+  const [source, setSource] = useState<MarketMatch | null>(null);
   const [funds, setFunds] = useState<Fund[]>(props.funds);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -120,7 +123,7 @@ export function SipDialog(props: Props) {
           const symbol = form.symbol.trim();
           created = await apiFetch<Fund>("/investments/funds", {
             method: "POST",
-            body: JSON.stringify({ name: form.name, symbol: symbol === "" ? null : symbol }),
+            body: JSON.stringify({ name: form.name, symbol: symbol === "" ? null : symbol, source_code: source?.code ?? null }),
           });
         } catch (err) {
           if (err instanceof ApiError && err.status === 422) {
@@ -261,6 +264,8 @@ export function SipDialog(props: Props) {
                 )}
               </div>
             )}
+
+            {!editing && form.fund_id === NEW_FUND && <LinkField kind="mutual_fund" selected={source} onSelect={setSource} disabled={saving} />}
 
             {field("account_id", "Bank account", <Select {...pickerProps("account_id")} placeholder="Choose a bank account" options={bankOptions} />)}
 

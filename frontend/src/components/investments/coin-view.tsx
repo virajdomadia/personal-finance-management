@@ -18,10 +18,11 @@ import {
   formatCoinPrice,
   formatCoinQty,
 } from "@/lib/crypto";
-import type { Portfolio } from "@/lib/investments";
+import { type Portfolio, linkLabel } from "@/lib/investments";
 import { formatDate, todayIndia } from "@/lib/transactions";
 
 import { CoinDialog } from "./coin-dialog";
+import { LinkDialog } from "./link-dialog";
 import { CoinPriceDialog } from "./coin-price-dialog";
 import { CryptoTradeDialog } from "./crypto-trade-dialog";
 import { Tile } from "@/components/ui/chunky";
@@ -37,6 +38,7 @@ import {
   BUY,
   SELL,
   PlainSigned,
+  AutoBadge,
   PriceCard,
   TradeTr,
   TradesTable,
@@ -63,6 +65,7 @@ type Dialog =
   | { kind: "price" }
   | { kind: "deletePrice"; price: CoinPrice }
   | { kind: "rename" }
+  | { kind: "link" }
   | { kind: "deleteCoin" };
 
 async function fetchData(coinId: number): Promise<Data | null> {
@@ -181,6 +184,9 @@ export function CoinView({ coinId }: { coinId: number }) {
             <button type="button" className={QUIET} onClick={() => setDialog({ kind: "rename" })}>
               Rename
             </button>
+            <button type="button" className={QUIET} onClick={() => setDialog({ kind: "link" })}>
+              {linkLabel(data.coin.source_code)}
+            </button>
             <button type="button" className={QUIET} onClick={() => setDialog({ kind: "deleteCoin" })}>
               Delete coin
             </button>
@@ -288,6 +294,18 @@ export function CoinView({ coinId }: { coinId: number }) {
       )}
 
       {dialog.kind === "rename" && data && <CoinDialog coin={data.coin} onClose={closeDialog} onSaved={() => done(null)} onConflict={done} />}
+
+      {dialog.kind === "link" && data && (
+        <LinkDialog
+          kind="crypto"
+          path={`/investments/coins/${data.coin.id}`}
+          title={`${data.coin.name}: live prices`}
+          linkedCode={data.coin.source_code}
+          onClose={closeDialog}
+          onSaved={() => done(null)}
+          onConflict={done}
+        />
+      )}
 
       {dialog.kind === "deleteCoin" && data && (
         <ConfirmDelete
@@ -446,6 +464,7 @@ function PriceHistory({ prices, onDelete }: { prices: CoinPrice[]; onDelete: (pr
               <p className="flex-1 text-sm">
                 {formatDate(price.date)}
                 {index === 0 && <span className="ml-2 text-xs font-bold text-zinc-600">current</span>}
+                {price.source === "auto" && <AutoBadge />}
               </p>
               <p className="text-sm font-extrabold tabular-nums">{formatCoinPrice(price.price)}</p>
               <div className="flex w-24 shrink-0 justify-end">

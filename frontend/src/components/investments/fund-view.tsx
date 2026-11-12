@@ -20,11 +20,12 @@ import {
   formatUnits,
   sipTradeForm,
 } from "@/lib/funds";
-import type { Portfolio } from "@/lib/investments";
+import { type Portfolio, linkLabel } from "@/lib/investments";
 import { formatDate, todayIndia } from "@/lib/transactions";
 
 import { FundDialog } from "./fund-dialog";
 import { FundTradeDialog } from "./fund-trade-dialog";
+import { LinkDialog } from "./link-dialog";
 import { NavDialog } from "./nav-dialog";
 import { Tile } from "@/components/ui/chunky";
 import { investmentSticker } from "@/lib/fun";
@@ -40,6 +41,7 @@ import {
   BUY,
   SELL,
   PlainSigned,
+  AutoBadge,
   PriceCard,
   TradeTr,
   TradesTable,
@@ -70,6 +72,7 @@ type Dialog =
   | { kind: "sip"; sip: Sip | null }
   | { kind: "deleteSip"; sip: Sip }
   | { kind: "rename" }
+  | { kind: "link" }
   | { kind: "deleteFund" };
 
 async function fetchData(fundId: number): Promise<Data | null> {
@@ -238,6 +241,9 @@ export function FundView({ fundId }: { fundId: number }) {
             <button type="button" className={QUIET} onClick={() => setDialog({ kind: "rename" })}>
               Rename
             </button>
+            <button type="button" className={QUIET} onClick={() => setDialog({ kind: "link" })}>
+              {linkLabel(data.fund.source_code)}
+            </button>
             <button type="button" className={QUIET} onClick={() => setDialog({ kind: "deleteFund" })}>
               Delete fund
             </button>
@@ -373,6 +379,18 @@ export function FundView({ fundId }: { fundId: number }) {
           path={`/investments/sips/${dialog.sip.id}`}
           onClose={closeDialog}
           onDone={done}
+        />
+      )}
+
+      {dialog.kind === "link" && data && (
+        <LinkDialog
+          kind="mutual_fund"
+          path={`/investments/funds/${data.fund.id}`}
+          title={`${data.fund.name}: live prices`}
+          linkedCode={data.fund.source_code}
+          onClose={closeDialog}
+          onSaved={() => done(null)}
+          onConflict={done}
         />
       )}
 
@@ -637,6 +655,7 @@ function NavHistory({ navs, trades, onDelete }: { navs: Nav[]; trades: FundTrade
               <p className="flex-1 text-sm">
                 {formatDate(nav.date)}
                 {index === 0 && <span className="ml-2 text-xs font-bold text-zinc-600">current</span>}
+                {nav.source === "auto" && <AutoBadge />}
                 {nav.trade_id !== null && (
                   <span className="ml-2 text-xs font-bold text-zinc-600">
                     {sides.get(nav.trade_id) === "sell" ? "from a redemption" : "from a purchase"}

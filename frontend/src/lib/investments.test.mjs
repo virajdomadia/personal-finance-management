@@ -5,7 +5,10 @@ import {
   blankTradeForm,
   formatPercent,
   formatSigned,
+  canSearchMarket,
   holdingKinds,
+  linkLabel,
+  marketSearchPath,
   settle,
   tone,
   tradeFormFrom,
@@ -148,4 +151,19 @@ test("holdingKinds counts stocks, funds, deposits and crypto that have something
   assert.equal(holdingKinds({ ...empty, by_stock: [1], funds: { by_fund: [1], closed: [] }, deposits: { accounts: [1] } }), 3);
   assert.equal(holdingKinds({ ...empty, crypto: { by_coin: [1], closed: [] } }), 1);
   assert.equal(holdingKinds({ ...empty, by_stock: [1], crypto: { by_coin: [], closed: [1] } }), 2);
+});
+
+test("marketSearchPath builds the search URL and encodes the text", () => {
+  assert.equal(marketSearchPath("mutual_fund", "parag"), "/investments/market-codes?kind=mutual_fund&q=parag");
+  assert.equal(marketSearchPath("stock", " Tata & Sons "), "/investments/market-codes?kind=stock&q=Tata%20%26%20Sons");
+});
+
+test("linkLabel names the link or offers one", () => {
+  assert.equal(linkLabel(null), "Link to live prices");
+  assert.equal(linkLabel("INFY"), "Linked to INFY");
+});
+
+test("canSearchMarket needs two characters", () => {
+  assert.equal(canSearchMarket(" a "), false);
+  assert.equal(canSearchMarket("ab"), true);
 });
