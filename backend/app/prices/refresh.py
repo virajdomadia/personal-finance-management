@@ -1,21 +1,23 @@
 """The nightly job: refresh the shared market_codes prices, then copy them to linked holdings.
 
 Each source runs on its own, so one being down never blocks the others, and a failure never
-clears anything already stored. Manual prices are never overwritten or deleted.
+clears anything already stored. Manual prices are never overwritten or deleted. Each kind is
+committed as soon as it is done, so a slow source killed by the platform loses only itself.
 """
 
 import logging
-from collections.abc import Iterable
+import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.investment import Instrument, InstrumentPrice
 from app.models.market import MarketCode
-from app.prices.fetch import Fetcher, SourceError
+from app.prices.fetch import Fetcher, SourceError, SourceTimeout
 from app.prices.parse import (
     Quote,
     parse_bhavcopy,
@@ -28,7 +30,9 @@ from app.prices.parse import (
 log = logging.getLogger("app.prices")
 
 BHAVCOPY_LOOKBACK_DAYS = 3  # weekdays tried before today's
-KINDS = ("mutual_fund", "stock", "crypto")
+STOCK_BUDGET_SECONDS = 45  # the Yahoo fallback stops once the stock source has run this long
+# Quick, reliable sources first: stocks (NSE, then Yahoo per holding) are the slow, flaky one.
+KINDS = ("crypto", "mutual_fund", "stock")
 NAME_MAX = 160  # MarketCode.name
 CODE_MAX = 40  # MarketCode.code
 
@@ -83,6 +87,8 @@ def _set_prices(
             db.add(row)
         if (row.price, row.price_date) != (price, day):
             row.price, row.price_date = price, day
+        # Fetched just now, even if unchanged: a steady price is fresh, not stale.
+        row.updated_at = func.now()
         count += 1
     db.flush()
     return count
@@ -106,10 +112,22 @@ def _refresh_funds(db: Session, fetcher: Fetcher) -> int:
     return _upsert_quotes(db, "mutual_fund", quotes)
 
 
-def _yahoo_closes(db: Session, fetcher: Fetcher) -> dict[str, tuple[Decimal, date]]:
+Clock = Callable[[], float]
+
+
+def _yahoo_closes(
+    db: Session, fetcher: Fetcher, deadline: float, clock: Clock, notes: list[str]
+) -> dict[str, tuple[Decimal, date]]:
     closes: dict[str, tuple[Decimal, date]] = {}
     errors: list[str] = []
-    for symbol in _linked_codes(db, "stock"):
+    symbols = _linked_codes(db, "stock")
+    for i, symbol in enumerate(symbols):
+        if clock() >= deadline:
+            skipped = symbols[i:]
+            notes.append(
+                f"time ran out; skipped Yahoo for {len(skipped)} stock(s): {', '.join(skipped)}"
+            )
+            break
         try:
             close = parse_yahoo_close(fetcher.yahoo_chart(symbol))
         except SourceError as exc:
@@ -122,14 +140,21 @@ def _yahoo_closes(db: Session, fetcher: Fetcher) -> dict[str, tuple[Decimal, dat
     return closes
 
 
-def _latest_bhavcopy(fetcher: Fetcher, today: date) -> str | None:
-    """Today's file, or the last one NSE published: it posts the day's file after the close."""
+def _latest_bhavcopy(fetcher: Fetcher, today: date, notes: list[str]) -> str | None:
+    """Today's file, or the last one NSE published: it posts the day's file after the close.
+
+    A timeout ends the search at once: NSE hanging on one day will hang on the others too.
+    """
     day, tried = today, 0
     while tried <= BHAVCOPY_LOOKBACK_DAYS:
         if day.weekday() < 5:
             tried += 1
             try:
                 text = fetcher.bhavcopy(day)
+            except SourceTimeout as exc:
+                log.warning("bhavcopy for %s timed out: %s", day, exc)
+                notes.append(f"NSE timed out on the {day} price file; stopped looking further back")
+                return None
             except SourceError as exc:
                 # NSE answers 403 on some holidays; treat it like "no file", but leave a trace.
                 log.warning("bhavcopy for %s unavailable: %s", day, exc)
@@ -137,10 +162,14 @@ def _latest_bhavcopy(fetcher: Fetcher, today: date) -> str | None:
             if text is not None:
                 return text
         day -= timedelta(days=1)
+    notes.append(f"no NSE price file found for the last {BHAVCOPY_LOOKBACK_DAYS + 1} weekdays")
     return None
 
 
-def _refresh_stocks(db: Session, fetcher: Fetcher, today: date, report: RefreshReport) -> int:
+def _refresh_stocks(
+    db: Session, fetcher: Fetcher, today: date, report: RefreshReport, clock: Clock
+) -> int:
+    deadline = clock() + STOCK_BUDGET_SECONDS
     errors: list[str] = []
     try:
         listed = parse_equity_list(fetcher.equity_list())
@@ -149,18 +178,25 @@ def _refresh_stocks(db: Session, fetcher: Fetcher, today: date, report: RefreshR
         _upsert_quotes(db, "stock", listed)
     except SourceError as exc:
         errors.append(str(exc))
-    text = _latest_bhavcopy(fetcher, today)
+    lookback: list[str] = []  # why no price file was used; only worth saying in some cases
+    text = _latest_bhavcopy(fetcher, today, lookback)
+    timed_out = any(note.startswith("NSE timed out") for note in lookback)
     try:
         closes = parse_bhavcopy(text) if text is not None else {}
         if not closes:  # no file, or one we can no longer read: fall back to linked stocks
-            closes = _yahoo_closes(db, fetcher)
+            skipped: list[str] = []
+            closes = _yahoo_closes(db, fetcher, deadline, clock, skipped)
+            if timed_out or not closes:
+                errors += lookback
+            errors += skipped
         count = _set_prices(db, "stock", closes, create_missing=False)
     except SourceError as exc:
+        errors += lookback
         errors.append(str(exc))
         count = 0
     if errors and not count:
         raise SourceError("; ".join(errors))
-    if errors:  # prices still apply, but a broken listing must not pass unnoticed
+    if errors:  # prices still apply, but what failed or was skipped must not pass unnoticed
         report.failed["stock"] = "; ".join(errors)
         log.warning("stock source partly failed: %s", report.failed["stock"])
     return count
@@ -175,13 +211,18 @@ def _refresh_crypto(db: Session, fetcher: Fetcher, today: date) -> int:
 
 
 def refresh_market(
-    db: Session, fetcher: Fetcher, today: date, kinds: set[str] | None = None
+    db: Session,
+    fetcher: Fetcher,
+    today: date,
+    kinds: set[str] | None = None,
+    report: RefreshReport | None = None,
+    clock: Clock = time.monotonic,
 ) -> RefreshReport:
     """Pull each wanted source into market_codes. Flushes; the caller commits."""
-    report = RefreshReport()
+    report = RefreshReport() if report is None else report
     jobs = {
         "mutual_fund": lambda: _refresh_funds(db, fetcher),
-        "stock": lambda: _refresh_stocks(db, fetcher, today, report),
+        "stock": lambda: _refresh_stocks(db, fetcher, today, report, clock),
         "crypto": lambda: _refresh_crypto(db, fetcher, today),
     }
     for kind in KINDS:
@@ -198,8 +239,10 @@ def refresh_market(
     return report
 
 
-def apply_to_users(db: Session, only_kind: str | None = None) -> int:
+def apply_to_users(db: Session, only_kind: str | None = None, user_id: int | None = None) -> int:
     """Copy market prices onto linked instruments as "auto" rows; return how many were written.
+
+    `only_kind` and `user_id` narrow it to one kind and to one user's holdings.
 
     A date that already has any row for the instrument (manual, or a fund trade's NAV) is left
     alone. The one exception is an auto row that is the only row for its date: it follows the
@@ -215,6 +258,8 @@ def apply_to_users(db: Session, only_kind: str | None = None) -> int:
     )
     if only_kind is not None:
         query = query.where(Instrument.kind == only_kind)
+    if user_id is not None:
+        query = query.where(Instrument.user_id == user_id)
     pairs = db.execute(query).all()
     if not pairs:
         return 0
@@ -250,10 +295,16 @@ def apply_to_users(db: Session, only_kind: str | None = None) -> int:
     return written
 
 
-def run_nightly(db: Session, fetcher: Fetcher, today: date) -> RefreshReport:
-    report = refresh_market(db, fetcher, today)
-    written = apply_to_users(db)
-    db.commit()
+def run_nightly(
+    db: Session, fetcher: Fetcher, today: date, clock: Clock = time.monotonic
+) -> RefreshReport:
+    """Refresh and apply one kind at a time, committing each, in the order of KINDS."""
+    report = RefreshReport()
+    written = 0
+    for kind in KINDS:
+        refresh_market(db, fetcher, today, {kind}, report=report, clock=clock)
+        written += apply_to_users(db, only_kind=kind)
+        db.commit()
     for kind, message in report.failed.items():
         log.warning("price source %s failed: %s", kind, message)
     log.info("nightly prices: updated=%s written=%d", report.updated, written)

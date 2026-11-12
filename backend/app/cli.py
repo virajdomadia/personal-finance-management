@@ -69,7 +69,8 @@ def main(argv: list[str] | None = None) -> int:
                 user = move_user(db, args.old_email, args.new_email)
                 print(f"Moved to {user.email}; Google link cleared and sessions revoked")
             elif args.command == "refresh-prices":
-                report = run_nightly(db, default_fetcher(), today_india())
+                with default_fetcher() as fetcher:
+                    report = run_nightly(db, fetcher, today_india())
                 print(f"Updated: {report.updated}")
                 print(f"Failed: {report.failed}")
             else:

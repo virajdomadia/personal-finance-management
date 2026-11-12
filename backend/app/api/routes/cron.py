@@ -30,5 +30,6 @@ def _is_cron(request: Request) -> bool:
 def refresh_prices(request: Request, db: DbSession) -> RefreshResponse:
     if not _is_cron(request):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
-    report = run_nightly(db, default_fetcher(), today_india())
+    with default_fetcher() as fetcher:
+        report = run_nightly(db, fetcher, today_india())
     return RefreshResponse(updated=report.updated, failed=report.failed)

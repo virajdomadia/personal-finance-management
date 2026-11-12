@@ -54,6 +54,7 @@ def test_cron_runs_job(secret: str, db_session: Session, monkeypatch: pytest.Mon
     assert body["failed"] == {}
     assert body["updated"]["mutual_fund"] > 0
     assert fetcher.calls["navall"] == 1
+    assert fetcher.client.is_closed
 
 
 def test_user_token_is_not_a_cron_secret(

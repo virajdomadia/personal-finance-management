@@ -6,7 +6,7 @@ from decimal import Decimal
 import httpx
 import pytest
 
-from app.prices.fetch import Fetcher, SourceError
+from app.prices.fetch import Fetcher, SourceError, SourceTimeout
 
 
 def make_fetcher(handler, headers=None) -> tuple[Fetcher, list[httpx.Request]]:
@@ -143,3 +143,33 @@ def test_corrupt_deflate_member_raises_source_error():
     fetcher, _ = make_fetcher(lambda r: httpx.Response(200, content=bytes(data)))
     with pytest.raises(SourceError):
         fetcher.bhavcopy(date(2026, 11, 12))
+
+
+def test_timeout_is_a_source_timeout():
+    def slow(request):
+        raise httpx.ReadTimeout("slow", request=request)
+
+    fetcher, _ = make_fetcher(slow)
+    with pytest.raises(SourceTimeout):
+        fetcher.bhavcopy(date(2026, 11, 12))
+
+
+def test_nse_requests_get_a_shorter_timeout():
+    fetcher, seen = make_fetcher(lambda r: httpx.Response(404))
+    fetcher.client.timeout = httpx.Timeout(20)
+    fetcher.bhavcopy(date(2026, 11, 12))
+    assert seen[0].extensions["timeout"] == {"connect": 5, "read": 8, "write": 8, "pool": 8}
+
+
+def test_other_requests_keep_the_client_timeout():
+    fetcher, seen = make_fetcher(lambda r: httpx.Response(200, content=b"x"))
+    fetcher.client.timeout = httpx.Timeout(20)
+    fetcher.navall()
+    assert seen[0].extensions["timeout"]["read"] == 20
+
+
+def test_fetcher_closes_its_client():
+    fetcher, _ = make_fetcher(lambda r: httpx.Response(200))
+    with fetcher as f:
+        assert f is fetcher
+    assert fetcher.client.is_closed

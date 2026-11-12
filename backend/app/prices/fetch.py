@@ -24,31 +24,57 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 TIMEOUT_SECONDS = 20
+# NSE can hang from cloud IPs; give up on it sooner so the nightly job stays inside its limit.
+NSE_TIMEOUT = httpx.Timeout(8, connect=5)
 
 
 class SourceError(Exception):
     """A network, status or format failure from a price source."""
 
 
+class SourceTimeout(SourceError):
+    """The source did not answer in time."""
+
+
 class Fetcher:
+    """Owns its client: use it as a context manager, or call close(), when done."""
+
     def __init__(self, client: httpx.Client, coingecko_key: str = ""):
         self.client = client
         self.coingecko_key = coingecko_key
 
-    def _get(self, url: str, params: dict | None = None, headers: dict | None = None):
+    def __enter__(self) -> "Fetcher":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self.client.close()
+
+    def _get(
+        self,
+        url: str,
+        params: dict | None = None,
+        headers: dict | None = None,
+        timeout: httpx.Timeout | None = None,
+    ):
+        kwargs = {} if timeout is None else {"timeout": timeout}
         try:
-            return self.client.get(url, params=params, headers=headers)
+            return self.client.get(url, params=params, headers=headers, **kwargs)
+        except httpx.TimeoutException as exc:
+            raise SourceTimeout(f"request timed out: {exc.__class__.__name__}") from exc
         except httpx.HTTPError as exc:
             raise SourceError(f"request failed: {exc.__class__.__name__}") from exc
 
-    def _ok(self, url: str, params=None, headers=None) -> httpx.Response:
-        response = self._get(url, params, headers)
+    def _ok(self, url: str, params=None, headers=None, timeout=None) -> httpx.Response:
+        response = self._get(url, params, headers, timeout)
         if not response.is_success:
             raise SourceError(f"HTTP {response.status_code} from {response.url.host}")
         return response
 
-    def _text(self, url: str) -> str:
-        return self._ok(url).content.decode("utf-8-sig", errors="replace")
+    def _text(self, url: str, timeout: httpx.Timeout | None = None) -> str:
+        return self._ok(url, timeout=timeout).content.decode("utf-8-sig", errors="replace")
 
     def _json(self, url: str, params=None, headers=None) -> dict:
         body = self._ok(url, params, headers).content.decode("utf-8-sig", errors="replace")
@@ -67,10 +93,10 @@ class Fetcher:
         return self._text(AMFI_URL)
 
     def equity_list(self) -> str:
-        return self._text(EQUITY_LIST_URL)
+        return self._text(EQUITY_LIST_URL, NSE_TIMEOUT)
 
     def bhavcopy(self, day: date) -> str | None:
-        response = self._get(BHAVCOPY_URL.format(day=day.strftime("%Y%m%d")))
+        response = self._get(BHAVCOPY_URL.format(day=day.strftime("%Y%m%d")), timeout=NSE_TIMEOUT)
         if response.status_code == 404:
             return None
         if not response.is_success:

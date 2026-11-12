@@ -1,10 +1,10 @@
 import logging
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.api.portfolio import latest_prices
@@ -12,6 +12,7 @@ from app.main import app
 from app.models.investment import Instrument, InstrumentPrice
 from app.models.market import MarketCode
 from app.models.user import User
+from app.prices.fetch import SourceTimeout
 from app.prices.refresh import RefreshReport, apply_to_users, refresh_market, run_nightly
 from tests.price_fakes import (
     COIN_ID,
@@ -323,7 +324,10 @@ def test_unreadable_equity_list_is_a_stock_error_when_nothing_is_priced(
 
     report = run_nightly(db_session, fetcher, TODAY)
 
-    assert report.failed == {"stock": "NSE equity list format not recognised"}
+    assert report.failed == {
+        "stock": "NSE equity list format not recognised; "
+        "no NSE price file found for the last 4 weekdays"
+    }
 
 
 def test_missing_bhavcopy_today_uses_the_previous_trading_day(db_session: Session) -> None:
@@ -382,3 +386,101 @@ def test_bhavcopy_source_error_is_logged_before_falling_back(
         run_nightly(db_session, FakeFetcher(fail={"bhavcopy"}), TODAY)
 
     assert "bhavcopy for 2026-11-12 unavailable" in caplog.text
+
+
+class Killed(BaseException):
+    """What the platform does to a function past its time limit: nothing catches it."""
+
+
+def test_finished_kinds_are_committed_when_stocks_are_killed(db_session: Session) -> None:
+    a = user(db_session, "a@example.com")
+    f = link(db_session, a, "mutual_fund", FUND_CODE)
+    s = link(db_session, a, "stock", STOCK_CODE)
+    c = link(db_session, a, "crypto", COIN_ID)
+
+    class Hangs(FakeFetcher):
+        def equity_list(self) -> str:
+            raise Killed
+
+    with pytest.raises(Killed):
+        run_nightly(db_session, Hangs(), TODAY)
+    db_session.rollback()  # whatever was not committed is gone now
+
+    assert [r.price for r in rows(db_session, f)] == [FUND_NAV]
+    assert [r.price for r in rows(db_session, c)] == [COIN_PRICE]
+    assert market(db_session, "crypto", COIN_ID).price == COIN_PRICE
+    assert rows(db_session, s) == []
+
+
+def test_bhavcopy_lookback_stops_after_a_timeout(db_session: Session) -> None:
+    a = user(db_session, "a@example.com")
+    s = link(db_session, a, "stock", STOCK_CODE)
+
+    class Slow(FakeFetcher):
+        def bhavcopy(self, day: date) -> str | None:
+            self._hit("bhavcopy")
+            raise SourceTimeout("request timed out: ReadTimeout")
+
+    fetcher = Slow()
+    report = run_nightly(db_session, fetcher, TODAY)
+
+    assert fetcher.calls["bhavcopy"] == 1
+    assert fetcher.calls["yahoo_chart"] == 1
+    assert [r.price for r in rows(db_session, s)] == [STOCK_CLOSE]
+    assert report.failed == {
+        "stock": "NSE timed out on the 2026-11-12 price file; stopped looking further back"
+    }
+
+
+def test_yahoo_fallback_stops_when_the_time_budget_is_spent(db_session: Session) -> None:
+    a = user(db_session, "a@example.com")
+    s = link(db_session, a, "stock", STOCK_CODE, "RELIANCE")
+    t1 = link(db_session, a, "stock", "TCS", "TCS")
+    t2 = link(db_session, a, "stock", "ZZZ", "ZZZ")
+    ticks = iter([0.0, 30.0, 60.0, 90.0])  # each read of the clock is 30 s later
+
+    fetcher = FakeFetcher(holiday=True)
+    report = run_nightly(db_session, fetcher, TODAY, clock=lambda: next(ticks))
+
+    assert fetcher.calls["yahoo_chart"] == 1  # RELIANCE at 30 s; at 60 s the 45 s budget is gone
+    assert [r.price for r in rows(db_session, s)] == [STOCK_CLOSE]
+    assert rows(db_session, t1) == [] and rows(db_session, t2) == []
+    assert report.updated["stock"] == 1
+    assert report.failed == {"stock": "time ran out; skipped Yahoo for 2 stock(s): TCS, ZZZ"}
+
+
+def test_no_price_file_and_no_yahoo_price_is_reported(
+    db_session: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    logging.getLogger("app.prices").disabled = False  # alembic's logging setup can disable it
+    with caplog.at_level("WARNING", logger="app.prices"):
+        report = run_nightly(db_session, FakeFetcher(holiday=True), TODAY)
+
+    assert report.failed == {"stock": "no NSE price file found for the last 4 weekdays"}
+    assert "no NSE price file found for the last 4 weekdays" in caplog.text
+
+
+def test_unchanged_price_still_marks_the_code_fresh(db_session: Session) -> None:
+    a = user(db_session, "a@example.com")
+    link(db_session, a, "crypto", COIN_ID)
+    refresh_market(db_session, FakeFetcher(), TODAY, {"crypto"})
+    db_session.commit()
+    old = datetime(2000, 1, 1, tzinfo=UTC)
+    db_session.execute(update(MarketCode).where(MarketCode.code == COIN_ID).values(updated_at=old))
+    db_session.commit()
+
+    refresh_market(db_session, FakeFetcher(), TODAY, {"crypto"})  # same price as before
+    db_session.commit()
+
+    stamp = db_session.scalar(select(MarketCode.updated_at).where(MarketCode.code == COIN_ID))
+    assert stamp is not None and stamp.year > 2000
+
+
+def test_apply_to_users_can_be_limited_to_one_user(db_session: Session) -> None:
+    a, b = user(db_session, "a@example.com"), user(db_session, "b@example.com")
+    mine = link(db_session, a, "mutual_fund", FUND_CODE)
+    theirs = link(db_session, b, "mutual_fund", FUND_CODE)
+    refresh_market(db_session, FakeFetcher(), TODAY, {"mutual_fund"})
+
+    assert apply_to_users(db_session, only_kind="mutual_fund", user_id=a) == 1
+    assert len(rows(db_session, mine)) == 1 and rows(db_session, theirs) == []
