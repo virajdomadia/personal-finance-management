@@ -296,11 +296,17 @@ const PROMO =
 const FAILED =
   /\b(?:declined|failed|failure|unsuccessful|not\s+successful|could\s+not\s+be\s+(?:processed|completed)|rejected|bounced|dishonou?red)\b/i;
 const SHORT_OF_FUNDS = /\binsufficient\s+(?:funds|bal(?:ance)?)\b/i;
-const NOT_YET =
-  /\b(?:will|to)\s+be\s+(?:auto-?)?(?:debited|credited|deducted|charged)\b|\brequested\s+(?:money|payment)\b|\bcollect\s+request\b|\bpayment\s+request\b|\bis\s+scheduled\b|\bupcoming\b/i;
-// A UPI request asks for money; nothing has moved.
-const REQUEST = /\brequest\b/i;
-const REQUEST_ACTION = /\b(?:approve|accept|decline|reject|collect|pay)\b/i;
+const NOT_YET = /\bis\s+scheduled\b|\bupcoming\b/i;
+// "Rs.499 will be debited": ignored unless money already moved before it ("Rs 5000 credited …
+// Reward points will be credited in 7 days" is a credit).
+const FUTURE = /\b(?:will|to)\s+be\s+(?:auto-?)?(?:debited|credited|deducted|charged)\b/i;
+// A past money verb, not the "debited" of "will be debited".
+const MOVED = /(?<!\bbe\s)\b(?:debited|credited|spent|withdrawn|paid|sent)\b/i;
+// A UPI request asks for money; nothing has moved. A request named in a debit's Info ("UPI/collect
+// request/123") doesn't stop the debit.
+const REQUEST = /\brequest(?:ed)?\b/i;
+const REQUEST_ACTION = /\b(?:approv\w*|accept|decline|reject|collect|pay)\b/i;
+const STILL_TO_APPROVE = /\b(?:approve|pending)\b/i;
 // Points, miles or coins credited are not rupees.
 const POINTS_MOVED =
   /\b(?:credited|debited|redeemed)\b(?:\s+(?:with|by|for|of))?\s+\d[\d,]*(?:\.\d+)?\s*(?:reward\s+)?(?:points?|pts|miles|coins)\b/i;
@@ -311,7 +317,10 @@ function ignorable(text: string, region: string): boolean {
   if (OTP.test(text) && !PAST.test(text)) return true;
   if (PROMO.test(region)) return true;
   if (NOT_YET.test(text)) return true;
-  if (REQUEST.test(text) && REQUEST_ACTION.test(text)) return true;
+  const moved = text.search(MOVED);
+  const future = text.search(FUTURE);
+  if (future >= 0 && (moved < 0 || moved > future)) return true;
+  if (REQUEST.test(text) && REQUEST_ACTION.test(text) && (moved < 0 || STILL_TO_APPROVE.test(text))) return true;
   if (POINTS_MOVED.test(text)) return true;
   // A failed payment is ignored, but money put back after one is a credit.
   if (FAILED.test(text) && !(/\bcredited\b/i.test(text) && /\b(?:revers|refund)/i.test(text))) return true;

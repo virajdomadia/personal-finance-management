@@ -411,3 +411,28 @@ test("a statement's due date may follow the card it names", () => {
   const line = parseOne("hdfc", "Rs.2000 payment due on HDFC Card XX1234 on 15-11-26");
   assert.deepEqual([line.kind, line.amount, line.last4, line.dueDate], ["card_statement", "2000.00", "1234", "2026-11-15"]);
 });
+
+// Review fix round 2
+
+test("request wording in a debit that already happened doesn't hide it", () => {
+  for (const body of [
+    "Rs 500 debited from A/c XX1234 on 10-11-26. Info: UPI/ramesh@upi/Request pay dinner",
+    "Rs 500 debited from A/c XX1234 on 10-11-26 to RAZORPAY. Info: UPI/collect request/123",
+    "Rs 500 debited from A/c XX1234 on 10-11-26. Info: UPI/DR/Accept Request",
+  ]) {
+    const line = parseOne("madeupbank", body);
+    assert.deepEqual([line.kind, line.amount, line.last4, line.date], ["debit", "500.00", "1234", "2026-11-10"], body);
+  }
+  // Requests where nothing has moved are still ignored.
+  assert.equal(parseSms("madeupbank", "Request to pay Rs 300 received from ramesh@upi. Approve in app", AT), "ignore");
+  assert.equal(
+    parseSms("madeupbank", "You have received a money request of Rs 300 from ramesh@upi. Approve on iMobile", AT),
+    "ignore",
+  );
+});
+
+test("a future clause after money that moved doesn't hide it", () => {
+  const line = parseOne("madeupbank", "Rs 5000 credited to A/c XX1234 on 10-11-26. Reward points will be credited in 7 days");
+  assert.deepEqual([line.kind, line.amount, line.last4], ["credit", "5000.00", "1234"]);
+  assert.equal(parseSms("madeupbank", "Rs.499.00 will be debited from your A/c XX4321 on 15-11-26", AT), "ignore");
+});
