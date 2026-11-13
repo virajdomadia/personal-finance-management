@@ -376,3 +376,50 @@ def test_on_pace_rule() -> None:
     assert not dg.on_pace(Decimal("9000"), Decimal("8000"), 8, 30)  # over, not on pace
     assert not dg.on_pace(Decimal("8000"), Decimal("8000"), 8, 30)  # used up, not over
     assert dg.projected(Decimal("4400"), 8, 30) == Decimal("16500.00")
+
+
+# Review fixes
+
+
+def test_so_far_ignores_earlier_weeks_before_the_first_transaction(
+    w: World, headers: Headers, clock: Clock
+) -> None:
+    clock.set(datetime(2026, 11, 10, 9, 0))  # Tuesday
+    b = bank(w)
+    spend(w, b, "2026-11-06", "500.00")  # the first transaction: a Friday
+    spend(w, b, "2026-11-10", "800.00")
+    body = digest(headers, week="current")
+    # 2–3 November, the same days last week, ended before the first transaction.
+    assert (body["usual"], body["usual_weeks"], body["change"], body["tone"]) == (
+        None,
+        0,
+        None,
+        None,
+    )
+    assert body["headline"] == "So far this week you've spent ₹800."
+
+
+@pytest.mark.parametrize("week", ["0001-01-03", "0999-12-31", "2026-11-2", "current "])
+def test_out_of_range_weeks_are_refused(headers: Headers, week: str) -> None:
+    assert client.get(URL, params={"week": week}, headers=headers).status_code == 422
+
+
+def test_about_the_same_is_decided_exactly(w: World, headers: Headers) -> None:
+    b = bank(w)
+    spend(w, b, "2026-10-28", "1000.00")  # one earlier week: usual ₹1,000
+    spend(w, b, "2026-11-03", "1054.00")  # +5.4%: rounds to 5%, but is more than 5%
+    body = digest(headers)
+    assert body["change"] == {"amount": "54.00", "percent": 5}
+    assert body["tone"] == "more"
+    assert body["headline"] == "You spent ₹1,054 last week, ₹54 more than usual."
+
+
+def test_tones(w: World, headers: Headers) -> None:
+    b = bank(w)
+    spend(w, b, "2026-10-28", "1000.00")
+    spend(w, b, "2026-11-03", "950.00")  # exactly 5% less
+    body = digest(headers)
+    assert (body["tone"], body["headline"]) == (
+        "same",
+        "You spent ₹950 last week, about the same as usual.",
+    )

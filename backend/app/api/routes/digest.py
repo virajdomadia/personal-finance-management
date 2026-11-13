@@ -26,6 +26,7 @@ from app.models.transaction import Transaction
 router = APIRouter(prefix="/digest", tags=["digest"], dependencies=[Depends(get_current_user)])
 
 DUE_DAYS = 7
+WEEK_PATTERN = r"^(current|[1-9][0-9]{3}-[0-9]{2}-[0-9]{2})$"
 
 
 class AtRisk(BaseModel):
@@ -70,6 +71,7 @@ class Digest(BaseModel):
     usual: str | None  # None with no earlier week to compare with
     usual_weeks: int
     change: Change | None
+    tone: Literal["more", "less", "same"] | None  # spent against usual, ±5% exactly; None: no usual
     top_spending: list[CategorySlice]
     budgets: BudgetsAtRisk
     due: DueSoon
@@ -88,10 +90,11 @@ def _chosen(week: str | None, now_today: date, default: date) -> date:
     if week == "current":
         return dg.monday(now_today)
     try:
-        day = date.fromisoformat(week)
-    except ValueError:
+        # The pattern keeps the year at 1000 or later, so the Monday and the 4 weeks before it
+        # can't fall before year 1.
+        start = dg.monday(date.fromisoformat(week))
+    except (ValueError, OverflowError):
         raise _week_error("Enter a date, like 2026-01-15, or current.") from None
-    start = dg.monday(day)
     if start > now_today:
         raise _week_error("That week hasn't started yet.")
     return start
@@ -144,7 +147,7 @@ def _budgets(book: MonthBook) -> BudgetsAtRisk:
 def weekly_digest(
     user: CurrentUser,
     db: DbSession,
-    week: Annotated[str | None, Query(max_length=10)] = None,
+    week: Annotated[str | None, Query(pattern=WEEK_PATTERN)] = None,
 ) -> Digest:
     """A week's spending against the usual, its top categories, budgets at risk and what's due in
     the next 7 days, with a one-line headline. Default: the last whole Monday–Sunday week."""
@@ -189,6 +192,7 @@ def weekly_digest(
         usual=None if usual is None else fmt(usual),
         usual_weeks=len(before),
         change=change,
+        tone=dg.tone(spending, usual),  # type: ignore[arg-type]
         top_spending=[_slice(g, spending, children=False) for g in groups[:TOP]],
         budgets=_budgets(book),
         due=DueSoon(
@@ -197,11 +201,5 @@ def weekly_digest(
             total=fmt(total_due),
             items=items,
         ),
-        headline=dg.headline(
-            spending,
-            usual,
-            None if change is None else change.percent,
-            week_label,
-            so_far=not chosen.complete,
-        ),
+        headline=dg.headline(spending, usual, week_label, so_far=not chosen.complete),
     )

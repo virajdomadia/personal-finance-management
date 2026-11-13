@@ -60,15 +60,16 @@ def week_of(start: date, today: date) -> Week:
 
 
 def earlier(week: Week, earliest: date | None) -> list[Week]:
-    """Up to 4 weeks before, each over the same days; only weeks ending on or after the first
-    transaction count."""
+    """Up to 4 weeks before, each over the same days; a week counts only when the days compared
+    end on or after the first transaction (so this week so far isn't compared with days before
+    any history)."""
     if earliest is None:
         return []
     days = week.through - week.start
     found = []
     for n in range(1, USUAL_WEEKS + 1):
         start = week.start - n * WEEK
-        if start + timedelta(days=6) >= earliest:
+        if start + days >= earliest:
             found.append(Week(start, start + days))
     return found
 
@@ -103,23 +104,24 @@ def projected(spent: Decimal, days: int, days_in_month: int) -> Decimal:
     return (spent * days_in_month / days).quantize(PAISA, rounding=ROUND_HALF_UP)
 
 
-def headline(
-    spending: Decimal,
-    usual: Decimal | None,
-    change_percent: int | None,
-    week_label: str,
-    so_far: bool,
-) -> str:
+def tone(spending: Decimal, usual: Decimal | None) -> str | None:
+    """ "more", "less" or "same" (within ±5% of usual, compared exactly); None with no usual."""
+    if usual is None:
+        return None
+    difference = spending - usual
+    if abs(difference) * 100 <= usual * ABOUT_THE_SAME:
+        return "same"
+    return "more" if difference > 0 else "less"
+
+
+def headline(spending: Decimal, usual: Decimal | None, week_label: str, so_far: bool) -> str:
     comparison = ""
-    if usual is not None and spending > 0:
-        difference = spending - usual
-        if difference == 0 or (
-            change_percent is not None and abs(change_percent) <= ABOUT_THE_SAME
-        ):
+    found = tone(spending, usual)
+    if usual is not None and found is not None and spending > 0:
+        if found == "same":
             comparison = ", about the same as usual"
         else:
-            more = "more" if difference > 0 else "less"
-            comparison = f", {rupees(abs(difference))} {more} than usual"
+            comparison = f", {rupees(abs(spending - usual))} {found} than usual"
         if so_far:
             comparison += " by now"
     if so_far:

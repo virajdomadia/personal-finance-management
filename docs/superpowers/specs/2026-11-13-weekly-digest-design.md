@@ -29,6 +29,7 @@ label                         # "this week" | "last week" | "the week of 26 Octo
 spending                      # the /cash-flow rules over the window
 usual | null, usual_weeks     # average of up to 4 earlier weeks (same days), and how many counted
 change: {amount, percent} | null
+tone: "more" | "less" | "same" | null   # exact ±5% test; the clients use it as is
 top_spending: [CategorySlice] # the /cash-flow shape, top 3, no children
 budgets: {
   month, through, days, days_in_month, elapsed_percent,
@@ -88,8 +89,8 @@ Backend tests first (`tests/test_digest.py`), with frozen dates and times: Sunda
 
 1. **A Sunday counts as whole from 6 pm IST**, so the default week flips at 6 pm Sunday, an hour before the app's reminder, and the website card appears Sunday evening.
 2. **`week` takes any date in the week, or `current`**; a week that hasn't started is refused.
-3. **Usual = average of up to 4 earlier weeks over the same days**; weeks before the first transaction don't count; no comparison with no history.
-4. **"About the same as usual" within ±5%.**
+3. **Usual = average of up to 4 earlier weeks over the same days**; a week whose compared days end before the first transaction doesn't count; no comparison with no history.
+4. **"About the same as usual" within ±5%**, decided exactly on the server and sent as `tone`.
 5. **On pace to go over** = month not whole, 50% ≤ used < 100% and used > elapsed + 10 points (a budget used exactly up isn't flagged); budgets judged for the month holding the week's last counted day, up to that day.
 6. **Due = today → today + 7 days**, overdue included, whatever week is shown: it's about what's coming.
 7. **Local notification only**, Sunday 19:00 device time, generic text; off until turned on in Profile; inexact (no exact-alarm permission).
