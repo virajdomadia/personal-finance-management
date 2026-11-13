@@ -77,6 +77,7 @@ class SafeToSpend(BaseModel):
     until: str  # the last day the dues count to
     reason: Literal["salary", "month_end"]
     payday: Payday | None
+    note: str | None  # e.g. "Today's salary isn't recorded yet."
     money: str
     due: str
     goals: str
@@ -135,11 +136,15 @@ def safe_to_spend(user: CurrentUser, db: DbSession) -> SafeToSpend:
     categories = all_categories(db, user.id)
     templates = up.load_templates(db, user.id, ctx)
     found = up.payday(templates, categories, today)
+    note = None
     if found is None:
         until = date(today.year, today.month, last_day(today.year, today.month))
         reason = "month_end"
+    elif found.pending_today:
+        # It is payday but the salary isn't in yet: count what is due up to today only.
+        until, reason, note = today, "salary", "Today's salary isn't recorded yet."
     else:
-        until, reason = found[0] - timedelta(days=1), "salary"
+        until, reason = found.date - timedelta(days=1), "salary"
     goals = load_goal_book(db, user.id, today)
     dues = [i for i in up.due_items(db, user.id, ctx, goals, until, templates) if i.reserve > 0]
 
@@ -186,7 +191,8 @@ def safe_to_spend(user: CurrentUser, db: DbSession) -> SafeToSpend:
         amount=fmt(money - due - set_aside - budgets_left),
         until=until.isoformat(),
         reason=reason,  # type: ignore[arg-type]
-        payday=None if found is None else Payday(name=found[1], date=found[0].isoformat()),
+        payday=None if found is None else Payday(name=found.name, date=found.date.isoformat()),
+        note=note,
         money=fmt(money),
         due=fmt(due),
         goals=fmt(set_aside),
