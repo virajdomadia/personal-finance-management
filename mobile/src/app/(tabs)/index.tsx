@@ -22,9 +22,12 @@ export default function DashboardScreen() {
   const [failed, setFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const latest = useRef(0);
+  // Bumped on every reload, so the safe-to-spend card fetches again with the dashboard.
+  const [version, setVersion] = useState(0);
 
   const load = useCallback(async () => {
     const mine = ++latest.current;
+    setVersion(mine);
     // The streak is a nicety: if it can't load, the chip is simply hidden.
     const streakRequest = apiFetch<Streak>("/streak", { token: token ?? undefined }).then(
       (s) => s.days,
@@ -93,6 +96,7 @@ export default function DashboardScreen() {
         streak={streak}
         failed={failed}
         onOpenAccounts={openAccounts}
+        refreshKey={version}
         dueList={<DueList items={data.recurring ?? []} goals={data.goals_due ?? []} onChanged={() => void load()} />}
       />
     </ScrollView>
