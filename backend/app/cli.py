@@ -3,7 +3,7 @@
 import argparse
 import gzip
 import sys
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ from app.export.backup import decode, dump, encode, restore
 from app.models.user import User
 from app.prices.fetch import default_fetcher
 from app.prices.refresh import run_nightly
+from app.sms import undo as sms_undo
 
 
 def _find(db: Session, email: str) -> User:
@@ -96,6 +97,39 @@ def backfill_net_worth(
     return [(user.email, backfill(db, user.id, today, months)) for user in users]
 
 
+def _india_time(text: str) -> datetime:
+    """A moment typed as India time ("2026-11-13 18:05"), or with its own offset."""
+    try:
+        moment = datetime.fromisoformat(text.strip())
+    except ValueError:
+        raise ValueError(f"Not a date and time: {text!r} (try 2026-11-13 18:05)") from None
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=sms_undo.INDIA)
+
+
+def sms_reads(db: Session, email: str) -> list[str]:
+    """The latest SMS reads, newest first, in India time."""
+    lines = []
+    for read in sms_undo.recent_reads(db, _find(db, email).id):
+        start = read.started.astimezone(sms_undo.INDIA).strftime("%Y-%m-%d %H:%M")
+        end = read.ended.astimezone(sms_undo.INDIA).strftime("%H:%M")
+        lines.append(
+            f"{start}-{end}  {read.messages} messages about {read.first_day} to {read.last_day}"
+        )
+    return lines or ["No SMS messages yet"]
+
+
+def undo_sms_read(
+    db: Session, email: str, since: str, before: date | None, really: bool
+) -> list[str]:
+    """Lists, or with `really` removes, the messages that arrived from `since` on."""
+    user = _find(db, email)
+    moment = _india_time(since)
+    if really:
+        return ["Removed:", *sms_undo.apply(db, user.id, moment, before)]
+    plan = sms_undo.plan(db, user.id, moment, before)
+    return ["Would remove (nothing changed; add --apply to do it):", *sms_undo.describe(plan)]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -122,6 +156,21 @@ def main(argv: list[str] | None = None) -> int:
     estimate.add_argument(
         "--months", type=int, default=BACKFILL_MONTHS, choices=range(1, 61), metavar="N"
     )
+    commands.add_parser(
+        "sms-reads", help="list a user's latest SMS reads, to find one to undo"
+    ).add_argument("email")
+    undo = commands.add_parser(
+        "undo-sms-read",
+        help="remove the SMS messages that arrived from a moment on, and what they recorded",
+    )
+    undo.add_argument("email")
+    undo.add_argument("since", help='India time the read started, e.g. "2026-11-13 18:05"')
+    undo.add_argument(
+        "--before",
+        type=date.fromisoformat,
+        help="only messages about days before this one (YYYY-MM-DD); later ones stay",
+    )
+    undo.add_argument("--apply", action="store_true", help="really remove; without it, only list")
     args = parser.parse_args(argv)
 
     try:
@@ -148,6 +197,11 @@ def main(argv: list[str] | None = None) -> int:
                     db, args.email, today_india(), args.months
                 ):
                     print(f"{email}: {written} estimated month-ends")
+            elif args.command == "sms-reads":
+                print("\n".join(sms_reads(db, args.email)))
+            elif args.command == "undo-sms-read":
+                lines = undo_sms_read(db, args.email, args.since, args.before, args.apply)
+                print("\n".join(lines))
             else:
                 user = revoke_sessions(db, args.email)
                 print(f"Revoked sessions for {user.email}")
