@@ -384,7 +384,7 @@ function Trades({
       </div>
       {shown.length === 0 ? (
         <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-4 py-6 text-center text-sm font-extrabold text-zinc-700">
-          <p>{filterName ? `No trades in ${filterName} yet.` : "No trades yet."}</p>
+          <p>{filterName ? `No buys or sells in ${filterName} yet.` : "No buys or sells yet. Start with the shares you already own."}</p>
           <button type="button" className={`${QUIET} mt-2`} onClick={onAdd}>
             Add existing shares
           </button>
@@ -415,7 +415,7 @@ function PriceHistory({ prices, onDelete }: { prices: Price[]; onDelete: (price:
       </h2>
       {prices.length === 0 ? (
         <p className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-4 py-6 text-center text-sm font-extrabold text-zinc-700">
-          No prices recorded. Until you add one, holdings are valued at cost.
+          No prices yet. Until there is one, your shares are valued at what you paid.
         </p>
       ) : (
         <ul className={LIST}>

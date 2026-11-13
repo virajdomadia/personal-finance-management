@@ -4,7 +4,7 @@ import { ActivityIndicator, AppState, RefreshControl, ScrollView, StyleSheet, Vi
 import { Button, Dialog, Portal, Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ChunkyButton, Chip, HeaderAction, Row, ScreenHeader } from "@/components/chunky";
+import { ChunkyButton, Chip, EmptyState, HeaderAction, Row, ScreenHeader } from "@/components/chunky";
 import { DueList } from "@/components/due-list";
 import { Banner } from "@/components/form-parts";
 import { errorMessage, formatDueDate } from "@/lib/accounts";
@@ -177,13 +177,12 @@ export default function RecurringScreen() {
           <DueList items={due} goals={goalsDue} onChanged={() => void load()} />
 
           {templates.length === 0 ? (
-            <View style={styles.empty}>
-              <Text variant="titleMedium">No reminders yet</Text>
-              <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
-                Add rent, a salary or any regular payment, and it will show up here when it&apos;s due. Nothing is recorded
-                until you do it.
-              </Text>
-            </View>
+            <EmptyState
+              emoji="🔁"
+              title="No reminders yet"
+              body="Add your salary, rent or any regular bill, and it shows up here when it's due. Nothing is saved until you say so."
+              action={{ label: "Add reminder", onPress: () => open() }}
+            />
           ) : (
             <View style={styles.list}>
               {templates.map((t) => {
@@ -290,7 +289,6 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
   content: { padding: 16, gap: 12 },
-  empty: { alignItems: "center", gap: 8, paddingVertical: 32 },
   list: { gap: 4 },
   meta: { color: BRAND.zinc600, fontSize: 12, lineHeight: 16 },
   next: { color: BRAND.ink },

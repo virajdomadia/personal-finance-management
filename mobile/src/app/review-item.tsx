@@ -4,11 +4,12 @@ import { KeyboardAvoidingView, ScrollView, StyleSheet, Text as NativeText, View 
 import { Checkbox, HelperText, RadioButton, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ChunkyBox, ChunkyButton, Chip, ScreenHeader, Segmented, TONE_SQUARE } from "@/components/chunky";
+import { Chip, ChunkyBox, ChunkyButton, ScreenHeader, Segmented, TONE_SQUARE } from "@/components/chunky";
+import { CategoryChips } from "@/components/category-chips";
 import { Banner, LoadingScreen, useBlockBack } from "@/components/form-parts";
 import { type Account, type AccountList, errorMessage, maskLast4, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { categoryEmoji } from "@/lib/fun";
+import { CATEGORIES_PATH, EMPTY_TREE, type CategoryTree, pickerGroups, sameName } from "@/lib/categories";
 import {
   type Action,
   type Candidate,
@@ -22,15 +23,20 @@ import {
   expectedBody,
   expectedChoices,
   marketPrefill,
+  accountHint,
+  initialCategory,
+  initialRemember,
   needsNav,
+  rememberLabel,
+  suggestionHint,
   reviewDetails,
   reviewFigure,
   reviewTitle,
   tradeBody,
+  whyLine,
 } from "@/lib/review";
 import { useSession } from "@/lib/session";
 import { BRAND, INPUT_RADIUS } from "@/lib/theme";
-import type { CategoryList } from "@/lib/transactions";
 
 // Every field a 422 can name that this screen shows a control for; anything else goes in the banner.
 const FIELDS = [
@@ -49,7 +55,7 @@ const FIELDS = [
   "quantity",
 ] as const;
 
-type Loaded = { item: ReviewItem | null; accounts: Account[]; categories: CategoryList };
+type Loaded = { item: ReviewItem | null; accounts: Account[]; categories: CategoryTree };
 
 export default function ReviewItemScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -66,9 +72,9 @@ export default function ReviewItemScreen() {
         apiFetch<{ items: ReviewItem[] }>("/sms/review", auth),
         apiFetch<AccountList>("/accounts", auth),
         // Only suggestions: without them a category can still be typed.
-        apiFetch<CategoryList>("/transactions/categories", auth).catch((err: unknown) => {
+        apiFetch<CategoryTree>(CATEGORIES_PATH, auth).catch((err: unknown) => {
           if (err instanceof ApiError && err.status === 401) throw err;
-          return { income: [], expense: [] };
+          return EMPTY_TREE;
         }),
       ]);
       setLoaded({ item: list.items.find((i) => String(i.id) === id) ?? null, accounts: accounts.accounts, categories });
@@ -137,7 +143,7 @@ function Gone({ text }: { text: string }) {
 type AnswerProps = {
   item: ReviewItem;
   accounts: Account[]; // active
-  categories: CategoryList;
+  categories: CategoryTree;
   note: string | null;
   onAnswered: (action: Action, next: ReviewItem | null) => void;
 };
@@ -160,8 +166,9 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
   const [stale, setStale] = useState<string | null>(null);
-  const [category, setCategory] = useState("");
-  const [remember, setRemember] = useState(true);
+  // A confident draft opens with its category picked; any other suggestion is only a hint.
+  const [category, setCategory] = useState(initialCategory(item));
+  const [remember, setRemember] = useState(initialRemember(item));
   const [accountId, setAccountId] = useState("");
   const [same, setSame] = useState(transactions.length === 1 ? String(transactions[0].id) : "");
   const [transfer, setTransfer] = useState(transactions.length === 1 ? String(transactions[0].id) : "");
@@ -295,8 +302,18 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
   );
 
   const type = categoryType(item);
+  const hint = suggestionHint(item);
+  const usual = item.reason === "account" ? accountHint(item, accountChoices(item, accounts)) : null;
   const categoryPicker = (optional: boolean) => (
     <>
+      {hint !== null && item.suggested_category !== null ? (
+        <Chip
+          label={`${hint}: use it`}
+          icon="lightbulb-outline"
+          disabled={disabled}
+          onPress={() => setCategory(item.suggested_category ?? "")}
+        />
+      ) : null}
       <View>
         <TextInput
           mode="outlined"
@@ -309,20 +326,13 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
         />
         {errorText("category")}
       </View>
-      <View style={styles.chips}>
-        {categories[type].map((c) => (
-          <Chip
-            key={c}
-            label={`${categoryEmoji(c)} ${c}`}
-            accessibilityLabel={c}
-            accessibilityRole="radio"
-            selected={category.trim().toLowerCase() === c.toLowerCase()}
-            disabled={disabled}
-            onPress={() => setCategory(c)}
-          />
-        ))}
-      </View>
-      {item.payee !== null ? rememberBox(`Always use this for ${item.payee}`) : null}
+      <CategoryChips
+        groups={pickerGroups(categories[type])}
+        selected={(name) => sameName(category, name)}
+        onPick={setCategory}
+        disabled={disabled}
+      />
+      {item.payee !== null ? rememberBox(rememberLabel(item.payee, category)) : null}
     </>
   );
 
@@ -424,6 +434,15 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
                 {item.message}
               </Text>
             ) : null}
+            {item.why ? (
+              <Text
+                variant="labelLarge"
+                style={item.confident ? styles.sure : styles.muted}
+                accessibilityLabel={`${item.confident ? "Ready to approve" : "Needs a look"}: ${item.why}`}
+              >
+                {whyLine(item)}
+              </Text>
+            ) : null}
             <Text variant="bodySmall" style={styles.muted}>
               {recorded ? "Already in your records." : "Not recorded yet."}
             </Text>
@@ -502,6 +521,18 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
                     radioList(accountOptions, accountId, setAccountId)
                   )}
                   {errorText("account_id")}
+                  {usual !== null ? (
+                    <Chip
+                      label={`Earlier messages from ${item.payee ?? "this payee"} were in ${usual.name}: use it`}
+                      icon="lightbulb-outline"
+                      disabled={disabled}
+                      onPress={() => {
+                        // Only a guess from the payee: the card number isn't remembered unless asked.
+                        setAccountId(String(usual.id));
+                        setRemember(false);
+                      }}
+                    />
+                  ) : null}
                   {item.reason === "account" && item.last4 !== null ? rememberBox(`Remember ${maskLast4(item.last4)} is this account`) : null}
                   {button("account", item.reason === "card_payment" ? "Paid from this account" : "Save")}
                 </>,
@@ -630,11 +661,11 @@ const styles = StyleSheet.create({
   figure: { color: BRAND.ink, fontVariant: ["tabular-nums"] },
   ink: { color: BRAND.ink },
   muted: { color: BRAND.zinc600 },
+  sure: { color: BRAND.greenStrong, fontWeight: "800" },
   section: { padding: 14, gap: 10 },
   sectionTitle: { color: BRAND.ink, letterSpacing: 0.6, textTransform: "uppercase" },
   options: { gap: 6 },
   option: { paddingVertical: 4 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   check: { paddingHorizontal: 0 },
   pair: { flexDirection: "row", gap: 10 },
   half: { flex: 1, minWidth: 0 },

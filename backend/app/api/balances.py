@@ -9,6 +9,7 @@ numerics as floats.
 """
 
 from collections.abc import Iterable
+from datetime import date
 from decimal import Decimal
 from typing import NamedTuple
 
@@ -34,9 +35,11 @@ class Movement(NamedTuple):
     interest: Decimal | None = None  # EMIs only
 
 
-def load_movements(db: Session, user_id: int) -> list[Movement]:
+def load_dated_movements(db: Session, user_id: int) -> list[tuple[date, Movement]]:
+    """Every movement with the date it happened, for working out a balance on a past day."""
     rows = db.execute(
         select(
+            Transaction.date,
             Transaction.id,
             Transaction.type,
             Transaction.amount,
@@ -45,11 +48,17 @@ def load_movements(db: Session, user_id: int) -> list[Movement]:
             Transaction.interest,
         ).where(Transaction.user_id == user_id)
     )
-    movements = [Movement(*row) for row in rows]
+    movements = [(row[0], Movement(*row[1:])) for row in rows]
     for t in load_trade_rows(db, user_id):
         if not t.opening:
-            movements.append(Movement(-t.id, t.side, abs(trade_cash(t)), t.account_id, None))
+            movements.append(
+                (t.date, Movement(-t.id, t.side, abs(trade_cash(t)), t.account_id, None))
+            )
     return movements
+
+
+def load_movements(db: Session, user_id: int) -> list[Movement]:
+    return [movement for _, movement in load_dated_movements(db, user_id)]
 
 
 def net_flows(movements: Iterable[Movement]) -> dict[int, Decimal]:

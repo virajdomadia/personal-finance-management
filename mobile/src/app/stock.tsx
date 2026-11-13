@@ -217,7 +217,7 @@ export default function StockScreen() {
   const filterName = brokers.find(([brokerId]) => String(brokerId) === effective)?.[1];
   const shown = effective === "" ? data.trades : data.trades.filter((t) => String(t.account_id) === effective);
 
-  const trade = (params: Record<string, string>) => go({ pathname: "/trade-form", params: { stockId, ...params } });
+  const trade = (params: Record<string, string>) => go({ pathname: "/trade-form", params: { kind: "stock", stockId, ...params } });
   // The prices come newest first; a line runs oldest to newest.
   const line = [...data.prices].reverse().map((p) => ({ date: p.date, value: p.price }));
 
@@ -231,7 +231,7 @@ export default function StockScreen() {
             <HeaderAction
               icon="pencil-outline"
               label="Rename stock"
-              onPress={() => go({ pathname: "/stock-form", params: { stockId } })}
+              onPress={() => go({ pathname: "/holding-form", params: { kind: "stock", id: stockId } })}
             />
             <HeaderAction icon="delete-outline" label="Delete stock" onPress={() => setDeletingStock(true)} />
           </>
@@ -284,17 +284,14 @@ export default function StockScreen() {
             variant="alt"
             icon="tag-outline"
             label="Update price"
-            onPress={() => go({ pathname: "/price-form", params: { stockId } })}
+            onPress={() => go({ pathname: "/price-form", params: { kind: "stock", id: stockId } })}
           />
           <ChunkyButton
             variant="alt"
             icon="link-variant"
             label={linkLabel(stock.source_code)}
             onPress={() =>
-              go({
-                pathname: "/link-form",
-                params: { kind: "stock", id: stockId, title: stock.symbol, ...(stock.source_code ? { code: stock.source_code } : {}) },
-              })
+go({ pathname: "/holding-form", params: { kind: "stock", id: stockId, focus: "link" } })
             }
           />
           <View style={styles.tradeButtons}>
@@ -357,7 +354,7 @@ export default function StockScreen() {
         ) : null}
         {shown.length === 0 ? (
           <EmptyBox
-            text={filterName ? `No trades in ${filterName} yet.` : "No trades yet."}
+            text={filterName ? `No buys or sells in ${filterName} yet.` : "No buys or sells yet. Start with the shares you already own."}
             action={{ label: "Add existing shares", onPress: () => trade({ opening: "1" }) }}
           />
         ) : (
@@ -382,7 +379,7 @@ export default function StockScreen() {
                 archivedNote="Archived broker. Restore it to change this trade."
                 archivedLabel="archived broker"
                 hint="Opens the trade to edit or delete"
-                onPress={() => go({ pathname: "/trade-form", params: { id: String(t.id), stockId } })}
+                onPress={() => go({ pathname: "/trade-form", params: { kind: "stock", id: String(t.id), stockId } })}
               />
             );
           })
@@ -390,7 +387,7 @@ export default function StockScreen() {
 
         <SectionTitle label="Price history" />
         {data.prices.length === 0 ? (
-          <EmptyBox text="No prices recorded. Until you add one, holdings are valued at cost." />
+          <EmptyBox text="No prices yet. Until there is one, your shares are valued at what you paid." />
         ) : (
           data.prices.map((price, index) => (
             <HistoryRow

@@ -154,8 +154,8 @@ def list_stocks(user: CurrentUser, db: DbSession) -> StockList:
     return StockList(stocks=[_response(s, prices) for s in stocks])
 
 
-@router.post("/stocks", status_code=status.HTTP_201_CREATED)
-def create_stock(body: StockCreate, user: CurrentUser, db: DbSession) -> StockResponse:
+def add_stock(db: DbSession, user_id: int, body: StockCreate) -> Instrument:
+    """Validate and add a new stock, flushed so it has an id. The caller commits."""
     errors = []
     if body.symbol is None:
         errors.append(field_error("symbol", _BAD_SYMBOL))
@@ -165,10 +165,10 @@ def create_stock(body: StockCreate, user: CurrentUser, db: DbSession) -> StockRe
     if errors:
         raise RequestValidationError(errors)
     assert body.symbol is not None and body.name is not None
-    if _taken(db, user.id, body.symbol):
+    if _taken(db, user_id, body.symbol):
         raise _duplicate(body.symbol)
     stock = Instrument(
-        user_id=user.id,
+        user_id=user_id,
         kind=STOCK,
         symbol=body.symbol,
         name=body.name,
@@ -176,12 +176,27 @@ def create_stock(body: StockCreate, user: CurrentUser, db: DbSession) -> StockRe
     )
     db.add(stock)
     try:
+        db.flush()
         if body.source_code is not None:
-            apply_link(db, STOCK, user.id)
-        db.commit()
+            apply_link(db, STOCK, user_id)
     except IntegrityError:  # a concurrent request took the symbol first
         db.rollback()
         raise _duplicate(body.symbol) from None
+    return stock
+
+
+def stock_response(db: DbSession, user_id: int, stock: Instrument) -> StockResponse:
+    return _response(stock, latest_prices(db, user_id))
+
+
+@router.post("/stocks", status_code=status.HTTP_201_CREATED)
+def create_stock(body: StockCreate, user: CurrentUser, db: DbSession) -> StockResponse:
+    stock = add_stock(db, user.id, body)
+    try:
+        db.commit()
+    except IntegrityError:  # a concurrent request took the symbol first
+        db.rollback()
+        raise _duplicate(stock.symbol) from None
     return _response(stock, latest_prices(db, user.id) if body.source_code else {})
 
 

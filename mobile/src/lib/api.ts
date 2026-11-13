@@ -1,5 +1,5 @@
 // The app always uses the deployed API, including in development.
-const API_URL = "https://finance-api.virajdomadia.com";
+export const API_URL = "https://finance-api.virajdomadia.com";
 const REQUEST_TIMEOUT_MS = 20_000;
 
 export class ApiError extends Error {
@@ -21,7 +21,7 @@ async function readDetail(response: Response): Promise<unknown> {
 }
 
 type Options = {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   token?: string;
   body?: unknown;
 };

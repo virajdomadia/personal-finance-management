@@ -4,6 +4,7 @@ Every save (create, edit, delete) replays the user's trades of that kind with th
 and is refused if any sell would then sell more than was held on its date.
 """
 
+from collections.abc import Callable
 from datetime import date
 from typing import NamedTuple
 
@@ -22,6 +23,36 @@ from app.models.investment import Instrument, InvestmentTrade
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 # A trade being created has no id yet. This one sorts after every real id on the same date.
 NEW_ID = MAX_ID + 1
+
+
+def create_with_first_trade[T](
+    db: Session,
+    check_trade_fields: Callable[[], None],
+    add_instrument: Callable[[], Instrument],
+    save_trade: Callable[[Instrument], T],
+) -> tuple[Instrument, T]:
+    """A new instrument and its first trade, committed together or not at all.
+
+    The trade's own field rules are checked first, so that a form with a bad name and a missing
+    price hears about both. `add_instrument` adds and flushes the instrument; `save_trade` runs
+    the kind's save checks against it, adds the trade and commits. Any refusal rolls both back.
+    """
+    try:
+        try:
+            check_trade_fields()
+            trade_errors: list = []
+        except RequestValidationError as err:
+            trade_errors = list(err.errors())
+        try:
+            instrument = add_instrument()
+        except RequestValidationError as err:
+            raise RequestValidationError([*err.errors(), *trade_errors]) from None
+        if trade_errors:
+            raise RequestValidationError(trade_errors)
+        return instrument, save_trade(instrument)
+    except Exception:
+        db.rollback()
+        raise
 
 
 class ShortMessages(NamedTuple):

@@ -3,14 +3,18 @@ import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { Text } from "react-native-paper";
 
-import { ChunkyBox, ChunkyButton, Row, ScreenHeader, StackedBar, Tile } from "@/components/chunky";
+import { ChunkyButton, Row, ScreenHeader, StackedBar, Tile } from "@/components/chunky";
+import { DigestCard } from "@/components/digest-card";
+import { SetupChecklist } from "@/components/setup-checklist";
+import { MonthCard } from "@/components/month-card";
+import { SafeToSpendCard } from "@/components/safe-to-spend-card";
 import { type AssetSplit, type Dashboard, formatDueDate } from "@/lib/accounts";
 import { cardBillText, reviewCountText } from "@/lib/review";
-import { investmentSticker, streakLabel } from "@/lib/fun";
+import { investmentSticker } from "@/lib/fun";
 import { tileGoal } from "@/lib/goals";
 import { formatPercent } from "@/lib/investments";
 import { whole } from "@/lib/recurring";
-import { BRAND, INPUT_RADIUS, SHADOW_OFFSET_SM } from "@/lib/theme";
+import { BRAND } from "@/lib/theme";
 
 const GROUP_LABELS: Record<AssetSplit["group"], string> = {
   bank_cash: "Bank & cash",
@@ -19,21 +23,6 @@ const GROUP_LABELS: Record<AssetSplit["group"], string> = {
   funds: "Funds",
   crypto: "Crypto",
 };
-
-// The streak chip, hidden when there is no streak.
-export function StreakPill({ days }: { days: number | null }) {
-  const label = days === null ? null : streakLabel(days);
-  if (!label) return null;
-  return (
-    <View accessible accessibilityLabel={`${days}-day streak`}>
-      <ChunkyBox radius={999} offset={SHADOW_OFFSET_SM} style={styles.pill}>
-        <Text variant="labelLarge" style={styles.pillText}>
-          {label}
-        </Text>
-      </ChunkyBox>
-    </View>
-  );
-}
 
 function Grid({ children }: { children: ReactNode[] }) {
   const items = children.filter(Boolean);
@@ -56,14 +45,15 @@ function Grid({ children }: { children: ReactNode[] }) {
 
 type Props = {
   data: Dashboard;
-  streak: number | null;
   failed: boolean;
   onOpenAccounts: () => void;
   dueList?: ReactNode; // the due and coming-up reminders
+  trend?: ReactNode; // the net worth sparkline, under the figure
+  refreshKey?: number; // changes whenever the dashboard reloads
 };
 
 // The dashboard's content, without any loading or fetching, so it can be shown with fixture data.
-export function DashboardView({ data, streak, failed, onOpenAccounts, dueList }: Props) {
+export function DashboardView({ data, failed, onOpenAccounts, dueList, trend, refreshKey = 0 }: Props) {
   const bill = data.card_bill ?? null;
   // The statement's bill says more than the card's due day, so the card isn't listed twice.
   const due = data.next_card_due && data.next_card_due.account_id !== bill?.account_id ? data.next_card_due : null;
@@ -95,13 +85,16 @@ export function DashboardView({ data, streak, failed, onOpenAccounts, dueList }:
 
   return (
     <View style={styles.wrap}>
-      <ScreenHeader title="Hey there!" right={<StreakPill days={streak} />} />
+      <ScreenHeader title="Hey there!" />
       <View style={styles.body}>
         {failed ? (
           <Text variant="bodyMedium" accessibilityRole="alert" style={styles.error}>
             We couldn&apos;t load your dashboard. Pull down to try again.
           </Text>
         ) : null}
+
+        <SetupChecklist />
+        <DigestCard refreshKey={refreshKey} />
 
         {toReview > 0 ? (
           <Tile
@@ -119,6 +112,7 @@ export function DashboardView({ data, streak, failed, onOpenAccounts, dueList }:
         ) : null}
 
         <Tile tone={negative ? "pink" : "green"} label="Net worth" value={whole(data.net_worth)} size="huge">
+          {trend}
           {data.investments ? (
             <Text variant="bodySmall" style={styles.note}>
               Includes investments at their latest price (or cost if no price yet)
@@ -158,6 +152,8 @@ export function DashboardView({ data, streak, failed, onOpenAccounts, dueList }:
           ]}
         </Grid>
 
+        <SafeToSpendCard refreshKey={refreshKey} />
+        <MonthCard />
         {hasSplit ? (
           <Tile label="Where it is" emoji="🧭">
             <StackedBar items={split} label="Where your money is" />
@@ -212,8 +208,6 @@ export function DashboardView({ data, streak, failed, onOpenAccounts, dueList }:
 const styles = StyleSheet.create({
   wrap: { gap: 4 },
   body: { paddingHorizontal: 16, gap: 12 },
-  pill: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: BRAND.yellow, borderRadius: INPUT_RADIUS },
-  pillText: { color: BRAND.ink },
   gridRow: { flexDirection: "row", gap: 12 },
   cell: { flex: 1, minWidth: 0 },
   hint: { color: "#FFFFFF", marginTop: 2 },

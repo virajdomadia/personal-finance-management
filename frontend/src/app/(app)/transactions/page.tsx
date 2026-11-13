@@ -10,9 +10,12 @@ export const metadata: Metadata = {
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
 async function Content({ searchParams }: { searchParams: SearchParams }) {
-  const { account } = await searchParams;
-  const accountId = typeof account === "string" && /^[1-9]\d{0,9}$/.test(account) ? Number(account) : null;
-  return <TransactionsView initialAccountId={accountId} />;
+  // The filters live in the address (?q=plumber&category=Housing...); the view checks each one.
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(await searchParams)) {
+    if (typeof value === "string") params.set(key, value);
+  }
+  return <TransactionsView initialQuery={params.toString()} />;
 }
 
 export default function TransactionsPage({ searchParams }: { searchParams: SearchParams }) {

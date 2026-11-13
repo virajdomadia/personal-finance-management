@@ -216,7 +216,7 @@ export default function FundScreen() {
   const redeemable = holdings.filter((h) => !locked.has(h.account_id));
   const sides = new Map(data.trades.map((t) => [t.id, t.side]));
 
-  const trade = (params: Record<string, string>) => go({ pathname: "/fund-trade-form", params: { fundId, ...params } });
+  const trade = (params: Record<string, string>) => go({ pathname: "/trade-form", params: { kind: "mutual_fund", fundId, ...params } });
   const recordSip = (sip: Sip) =>
     trade({ mode: "sip", sipId: String(sip.id), ...(sip.due_date ? { date: sip.due_date } : {}) });
   // The NAVs come newest first; a line runs oldest to newest.
@@ -231,7 +231,7 @@ export default function FundScreen() {
           <HeaderAction
             icon="pencil-outline"
             label="Rename or delete fund"
-            onPress={() => go({ pathname: "/fund-form", params: { id: fundId } })}
+            onPress={() => go({ pathname: "/holding-form", params: { kind: "mutual_fund", id: fundId } })}
           />
         }
       />
@@ -282,17 +282,14 @@ export default function FundScreen() {
             variant="alt"
             icon="tag-outline"
             label="Update NAV"
-            onPress={() => go({ pathname: "/nav-form", params: { fundId } })}
+            onPress={() => go({ pathname: "/price-form", params: { kind: "mutual_fund", id: fundId } })}
           />
           <ChunkyButton
             variant="alt"
             icon="link-variant"
             label={linkLabel(fund.source_code)}
             onPress={() =>
-              go({
-                pathname: "/link-form",
-                params: { kind: "mutual_fund", id: fundId, title: fund.symbol, ...(fund.source_code ? { code: fund.source_code } : {}) },
-              })
+go({ pathname: "/holding-form", params: { kind: "mutual_fund", id: fundId, focus: "link" } })
             }
           />
           <View style={styles.tradeButtons}>
@@ -376,7 +373,7 @@ export default function FundScreen() {
 
         <SectionTitle label="Transactions" />
         {data.trades.length === 0 ? (
-          <EmptyBox text="No transactions yet." action={{ label: "Add existing units", onPress: () => trade({ mode: "opening" }) }} />
+          <EmptyBox text="No purchases yet. Start with the units you already own." action={{ label: "Add existing units", onPress: () => trade({ mode: "opening" }) }} />
         ) : (
           data.trades.map((t) => {
             const details = [
@@ -408,7 +405,7 @@ export default function FundScreen() {
 
         <SectionTitle label="NAV history" />
         {data.navs.length === 0 ? (
-          <EmptyBox text="No NAV recorded. Until you add one, holdings are valued at cost." />
+          <EmptyBox text="No NAV yet. Until there is one, your units are valued at what you paid." />
         ) : (
           data.navs.map((nav, index) => {
             const source =

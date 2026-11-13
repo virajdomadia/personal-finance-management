@@ -187,7 +187,7 @@ export default function CoinScreen() {
   // Coins in an archived account can't be sold until it's restored.
   const sellable = holdings.filter((h) => !locked.has(h.account_id));
 
-  const trade = (params: Record<string, string>) => go({ pathname: "/crypto-trade-form", params: { coinId, ...params } });
+  const trade = (params: Record<string, string>) => go({ pathname: "/trade-form", params: { kind: "crypto", coinId, ...params } });
   // The prices come newest first; a line runs oldest to newest.
   const line = [...data.prices].reverse().map((p) => ({ date: p.date, value: p.price }));
 
@@ -200,7 +200,7 @@ export default function CoinScreen() {
           <HeaderAction
             icon="pencil-outline"
             label="Rename or delete coin"
-            onPress={() => go({ pathname: "/coin-form", params: { id: coinId } })}
+            onPress={() => go({ pathname: "/holding-form", params: { kind: "crypto", id: coinId } })}
           />
         }
       />
@@ -251,17 +251,14 @@ export default function CoinScreen() {
             variant="alt"
             icon="tag-outline"
             label="Update price"
-            onPress={() => go({ pathname: "/coin-price-form", params: { coinId } })}
+            onPress={() => go({ pathname: "/price-form", params: { kind: "crypto", id: coinId } })}
           />
           <ChunkyButton
             variant="alt"
             icon="link-variant"
             label={linkLabel(coin.source_code)}
             onPress={() =>
-              go({
-                pathname: "/link-form",
-                params: { kind: "crypto", id: coinId, title: coin.symbol, ...(coin.source_code ? { code: coin.source_code } : {}) },
-              })
+go({ pathname: "/holding-form", params: { kind: "crypto", id: coinId, focus: "link" } })
             }
           />
           <View style={styles.tradeButtons}>
@@ -308,7 +305,7 @@ export default function CoinScreen() {
 
         <SectionTitle label="Transactions" />
         {data.trades.length === 0 ? (
-          <EmptyBox text="No transactions yet." action={{ label: "Add existing coins", onPress: () => trade({ mode: "opening" }) }} />
+          <EmptyBox text="No buys or sells yet. Start with the coins you already own." action={{ label: "Add existing coins", onPress: () => trade({ mode: "opening" }) }} />
         ) : (
           data.trades.map((t) => {
             const details = [
@@ -339,7 +336,7 @@ export default function CoinScreen() {
 
         <SectionTitle label="Price history" />
         {data.prices.length === 0 ? (
-          <EmptyBox text="No price recorded. Until you add one, holdings are valued at cost." />
+          <EmptyBox text="No price yet. Until there is one, your coins are valued at what you paid." />
         ) : (
           data.prices.map((price, index) => (
             <HistoryRow

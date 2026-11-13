@@ -10,6 +10,7 @@ import { type Identifier, type PayeeRule, type Sample, ruleText, trimSampleText 
 import type { CategoryList } from "@/lib/transactions";
 import { ConfirmDelete, LIST, Notice, ROW_ACTION, SECTION_TITLE, isUnauthorized } from "@/components/investments/shared";
 import { PageHeader, Segmented, buttonClass } from "@/components/ui/chunky";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ComboBox, Select } from "@/components/ui/select";
 
 type Data = {
@@ -122,7 +123,18 @@ export function PayeeRulesView() {
               New messages from these payees are sorted by themselves.
             </p>
             {load.data.rules.length === 0 ? (
-              <p className={EMPTY}>No rules yet. Tick &quot;Always use this&quot; when you answer a message in To review.</p>
+              <EmptyState
+                emoji="🪄"
+                title="No rules yet"
+                heading="h3"
+                action={
+                  <Link href="/review" className={`${buttonClass("primary")} uppercase`}>
+                    Open To review
+                  </Link>
+                }
+              >
+                When you answer a bank message in To review, tick &quot;Always use this&quot;. Next time that payee is sorted for you.
+              </EmptyState>
             ) : (
               <ul className={LIST}>
                 {load.data.rules.map((rule) =>
@@ -180,7 +192,7 @@ export function PayeeRulesView() {
               Card and account numbers you matched to an account, besides the one saved on the account itself.
             </p>
             {load.data.identifiers.length === 0 ? (
-              <p className={EMPTY}>None yet.</p>
+              <p className={EMPTY}>None yet. They&apos;re added when you match a card or account number to an account in To review.</p>
             ) : (
               <ul className={LIST}>
                 {load.data.identifiers.map((identifier) => (
@@ -211,7 +223,7 @@ export function PayeeRulesView() {
               Bank messages the phone couldn&apos;t read. Numbers are hidden before they leave the phone.
             </p>
             {load.data.samples.length === 0 ? (
-              <p className={EMPTY}>None yet.</p>
+              <p className={EMPTY}>None yet. If the Android app can&apos;t read a bank text, you can send a copy from its Bank SMS settings.</p>
             ) : (
               <ul className={LIST}>
                 {load.data.samples.map((sample) => (

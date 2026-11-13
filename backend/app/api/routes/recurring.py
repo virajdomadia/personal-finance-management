@@ -17,6 +17,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
+from app.api.categories import kind_of, resolve
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.goals import GoalDue, goals_due, load_goal_book
@@ -338,6 +339,13 @@ def check_template_values(
         raise RequestValidationError(errors)
 
 
+def _registered(db: Session, user_id: int, values: dict[str, Any], keep: str | None) -> None:
+    """The category in the registry's spelling; a template may keep its archived category."""
+    kind = kind_of(values["type"] or "")
+    if kind is not None and values["category"] is not None:
+        values["category"] = resolve(db, user_id, kind, values["category"], keep=keep)
+
+
 def _columns(values: dict[str, Any]) -> dict[str, Any]:
     """Only a yearly reminder has a month."""
     return {**values, "month": values["month"] if values["frequency"] == "yearly" else None}
@@ -365,6 +373,7 @@ def create_template(body: TemplateCreate, user: CurrentUser, db: DbSession) -> T
     today = today_india()
     accounts = lock_accounts(db, user.id, [values["account_id"], values["to_account_id"]])
     check_template_values(values, accounts, today)
+    _registered(db, user.id, values, keep=None)
     template = RecurringTemplate(user_id=user.id, **_columns(values))
     db.add(template)
     db.commit()
@@ -425,6 +434,7 @@ def update_template(
     today = today_india()
     # A reminder that will be active must still be recordable; stopping one always works.
     check_template_values(values, accounts, today, money=bool(values["active"]))
+    _registered(db, user.id, values, keep=template.category)
     for field, value in _columns(values).items():
         setattr(template, field, value)
     db.commit()

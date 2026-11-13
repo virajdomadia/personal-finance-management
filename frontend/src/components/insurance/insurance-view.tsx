@@ -20,6 +20,7 @@ import {
 import { type Policy, cardBillText, fundingText, renewalText } from "@/lib/insurance";
 import { whole } from "@/lib/recurring";
 import { PageHeader, TABLE, TD, TD_NUM, TH, Tile, buttonClass } from "@/components/ui/chunky";
+import { EmptyState } from "@/components/ui/empty-state";
 
 import { PolicyDialog } from "./policy-dialog";
 import { RenewDialog } from "./renew-dialog";
@@ -115,14 +116,17 @@ export function InsuranceView() {
 
       {load.status === "ready" &&
         (policies.length === 0 ? (
-          <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-12 text-center">
-            <p className="font-black">
-              <span aria-hidden="true">🛡️ </span>No policies yet
-            </p>
-            <p className="mx-auto mt-1 max-w-md text-sm font-bold text-zinc-600">
-              Add your health insurance to get a renewal reminder, see what each year cost, and check your premium fund covers it.
-            </p>
-          </div>
+          <EmptyState
+            emoji="🛡️"
+            title="No policies yet"
+            action={
+              <button type="button" className={PRIMARY} onClick={() => setDialog({ kind: "form", policy: null })}>
+                + Add policy
+              </button>
+            }
+          >
+            Add your health insurance to get a reminder before it renews and see what each year cost.
+          </EmptyState>
         ) : (
           <div className="flex flex-col gap-8">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

@@ -36,6 +36,7 @@
       "expo-secure-store",
       "expo-local-authentication",
       "expo-font",
+      "expo-sharing",
       [
         "react-native-nitro-google-signin",
         {
@@ -43,6 +44,13 @@
         }
       ],
       "@react-native-community/datetimepicker",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#FFC800"
+        }
+      ],
       [
         "expo-splash-screen",
         {

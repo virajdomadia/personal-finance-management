@@ -15,7 +15,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import type { Price, Stock } from "@/lib/investments";
+import { formatCoinPrice } from "@/lib/crypto";
+import { formatNav } from "@/lib/funds";
+import type { MarketKind } from "@/lib/investments";
 import { ChunkyBox, ChunkyButton, ScreenHeader } from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
 import { DateField } from "@/components/date-field";
@@ -26,12 +28,82 @@ import { formatDate, previousDay, todayIndia } from "@/lib/transactions";
 type Key = "price" | "date";
 const FIELDS: Key[] = ["price", "date"];
 
+// A stock, fund or coin as this screen needs it: a fund's NAV is its price.
+type Holding = { id: number; symbol: string; name: string; price: string | null; date: string | null };
+
+type Kind = {
+  path: string; // under /investments
+  noun: string;
+  priceWord: "price" | "NAV";
+  field: "price" | "nav"; // what the server calls the value
+  label: string;
+  input: Partial<React.ComponentProps<typeof TextInput>>;
+  format: (value: string) => string;
+  clean: (value: string) => string;
+  read: (body: Record<string, unknown>) => Holding[];
+};
+
+const holding = (row: Record<string, unknown>, price: string, date: string): Holding => ({
+  id: row.id as number,
+  symbol: row.symbol as string,
+  name: row.name as string,
+  price: row[price] as string | null,
+  date: row[date] as string | null,
+});
+
+const KINDS: Record<MarketKind, Kind> = {
+  stock: {
+    path: "stocks",
+    noun: "stock",
+    priceWord: "price",
+    field: "price",
+    label: "Price per share (₹)",
+    input: { maxLength: 24 },
+    format: formatRupees,
+    clean: cleanMoney,
+    read: (body) => (body.stocks as Record<string, unknown>[]).map((r) => holding(r, "price", "price_date")),
+  },
+  mutual_fund: {
+    path: "funds",
+    noun: "fund",
+    priceWord: "NAV",
+    field: "nav",
+    label: "NAV (₹)",
+    input: { maxLength: 16, placeholder: "84.3793" },
+    format: formatNav,
+    clean: (value) => value.trim(),
+    read: (body) => (body.funds as Record<string, unknown>[]).map((r) => holding(r, "nav", "nav_date")),
+  },
+  crypto: {
+    path: "coins",
+    noun: "coin",
+    priceWord: "price",
+    field: "price",
+    label: "Price per coin (₹)",
+    input: { maxLength: 16, placeholder: "7504827.5" },
+    format: formatCoinPrice,
+    clean: (value) => value.trim(),
+    read: (body) => (body.coins as Record<string, unknown>[]).map((r) => holding(r, "price", "price_date")),
+  },
+};
+
+// Update price (a stock or coin) or NAV (a fund): the holding is valued at the latest one. Fund
+// purchases and redemptions record their own NAV; a linked holding gets one every night.
+// Params: kind (stock | mutual_fund | crypto) and id. The older stockId, fundId and coinId still work.
 export default function PriceFormScreen() {
-  const { stockId } = useLocalSearchParams<{ stockId?: string }>();
+  const params = useLocalSearchParams<{ kind?: string; id?: string; stockId?: string; fundId?: string; coinId?: string }>();
+  const kindName: MarketKind =
+    params.kind === "mutual_fund" || params.fundId !== undefined
+      ? "mutual_fund"
+      : params.kind === "crypto" || params.coinId !== undefined
+        ? "crypto"
+        : "stock";
+  const kind = KINDS[kindName];
+  const holdingId = params.id ?? params.stockId ?? params.fundId ?? params.coinId;
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [stock, setStock] = useState<Stock | null>(null);
+  const [stock, setStock] = useState<Holding | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [form, setForm] = useState<Record<Key, string>>(() => ({ price: "", date: todayIndia() }));
@@ -46,12 +118,12 @@ export default function PriceFormScreen() {
 
   useEffect(() => {
     let current = true;
-    apiFetch<{ stocks: Stock[] }>("/investments/stocks", { token: token ?? undefined })
+    apiFetch<Record<string, unknown>>(`/investments/${kind.path}`, { token: token ?? undefined })
       .then((result) => {
         if (!current) return;
-        const found = result.stocks.find((s) => String(s.id) === stockId);
+        const found = kind.read(result).find((s) => String(s.id) === holdingId);
         if (found) setStock(found);
-        else setLoadError("This stock was not found.");
+        else setLoadError(`This ${kind.noun} was not found.`);
       })
       .catch((err: unknown) => {
         if (!current) return;
@@ -64,7 +136,7 @@ export default function PriceFormScreen() {
     return () => {
       current = false;
     };
-  }, [stockId, token, logOut, attempt]);
+  }, [kind, holdingId, token, logOut, attempt]);
 
   useEffect(() => {
     mounted.current = true;
@@ -96,12 +168,12 @@ export default function PriceFormScreen() {
     setGeneral([]);
     let done = false;
     try {
-      const price = cleanMoney(form.price);
+      const price = kind.clean(form.price);
       const date = form.date.trim();
-      await apiFetch<Price>(`/investments/stocks/${stock.id}/prices`, {
+      await apiFetch(`/investments/${kind.path}/${stock.id}/${kind.field === "nav" ? "navs" : "prices"}`, {
         method: "POST",
         token: token ?? undefined,
-        body: { date: date === "" ? null : date, price: price === "" ? null : price },
+        body: { date: date === "" ? null : date, [kind.field]: price === "" ? null : price },
       });
       done = true;
       if (mounted.current) router.back();
@@ -110,7 +182,13 @@ export default function PriceFormScreen() {
         void logOut();
       } else if (err instanceof ApiError && err.status === 422) {
         needFocus.current = true;
-        const result = splitErrors(err.detail, FIELDS);
+        // The server calls a fund's NAV `nav`; this form shows it in the price field.
+        const detail = Array.isArray(err.detail)
+          ? err.detail.map((item: { loc?: unknown[] }) =>
+              Array.isArray(item?.loc) && item.loc[item.loc.length - 1] === "nav" ? { ...item, loc: [...item.loc.slice(0, -1), "price"] } : item,
+            )
+          : err.detail;
+        const result = splitErrors(detail, FIELDS);
         setErrors(result.fields);
         setGeneral(result.general);
       } else if (err instanceof ApiError && (err.status === 404 || err.status === 409)) {
@@ -126,7 +204,7 @@ export default function PriceFormScreen() {
     }
   }
 
-  const title = stock ? `Update price of ${stock.symbol}` : "Update price";
+  const title = stock ? `Update ${kind.priceWord} of ${stock.symbol}` : `Update ${kind.priceWord}`;
   const busy = saving || missing !== null;
   const today = todayIndia();
   const yesterday = previousDay(today);
@@ -192,13 +270,14 @@ export default function PriceFormScreen() {
             ) : null}
             <Banner messages={general} />
 
+            {kindName === "stock" ? null : <Text variant="titleMedium">{stock.name}</Text>}
             <Text variant="bodyMedium" style={{ color: BRAND.zinc600 }}>
-              {stock.price !== null && stock.price_date !== null
-                ? `Last recorded ${formatRupees(stock.price)} on ${formatDate(stock.price_date)}.`
-                : "No price recorded yet, so holdings are valued at cost."}
+              {stock.price !== null && stock.date !== null
+                ? `Last recorded ${kind.format(stock.price)} on ${formatDate(stock.date)}.`
+                : `No ${kind.priceWord} recorded yet, so holdings are valued at cost.`}
             </Text>
 
-            {input("price", "Price per share (₹)", { keyboardType: "decimal-pad", maxLength: 24, autoFocus: true })}
+            {input("price", kind.label, { keyboardType: "decimal-pad", autoFocus: true, ...kind.input })}
 
             <DateField
               label="As of"
@@ -215,7 +294,7 @@ export default function PriceFormScreen() {
 
             <ChunkyButton
             variant="green"
-            label={saving ? "Saving..." : "Save price"}
+            label={saving ? "Saving..." : `Save ${kind.priceWord}`}
             onPress={() => void save()}
             loading={saving}
             disabled={busy && !saving}

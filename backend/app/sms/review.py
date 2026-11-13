@@ -48,6 +48,7 @@ ANSWERS: dict[str, set[str]] = {
     "balance": {"retry"},
 }
 _GONE = "That transaction no longer exists."
+CHANGED = "This payment changed since. Check it again."
 _OWN_GONE = "This message's transaction no longer exists."
 
 
@@ -202,6 +203,14 @@ def _rule(db: Session, user_id: int, entry: SmsEntry) -> PayeeRule:
     return rule
 
 
+def remember_category(db: Session, user_id: int, entry: SmsEntry, category: str) -> PayeeRule:
+    """The entry's payee is always this category from now on."""
+    rule = _rule(db, user_id, entry)
+    rule.category, rule.to_account_id = category, None
+    db.flush()
+    return rule
+
+
 # Answers
 
 
@@ -246,10 +255,18 @@ def _same_payee_waiting(
 
 
 def categorise(
-    db: Session, user_id: int, entry: SmsEntry, category: str | None, remember: bool
+    db: Session,
+    user_id: int,
+    entry: SmsEntry,
+    category: str | None,
+    remember: bool,
+    expected_amount: Decimal | None = None,
 ) -> None:
     """Gives the entry's income or expense its category. `remember` keeps it as the payee's
-    rule and answers the payee's other uncategorised items of the same type too."""
+    rule and answers the payee's other uncategorised items of the same type too.
+
+    `expected_amount` is for an approval made from an earlier look: once locked, the money must
+    still be uncategorised, not a reminder's, and of that amount, or nothing is changed."""
     if entry.transaction_id is None:
         _record_categorised(db, user_id, entry, category)
         return
@@ -265,6 +282,12 @@ def categorise(
         _conflict(_OWN_GONE)
     if tx.type not in ("income", "expense"):
         _conflict(f"This is a {tx.type} now, which has no category.")
+    if expected_amount is not None and (
+        tx.category is not None
+        or tx.recurring_template_id is not None
+        or tx.amount != expected_amount
+    ):
+        _conflict(CHANGED)
     if category is None:
         # "Not a transfer" for money that already has its category.
         if entry.reason == "maybe_transfer" and tx.category is not None:

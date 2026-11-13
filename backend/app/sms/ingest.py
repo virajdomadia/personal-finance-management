@@ -15,6 +15,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.categories import usable
 from app.api.routes.accounts import rupees
 from app.api.routes.transactions import lock_accounts, save_checks
 from app.models.account import Account
@@ -845,10 +846,13 @@ def _category_for(db: Session, user_id: int, entry: SmsEntry) -> str | None:
             PayeeRule.user_id == user_id, PayeeRule.payee_key == entry.payee_key
         )
     )
+    kind = "expense" if entry.kind in MONEY_OUT else "income"
     if rule is not None and rule.category is not None:
-        return rule.category
+        # An archived category isn't used: the money waits in To review instead.
+        return usable(db, user_id, kind, rule.category)
     if entry.kind in MONEY_OUT:
-        return builtin_category(entry.payee_key)
+        builtin = builtin_category(entry.payee_key)
+        return None if builtin is None else usable(db, user_id, kind, builtin)
     return None
 
 

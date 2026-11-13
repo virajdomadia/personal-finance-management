@@ -3,25 +3,33 @@ from fastapi import APIRouter
 from app.api.routes import (
     accounts,
     auth,
+    budgets,
+    cash_flow,
+    categories,
     coins,
     cron,
     crypto_trades,
     dashboard,
     deposits,
+    digest,
+    export,
     fund_trades,
     funds,
     goals,
     health,
     market,
+    net_worth,
     policies,
     portfolio,
     recurring,
+    setup,
     sips,
     sms,
     stocks,
     streak,
     trades,
     transactions,
+    upcoming,
 )
 
 api_router = APIRouter()
@@ -31,7 +39,13 @@ api_router.include_router(accounts.router)
 api_router.include_router(deposits.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(streak.router)
+api_router.include_router(setup.router)
 api_router.include_router(transactions.router)
+api_router.include_router(categories.router)
+api_router.include_router(cash_flow.router)
+api_router.include_router(budgets.router)
+api_router.include_router(upcoming.router)
+api_router.include_router(digest.router)
 api_router.include_router(sms.router)
 api_router.include_router(sms.rules_router)
 api_router.include_router(funds.router)
@@ -46,5 +60,7 @@ api_router.include_router(market.router)
 api_router.include_router(crypto_trades.router)
 api_router.include_router(trades.router)
 api_router.include_router(portfolio.router)
+api_router.include_router(export.router)
+api_router.include_router(net_worth.router)
 api_router.include_router(health.router)
 api_router.include_router(cron.router)

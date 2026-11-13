@@ -1,4 +1,4 @@
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from "react-native";
 import { Text, useTheme } from "react-native-paper";
@@ -6,7 +6,7 @@ import { Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AccountRow } from "@/components/account-row";
-import { ChunkyButton, ScreenHeader } from "@/components/chunky";
+import { ChunkyButton, EmptyState, ScreenHeader } from "@/components/chunky";
 import { type Account, type AccountList, errorMessage } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -125,12 +125,12 @@ export default function ArchivedAccountsScreen() {
             />
           )}
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text variant="titleMedium">No archived accounts</Text>
-              <Text variant="bodyMedium" style={styles.emptyText}>
-                Accounts you archive appear here, and can be restored.
-              </Text>
-            </View>
+            <EmptyState
+              emoji="📦"
+              title="No archived accounts"
+              body="Accounts you close or stop using rest here, out of your totals. Nothing is ever deleted."
+              action={{ label: "Back to accounts", variant: "alt", onPress: () => router.back() }}
+            />
           }
         />
       )}
@@ -142,7 +142,5 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
-  empty: { alignItems: "center", gap: 8, padding: 32 },
-  emptyText: { color: BRAND.zinc600, textAlign: "center" },
   error: { color: BRAND.loss, padding: 16 },
 });

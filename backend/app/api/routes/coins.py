@@ -150,8 +150,8 @@ def list_coins(user: CurrentUser, db: DbSession) -> CoinList:
     return CoinList(coins=[_response(c, prices) for c in coins])
 
 
-@router.post("/coins", status_code=status.HTTP_201_CREATED)
-def create_coin(body: CoinCreate, user: CurrentUser, db: DbSession) -> CoinResponse:
+def add_coin(db: DbSession, user_id: int, body: CoinCreate) -> Instrument:
+    """Validate and add a new coin, flushed so it has an id. The caller commits."""
     errors = []
     if body.symbol is None:
         errors.append(field_error("symbol", TICKER_RULE))
@@ -161,10 +161,10 @@ def create_coin(body: CoinCreate, user: CurrentUser, db: DbSession) -> CoinRespo
     if errors:
         raise RequestValidationError(errors)
     assert body.symbol is not None and body.name is not None
-    if body.symbol in _symbols(db, user.id):
+    if body.symbol in _symbols(db, user_id):
         raise _duplicate(body.symbol)
     coin = Instrument(
-        user_id=user.id,
+        user_id=user_id,
         kind=CRYPTO,
         symbol=body.symbol,
         name=body.name,
@@ -172,12 +172,27 @@ def create_coin(body: CoinCreate, user: CurrentUser, db: DbSession) -> CoinRespo
     )
     db.add(coin)
     try:
+        db.flush()
         if body.source_code is not None:
-            apply_link(db, CRYPTO, user.id)
-        db.commit()
+            apply_link(db, CRYPTO, user_id)
     except IntegrityError:  # a concurrent request took the symbol first
         db.rollback()
         raise _duplicate(body.symbol) from None
+    return coin
+
+
+def coin_response(db: DbSession, user_id: int, coin: Instrument) -> CoinResponse:
+    return _response(coin, latest_prices(db, user_id))
+
+
+@router.post("/coins", status_code=status.HTTP_201_CREATED)
+def create_coin(body: CoinCreate, user: CurrentUser, db: DbSession) -> CoinResponse:
+    coin = add_coin(db, user.id, body)
+    try:
+        db.commit()
+    except IntegrityError:  # a concurrent request took the symbol first
+        db.rollback()
+        raise _duplicate(coin.symbol) from None
     return _response(coin, latest_prices(db, user.id) if body.source_code else {})
 
 

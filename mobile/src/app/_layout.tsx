@@ -10,6 +10,7 @@ import { LockScreen } from "@/components/lock-screen";
 
 import { SessionProvider, useSession } from "@/lib/session";
 import { useAppLock } from "@/lib/use-app-lock";
+import { useWeeklySummary } from "@/lib/use-weekly-summary";
 import { lightTheme } from "@/lib/theme";
 
 // Keep the splash up until Nunito is ready, so no screen flashes in the system font.
@@ -20,6 +21,7 @@ function Screens() {
   const loggedIn = token !== null;
   const { colors } = useTheme();
   const { locked, covered, unlock } = useAppLock(loggedIn);
+  useWeeklySummary(loggedIn);
   const hidden = locked || covered;
 
   return (
@@ -38,19 +40,13 @@ function Screens() {
             <Stack.Screen name="close-rd-form" />
             <Stack.Screen name="account-transactions" />
             <Stack.Screen name="stock" />
+            <Stack.Screen name="add-investment" />
             <Stack.Screen name="trade-form" />
             <Stack.Screen name="price-form" />
-            <Stack.Screen name="stock-form" />
+            <Stack.Screen name="holding-form" />
             <Stack.Screen name="fund" />
-            <Stack.Screen name="fund-trade-form" />
-            <Stack.Screen name="nav-form" />
-            <Stack.Screen name="link-form" />
             <Stack.Screen name="sip-form" />
-            <Stack.Screen name="fund-form" />
             <Stack.Screen name="coin" />
-            <Stack.Screen name="crypto-trade-form" />
-            <Stack.Screen name="coin-price-form" />
-            <Stack.Screen name="coin-form" />
             <Stack.Screen name="recurring" />
             <Stack.Screen name="template-form" />
             <Stack.Screen name="insurance" />
@@ -66,6 +62,16 @@ function Screens() {
             <Stack.Screen name="review" />
             <Stack.Screen name="review-item" />
             <Stack.Screen name="payee-rules" />
+            <Stack.Screen name="net-worth" />
+            <Stack.Screen name="cash-flow" />
+            <Stack.Screen name="categories" />
+            <Stack.Screen name="category-form" />
+            <Stack.Screen name="transaction-filters" />
+            <Stack.Screen name="budgets" />
+            <Stack.Screen name="budget-form" />
+            <Stack.Screen name="safe-to-spend" />
+            <Stack.Screen name="upcoming" />
+            <Stack.Screen name="digest" />
           </Stack.Protected>
           <Stack.Protected guard={!loggedIn}>
             <Stack.Screen name="login" />

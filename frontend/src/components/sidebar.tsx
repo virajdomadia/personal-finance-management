@@ -7,15 +7,18 @@ import { Suspense, useEffect, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { FOCUS } from "@/components/ui/chunky";
 import { Logo } from "@/components/ui/logo";
-import { StreakBox } from "@/components/streak-box";
+import { StreakNote } from "@/components/streak-note";
 import { apiFetch } from "@/lib/api";
 import { REVIEW_CHANGED, type ReviewList } from "@/lib/review";
 
 const LINKS = [
   { href: "/", emoji: "🏠", label: "Dashboard" },
+  { href: "/net-worth", emoji: "📊", label: "Net worth" },
   { href: "/review", emoji: "📥", label: "To review" },
   { href: "/accounts", emoji: "👛", label: "Accounts" },
   { href: "/transactions", emoji: "💸", label: "Transactions" },
+  { href: "/cash-flow", emoji: "🗓️", label: "Cash flow" },
+  { href: "/budgets", emoji: "📊", label: "Budgets" },
   { href: "/investments", emoji: "📈", label: "Investments" },
   { href: "/recurring", emoji: "🔁", label: "Recurring" },
   { href: "/insurance", emoji: "🛡️", label: "Insurance" },
@@ -81,6 +84,26 @@ function Links({ pathname }: { pathname: string | null }) {
   );
 }
 
+// Your data sits by Log out: an account matter, not a daily page.
+function CurrentDataLink() {
+  return <DataLink current={usePathname() === "/data"} />;
+}
+
+function DataLink({ current }: { current: boolean }) {
+  return (
+    <Link
+      href="/data"
+      aria-current={current ? "page" : undefined}
+      className={`flex items-center gap-2 rounded-xl border-[2.5px] px-2.5 py-2 text-sm font-extrabold ${
+        current ? "border-ink bg-yellow shadow-chunky-sm" : "border-transparent hover:bg-due"
+      } ${FOCUS}`}
+    >
+      <span aria-hidden="true">💾</span>
+      Your data
+    </Link>
+  );
+}
+
 export function Sidebar() {
   return (
     <aside className="sticky top-0 flex h-screen w-36 shrink-0 flex-col gap-1 overflow-y-auto border-r-[2.5px] border-ink bg-card p-3 sm:w-52">
@@ -93,7 +116,10 @@ export function Sidebar() {
       </Suspense>
       <div className="mt-auto pt-3">
         <Suspense fallback={null}>
-          <StreakBox />
+          <StreakNote />
+        </Suspense>
+        <Suspense fallback={<DataLink current={false} />}>
+          <CurrentDataLink />
         </Suspense>
         <form action={logout}>
           <button

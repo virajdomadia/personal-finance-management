@@ -1,9 +1,9 @@
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, RefreshControl, ScrollView, SectionList, StyleSheet, View } from "react-native";
-import { Text, useTheme } from "react-native-paper";
+import { Searchbar, Text, useTheme } from "react-native-paper";
 
-import { ChunkyButton, Chip, HeaderAction, Row, StackedBar, Tag, Tile } from "@/components/chunky";
+import { ChunkyButton, Chip, EmptyState, HeaderAction, Row, StackedBar, Tag, Tile } from "@/components/chunky";
 
 import { DueList } from "@/components/due-list";
 import type { GoalDue } from "@/lib/goals";
@@ -13,13 +13,24 @@ import { whole } from "@/lib/recurring";
 import { BRAND } from "@/lib/theme";
 import { categoryEmoji, investmentEmoji } from "@/lib/fun";
 import type { DueItem } from "@/lib/recurring";
+import {
+  type FilterKey,
+  type TransactionFilters,
+  blankFilters,
+  dateRangeLabel,
+  filterChips,
+  filterHandoff,
+  hasDateRange,
+  isNarrowed,
+  removeFilter,
+  transactionsQuery,
+} from "@/lib/search";
 import { useSession } from "@/lib/session";
 import {
   TRANSACTION_TYPES,
   type Activity,
   type Transaction,
   type TransactionList,
-  type TransactionType,
   dayLabel,
   formatDate,
   activityAmount,
@@ -33,16 +44,12 @@ import {
 } from "@/lib/transactions";
 
 const PAGE_SIZE = 50;
+const SEARCH_DELAY_MS = 400;
 
-type Filters = { month: string; accountId: number | null; type: TransactionType | null };
+type Filters = TransactionFilters;
 type Accounts = { active: Account[]; archived: Account[] };
 
-function query(filters: Filters, offset: number): string {
-  const params = [`month=${filters.month}`, `limit=${PAGE_SIZE}`, `offset=${offset}`];
-  if (filters.accountId !== null) params.push(`account_id=${filters.accountId}`);
-  if (filters.type !== null) params.push(`type=${filters.type}`);
-  return `/transactions?${params.join("&")}`;
-}
+const query = (filters: Filters, offset: number) => transactionsQuery(filters, offset, PAGE_SIZE);
 
 const amountTone = (amount: string) => (amount.startsWith("+") ? "gain" : amount.startsWith("-") ? "loss" : undefined);
 
@@ -143,7 +150,11 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const [thisMonth] = useState(() => todayIndia().slice(0, 7));
-  const [filters, setFilters] = useState<Filters>({ month: thisMonth, accountId: fixedAccountId, type: null });
+  const [filters, setFilters] = useState<Filters>(() => blankFilters(thisMonth, fixedAccountId));
+  // Search and the filter sheet are for the main list; one account's list keeps its type chips.
+  const searchable = fixedAccountId === null;
+  // What is typed in the search box; it reaches the filters after a pause.
+  const [search, setSearch] = useState("");
   const [list, setList] = useState<TransactionList | null>(null);
   const [accounts, setAccounts] = useState<Accounts | null>(null);
   // The month's buys and sells in the viewed account. Null while loading; undefined when it could not load.
@@ -206,29 +217,56 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
   }, [token, logOut, fixedAccountId]);
 
   const applyFilters = useCallback(
-    (change: Partial<Filters>) => {
+    // `keep` leaves the current rows up while the new ones load, so typing in the search box (which
+    // sits in the list's header) never unmounts it and drops the keyboard.
+    (change: Partial<Filters>, keep = false) => {
       const next = { ...filtersRef.current, ...change };
       filtersRef.current = next;
       setFilters(next);
-      setList(null);
-      // The old month's rows must not show while the new month loads.
-      setActivity(null);
+      if (!keep) {
+        setList(null);
+        // The old month's rows must not show while the new month loads.
+        setActivity(null);
+      }
       setError(null);
       void load();
     },
     [load],
   );
 
-  // Reloads whenever the screen regains focus, so coming back from the form shows fresh data.
+  // Reloads whenever the screen regains focus, so coming back from the form shows fresh data. New
+  // filters from the filter sheet or the month screen land here too.
   useFocusEffect(
     useCallback(() => {
       navigating.current = false;
       const month = savedMonth.current;
       savedMonth.current = null;
-      if (month && month !== filtersRef.current.month) applyFilters({ month });
-      else void load();
-    }, [load, applyFilters]),
+      const handed = searchable ? filterHandoff.next : null;
+      filterHandoff.next = null;
+      if (handed) {
+        setSearch(handed.q);
+        applyFilters(handed);
+      } else if (month && month !== filtersRef.current.month && !hasDateRange(filtersRef.current)) {
+        applyFilters({ month });
+      } else {
+        void load();
+      }
+    }, [load, applyFilters, searchable]),
   );
+
+  // The search box applies after a pause in typing.
+  useEffect(() => {
+    if (search.trim() === filtersRef.current.q.trim()) return;
+    const timer = setTimeout(() => applyFilters({ q: search }, true), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [search, applyFilters]);
+
+  const openFilters = () => {
+    if (navigating.current) return;
+    navigating.current = true;
+    filterHandoff.draft = { ...filtersRef.current, q: search };
+    router.push("/transaction-filters");
+  };
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -292,48 +330,95 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
   const noAccounts = accounts !== null && accounts.active.length === 0 && accounts.archived.length === 0;
   const defaultAccount = filters.accountId !== null && activeIds.includes(filters.accountId) ? filters.accountId : null;
 
+  const ranged = hasDateRange(filters);
+  const narrowed = isNarrowed(filters, !searchable);
+  const accountName = (id: number) => [...(accounts?.active ?? []), ...(accounts?.archived ?? [])].find((a) => a.id === id)?.name;
+  const chips = searchable ? filterChips(filters, accountName) : [];
+  const dropFilter = (key: FilterKey) => applyFilters(removeFilter(filtersRef.current, key));
+  const periodText = ranged ? (dateRangeLabel(filters.dateFrom, filters.dateTo) ?? "") : formatMonth(filters.month);
+  const spentLabel = ranged
+    ? "Spent in these dates"
+    : filters.month === thisMonth
+      ? "Spent this month"
+      : `Spent in ${formatMonth(filters.month)}`;
+
   const filterBar = (
     <View style={styles.filters}>
-      <View style={styles.monthRow}>
-        <HeaderAction
-          icon="chevron-left"
-          label="Previous month"
-          onPress={() => applyFilters({ month: shiftMonth(filters.month, -1) })}
-        />
-        <Text variant="titleMedium" accessibilityLiveRegion="polite" style={styles.month}>
-          {formatMonth(filters.month)}
+      {ranged ? (
+        <Text variant="titleMedium" accessibilityLiveRegion="polite" style={[styles.month, styles.range]}>
+          {periodText}
         </Text>
-        <HeaderAction
-          icon="chevron-right"
-          label="Next month"
-          disabled={filters.month >= thisMonth}
-          onPress={() => applyFilters({ month: shiftMonth(filters.month, 1) })}
-        />
-      </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-        <Chip label="All types" selected={filters.type === null} onPress={() => applyFilters({ type: null })} />
-        {TRANSACTION_TYPES.map((option) => (
-          <Chip
-            key={option.value}
-            label={option.label}
-            selected={filters.type === option.value}
-            onPress={() => applyFilters({ type: option.value })}
+      ) : (
+        <View style={styles.monthRow}>
+          <HeaderAction
+            icon="chevron-left"
+            label="Previous month"
+            onPress={() => applyFilters({ month: shiftMonth(filters.month, -1) })}
           />
-        ))}
-      </ScrollView>
-      {fixedAccountId === null && accounts !== null && !noAccounts ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-          <Chip label="All accounts" selected={filters.accountId === null} onPress={() => applyFilters({ accountId: null })} />
-          {[...accounts.active, ...accounts.archived].map((account) => (
+          <Text variant="titleMedium" accessibilityLiveRegion="polite" style={styles.month}>
+            {periodText}
+          </Text>
+          <HeaderAction
+            icon="chevron-right"
+            label="Next month"
+            disabled={filters.month >= thisMonth}
+            onPress={() => applyFilters({ month: shiftMonth(filters.month, 1) })}
+          />
+        </View>
+      )}
+      {searchable ? (
+        <>
+          <View style={styles.search}>
+            <Searchbar
+              placeholder="Search notes, payees, categories"
+              value={search}
+              onChangeText={setSearch}
+              onSubmitEditing={() => applyFilters({ q: search }, true)}
+              onClearIconPress={() => applyFilters({ q: "" }, true)}
+              maxLength={100}
+              autoCorrect={false}
+              returnKeyType="search"
+              style={styles.searchbar}
+              inputStyle={styles.searchInput}
+            />
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.chipRow}
+          >
             <Chip
-              key={account.id}
-              label={account.archived ? `${account.name} (archived)` : account.name}
-              selected={filters.accountId === account.id}
-              onPress={() => applyFilters({ accountId: account.id })}
+              label={chips.length > 0 ? `Filters · ${chips.length}` : "Filters"}
+              icon="tune-variant"
+              selected={chips.length > 0}
+              onPress={openFilters}
+              accessibilityHint="Opens the filters"
+            />
+            {chips.map((chip) => (
+              <Chip
+                key={chip.key}
+                label={chip.label}
+                icon="close"
+                onPress={() => dropFilter(chip.key)}
+                accessibilityLabel={`Remove filter: ${chip.label}`}
+              />
+            ))}
+          </ScrollView>
+        </>
+      ) : (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+          <Chip label="All types" selected={filters.type === null} onPress={() => applyFilters({ type: null })} />
+          {TRANSACTION_TYPES.map((option) => (
+            <Chip
+              key={option.value}
+              label={option.label}
+              selected={filters.type === option.value}
+              onPress={() => applyFilters({ type: option.value })}
             />
           ))}
         </ScrollView>
-      ) : null}
+      )}
     </View>
   );
 
@@ -378,10 +463,7 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
                     {error} Pull down to try again.
                   </Text>
                 ) : null}
-                <SpentTile
-                  list={list}
-                  label={filters.month === thisMonth ? "Spent this month" : `Spent in ${formatMonth(filters.month)}`}
-                />
+                <SpentTile list={list} label={narrowed ? `${spentLabel} · matching` : spentLabel} />
               </View>
             </View>
           }
@@ -397,19 +479,24 @@ export function TransactionsList({ fixedAccountId = null }: { fixedAccountId?: n
           )}
           ListEmptyComponent={
             noAccounts ? (
-              <View style={styles.empty}>
-                <Text variant="titleMedium">Add an account first</Text>
-                <Text variant="bodyMedium" style={[styles.centerText, styles.muted]}>
-                  Every transaction belongs to an account.
-                </Text>
-                <ChunkyButton label="Go to accounts" onPress={() => router.navigate("/accounts")} />
-              </View>
+              <EmptyState
+                emoji="👛"
+                title="Add an account first"
+                body="Every rupee you spend or receive lives here, and each one belongs to an account."
+                action={{ label: "Go to accounts", onPress: () => router.navigate("/accounts") }}
+              />
             ) : (
-              <View style={styles.empty}>
-                <Text variant="bodyMedium" style={[styles.centerText, styles.muted]}>
-                  No transactions match in {formatMonth(filters.month)}.
-                </Text>
-              </View>
+              <EmptyState
+                emoji="🫥"
+                title={narrowed || ranged ? "Nothing matches" : `Nothing in ${periodText}`}
+                body={
+                  narrowed || ranged
+                    ? `Nothing matches in ${periodText}. Try another period or clear a filter.`
+                    : canAdd
+                      ? "Everything you spend and receive shows up here, month by month. Tap Add, or turn on Bank SMS to fill it in for you."
+                      : "Everything you spend and receive shows up here, month by month."
+                }
+              />
             )
           }
           ListFooterComponent={
@@ -471,6 +558,10 @@ const styles = StyleSheet.create({
   filters: { gap: 8, paddingBottom: 8 },
   monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16 },
   month: { flex: 1, textAlign: "center", color: BRAND.ink },
+  range: { paddingHorizontal: 16, paddingVertical: 10 },
+  search: { paddingHorizontal: 16 },
+  searchbar: { backgroundColor: BRAND.card, borderWidth: 2.5, borderColor: BRAND.ink, borderRadius: 14, elevation: 0 },
+  searchInput: { minHeight: 0 },
   chipRow: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 6 },
   header: { paddingHorizontal: 16, paddingTop: 8, gap: 8 },
   due: { paddingHorizontal: 16, paddingTop: 8 },
@@ -483,7 +574,6 @@ const styles = StyleSheet.create({
   incomeAmount: { flexShrink: 1, color: BRAND.gain, textAlign: "right", fontVariant: ["tabular-nums"] },
   sectionHeader: { color: BRAND.ink, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4, letterSpacing: 0.6 },
   rowWrap: { paddingHorizontal: 16, paddingVertical: 4 },
-  empty: { alignItems: "center", gap: 8, padding: 32 },
   more: { marginTop: 8, marginHorizontal: 16 },
   activityNote: { paddingHorizontal: 16, paddingTop: 16 },
   fab: { position: "absolute", right: 16, bottom: 16 },

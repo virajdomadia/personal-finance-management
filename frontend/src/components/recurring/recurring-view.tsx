@@ -8,6 +8,7 @@ import { errorMessage, formatDueDate, formatFullDate } from "@/lib/accounts";
 import { apiFetch } from "@/lib/api";
 import { ConfirmDelete, Notice, PRIMARY, QUIET, ROW_ACTION, SECTION_TITLE, isUnauthorized } from "@/components/investments/shared";
 import { FOCUS, PageHeader, TABLE, TD, TD_NUM, TH } from "@/components/ui/chunky";
+import { EmptyState } from "@/components/ui/empty-state";
 import { type Template, scheduleText, toggleLabel, whole } from "@/lib/recurring";
 
 import { DueSection } from "./due-list";
@@ -27,9 +28,9 @@ function nextText(t: Template): string {
   return "Nothing due yet";
 }
 
-export function RecurringView() {
+export function RecurringView({ adding = false }: { adding?: boolean }) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
-  const [dialog, setDialog] = useState<Dialog>({ kind: "none" });
+  const [dialog, setDialog] = useState<Dialog>(adding ? { kind: "form", template: null } : { kind: "none" });
   const [notice, setNotice] = useState<string | null>(null);
   const [dueKey, setDueKey] = useState(0);
   const [toggling, setToggling] = useState<number | null>(null);
@@ -52,6 +53,11 @@ export function RecurringView() {
   useEffect(() => {
     fetchTemplates();
   }, [fetchTemplates]);
+
+  // Opened from the checklist: drop `?add=` so a reload doesn't open the dialog again.
+  useEffect(() => {
+    if (adding) window.history.replaceState(null, "", "/recurring");
+  }, [adding]);
 
   const reload = useCallback(() => {
     fetchTemplates();
@@ -135,14 +141,17 @@ export function RecurringView() {
 
       {load.status === "ready" &&
         (load.templates.length === 0 ? (
-          <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-12 text-center">
-            <p className="font-black">
-              <span aria-hidden="true">🔁 </span>No reminders yet
-            </p>
-            <p className="mx-auto mt-1 max-w-md text-sm font-bold text-zinc-600">
-              Add rent, a salary or any regular payment, and it will show up here when it&apos;s due. Nothing is recorded until you do it.
-            </p>
-          </div>
+          <EmptyState
+            emoji="🔁"
+            title="No reminders yet"
+            action={
+              <button type="button" className={PRIMARY} onClick={() => setDialog({ kind: "form", template: null })}>
+                + Add reminder
+              </button>
+            }
+          >
+            Add your salary, rent or any regular bill, and it shows up here when it&apos;s due. Nothing is saved until you say so.
+          </EmptyState>
         ) : (
           <section aria-labelledby="reminders-title">
             <h2 id="reminders-title" className={SECTION_TITLE}>

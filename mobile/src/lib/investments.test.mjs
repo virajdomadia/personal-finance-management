@@ -250,3 +250,64 @@ test("a sync is done only when no source failed and the request got through", ()
   assert.deepEqual(syncOutcome({ ...ok, failed: { stock: "down" } }), { status: "partial" });
   assert.deepEqual(syncOutcome(null), { status: "partial" });
 });
+
+test("prefillFromMatch fills what each kind's match can tell", async () => {
+  const { prefillFromMatch } = await import("./investments.ts");
+  const match = (code, name) => ({ code, name, isin: null, price: null, price_date: null });
+  assert.deepEqual(prefillFromMatch("stock", match("RELIANCE", "Reliance Industries Limited")), {
+    name: "Reliance Industries Limited",
+    symbol: "RELIANCE",
+  });
+  assert.deepEqual(prefillFromMatch("crypto", match("bitcoin", "Bitcoin (BTC)")), { name: "Bitcoin", symbol: "BTC" });
+  assert.deepEqual(prefillFromMatch("crypto", match("odd", "Odd coin")), { name: "Odd coin", symbol: "" });
+  assert.deepEqual(prefillFromMatch("mutual_fund", match("119551", "Banking Fund - Direct Growth")), {
+    name: "Banking Fund - Direct Growth",
+    symbol: "",
+  });
+  const long = "A".repeat(59) + " Fund Direct Plan Growth";
+  assert.equal(prefillFromMatch("mutual_fund", match("1", long)).name, "A".repeat(59));
+});
+
+test("withTradePath names each kind's create-with-first-trade route", async () => {
+  const { withTradePath } = await import("./investments.ts");
+  assert.equal(withTradePath("stock"), "/investments/stocks/with-trade");
+  assert.equal(withTradePath("mutual_fund"), "/investments/funds/with-trade");
+  assert.equal(withTradePath("crypto"), "/investments/coins/with-trade");
+});
+
+test("asFirstTrade drops what the first trade of a new holding can't carry", async () => {
+  const { asFirstTrade } = await import("./investments.ts");
+  assert.deepEqual(
+    asFirstTrade({ fund_id: 0, account_id: 3, side: "buy", date: "2026-01-15", units: "1.000", sip_id: null, note: null }),
+    { account_id: 3, date: "2026-01-15", units: "1.000", note: null },
+  );
+  assert.deepEqual(asFirstTrade({ stock_id: 1, coin_id: 2, quantity: 5 }), { quantity: 5 });
+});
+
+test("applyPick replaces what an earlier pick filled in, and keeps what was typed", async () => {
+  const { applyPick } = await import("./investments.ts");
+  const match = (code, name) => ({ code, name, isin: null, price: null, price_date: null });
+  const infy = applyPick("stock", { name: "", symbol: "" }, null, match("INFY", "Infosys Limited"));
+  assert.deepEqual(infy, {
+    fields: { name: "Infosys Limited", symbol: "INFY" },
+    filled: { name: "Infosys Limited", symbol: "INFY" },
+  });
+  // Picking again moves both fields to the new match, so the link and the symbol always agree.
+  const tcs = applyPick("stock", infy.fields, infy.filled, match("TCS", "Tata Consultancy Services"));
+  assert.deepEqual(tcs.fields, { name: "Tata Consultancy Services", symbol: "TCS" });
+  // A name typed by hand survives a pick; the auto-filled symbol still follows the match.
+  const typed = applyPick("stock", { name: "My TCS", symbol: "TCS" }, tcs.filled, match("WIPRO", "Wipro Limited"));
+  assert.deepEqual(typed.fields, { name: "My TCS", symbol: "WIPRO" });
+  // Clearing empties what the pick filled in and leaves what was typed.
+  assert.deepEqual(applyPick("stock", typed.fields, typed.filled, null), {
+    fields: { name: "My TCS", symbol: "" },
+    filled: null,
+  });
+  assert.deepEqual(applyPick("stock", { name: "Typed", symbol: "T" }, null, null).fields, { name: "Typed", symbol: "T" });
+  // A fund's symbol isn't filled, so one typed by hand stays through a re-pick.
+  const fund = applyPick("mutual_fund", { name: "", symbol: "BANK" }, null, match("1", "Banking Fund"));
+  assert.deepEqual(applyPick("mutual_fund", fund.fields, fund.filled, match("2", "Gilt Fund")).fields, {
+    name: "Gilt Fund",
+    symbol: "BANK",
+  });
+});

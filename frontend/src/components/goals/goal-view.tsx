@@ -36,6 +36,7 @@ import { expenseFormFromRelease, todayIndia } from "@/lib/transactions";
 import { EarmarkDialog } from "./earmark-dialog";
 import { GoalDialog } from "./goal-dialog";
 import { EmojiSquare, Ring, buttonClass } from "@/components/ui/chunky";
+import { EmptyState } from "@/components/ui/empty-state";
 import { EmergencyBadge, Warnings, goalEmoji } from "./goals-view";
 import { HoldingDialog } from "./holding-dialog";
 
@@ -365,12 +366,11 @@ function Fact({ label, value }: { label: string; value: string }) {
 function Basket({ goal, onRemove }: { goal: GoalDetail; onRemove: (holding: HoldingLine) => void }) {
   if (goal.earmarks.length === 0 && goal.holdings.length === 0) {
     return (
-      <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-6 py-10 text-center">
-        <p className="font-black">The basket is empty</p>
-        <p className="mx-auto mt-1 max-w-md text-sm font-bold text-zinc-600">
-          Set money aside in a bank, cash or wallet account, or add a fund, stock, coin, PPF or RD you hold.
-        </p>
-      </div>
+      <EmptyState emoji="🧺" title="The basket is empty">
+        {goal.archived
+          ? "Restore this goal to put money toward it again."
+          : "Use Set aside to label money in a bank, cash or wallet account for this goal, or Add holding for a fund, stock, coin, PPF or RD you own."}
+      </EmptyState>
     );
   }
   return (

@@ -3,7 +3,17 @@ import { test } from "node:test";
 
 import {
   accountChoices,
+  accountHint,
+  initialCategory,
+  initialRemember,
+  suggestionHint,
   actionsFor,
+  approveBody,
+  approveButtonText,
+  approveResultText,
+  categoryTotalText,
+  confidentTotalsText,
+  rememberLabel,
   expectedBody,
   needsNav,
   cardBillText,
@@ -33,6 +43,13 @@ const item = (o = {}) => ({
   quantity: null,
   candidates: null,
   suggested_price: null,
+  suggested_category: null,
+  suggestion_source: null,
+  history_count: 0,
+  history_total: 0,
+  suggested_account_id: null,
+  confident: false,
+  why: "First time for this payee",
   ...o,
 });
 
@@ -209,4 +226,62 @@ test("needsNav and expectedBody send a NAV only for a SIP that needs one", () =>
   assert.deepEqual(expectedBody(asked, rent, true, "50.1"), { action: "expected", kind: "template", id: 4, remember: true });
   const known = { kind: "sip", id: 3, label: "Flexi Cap SIP" };
   assert.deepEqual(expectedBody(asked, known, true, "50.1"), { action: "expected", kind: "sip", id: 3, remember: false });
+});
+
+test("approveBody sends each confident item with the category it was shown", () => {
+  const sure = item({ id: 4, confident: true, suggested_category: "Groceries" });
+  const unsure = item({ id: 5, suggested_category: "Gift" });
+  const ruleOnly = item({ id: 6, confident: true, suggested_category: "Gift", suggestion_source: "rule" });
+  const later = item({ id: 7, confident: true, suggested_category: "Gift" }); // not in this batch
+  const summary = { count: 2, total: 3, ids: [6, 4, 5], spent: "0.00", received: "0.00", categories: [] };
+  assert.deepEqual(approveBody([sure, unsure, ruleOnly, later], summary), {
+    items: [
+      { id: 6, category: "Gift" },
+      { id: 4, category: "Groceries" },
+    ],
+  });
+  assert.equal(approveButtonText({ count: 3, total: 3 }), "Approve 3 confident");
+  assert.equal(approveButtonText({ count: 200, total: 250 }), "Approve 200 of 250");
+});
+
+test("confidentTotalsText leaves out a side with nothing on it", () => {
+  const summary = (spent, received) => ({ count: 2, spent, received, categories: [] });
+  assert.equal(confidentTotalsText(summary("1240.00", "0.00")), "₹1,240 spent");
+  assert.equal(confidentTotalsText(summary("120.75", "5000.00")), "₹120.75 spent · ₹5,000 received");
+  assert.equal(confidentTotalsText(summary("0.00", "5000.00")), "₹5,000 received");
+  assert.equal(categoryTotalText({ category: "Groceries", type: "expense", count: 3, amount: "1240.00" }), "Groceries · 3 · ₹1,240");
+});
+
+test("approveResultText says what was approved and what is left", () => {
+  assert.equal(approveResultText({ approved: 1, skipped: [], learn: [] }), "Approved 1 message.");
+  assert.equal(
+    approveResultText({ approved: 4, skipped: [{ id: 2, reason: "Its suggestion changed" }], learn: [] }),
+    "Approved 4 messages. 1 left to check.",
+  );
+});
+
+test("rememberLabel names the category once one is picked", () => {
+  assert.equal(rememberLabel("Ramesh", " Groceries "), "Always use Groceries for Ramesh");
+  assert.equal(rememberLabel("Ramesh", "  "), "Always use this for Ramesh");
+});
+
+test("a suggestion fills the category only when confident", () => {
+  const sure = item({ confident: true, suggested_category: "Groceries", suggestion_source: "history", history_count: 3, history_total: 3 });
+  const unsure = item({ suggested_category: "Groceries", suggestion_source: "history", history_count: 3, history_total: 4 });
+  const fresh = item();
+  assert.equal(initialCategory(sure), "Groceries");
+  assert.equal(initialCategory(unsure), "");
+  assert.equal(initialRemember(sure), true);
+  assert.equal(initialRemember(unsure), false);
+  assert.equal(initialRemember(fresh), true);
+  assert.equal(suggestionHint(unsure), "Usually Groceries (3 of 4 times)");
+  assert.equal(suggestionHint(sure), null);
+  assert.equal(suggestionHint(item({ suggested_category: "Gift", suggestion_source: "rule" })), "Suggested: Gift");
+});
+
+test("accountHint names the payee's usual account without choosing it", () => {
+  const accounts = [{ id: 3, name: "HDFC" }, { id: 4, name: "SBI" }];
+  assert.deepEqual(accountHint(item({ reason: "account", suggested_account_id: 4 }), accounts), { id: 4, name: "SBI" });
+  assert.equal(accountHint(item({ reason: "account" }), accounts), null);
+  assert.equal(accountHint(item({ reason: "account", suggested_account_id: 9 }), accounts), null);
 });

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { logout } from "@/app/login/actions";
+import { BackButton, StepLine } from "@/components/investments/shared";
 import { FOCUS, buttonClass } from "@/components/ui/chunky";
 import {
   type Account,
@@ -92,15 +93,18 @@ type Props = {
   onClose: () => void;
   onSaved: () => void;
   onConflict: (message: string) => void;
+  start?: { type: AccountType; bank_kind?: string }; // adding only: the type (and bank kind) to start on
 };
 
-export function AccountDialog({ account, accounts, onClose, onSaved, onConflict }: Props) {
+export function AccountDialog({ account, accounts, onClose, onSaved, onConflict, start }: Props) {
   const editing = account !== null;
   const ref = useRef<HTMLDialogElement>(null);
   const savingRef = useRef(false);
   const submitRef = useRef<HTMLButtonElement>(null);
   const needFocus = useRef(false);
-  const [form, setForm] = useState<AccountForm>(() => (account ? formFromAccount(account) : blankForm("bank")));
+  const [form, setForm] = useState<AccountForm>(() =>
+    account ? formFromAccount(account) : { ...blankForm(start?.type ?? "bank"), ...(start?.bank_kind ? { bank_kind: start.bank_kind } : {}) },
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -259,6 +263,7 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict 
       <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
         <h2 id="account-dialog-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
           {editing ? "Edit account" : "Add account"}
+          <StepLine />
         </h2>
         <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
           {editing ? (
@@ -421,6 +426,7 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict 
           ) : null}
         </div>
         <div className="flex justify-end gap-2 border-t-[2.5px] border-ink px-5 py-3">
+          <BackButton disabled={saving} />
           <button
             type="button"
             disabled={saving}

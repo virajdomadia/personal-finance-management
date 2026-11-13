@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type Account, cleanMoney, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import type { MarketMatch } from "@/lib/investments";
+import { type MarketMatch, type Prefill, applyPick, asFirstTrade, withTradePath } from "@/lib/investments";
 import {
   type Coin,
   type CoinHolding,
@@ -23,7 +23,7 @@ import { todayIndia } from "@/lib/transactions";
 import { Select } from "@/components/ui/select";
 
 import { LinkField } from "./link-dialog";
-import { DIALOG, INPUT, PRIMARY, QUIET } from "./shared";
+import { BackButton, DIALOG, INPUT, PRIMARY, QUIET, StepLine, useAddFlow } from "./shared";
 
 const MODES: { value: CryptoTradeMode; label: string }[] = [
   { value: "buy", label: "Buy" },
@@ -37,7 +37,7 @@ export const QTY_RULE = "Enter a quantity above 0, with up to 8 decimals, like 0
 export const PRICE_RULE = "Enter a price above 0, with up to 4 decimals, like 7504827.5.";
 const MONEY = /^\d+(?:\.\d{1,2})?$/;
 const MISMATCH = "Quantity × price doesn't match the amount. Check the quantity and price.";
-const RENDERED = ["coin_id", "account_id", "date", "amount", "charges", "price", "quantity", "note"] as const;
+const RENDERED = ["coin_id", "name", "symbol", "account_id", "date", "amount", "charges", "price", "quantity", "note"] as const;
 
 type Form = CryptoTradeForm & { name: string; symbol: string };
 type Key = keyof Omit<Form, "mode">;
@@ -54,10 +54,10 @@ type Props = {
   onCoinCreated: (coin: Coin) => void;
 };
 
-function startForm(props: Props): Form {
+function startForm(props: Props, adding: boolean): Form {
   if (props.trade) return { ...cryptoTradeFormFrom(props.trade), name: "", symbol: "" };
   const form: Form = { ...props.initial, name: "", symbol: "" };
-  if (form.coin_id === "" && props.coins.length === 0 && form.mode !== "sell") form.coin_id = NEW_COIN;
+  if (form.coin_id === "" && (props.coins.length === 0 || adding) && form.mode !== "sell") form.coin_id = NEW_COIN;
   if (form.account_id === "" && props.brokers.length === 1) form.account_id = String(props.brokers[0].id);
   return form;
 }
@@ -106,8 +106,10 @@ export function CryptoTradeDialog(props: Props) {
   const savingRef = useRef(false);
   const submitRef = useRef<HTMLButtonElement>(null);
   const needFocus = useRef(false);
-  const [form, setForm] = useState<Form>(() => startForm(props));
-  const [coins, setCoins] = useState<Coin[]>(props.coins);
+  // In the Add investment flow this is a first purchase: a new one, bought or already held.
+  const adding = useAddFlow();
+  const [form, setForm] = useState<Form>(() => startForm(props, adding));
+  const coins = props.coins;
   const [source, setSource] = useState<MarketMatch | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -126,6 +128,15 @@ export function CryptoTradeDialog(props: Props) {
   }, [errors, formError, saving]);
 
   const mode = form.mode;
+  // A match links live prices and fills in the name (and symbol). What the last pick filled in is
+  // remembered, so a new pick replaces it and clearing removes it; text typed by hand stays.
+  const filled = useRef<Prefill | null>(null);
+  const pickSource = (match: MarketMatch | null) => {
+    setSource(match);
+    const next = applyPick("crypto", { name: form.name, symbol: form.symbol }, filled.current, match);
+    filled.current = next.filled;
+    setForm((f) => ({ ...f, ...next.fields }));
+  };
   const set = (key: Key, value: string) => setForm((f) => ({ ...f, [key]: value }));
 
   const changeMode = (next: CryptoTradeMode) => {
@@ -154,29 +165,20 @@ export function CryptoTradeDialog(props: Props) {
     setErrors({});
     setFormError(null);
     try {
-      let current: CryptoTradeForm = form;
+      const current: CryptoTradeForm = form;
       if (!editing && form.coin_id === NEW_COIN) {
-        let created: Coin;
-        try {
-          created = await apiFetch<Coin>("/investments/coins", {
-            method: "POST",
-            body: JSON.stringify({ name: form.name, symbol: form.symbol.trim(), source_code: source?.code ?? null }),
-          });
-        } catch (err) {
-          if (err instanceof ApiError && err.status === 422) {
-            needFocus.current = true;
-            const { fields, general } = splitErrors(err.body, ["name", "symbol"]);
-            setErrors(fields);
-            if (general.length > 0) setFormError(general.join(" "));
-            return;
-          }
-          throw err;
-        }
-        // The coin exists now. If the trade below fails, it stays chosen so a retry doesn't add it twice.
-        setCoins((list) => [...list, created].sort((a, b) => a.name.localeCompare(b.name)));
-        setForm((f) => ({ ...f, coin_id: String(created.id), name: "", symbol: "" }));
-        onCoinCreated(created);
-        current = { ...form, coin_id: String(created.id) };
+        // The new coin and its first trade are saved together: if the trade is refused, no coin is left behind.
+        const symbol = form.symbol.trim();
+        const saved = await apiFetch<{ coin: Coin; trade: CryptoTrade }>(withTradePath("crypto"), {
+          method: "POST",
+          body: JSON.stringify({
+            coin: { name: form.name, symbol: symbol, source_code: source?.code ?? null },
+            trade: asFirstTrade(cryptoTradePayload(current, "create")),
+          }),
+        });
+        onCoinCreated(saved.coin);
+        onSaved(saved.trade);
+        return;
       }
 
       if (editing) {
@@ -288,6 +290,7 @@ export function CryptoTradeDialog(props: Props) {
         <div>
           <h2 id="crypto-trade-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
+            <StepLine />
           </h2>
           <div className="px-5 py-4">
             <p className="text-sm font-extrabold">Add an exchange account first</p>
@@ -296,6 +299,7 @@ export function CryptoTradeDialog(props: Props) {
             </p>
           </div>
           <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
+            <BackButton disabled={saving} />
             {closeButton}
             <Link href="/accounts" className={PRIMARY}>
               Go to accounts
@@ -306,6 +310,7 @@ export function CryptoTradeDialog(props: Props) {
         <form onSubmit={submit} noValidate className="flex max-h-[90vh] flex-col">
           <h2 id="crypto-trade-title" className="border-b-[2.5px] border-ink bg-yellow px-5 py-3 text-lg font-black">
             {title}
+            <StepLine />
           </h2>
           <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
             {editing ? (
@@ -317,7 +322,7 @@ export function CryptoTradeDialog(props: Props) {
               <fieldset disabled={saving}>
                 <legend className="mb-1 block text-xs font-black tracking-wide uppercase">Type</legend>
                 <div className="flex flex-wrap gap-x-4 gap-y-1">
-                  {MODES.map((option) => (
+                  {MODES.filter((option) => !adding || option.value === "buy" || option.value === "opening").map((option) => (
                     <label key={option.value} className="flex items-center gap-1.5 text-sm font-extrabold">
                       <input
                         type="radio"
@@ -349,6 +354,8 @@ export function CryptoTradeDialog(props: Props) {
               ) : null,
             )}
 
+            {form.coin_id === NEW_COIN && <LinkField kind="crypto" selected={source} onSelect={pickSource} disabled={saving} />}
+
             {form.coin_id === NEW_COIN && (
               <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-4">
                 {field(
@@ -363,8 +370,6 @@ export function CryptoTradeDialog(props: Props) {
                 )}
               </div>
             )}
-
-            {form.coin_id === NEW_COIN && <LinkField kind="crypto" selected={source} onSelect={setSource} disabled={saving} />}
 
             {field(
               "account_id",
@@ -458,6 +463,7 @@ export function CryptoTradeDialog(props: Props) {
             ) : null}
           </div>
           <div className="flex justify-end gap-2 border-t-[2.5px] border-ink bg-bg px-5 py-3">
+            <BackButton disabled={saving} />
             {closeButton}
             <button ref={submitRef} type="submit" disabled={saving} className={PRIMARY}>
               {saving ? "Saving..." : editing ? "Save changes" : mode === "buy" ? "Buy" : mode === "sell" ? "Sell" : "Add coins"}

@@ -11,11 +11,14 @@
     "expo-constants": "~58.0.15",
     "expo-crypto": "~58.0.8",
     "expo-dev-client": "~58.0.18",
+    "expo-file-system": "~58.0.13",
     "expo-font": "~58.0.11",
     "expo-linking": "~58.0.16",
     "expo-local-authentication": "~58.0.2",
+    "expo-notifications": "~58.1.9",
     "expo-router": "~58.0.30",
     "expo-secure-store": "~58.0.2",
+    "expo-sharing": "~58.0.23",
     "expo-splash-screen": "~58.0.13",
     "expo-status-bar": "~58.0.4",
     "expo-updates": "~58.0.22",
@@ -40,7 +43,7 @@
     "android": "expo start --android",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/app-lock.test.mjs src/lib/accounts.test.mjs src/lib/transactions.test.mjs src/lib/investments.test.mjs src/lib/funds.test.mjs src/lib/crypto.test.mjs src/lib/deposits.test.mjs src/lib/dates.test.mjs src/lib/recurring.test.mjs src/lib/insurance.test.mjs src/lib/goals.test.mjs src/lib/fun.test.mjs src/lib/sms/parse.test.mjs src/lib/sms/sync.test.mjs src/lib/review.test.mjs"
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/app-lock.test.mjs src/lib/accounts.test.mjs src/lib/transactions.test.mjs src/lib/investments.test.mjs src/lib/funds.test.mjs src/lib/crypto.test.mjs src/lib/deposits.test.mjs src/lib/dates.test.mjs src/lib/recurring.test.mjs src/lib/insurance.test.mjs src/lib/goals.test.mjs src/lib/fun.test.mjs src/lib/sms/parse.test.mjs src/lib/sms/sync.test.mjs src/lib/review.test.mjs src/lib/setup.test.mjs src/lib/categories.test.mjs src/lib/cash-flow.test.mjs src/lib/search.test.mjs src/lib/budgets.test.mjs src/lib/upcoming.test.mjs src/lib/digest.test.mjs src/lib/net-worth.test.mjs src/lib/data-export.test.mjs src/lib/native-imports.test.mjs"
   },
   "private": true
 }

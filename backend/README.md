@@ -31,3 +31,63 @@ uv run python -m app.cli refresh-prices
 ```
 
 A local run takes about 6 seconds for around 14,000 fund NAVs and 2,600 stocks.
+
+## Net worth snapshots
+
+After the prices, the same nightly job writes each user's net worth snapshot for that evening's date (IST): the dashboard's net worth, have, owe and asset split, one row per user per date, replaced if the job runs again that date. The response's `snapshots` is how many were written. A run that starts after midnight still files the snapshot under the evening it was meant for (India time minus 3 hours). The first `GET /api/net-worth` of a day also writes the user's snapshot if there is none yet. The rules are in [financial calculations](../docs/architecture/financial-calculations.md#net-worth-over-time).
+
+To estimate the 12 month-ends before snapshots began, from transactions (investments left out, rows marked estimated):
+
+```bash
+uv run python -m app.cli backfill-net-worth              # every user
+uv run python -m app.cli backfill-net-worth me@gmail.com --months 6
+```
+
+It never replaces a real snapshot and can be re-run.
+
+## Export, backup and restore
+
+Each signed-in user can download their own data (read-only, never anyone else's):
+
+- `GET /api/export/csv`: a zip with one CSV per entity (accounts, transactions, stock, fund and crypto trades, SIPs, loans, deposits, goals, insurance policies, recurring templates, budgets, categories, net worth history). Human headers, names instead of ids, plain numbers (`1234.50`), ISO dates, UTF-8 with a BOM for Excel.
+- `GET /api/export/backup`: the full JSON backup below, as compact JSON gzipped (`pfm-backup-<date>.json.gz`, `application/gzip`). Gzipped, a backup has plenty of headroom under Vercel's 4.5 MB response limit: 15,000 synthetic rows of prices, SMS and transactions are 2.6 MB of JSON but 0.38 MB gzipped (a test keeps it under 1.5 MB). Each download logs both sizes.
+
+### Backup format (version 1)
+
+```json
+{
+  "format": "pfm-backup",
+  "format_version": 1,
+  "alembic_revision": "<the database's alembic_version>",
+  "exported_at": "2026-11-13T10:15:00+00:00",
+  "user": {"email": "me@example.com"},
+  "tables": {"accounts": [{"id": 1, "name": "HDFC", "opening_balance": "1000.00"}]}
+}
+```
+
+`tables` has every row the user owns, every column by name, except columns pointing at `users.id`. Decimals are strings, dates and times ISO 8601, JSON columns as stored.
+
+The tables are found from the SQLAlchemy metadata (`app/export/tables.py`): every table with a `user_id` is included, a table without one is included when a foreign key ties it to a user's table, and `EXCLUDED` lists the rest with reasons (`users`: login identity; `market_codes`: shared market data). `tests/test_export_coverage.py` fails on any table that is neither, and on ids restore couldn't remap (a foreign key to an unexported table, an `_id` column that isn't a foreign key, a foreign key to something other than a primary key outside `COPIED_KEY_COLUMNS`, a JSON column without an entry in `JSON_ID_FIELDS` in `app/export/backup.py`). So a new table with `user_id` is backed up automatically; a table that shouldn't be needs a line in `EXCLUDED`. `tests/export_fixture.py` must put a row in every exported table, or the restore test fails.
+
+### Restore procedure
+
+Restore is an admin step, done from a machine that can reach the database:
+
+```bash
+# A backup of one user (.json.gz gives the website's gzipped file; .json plain JSON)
+uv run python -m app.cli export-user me@example.com backup.json.gz
+
+# Load it into a user (created if missing) who has no data yet
+uv run python -m app.cli restore-user me@example.com pfm-backup-2026-11-13.json.gz
+
+# Or replace that user's data: deletes it and loads the backup in one transaction
+uv run python -m app.cli restore-user me@example.com backup.json --replace
+```
+
+- The database must be at the backup's schema revision (`alembic_revision`); otherwise restore refuses. Migrate an empty database to that revision (`uv run alembic upgrade <revision>`), restore, then `uv run alembic upgrade head`.
+- Restore refuses a user who already has rows (categories are seeded on first sign-in) unless `--replace` is given.
+- `restore-user` reads `.json` and `.json.gz` alike (it looks at the file's first bytes), and checks the shape first: `tables` an object of lists of objects, each with a whole-number `id` unique in its table.
+- Every row gets a new id and every foreign key is remapped, so it works on a database with other users. Each table goes in as one batch, in the backup's id order. A row that points at another row of its own table (a loan's pay-from account, a category's parent) goes in with that link empty and gets it once every row exists, so the order holds and two rows may point at each other. The exception is a link a partial unique index depends on (a merged category frees its name): those rows wait for their target.
+- Ids inside `sms_entries.candidates` are remapped too; choices pointing at rows no longer in the backup are dropped. A `market` choice carries its market kind and code, and restore finds that code in this database's `market_codes` (dropping the choice when it isn't listed).
+- Any error rolls the whole restore back.
+- To restore production, point `DATABASE_URL` at it for the one command, and take a Neon branch first.

@@ -73,11 +73,119 @@ Net worth is always computed from asset and liability accounts only. Income, exp
 net cash flow = income − expenses
 ```
 
-**Current.** The transactions list returns `total_income` and `total_expense` over every transaction matching its filters, not just the current page. Transfers count in neither. A refund is currently recorded as income, so it raises that month's income rather than lowering its spending.
+**Current.** The transactions list returns `total_income` and `total_expense` over every transaction matching its filters (search included), not just the current page. Transfers count in neither, and an EMI counts its interest as spending. A refund is currently recorded as income, so it raises that month's income rather than lowering its spending.
 
 **Decided, comes with the ledger.** A refund is its own type. It links to the original expense and reduces that expense's category spending, in the month of the refund. An unlinked refund names an expense category. The refunds linked to one expense can't add up to more than it.
 
-**Planned.** Investment purchases, loan principal repayments and transfers stay out of cash flow. Loan interest and fees are expenses. Principal repayment only reduces the liability.
+### Monthly cash flow
+
+**Built on branch `cash-flow`.** See the [design](../superpowers/specs/2026-11-12-cash-flow-design.md). `GET /cash-flow?month=YYYY-MM` returns a month's figures.
+
+```
+income    = Σ amount of income transactions in the window
+spending  = Σ amount of expense transactions + Σ interest of EMI transactions, in the window
+net       = income − spending
+```
+
+| Movement | Income | Spending |
+|---|---|---|
+| `income` (salary, interest, dividends, refunds) | amount | — |
+| `expense` (any account, cards included, when the purchase is made) | — | amount |
+| `emi` | — | `interest` only; the principal only lowers the loan |
+| `transfer` (between own accounts, card bill payments, PPF/RD deposits and withdrawals) | — | — |
+| Stock, fund and coin trades (`investment_trades`) | — | — |
+
+- **The window** runs from the 1st of the month to the cut-off day: today (India's date) in the current month, the last day for a past month. A future month is refused.
+- **Previous month at the same day**: the month before, from its 1st to the same day number, clamped to its length. 12 November compares with 1–12 October; 30 March with 1–28 February. On a month's last day the month counts as whole, so 31 March (like any later day) compares with the whole of February, and 30 April with the whole of March. A whole past month compares with the whole month before. The change is `this − previous`, and its percent is `change ÷ previous × 100` rounded half up to a whole number, with no percent when the previous figure is 0.
+- **By category**: income and spending are grouped by category. A subcategory's figure also counts in its parent's (one level). Each group's share is `group ÷ total × 100`, rounded half up to a whole percent. A transaction without a category (SMS, not yet answered) is "Uncategorised"; an EMI's interest is "Loan interest". The top 3 are the three biggest spending groups, ties by name.
+- **Daily spending**: each day's spending, and its bar height as `day ÷ the biggest day × 100`, rounded half up. Days after today have no figure.
+- Refunds are income until they get their own type (below).
+
+Example, November up to the 12th: salary ₹80,000; groceries ₹6,000; a Swiggy order ₹1,200 under Food and dining → Dining; an EMI of ₹12,000 with ₹3,000 interest; ₹20,000 paid to the credit card; ₹10,000 into a fund. Income ₹80,000, spending ₹6,000 + ₹1,200 + ₹3,000 = **₹10,200**, net **₹69,800**. The card payment, the fund purchase and the ₹9,000 principal are not spending.
+
+## Budgets, the next 30 days and safe to spend
+
+**Built on branch `budgets`.** See the [design](../superpowers/specs/2026-11-13-budgets-design.md). Everything here is worked out when asked for; only the budget amounts are stored.
+
+### Monthly budgets
+
+A budget is an amount a month for one **expense** category, top-level or subcategory. It stays the same every month until it is changed.
+
+- **Versions by month.** Setting, changing or removing a budget always applies from the current month onwards. Each change is a row with an `effective_from` month (its 1st); the budget for a month is the latest row on or before it, and a row with no amount means "no budget from this month". Last month's figures never change because this month's budget did.
+- **Spent** uses exactly the [monthly cash flow](#monthly-cash-flow) rules and window: expenses plus EMI interest, from the 1st to today in the current month (the whole month for a past one), grouped by category with subcategories rolled up into their parent. A budget on Food and dining counts Groceries and Dining under it; a budget on Dining counts only Dining.
+- **Per budget:** `left = budget − spent`; `remaining = max(left, 0)`; `over by = max(−left, 0)`; **over** when spent > budget; `percent used = spent ÷ budget × 100`, rounded half up to a whole number (it can pass 100), and the bar is that percent capped at 100.
+- **No rollover.** Unused budget doesn't carry into the next month, and an overspend doesn't reduce the next one.
+- **The overall total** adds up the *counted* budgets: every active budget, except a subcategory's when its parent also has an active budget (the parent's already includes that spending, so nothing counts twice). Overall `left` = total budget − total spent, which can be negative; `remaining`, `over by` and `percent used` as above.
+- **An archived category's budget** is shown as inactive. It isn't counted in the total or in safe to spend, and it can't be changed until the category is restored (removing it still works).
+- **A merged category's budget follows the merge** to the category it was merged into, unless that one has its own budget. Then, in the current month, the merged one is shown as inactive; in an ended month its amount is added to the target's, so a later merge never changes a past month's total. Renaming changes nothing: a budget belongs to the category, not to its name.
+- Spending with no category ("Uncategorised") can't have a budget.
+
+Example, November to the 12th: Food and dining ₹8,000 with Groceries ₹6,000 and Dining ₹1,200 under it: ₹7,200 spent, ₹800 remaining, 90%. Dining also has its own budget of ₹1,000: ₹1,200 spent, over by ₹200, 120%, shown red. The total counts only Food and dining: ₹8,000 budget, ₹7,200 spent, ₹800 left.
+
+### The next 30 days
+
+One list of everything due from today to 30 days ahead, plus anything already overdue (it is still owed), soonest first. Each kind uses its existing due rules:
+
+| Kind | Dates and amount |
+|---|---|
+| Recurring reminders (salary, rent, a card bill transfer) | Every open occurrence up to the end of the window, by the [occurrence rules](#occurrence-rules). The reminder's amount. |
+| Insurance premiums | The policy's reminder, as above, shown as a premium. |
+| EMIs | Each active loan with an instalment day, an EMI and money still owed: the instalment day in each month of the window, unless an EMI is already recorded for that period (in its calendar month or within 15 days, as the SMS matching does), or the day is before the loan was added to the app. This month's, if passed and unpaid, is overdue. The amount is the next EMI's. |
+| SIPs | Every unrecorded debit date up to the end of the window, by the [SIP due rules](#mutual-fund-rules). The SIP's amount. |
+| RD instalments | Every unpaid instalment date up to the end of the window, by the [RD rules](#rd-interest). The instalment. |
+| Credit card bills | One bill per card: the latest statement's unpaid part on its due date, overdue until it is paid (the dashboard drops a bill 3 days after its due date; this list doesn't). A card with no unpaid statement but a due day and money owed shows what is owed now, marked **amount varies**, on the date it will fall due: the due date of the statement a charge made today lands on, or without a statement day, the first due day after the last statement's due date. |
+
+**A transfer reminder stands for the bill.** A card, loan or RD that an active transfer reminder pays into gets no bill, EMI or instalment of its own: the reminder is listed instead, so the money isn't counted twice.
+| Goal set-asides | A goal's monthly reminder: this month's part still to set aside (overdue from the reminder day), and next month's full amount when its reminder day falls in the window. |
+
+**Running balance.** It starts at the sum of the balances of active bank, cash and wallet accounts (an overdrawn bank counts negative) and moves after each item:
+
+- Money out of one of those accounts lowers it (expenses, EMIs, SIPs, RD instalments, transfers to a card, loan, deposit or any account outside the group). Money into one raises it (income, transfers in from outside the group). A transfer between two of them changes nothing.
+- A card bill, an RD instalment and an EMI with no paying account lower it, since they will be paid from a bank. So does anything paid from an archived account other than a card. Anything charged to a card (a premium on a card, an EMI paid from a card) changes nothing now: it reaches the bank with a later card bill.
+- A goal set-aside changes nothing, because earmarked money stays in its account.
+
+Items on the same day: overdue first, then money out before money in, so the balance never looks better than it can be.
+
+### Safe to spend
+
+```
+safe to spend = money now − due before payday − set aside for goals − budgets left
+```
+
+- **Money now** = the balances of active bank, cash and wallet accounts (the running balance's start). Brokers, deposits, investments and cards aren't counted.
+- **Payday** is the next occurrence after today of an active income reminder whose category is Salary or a subcategory of it; with several, the earliest. **Due before payday** adds up everything in the next-30-days rules dated up to the day before payday, overdue items included: money leaving bank, cash or wallet (bills, EMIs, SIPs, RD instalments, transfers out), card bills, and goal set-asides. Anything due on payday itself is left to the new salary. **On payday before the salary is recorded** (today's occurrence is neither recorded nor skipped), the window ends today and the breakdown says "Today's salary isn't recorded yet." Expected income, the salary included, is never counted before it arrives.
+- **No salary reminder:** the window ends on the last day of this month.
+- **Set aside for goals** = the earmarks of active goals in active bank, cash and wallet accounts (see [free balance](#free-balance)).
+- **Budgets left** = for each counted budget this month, its remaining amount less the bills above that fall in its category this month (so a ₹20,000 rent reminder and a ₹20,000 Housing budget take ₹20,000 once, not twice), never below 0. For an EMI, only its interest is spending (in Loan interest). An overspent budget adds 0: it never gives money back.
+- **Credit card dues.** Card purchases count against budgets when they are made. The bill counts in "due before payday" only when it falls due before payday.
+- **Negative results** are shown as they are ("₹X short"). An overdrawn bank, overdue bills or more set aside than held can push the figure below zero, and it is not clamped.
+- The API returns the figure and every line of the breakdown, with each bill and budget in it, so it can be checked by hand.
+
+Example, 12 November, salary reminder on the 1st, so the window runs to 30 November: bank ₹60,000 and cash ₹2,000 = ₹62,000. Due: rent ₹20,000 (Housing) on the 15th, an EMI of ₹12,000 on the 20th, a card bill of ₹8,000 on the 25th = ₹40,000. Set aside for goals ₹5,000. Budgets: Food and dining ₹800 left; Housing ₹20,000 left less the ₹20,000 rent = ₹0; Shopping overspent, ₹0. Safe to spend = 62,000 − 40,000 − 5,000 − 800 = **₹16,200**.
+
+## Weekly digest
+
+**Built on branch `weekly-digest`.** See the [design](../superpowers/specs/2026-11-13-weekly-digest-design.md). `GET /digest?week=` works out one week's summary when asked; nothing is stored.
+
+- **The week** runs Monday to Sunday, India's dates. The default is the last whole week, and a Sunday counts as whole from 6 pm India time (the app's reminder goes out at 7 pm), so from Sunday 6 pm to the next Sunday 6 pm the default is the week ending that first Sunday. `week=YYYY-MM-DD` picks the week holding that date; `week=current` is this week so far. A week that hasn't started, or a date before the year 1000, is refused.
+- **Spent** uses exactly the [monthly cash flow](#monthly-cash-flow) rules (expenses plus EMI interest; income, transfers, EMI principal and trades are not spending) over the week's window: Monday to Sunday, or Monday to today for this week so far.
+- **Usual** is the average spending of the 4 weeks before it, each over the same days (Monday to the same weekday when the week isn't whole), added up and divided by the number of weeks, rounded half up to the paisa. An earlier week counts only when the days compared end on or after the user's first transaction (for a whole week, its Sunday; for this week so far, the same weekday), so someone with 2 weeks of history is compared with those 2, and days before any history are never counted as ₹0; with none, there's no usual figure and no comparison.
+- **Difference** = spent − usual; its percent is `difference ÷ usual × 100`, rounded half up, with no percent when usual is 0. The **tone** is "same" when `|difference| × 100 ≤ usual × 5` (decided exactly, not on the rounded percent, so +5.4% is "more"), else "more" or "less"; there is no tone without a usual figure. The clients colour the comparison by this tone and never re-derive it.
+- **Top categories:** the three biggest spending groups of the week, subcategories rolled into their parents, with each one's share, as in the month report.
+- **Budgets at risk** look at the month holding the week's last counted day, up to that day (the [budget](#monthly-budgets) figures for that window). An active budget is at risk when it is **over** (spent > budget) or **on pace to go over**:
+
+  ```
+  used    = spent ÷ budget
+  elapsed = days counted ÷ days in the month
+  on pace to go over  ⇔  the month isn't whole, 50% ≤ used < 100% and used > elapsed + 10 points
+  projected = spent × days in the month ÷ days counted (rounded half up to the paisa)
+  ```
+
+  The 10-point margin lets normal day-to-day unevenness pass, the 50% floor keeps one early purchase from flagging a budget in the first days of a month, and a budget used exactly up (rent paid on the 1st, budget = rent) isn't "on pace": it is at its limit, not past it. **Known gap:** a one-off bill paid early that leaves a little of its budget (rent ₹19,000 of ₹20,000) reads as on pace until the month catches up; the digest shows the projection, so the reason is visible. A whole month (a week ending on its last day) has no "on pace", only over. Over budgets come first, then by percent used, highest first.
+- **Due in the next 7 days:** the [next 30 days](#the-next-30-days) list cut to today + 7 days (always from today, whichever week is shown), overdue items included, with the same running balance. **Due total** adds the amounts of items with money going out.
+- **Headline:** one sentence built from the figures above, e.g. "You spent ₹4,250 last week, ₹600 more than usual." It says "this week" for the current week, "last week" for the one before, and "in the week of 26 October" for older weeks; "So far this week you've spent ₹X, ₹Y less than usual by now." for this week so far; "You didn't spend anything last week." when nothing was spent; and no comparison when there's no usual figure.
+
+Example, Monday 9 November 2026: the default week is 2–8 November. Spent ₹4,250 (groceries ₹3,000, an EMI's ₹1,250 interest; a ₹20,000 card payment and the EMI principal don't count). The four weeks before spent ₹3,000, ₹4,000, ₹3,800 and ₹3,800: usual ₹14,600 ÷ 4 = ₹3,650. Difference +₹600, +16%: "You spent ₹4,250 last week, ₹600 more than usual." Budgets look at November 1–8: 8 of 30 days, 26.67% elapsed; Food and dining ₹8,000 with ₹4,400 spent (55%) is on pace to go over (55 > 36.67 and ≥ 50), projected ₹16,500.
 
 ## Investment returns (built for stocks and mutual funds)
 
@@ -256,6 +364,70 @@ Archiving an account that has money set aside is refused ("₹X of {account} is 
 A goal with a `monthly_amount` and a `reminder_day` (1 to 31, clamped to the month's length) is **due** from that day of the month until the positive set-aside entries dated in the current month add up to the amount. The amount asked for is the part still to set aside. It starts in the month the reminder was turned on, and it stops once the goal is reached or archived. Only the current month is ever due: a missed month doesn't pile up, and there is no Skip. Clearing `monthly_amount` turns the reminder off. Releases do not reduce what was set aside this month.
 
 Goal reminders come under their own key, `goals_due` in `GET /recurring/due`, and never inside `items`, which older app versions read as templates.
+
+## Net worth over time
+
+**Built on branch `net-worth`.** See the [design](../superpowers/specs/2026-11-13-net-worth-history-design.md). Net worth itself is never stored: the dashboard works it out on every request. What is stored is a **snapshot**, a copy of the dashboard's figures for one day, so the trend can be drawn later.
+
+### Daily snapshots
+
+A snapshot holds, for one user and one date (India's date):
+
+```
+net_worth, total_have, total_owe              (exactly the dashboard's figures)
+bank_cash, deposits, stocks, funds, crypto    (the dashboard's asset split)
+estimated                                     (false for a real snapshot)
+```
+
+- **The same code as the dashboard.** The figures come from the one function the dashboard uses (`app/api/worth.py`), so a snapshot taken now equals what the dashboard shows now. All five groups are stored, including zero or negative ones (`bank_cash` goes negative when an overdraft is larger than the cash held). The dashboard leaves those out of its bar, and the history chart draws them as zero.
+- **One row per user per date.** Writing a date again replaces that row, so re-running a night is harmless.
+- **The nightly job writes them.** The cron at 23:30 India time (18:00 UTC) refreshes prices first, then writes the evening's snapshot for every user who has at least one account or instrument. The snapshot therefore uses tonight's prices. Vercel can start the run as late as 00:29, so the snapshot is dated by the evening it was meant for: India time minus 3 hours (a run at 00:15 on the 14th writes the 13th). A user whose snapshot fails is logged and skipped, and the others still get theirs.
+- **Rounded so it adds up.** Have and owe are rounded to paise first; net worth is have − owe, and bank and cash is have less the other rounded groups, so every stored row adds up exactly.
+- **A missed night stays a gap.** The next run writes only its own date. Nothing is filled in or interpolated. The chart spaces points by date, so a gap shows as a longer line, and a gap longer than 45 days breaks the line.
+- **The first point comes at once.** When a user opens the dashboard (through the history request it makes) and there is no real snapshot for today, one is written then, so a new user has a first point immediately rather than after 23:30. That night's run overwrites it with the final figures.
+- **Today is always live.** The history's last point, and every change figure, use today's figures worked out on the request, never the stored row, so they always match the net worth shown beside them.
+- Snapshots are approximate: a holding is valued at its latest recorded price on the night, a PPF or RD at its balance, and a later balance correction (which rewrites the opening balance, see above) leaves earlier snapshots as they were.
+
+### Estimated history (backfill)
+
+`python -m app.cli backfill-net-worth [email]` estimates one point per month-end for the last 12 months from the transactions already recorded. Without an email it runs for every user. These points are marked `estimated` and drawn differently.
+
+For each month-end `D` of the 12 months before the current one:
+
+```
+an account counts on D   when it existed (its first transaction or its creation date ≤ D)
+                         and wasn't archived yet (archived after D, or never)
+balance(account, D)      = opening_balance + the money its transactions and trades moved up to D
+total_have, total_owe    = the same rules as today, over the accounts that count
+deposits                 = PPF and RD balances on D
+bank_cash                = total_have − deposits
+stocks, funds, crypto    = 0
+```
+
+**Limits, written down so nobody mistakes the estimate for a record:**
+
+- **Investments are left out.** Stocks, funds and coins count only from the day snapshots start. Before that the estimate has no holdings at all, so a month where money went from the bank into a fund shows as a fall. There are no past prices to value them with. Broker cash, PPF and RD balances are accounts, so they are estimated like a bank.
+- **Only what was recorded.** An account counts from its first transaction or the day it was added to the app, whichever is earlier. Money held before that is unknown and left out, so the earliest months can be too low or missing. A month-end with no account counted gets no point.
+- **The opening balance is taken to come before every transaction.** That is how balances are worked out today, so the estimate agrees with them, but a balance correction shifts every past estimate with it.
+- **Real snapshots win.** The backfill only writes month-ends before the user's first real snapshot, never replaces a real snapshot, and re-running it replaces its own earlier estimates.
+
+### Change figures
+
+```
+since last month = today's net worth − the snapshot nearest to the same day last month
+since the start  = today's net worth − the first snapshot in the chosen range
+```
+
+- "The same day last month" is today's day in the previous month, clamped to that month's length (31 March looks for 28 or 29 February).
+- **Which snapshot.** Candidates are dated before today, from 16 days before that day to 3 days after it (a point long after the target, left by missed nights, doesn't count). A real snapshot is always preferred; an estimate is used only when no real one is a candidate. The nearest wins, and on a tie the earlier. With none there is no figure ("not enough history yet"), never a misleading ₹0.
+- **Like with like.** An estimate has no stocks, funds or coins. When the compared snapshot is estimated, today's side leaves them out too: `today's net worth − today's stocks, funds and coins − the estimate`. Otherwise someone holding ₹5,00,000 of shares would see "▲ ₹5,00,000 since last month" for weeks after a backfill. The response says so (`estimated: true`).
+- **On the day or not.** Each figure also says whether its date is within 3 days of the day it was looking for (`on_target`). When it isn't, or when it is estimated, the clients name the date ("since 30 Sep, estimated") instead of saying "since last month".
+- Ranges are 3 months, 6 months, 1 year (the default) or all, each counted back from today with the day clamped as above.
+- Both figures are Decimal subtractions on the server. They cross the API as two-decimal strings, each with the date it compares against.
+
+Example: today is 13 Nov 2026 and net worth is ₹5,12,000. There are snapshots on 12 Oct (₹4,90,000) and 15 Oct (₹4,95,000). The target is 13 Oct, and they are 1 and 2 days from it, so 12 Oct is nearest and the change is **+₹22,000 since last month**.
+
+Example with an estimate: net worth ₹5,12,000, of which ₹1,00,000 is a fund, and the only candidate is the estimate for 30 Sep (₹3,90,000). The change is ₹5,12,000 − ₹1,00,000 − ₹3,90,000 = **+₹22,000 since 30 Sep, estimated**, not +₹1,22,000.
 
 ## Dates
 

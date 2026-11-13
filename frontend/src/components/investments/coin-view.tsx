@@ -426,7 +426,7 @@ function Trades({
       </div>
       {data.trades.length === 0 ? (
         <div className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-4 py-6 text-center text-sm font-extrabold text-zinc-700">
-          <p>No trades yet.</p>
+          <p>No buys or sells yet. Start with the coins you already own.</p>
           <button type="button" className={`${QUIET} mt-2`} onClick={onAdd}>
             Add existing coins
           </button>
@@ -456,7 +456,7 @@ function PriceHistory({ prices, onDelete }: { prices: CoinPrice[]; onDelete: (pr
       </h2>
       {prices.length === 0 ? (
         <p className="rounded-[18px] border-[2.5px] border-dashed border-ink bg-card px-4 py-6 text-center text-sm font-extrabold text-zinc-700">
-          No price recorded. Until you add one, holdings are valued at cost.
+          No price yet. Until there is one, your coins are valued at what you paid.
         </p>
       ) : (
         <ul className={LIST}>
