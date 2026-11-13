@@ -157,6 +157,11 @@ def test_restore_gives_identical_figures(me: Headers, db_session: Session) -> No
 
     assert rows(again["tables"]) == rows(document["tables"])
 
+    # Net worth history last: its first read of a day writes that day's snapshot for each user.
+    url = "/api/net-worth?range=all"
+    assert _without_ids(_get(copy, url)) == _without_ids(_get(me, url)), url
+    assert len(_get(me, url)["points"]) >= 3
+
 
 def test_links_point_at_the_copys_own_rows(me: Headers, db_session: Session) -> None:
     _restore_into(db_session, "copy@example.com", _backup(me))

@@ -29,6 +29,7 @@ FILES = {
     "recurring_templates.csv",
     "budgets.csv",
     "categories.csv",
+    "net_worth_history.csv",
 }
 
 
@@ -95,6 +96,11 @@ def test_one_csv_per_entity_with_readable_figures(me: Headers) -> None:
     templates = {t["Name"]: t for t in _rows(files["recurring_templates.csv"])}
     assert templates["RD instalment"]["To account"] == "SBI RD"
     assert _rows(files["sips.csv"])[0]["Fund"] == "Parag Parikh Flexi Cap"
+    history = _rows(files["net_worth_history.csv"])
+    assert [(h["Net worth"], h["Estimated"]) for h in history] == [
+        ("480000.00", "Yes"),
+        ("612345.67", "No"),
+    ]
     for data in files.values():
         assert "₹" not in data.decode("utf-8-sig")
 

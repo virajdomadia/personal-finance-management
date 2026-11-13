@@ -26,6 +26,7 @@ from app.models.category import Category
 from app.models.insurance import InsurancePolicy
 from app.models.investment import Instrument, InvestmentTrade, Sip
 from app.models.recurring import RecurringTemplate
+from app.models.snapshot import NetWorthSnapshot
 from app.models.transaction import Transaction
 
 TYPE_NAMES = {
@@ -104,6 +105,7 @@ def spreadsheets(db: Session, user_id: int) -> dict[str, bytes]:
         "recurring_templates.csv": _templates(db, user_id, names),
         "budgets.csv": _budgets(db, user_id),
         "categories.csv": _categories(db, user_id),
+        "net_worth_history.csv": _net_worth(db, user_id),
     }
 
 
@@ -389,5 +391,26 @@ def _categories(db: Session, user_id: int) -> bytes:
             c.archived_at is not None,
         ]
         for c in sorted(categories.values(), key=lambda c: (c.kind, c.name.casefold(), c.id))
+    ]
+    return to_csv(headers, rows)
+
+
+def _net_worth(db: Session, user_id: int) -> bytes:
+    found = db.scalars(
+        select(NetWorthSnapshot)
+        .where(NetWorthSnapshot.user_id == user_id)
+        .order_by(NetWorthSnapshot.date)
+    )
+    headers = [
+        "Date", "Net worth", "Have", "Owe", "Bank and cash", "Deposits", "Stocks",
+        "Mutual funds", "Crypto", "Estimated",
+    ]  # fmt: skip
+    rows = [
+        [
+            n.date, money(n.net_worth), money(n.total_have), money(n.total_owe),
+            money(n.bank_cash), money(n.deposits), money(n.stocks), money(n.funds),
+            money(n.crypto), n.estimated,
+        ]  # fmt: skip
+        for n in found
     ]
     return to_csv(headers, rows)

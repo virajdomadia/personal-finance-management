@@ -21,6 +21,7 @@ from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade, 
 from app.models.market import MarketCode
 from app.models.recurring import RecurringSkip, RecurringTemplate
 from app.models.sms import AccountIdentifier, PayeeRule, SmsEntry, SmsSample
+from app.models.snapshot import NetWorthSnapshot
 from app.models.transaction import Transaction
 
 client = TestClient(app)
@@ -160,6 +161,8 @@ def build(db: Session, headers: Headers, user_id: int, today: date) -> None:
     add(SmsEntry(user_id=u, hash="a" * 64, sender="VM-SBIINB", bank="sbi", kind="credit", amount=D("450.00"), occurred_on=sms_tx.date, last4="5678", payee="Amazon refund", payee_key="amazon refund", ref="R123", balance=D("80450.00"), account_id=sbi.id, status="review", reason="maybe_transfer", message="Is this a transfer?", candidates=candidates, transaction_id=sms_tx.id))
     add(SmsEntry(user_id=u, hash="b" * 64, sender="VM-CDSL", bank="cdsl", kind="demat", occurred_on=day(9), isin="INE009A01021", quantity=D("3"), status="recorded", trade_id=crypto.id))
     add(SmsEntry(user_id=u, hash="c" * 64, sender="VM-HDFCBK", bank="hdfc", kind="card_statement", amount=D("8000.00"), occurred_on=day(1), due_date=day(20), account_id=card.id, status="ignored"))
+    add(NetWorthSnapshot(user_id=u, date=day(28, last_month), net_worth=D("612345.67"), total_have=D("1042345.67"), total_owe=D("430000.00"), bank_cash=D("330000.00"), deposits=D("640000.00"), stocks=D("40000.00"), funds=D("27000.00"), crypto=D("5345.67")))
+    add(NetWorthSnapshot(user_id=u, date=date(first.year - 1, first.month, 1) - (first - last_month), net_worth=D("480000.00"), total_have=D("900000.00"), total_owe=D("420000.00"), bank_cash=D("280000.00"), deposits=D("620000.00"), stocks=D("0.00"), funds=D("0.00"), crypto=D("0.00"), estimated=True))
     add(SmsSample(user_id=u, sender="VM-ICICIB", text="Your a/c XX12 is debited for Rs 99 — unknown format"))
     db.commit()
 

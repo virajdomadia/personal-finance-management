@@ -50,6 +50,7 @@ Today's decisions:
 | insurance_policies, policy_periods | exported | policies |
 | goals, goal_earmarks, goal_holdings | exported | goals |
 | sms_entries, payee_rules, account_identifiers, sms_samples | exported | the user's own SMS history and rules (*my call*: samples hold raw unparsed message text; it is the user's data and the file goes only to them) |
+| net_worth_snapshots | exported | real and estimated net worth history; picked up automatically when the net-worth branch merged; also `net_worth_history.csv` |
 | users | excluded | login identity (Google id, session version); restore targets an existing or new user by email |
 | market_codes | excluded | shared public market data, the same for every user, refreshed nightly |
 
@@ -75,7 +76,7 @@ Today's decisions:
 
 ## CSV export
 
-`GET /api/export/csv` returns `pfm-export-YYYY-MM-DD.zip` with one CSV per entity: accounts, transactions, stock_trades, fund_trades, crypto_trades, loans, deposits, goals, insurance_policies, recurring_templates, budgets, categories, sips. Human headers ("To account", "EMIs left"), names instead of ids, plain numbers (`1234.50`, no ₹ or Indian grouping), ISO dates, UTF-8 with a BOM so Excel reads ₹ and Hindi names. Balances and loan/deposit figures come from the same functions the accounts list uses.
+`GET /api/export/csv` returns `pfm-export-YYYY-MM-DD.zip` with one CSV per entity: accounts, transactions, stock_trades, fund_trades, crypto_trades, loans, deposits, goals, insurance_policies, recurring_templates, budgets, categories, sips, net_worth_history. Human headers ("To account", "EMIs left"), names instead of ids, plain numbers (`1234.50`, no ₹ or Indian grouping), ISO dates, UTF-8 with a BOM so Excel reads ₹ and Hindi names. Balances and loan/deposit figures come from the same functions the accounts list uses.
 
 ## Website
 
