@@ -88,3 +88,24 @@ def test_ids_restore_could_not_remap_fail() -> None:
     assert "things.shared_id points at shared" in problems
     assert "things.loose_id looks like an id" in problems
     assert "things.extra is JSON" in problems
+
+
+def test_a_key_that_is_not_a_primary_key_must_be_allowed() -> None:
+    metadata = MetaData()
+    _users(metadata)
+    Table(
+        "codes",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("user_id", ForeignKey("users.id")),
+        Column("code", String, unique=True),
+    )
+    Table(
+        "uses",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("user_id", ForeignKey("users.id")),
+        Column("code", ForeignKey("codes.code")),
+    )
+    problems = "\n".join(plan(metadata).problems)
+    assert "uses.code points at codes.code, not a primary key" in problems

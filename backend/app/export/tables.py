@@ -19,6 +19,14 @@ EXCLUDED: dict[str, str] = {
 
 USERS = "users"
 
+# A foreign key column that points at something other than a primary key is copied as it is, not
+# remapped. That's right only for these: composite keys that repeat the owner and a fixed kind
+# (budgets' and categories' (id, user_id, kind) keys). Anything else needs a decision here.
+COPIED_KEY_COLUMNS: dict[str, str] = {
+    "user_id": "set to the restoring user, as every user column is",
+    "kind": "the category kind, copied with the row and checked by the database",
+}
+
 
 def user_columns(table: Table) -> list[Column]:
     """Columns that point at `users.id`; a backup leaves them out and restore sets them."""
@@ -89,6 +97,11 @@ def _remap_problems(table: Table, owned: set[str]) -> list[str]:
         for column, element in zip(constraint.columns, constraint.elements, strict=True):
             fk_columns.add(column.name)
             target = element.column.table.name
+            if not element.column.primary_key and column.name not in COPIED_KEY_COLUMNS:
+                problems.append(
+                    f"{table.name}.{column.name} points at {target}.{element.column.name}, "
+                    "not a primary key; restore would copy it unmapped"
+                )
             if target != USERS and target not in owned:
                 problems.append(
                     f"{table.name}.{column.name} points at {target}, which isn't exported; "
