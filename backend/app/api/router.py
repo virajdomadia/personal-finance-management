@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.routes import (
     accounts,
     auth,
+    budgets,
     cash_flow,
     categories,
     coins,
@@ -26,6 +27,7 @@ from app.api.routes import (
     streak,
     trades,
     transactions,
+    upcoming,
 )
 
 api_router = APIRouter()
@@ -39,6 +41,8 @@ api_router.include_router(setup.router)
 api_router.include_router(transactions.router)
 api_router.include_router(categories.router)
 api_router.include_router(cash_flow.router)
+api_router.include_router(budgets.router)
+api_router.include_router(upcoming.router)
 api_router.include_router(sms.router)
 api_router.include_router(sms.rules_router)
 api_router.include_router(funds.router)

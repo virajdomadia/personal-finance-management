@@ -65,6 +65,10 @@ function Screens() {
             <Stack.Screen name="categories" />
             <Stack.Screen name="category-form" />
             <Stack.Screen name="transaction-filters" />
+            <Stack.Screen name="budgets" />
+            <Stack.Screen name="budget-form" />
+            <Stack.Screen name="safe-to-spend" />
+            <Stack.Screen name="upcoming" />
           </Stack.Protected>
           <Stack.Protected guard={!loggedIn}>
             <Stack.Screen name="login" />

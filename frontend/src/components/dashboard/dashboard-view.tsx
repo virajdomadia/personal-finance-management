@@ -11,6 +11,8 @@ import { DueSection } from "@/components/recurring/due-list";
 import { SetupChecklist } from "@/components/dashboard/setup-checklist";
 import { NetWorthTrend } from "@/components/net-worth/net-worth-trend";
 import { MonthCard } from "@/components/dashboard/month-card";
+import { SafeToSpendCard } from "@/components/dashboard/safe-to-spend-card";
+import { UpcomingCard } from "@/components/dashboard/upcoming-card";
 import {
   FOCUS,
   PageHeader,
@@ -42,9 +44,12 @@ const ITEM = `block border-b-[1.5px] border-dashed border-zinc-300 py-2 text-sm 
 export function DashboardView() {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const latest = useRef(0);
+  // Bumped on every reload, so the safe-to-spend and next-30-days cards fetch again too.
+  const [version, setVersion] = useState(0);
 
   const fetchDashboard = useCallback(() => {
     const request = ++latest.current;
+    setVersion(request);
     apiFetch<Dashboard>("/dashboard")
       .then((data) => {
         if (request === latest.current) setLoad({ status: "ready", data });
@@ -101,7 +106,7 @@ export function DashboardView() {
       )}
 
       {load.status === "ready" && (
-        <Content data={load.data} onChanged={fetchDashboard} />
+        <Content data={load.data} onChanged={fetchDashboard} version={version} />
       )}
     </div>
   );
@@ -110,9 +115,11 @@ export function DashboardView() {
 function Content({
   data,
   onChanged,
+  version,
 }: {
   data: Dashboard;
   onChanged: () => void;
+  version: number;
 }) {
   const bill = data.card_bill ?? null;
   // The card's statement bill says more than its due day, so the card isn't listed twice.
@@ -225,7 +232,9 @@ function Content({
           )}
         </div>
       )}
+      {hasAccounts && <SafeToSpendCard refreshKey={version} />}
       {hasAccounts && <MonthCard />}
+      {hasAccounts && <UpcomingCard refreshKey={version} />}
 
       <div
         className={`grid grid-cols-1 items-start gap-3.5 ${goals.length > 0 ? "sm:grid-cols-2" : ""}`}

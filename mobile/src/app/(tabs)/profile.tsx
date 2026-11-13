@@ -38,6 +38,7 @@ export default function ProfileScreen() {
         onSms={() => router.push("/sms-settings")}
         onPayeeRules={() => router.push("/payee-rules")}
         onCategories={() => router.push("/categories")}
+        onBudgets={() => router.push("/budgets")}
         onLogOut={() => void logOut()}
       />
     </ScrollView>

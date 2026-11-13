@@ -40,7 +40,7 @@
     "android": "expo start --android",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/app-lock.test.mjs src/lib/accounts.test.mjs src/lib/transactions.test.mjs src/lib/investments.test.mjs src/lib/funds.test.mjs src/lib/crypto.test.mjs src/lib/deposits.test.mjs src/lib/dates.test.mjs src/lib/recurring.test.mjs src/lib/insurance.test.mjs src/lib/goals.test.mjs src/lib/fun.test.mjs src/lib/sms/parse.test.mjs src/lib/sms/sync.test.mjs src/lib/review.test.mjs src/lib/setup.test.mjs src/lib/net-worth.test.mjs src/lib/categories.test.mjs src/lib/cash-flow.test.mjs src/lib/search.test.mjs"
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/app-lock.test.mjs src/lib/accounts.test.mjs src/lib/transactions.test.mjs src/lib/investments.test.mjs src/lib/funds.test.mjs src/lib/crypto.test.mjs src/lib/deposits.test.mjs src/lib/dates.test.mjs src/lib/recurring.test.mjs src/lib/insurance.test.mjs src/lib/goals.test.mjs src/lib/fun.test.mjs src/lib/sms/parse.test.mjs src/lib/sms/sync.test.mjs src/lib/review.test.mjs src/lib/setup.test.mjs src/lib/categories.test.mjs src/lib/cash-flow.test.mjs src/lib/search.test.mjs src/lib/budgets.test.mjs src/lib/upcoming.test.mjs src/lib/net-worth.test.mjs"
   },
   "private": true
 }

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { type BudgetLine, type BudgetMonth, budgetsById, spentOfText, usedText } from "@/lib/budgets";
 import {
   type CashFlowMonth,
   type CategorySlice,
@@ -27,9 +28,16 @@ const TONE_CLASS = { good: "text-gain", bad: "text-loss", same: "text-zinc-600" 
 // The month report: totals against last month at the same day, daily spending and where it went.
 export function CashFlowView({ month }: { month: string | null }) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
+  // The month's budgets, shown on the spending rows; the report works without them.
+  const [budgets, setBudgets] = useState<BudgetMonth | null>(null);
 
   useEffect(() => {
     let current = true;
+    apiFetch<BudgetMonth>(month ? `/budgets?month=${month}` : "/budgets")
+      .then((data) => {
+        if (current) setBudgets(data);
+      })
+      .catch(() => {});
     apiFetch<CashFlowMonth>(month ? `/cash-flow?month=${month}` : "/cash-flow")
       .then((data) => {
         if (current) setLoad({ status: "ready", data });
@@ -67,7 +75,7 @@ export function CashFlowView({ month }: { month: string | null }) {
           We couldn&apos;t load this month. Reload the page to try again.
         </p>
       )}
-      {load.status === "ready" && <Report data={load.data} />}
+      {load.status === "ready" && <Report data={load.data} budgets={budgets} />}
     </div>
   );
 }
@@ -91,7 +99,7 @@ function MonthNav({ data }: { data: CashFlowMonth }) {
   );
 }
 
-function Report({ data }: { data: CashFlowMonth }) {
+function Report({ data, budgets }: { data: CashFlowMonth; budgets: BudgetMonth | null }) {
   const whole = !data.is_current;
   const netNegative = data.net.startsWith("-");
   return (
@@ -134,6 +142,7 @@ function Report({ data }: { data: CashFlowMonth }) {
           slices={data.spending_by_category}
           data={data}
           kind="expense"
+          budgets={budgets?.month === data.month ? budgetsById(budgets) : undefined}
           empty="No spending recorded this month."
         />
         <CategoryTable
@@ -245,19 +254,29 @@ function CategoryTable({
   data,
   kind,
   empty,
+  budgets,
 }: {
   title: string;
   slices: CategorySlice[];
   data: CashFlowMonth;
   kind: "income" | "expense";
   empty: string;
+  budgets?: Map<number, BudgetLine>; // spending only
 }) {
   const id = `${kind}-table-title`;
+  const budgetOf = (slice: CategorySlice) => (slice.id === null ? undefined : budgets?.get(slice.id));
   return (
     <section aria-labelledby={id} className="min-w-0">
-      <h2 id={id} className="mb-2 text-xs font-black tracking-wide uppercase">
-        {title}
-      </h2>
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id={id} className="text-xs font-black tracking-wide uppercase">
+          {title}
+        </h2>
+        {budgets ? (
+          <Link href={`/budgets?month=${data.month}`} className={`rounded text-xs font-black underline ${FOCUS}`}>
+            Budgets
+          </Link>
+        ) : null}
+      </div>
       {slices.length === 0 ? (
         <p className={`${CARD} text-sm font-extrabold`}>{empty}</p>
       ) : (
@@ -278,7 +297,7 @@ function CategoryTable({
             </thead>
             <tbody>
               {slices.flatMap((slice) => [
-                <Row key={`p-${slice.id ?? slice.name}`} slice={slice} data={data} kind={kind} />,
+                <Row key={`p-${slice.id ?? slice.name}`} slice={slice} data={data} kind={kind} budget={budgetOf(slice)} />,
                 ...(slice.children.length > 0 && slice.direct !== "0.00"
                   ? [
                       <tr key={`d-${slice.id}`}>
@@ -289,7 +308,7 @@ function CategoryTable({
                     ]
                   : []),
                 ...slice.children.map((child) => (
-                  <Row key={`c-${child.id}`} slice={child} data={data} kind={kind} nested />
+                  <Row key={`c-${child.id}`} slice={child} data={data} kind={kind} budget={budgetOf(child)} nested />
                 )),
               ])}
             </tbody>
@@ -304,11 +323,13 @@ function Row({
   slice,
   data,
   kind,
+  budget,
   nested = false,
 }: {
   slice: CategorySlice;
   data: CashFlowMonth;
   kind: "income" | "expense";
+  budget?: BudgetLine;
   nested?: boolean;
 }) {
   return (
@@ -319,9 +340,32 @@ function Row({
           {slice.name}
         </Link>
         <ShareBar slice={slice} />
+        {budget ? <BudgetBar budget={budget} /> : null}
       </td>
       <td className={`${TD_NUM} whitespace-nowrap ${nested ? "" : "font-black"}`}>{formatRupees(slice.amount)}</td>
       <td className={`${TD_NUM} whitespace-nowrap`}>{slice.percent}%</td>
     </tr>
+  );
+}
+
+// The category's budget under its share bar: a slim bar of the server's `bar`, red when over.
+function BudgetBar({ budget }: { budget: BudgetLine }) {
+  return (
+    <div className="mt-1.5">
+      <div
+        role="progressbar"
+        aria-label={`${budget.name} budget`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={budget.bar ?? 0}
+        aria-valuetext={`${spentOfText(budget)}, ${usedText(budget)}${budget.over ? ", over budget" : ""}`}
+        className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200"
+      >
+        <div className={`h-full ${budget.over ? "bg-loss" : "bg-green-strong"}`} style={{ width: `${budget.bar ?? 0}%` }} />
+      </div>
+      <p className={`mt-0.5 text-[11px] font-extrabold tabular-nums ${budget.over ? "text-loss" : "text-zinc-600"}`}>
+        {spentOfText(budget)} budget{budget.over ? " · over" : ""}
+      </p>
+    </div>
   );
 }

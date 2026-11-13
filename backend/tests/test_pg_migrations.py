@@ -54,6 +54,7 @@ ALL_TABLES = {
     "sms_samples",
     "net_worth_snapshots",
     "categories",
+    "budgets",
 }
 
 
@@ -246,7 +247,8 @@ GOALS_REVISION = "a1d4f7c92b36"
 MARKET_REVISION = "c7e2a95d1b48"
 SMS_REVISION = "e3b81f46a0d7"
 CATEGORIES_REVISION = "2d46fef3dab4"
-HEAD_REVISION = "4f9a2c7e1b30"
+NET_WORTH_REVISION = "4f9a2c7e1b30"
+HEAD_REVISION = "7e5d2fc1e167"
 SMS_TABLES = {"account_identifiers", "sms_entries", "payee_rules", "sms_samples"}
 GOAL_TABLES = {"goals", "goal_earmarks", "goal_holdings"}
 RECURRING_TABLES = {
@@ -377,9 +379,10 @@ def test_recurring_migration_round_trip(migrations_db: str) -> None:
 
     command.downgrade(config, NEW_REVISION)
     assert tables(migrations_db) == ALL_TABLES - RECURRING_TABLES - GOAL_TABLES - SMS_TABLES - {
+        "categories",
+        "budgets",
         "market_codes",
         "net_worth_snapshots",
-        "categories",
     }
     columns = {c["name"] for c in inspect(create_engine(migrations_db)).get_columns("transactions")}
     assert "recurring_template_id" not in columns
@@ -434,6 +437,7 @@ def test_goals_migration_round_trip(migrations_db: str) -> None:
         "market_codes",
         "net_worth_snapshots",
         "categories",
+        "budgets",
     }
     assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(RECURRING_REVISION,)]
 
@@ -645,5 +649,47 @@ def test_categories_migration_seeds_and_round_trips(migrations_db: str) -> None:
 
     command.downgrade(config, SMS_REVISION)
     assert "categories" not in tables(migrations_db)
+    command.upgrade(config, "head")
+    assert tables(migrations_db) == ALL_TABLES
+
+
+def test_budgets_migration_round_trips_and_guards_data(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, "head")
+    seed_investments(migrations_db)
+    run_sql(
+        migrations_db,
+        "INSERT INTO categories (user_id, kind, name, name_key, created_at, updated_at)"
+        " VALUES (1, 'expense', 'Groceries', 'groceries', :s, :s),"
+        " (1, 'income', 'Salary', 'salary', :s, :s)",
+        "INSERT INTO budgets (user_id, category_id, effective_from, amount, created_at,"
+        " updated_at) SELECT 1, id, '2026-11-01', 8000, :s, :s FROM categories"
+        " WHERE user_id = 1 AND kind = 'expense' AND name = 'Groceries'",
+    )
+    assert rows(migrations_db, "SELECT kind, amount FROM budgets") == [
+        ("expense", Decimal("8000.00"))
+    ]
+    # Only an expense category of the same user, once per month, and never zero.
+    for statement in (
+        "INSERT INTO budgets (user_id, category_id, effective_from, amount, created_at,"
+        " updated_at) SELECT 1, id, '2026-11-01', 5, :s, :s FROM categories"
+        " WHERE user_id = 1 AND kind = 'income' AND name = 'Salary'",
+        "INSERT INTO budgets (user_id, category_id, effective_from, amount, created_at,"
+        " updated_at) SELECT 1, id, '2026-11-01', 5, :s, :s FROM categories"
+        " WHERE user_id = 1 AND kind = 'expense' AND name = 'Groceries'",
+        "INSERT INTO budgets (user_id, category_id, effective_from, amount, created_at,"
+        " updated_at) SELECT 1, id, '2026-12-01', 0, :s, :s FROM categories"
+        " WHERE user_id = 1 AND kind = 'expense' AND name = 'Groceries'",
+    ):
+        with pytest.raises(IntegrityError):
+            run_sql(migrations_db, statement)
+
+    with pytest.raises(RuntimeError, match="Budget data exists; remove it before downgrading."):
+        command.downgrade(config, NET_WORTH_REVISION)
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(HEAD_REVISION,)]
+
+    run_sql(migrations_db, "DELETE FROM budgets")
+    command.downgrade(config, NET_WORTH_REVISION)
+    assert "budgets" not in tables(migrations_db)
     command.upgrade(config, "head")
     assert tables(migrations_db) == ALL_TABLES

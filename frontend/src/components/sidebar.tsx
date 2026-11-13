@@ -18,6 +18,7 @@ const LINKS = [
   { href: "/accounts", emoji: "👛", label: "Accounts" },
   { href: "/transactions", emoji: "💸", label: "Transactions" },
   { href: "/cash-flow", emoji: "🗓️", label: "Cash flow" },
+  { href: "/budgets", emoji: "📊", label: "Budgets" },
   { href: "/investments", emoji: "📈", label: "Investments" },
   { href: "/recurring", emoji: "🔁", label: "Recurring" },
   { href: "/insurance", emoji: "🛡️", label: "Insurance" },
