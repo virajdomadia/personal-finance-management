@@ -1,6 +1,7 @@
-"""Admin commands for the users table: python -m app.cli <command>."""
+"""Admin commands for users and their data: python -m app.cli <command>."""
 
 import argparse
+import json
 import sys
 
 from sqlalchemy import select
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dates import today_india
 from app.db.session import SessionLocal
+from app.export.backup import dump, restore
 from app.models.user import User
 from app.prices.fetch import default_fetcher
 from app.prices.refresh import run_nightly
@@ -49,6 +51,36 @@ def revoke_sessions(db: Session, email: str) -> User:
     return user
 
 
+def export_user(db: Session, email: str, path: str) -> int:
+    """Writes the user's backup to `path`. Returns the number of rows written."""
+    document = dump(db, _find(db, email))
+    with open(path, "w", encoding="utf-8") as out:
+        json.dump(document, out, ensure_ascii=False, indent=1)
+    return sum(len(rows) for rows in document["tables"].values())
+
+
+def restore_user(db: Session, email: str, path: str, replace: bool = False) -> int:
+    """Loads a backup into the user (created if missing) in one transaction. Returns the rows."""
+    try:
+        with open(path, encoding="utf-8") as source:
+            document = json.load(source)
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"Can't read {path}: {error}") from error
+    email = email.strip().lower()
+    try:
+        user = db.scalar(select(User).where(User.email == email))
+        if user is None:
+            user = User(email=email)
+            db.add(user)
+            db.flush()
+        count = restore(db, user, document, replace=replace)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return count
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -57,6 +89,15 @@ def main(argv: list[str] | None = None) -> int:
     move.add_argument("old_email")
     move.add_argument("new_email")
     commands.add_parser("revoke-sessions", help="sign a user out everywhere").add_argument("email")
+    export = commands.add_parser("export-user", help="write a user's JSON backup to a file")
+    export.add_argument("email")
+    export.add_argument("out")
+    load = commands.add_parser("restore-user", help="load a JSON backup into a user")
+    load.add_argument("email")
+    load.add_argument("backup")
+    load.add_argument(
+        "--replace", action="store_true", help="delete the user's data first, in one transaction"
+    )
     commands.add_parser("refresh-prices", help="fetch today's prices now, as the nightly job does")
     args = parser.parse_args(argv)
 
@@ -68,6 +109,12 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "move-user":
                 user = move_user(db, args.old_email, args.new_email)
                 print(f"Moved to {user.email}; Google link cleared and sessions revoked")
+            elif args.command == "export-user":
+                rows = export_user(db, args.email, args.out)
+                print(f"Wrote {rows} rows to {args.out}")
+            elif args.command == "restore-user":
+                rows = restore_user(db, args.email, args.backup, replace=args.replace)
+                print(f"Restored {rows} rows into {args.email.strip().lower()}")
             elif args.command == "refresh-prices":
                 with default_fetcher() as fetcher:
                     report = run_nightly(db, fetcher, today_india())
