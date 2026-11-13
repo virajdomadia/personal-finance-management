@@ -4,7 +4,7 @@
 
 The owner holds a PPF account and a recurring deposit (RD). Today neither shows in the app: money leaves the bank for them and nothing records what it became, so net worth is understated and nothing tells the owner when an RD instalment is due, how much PPF room is left this year, or what either will be worth at maturity.
 
-Both are **deposits**: money paid in on a schedule, at a fixed rate, until a maturity date, with a value that comes from interest rather than a market price. That is why they share one design. This is part of Milestone 3 ("fixed and recurring deposits") in the [roadmap](../../product/roadmap.md), done now after [mutual funds](2026-11-09-mutual-funds-design.md) because it is what the owner holds.
+Both are **deposits**: money paid in on a schedule, at a fixed rate, until a maturity date, with a value that comes from interest rather than a market price. That is why they share one design. It is done now after [mutual funds](2026-11-09-mutual-funds-design.md) because it is what the owner holds.
 
 Order of the remaining holdings (Claude's call): deposits (this spec), then crypto, then health insurance with recurring reminders, then the emergency fund goal. See the end for the follow-ups moved to later specs.
 

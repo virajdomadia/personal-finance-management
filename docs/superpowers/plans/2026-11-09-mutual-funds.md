@@ -252,7 +252,7 @@ Rules, in order (messages are exact):
 
 **Files:**
 - Modify: `backend/app/api/routes/portfolio.py`, `backend/app/api/routes/dashboard.py`, `backend/app/api/routes/accounts.py`, `backend/app/api/portfolio.py` (`holds_shares` → `holds_units(db, user_id, account_id, kind)`)
-- Modify: `docs/architecture/database-design.md`, `docs/architecture/financial-calculations.md`, `docs/architecture/ledger-design.md` (if it mentions stock-only movements), `docs/product/roadmap.md`, `docs/product/vision.md`
+- Modify: `docs/architecture/database-design.md`, `docs/architecture/financial-calculations.md`, `docs/architecture/ledger-design.md` (if it mentions stock-only movements), `docs/product/vision.md`
 - Test: `backend/tests/test_portfolio.py`, `backend/tests/test_dashboard.py`, `backend/tests/test_accounts.py`
 
 **Interfaces:**

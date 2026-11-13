@@ -2,7 +2,7 @@
 
 ## Why
 
-The owner holds Indian shares through a broker and wants to see, in the app, what they put in, what it's worth now, and the profit or loss. Today the only trace of stocks is the broker account's cash balance. This is the first piece of Milestone 4 (Investments) in the [roadmap](../../product/roadmap.md). Mutual funds, ETFs, gold, FDs, PPF and the rest each need their own calculations and come later, one at a time. Stocks set the pattern they will follow.
+The owner holds Indian shares through a broker and wants to see, in the app, what they put in, what it's worth now, and the profit or loss. Today the only trace of stocks is the broker account's cash balance. This is the first piece of the investments work. Mutual funds, ETFs, gold, FDs, PPF and the rest each need their own calculations and come later, one at a time. Stocks set the pattern they will follow.
 
 ## Decided with the owner
 
