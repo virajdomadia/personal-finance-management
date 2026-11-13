@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { logout } from "@/app/login/actions";
-import { type Account, type AccountList } from "@/lib/accounts";
-import { apiFetch } from "@/lib/api";
+import { type Account, type AccountList, errorMessage } from "@/lib/accounts";
+import { ApiError, apiFetch } from "@/lib/api";
 import {
   type ApproveResult,
   type ConfidentSummary,
@@ -170,14 +170,14 @@ export function ReviewView() {
             >
               <div className="min-w-0">
                 <h2 id="confident-title" className="text-base font-black">
-                  {confident.count === 1 ? "1 is ready to approve" : `${confident.count} are ready to approve`}
+                  {confident.total === 1 ? "1 is ready to approve" : `${confident.total} are ready to approve`}
                 </h2>
                 <p className="text-sm font-bold text-zinc-700 tabular-nums">
-                  {confidentTotalsText(confident)} · their payee rule or past payments say the category
+                  {`${confidentTotalsText(confident)}${confident.count < confident.total ? ` in the oldest ${confident.count}` : ""} · their payee rule, a known merchant or past payments say the category`}
                 </p>
               </div>
               <button type="button" className={`${buttonClass("green")} uppercase`} onClick={() => setConfirming(true)}>
-                {approveButtonText(confident.count)}
+                {approveButtonText(confident)}
               </button>
             </section>
           )}
@@ -258,6 +258,8 @@ function ApproveOutcome({
 
 function LearnButton({ learn, onSaved }: { learn: Learnable; onSaved: () => void }) {
   const [state, setState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  // The payee already has another rule (a transfer, say): it isn't offered again.
+  const [refused, setRefused] = useState<string | null>(null);
   async function save() {
     if (state === "saving" || state === "saved") return;
     setState("saving");
@@ -270,8 +272,12 @@ function LearnButton({ learn, onSaved }: { learn: Learnable; onSaved: () => void
       onSaved();
     } catch (err) {
       if (isUnauthorized(err)) void logout();
+      else if (err instanceof ApiError && err.status === 409) setRefused(errorMessage(err));
       else setState("failed");
     }
+  }
+  if (refused !== null) {
+    return <p className="text-sm font-bold text-zinc-600 [overflow-wrap:anywhere]">{refused}</p>;
   }
   const text = `Always use ${learn.category} for ${learn.payee}`;
   return (

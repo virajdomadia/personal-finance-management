@@ -44,7 +44,7 @@ export function ApproveDialog({ items, summary, onClose, onDone }: Props) {
     try {
       const result = await apiFetch<ApproveResult>("/sms/review/approve", {
         method: "POST",
-        body: JSON.stringify(approveBody(items)),
+        body: JSON.stringify(approveBody(items, summary)),
       });
       onDone(result);
       ref.current?.close();
@@ -72,7 +72,7 @@ export function ApproveDialog({ items, summary, onClose, onDone }: Props) {
     >
       <div className="flex max-h-[90vh] flex-col">
         <h2 id="approve-title" className="border-b-[2.5px] border-ink bg-green px-5 py-3 text-lg font-black">
-          {approveButtonText(summary.count)}?
+          {approveButtonText(summary)}?
         </h2>
         <div className="flex flex-col gap-3 overflow-y-auto px-5 py-4">
           <p id="approve-totals" className="text-base font-black tabular-nums">
