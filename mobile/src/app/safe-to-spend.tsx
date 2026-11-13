@@ -140,6 +140,11 @@ export default function SafeToSpendScreen() {
             <Text variant="bodyMedium" style={styles.white}>
               {untilText(data)}
             </Text>
+            {data.note ? (
+              <Text variant="bodySmall" style={styles.white}>
+                {data.note}
+              </Text>
+            ) : null}
             {isShort(data.amount) ? (
               <Text variant="bodySmall" style={styles.white}>
                 What&apos;s due, set aside and budgeted is more than you have right now.

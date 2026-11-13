@@ -32,11 +32,24 @@ uv run python -m app.cli refresh-prices
 
 A local run takes about 6 seconds for around 14,000 fund NAVs and 2,600 stocks.
 
+## Net worth snapshots
+
+After the prices, the same nightly job writes each user's net worth snapshot for that evening's date (IST): the dashboard's net worth, have, owe and asset split, one row per user per date, replaced if the job runs again that date. The response's `snapshots` is how many were written. A run that starts after midnight still files the snapshot under the evening it was meant for (India time minus 3 hours). The first `GET /api/net-worth` of a day also writes the user's snapshot if there is none yet. The rules are in [financial calculations](../docs/architecture/financial-calculations.md#net-worth-over-time).
+
+To estimate the 12 month-ends before snapshots began, from transactions (investments left out, rows marked estimated):
+
+```bash
+uv run python -m app.cli backfill-net-worth              # every user
+uv run python -m app.cli backfill-net-worth me@gmail.com --months 6
+```
+
+It never replaces a real snapshot and can be re-run.
+
 ## Export, backup and restore
 
 Each signed-in user can download their own data (read-only, never anyone else's):
 
-- `GET /api/export/csv`: a zip with one CSV per entity (accounts, transactions, stock, fund and crypto trades, SIPs, loans, deposits, goals, insurance policies, recurring templates, budgets, categories). Human headers, names instead of ids, plain numbers (`1234.50`), ISO dates, UTF-8 with a BOM for Excel.
+- `GET /api/export/csv`: a zip with one CSV per entity (accounts, transactions, stock, fund and crypto trades, SIPs, loans, deposits, goals, insurance policies, recurring templates, budgets, categories, net worth history). Human headers, names instead of ids, plain numbers (`1234.50`), ISO dates, UTF-8 with a BOM for Excel.
 - `GET /api/export/backup`: the full JSON backup below.
 
 ### Backup format (version 1)

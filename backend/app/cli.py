@@ -3,11 +3,13 @@
 import argparse
 import json
 import sys
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dates import today_india
+from app.api.snapshots import BACKFILL_MONTHS, backfill
 from app.db.session import SessionLocal
 from app.export.backup import dump, restore
 from app.models.user import User
@@ -81,6 +83,14 @@ def restore_user(db: Session, email: str, path: str, replace: bool = False) -> i
     return count
 
 
+def backfill_net_worth(
+    db: Session, email: str | None, today: date, months: int = BACKFILL_MONTHS
+) -> list[tuple[str, int]]:
+    """Estimated month-ends for one user, or for every user; (email, points written) each."""
+    users = [_find(db, email)] if email else list(db.scalars(select(User).order_by(User.id)))
+    return [(user.email, backfill(db, user.id, today, months)) for user in users]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -99,6 +109,14 @@ def main(argv: list[str] | None = None) -> int:
         "--replace", action="store_true", help="delete the user's data first, in one transaction"
     )
     commands.add_parser("refresh-prices", help="fetch today's prices now, as the nightly job does")
+    estimate = commands.add_parser(
+        "backfill-net-worth",
+        help="estimate past month-end net worth from transactions (investments left out)",
+    )
+    estimate.add_argument("email", nargs="?", help="one user; every user when left out")
+    estimate.add_argument(
+        "--months", type=int, default=BACKFILL_MONTHS, choices=range(1, 61), metavar="N"
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -120,6 +138,11 @@ def main(argv: list[str] | None = None) -> int:
                     report = run_nightly(db, fetcher, today_india())
                 print(f"Updated: {report.updated}")
                 print(f"Failed: {report.failed}")
+            elif args.command == "backfill-net-worth":
+                for email, written in backfill_net_worth(
+                    db, args.email, today_india(), args.months
+                ):
+                    print(f"{email}: {written} estimated month-ends")
             else:
                 user = revoke_sessions(db, args.email)
                 print(f"Revoked sessions for {user.email}")

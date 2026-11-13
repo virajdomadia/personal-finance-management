@@ -39,7 +39,7 @@ Spent comes from `app.api.cash_flow`: the same rows (`income`, `expense`, `emi` 
 ### Archived and merged categories (*my call*)
 
 - **Archived:** the budget shows as inactive ("Archived"), with what was spent; it's left out of the total and of safe to spend. Setting is refused until the category is restored; removing works.
-- **Merged:** the budget follows the merge to the target (read time, by `merged_into_id`), so merging Swiggy into Food and dining carries Swiggy's budget over when Food and dining has none. When the target has its own budget, the merged one shows as inactive ("Merged into Food and dining"). Setting or removing the target's budget also ends any budget that reached it by a merge. Nothing in the merge code changes, which keeps this branch clear of the category fixes on `cash-flow`.
+- **Merged:** the budget follows the merge to the target (read time, by `merged_into_id`), so merging Swiggy into Food and dining carries Swiggy's budget over when Food and dining has none. When the target has its own budget, the merged one shows as inactive ("Merged into Food and dining") in the current month; in an ended month its amount is added to the target's, so that month's total doesn't change. Setting or removing the target's budget also ends any budget that reached it by a merge. Nothing in the merge code changes, which keeps this branch clear of the category fixes on `cash-flow`.
 
 ### API
 
@@ -86,6 +86,7 @@ Every kind reuses its existing due logic: recurring occurrence status (`app.api.
 amount                 # can be negative
 until, payday          # the last day counted; payday: {name, date} or null
 reason                 # "salary" | "month_end"
+note                   # "Today's salary isn't recorded yet." on payday before it is recorded, else null
 money, due, goals, budgets                        # the four lines
 money_items:  [{name, amount}]                    # each bank, cash and wallet account
 due_items:    [{date, name, kind, amount, overdue, varies}]
@@ -119,9 +120,10 @@ Rollover, budgets on income, weekly or yearly budgets, budget alerts and notific
 2. **A parent's budget includes its subcategories' spending**; with both budgeted, the total counts only the parent.
 3. **Archived category → inactive budget; merged category → follows the merge** unless the target has its own budget.
 4. **Overdue items count** in the next 30 days and in safe to spend: they're still owed.
-5. **One card bill per card**: the unpaid statement, or else what's owed now on the next due date ("amount varies"); a card paid by a transfer reminder relies on that reminder.
-6. **Payday is the earliest Salary income reminder after today**; items on payday itself are left to the salary; expected income is never counted.
+5. **One card bill per card**: the unpaid statement, overdue until paid; or else what's owed now on the date it will fall due ("amount varies"). A card, loan or RD paid by a transfer reminder relies on that reminder.
+6. **Payday is the earliest Salary income reminder after today**; items on payday itself are left to the salary; expected income is never counted. On payday before the salary is recorded, the window ends today.
 7. **Budgets left subtracts the bills already counted in the same category**, so a rent reminder and a rent budget aren't taken twice.
 8. **The running balance is the real balance** of bank, cash and wallet accounts; goal set-asides and card charges don't move it; same-day money out goes before money in.
 9. **Safe to spend can be negative** and is shown as "₹X short".
 10. **Separate endpoints** (`/budgets`, `/upcoming`, `/safe-to-spend`), so the dashboard response doesn't change while other branches change it.
+11. **An item paid from an archived account** (not a card) is taken to come from a bank, and **no EMI is listed before the loan was added**.

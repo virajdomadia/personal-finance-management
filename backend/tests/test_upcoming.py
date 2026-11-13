@@ -2,7 +2,7 @@
 what it needs. "Today" is frozen at 12 November 2026."""
 
 import hashlib
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -26,6 +26,7 @@ from tests.test_accounts import Headers, auth
 client = TestClient(app)
 
 TODAY = date(2026, 11, 12)
+ADDED = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -48,9 +49,27 @@ class World:
         return row
 
     def account(self, type_: str, name: str, opening: str, **extra: Any) -> Account:
+        # Added well before "today", so the real clock never decides what is due.
+        extra.setdefault("created_at", ADDED)
         return self.add(
             Account(
                 user_id=self.user, type=type_, name=name, opening_balance=Decimal(opening), **extra
+            )
+        )
+
+    def statement(self, card: Account, amount: str, on: date, due: date) -> None:
+        self.add(
+            SmsEntry(
+                user_id=self.user,
+                hash=hashlib.sha256(f"{card.id}{on}".encode()).hexdigest(),
+                sender="HDFCBK",
+                bank="hdfc",
+                kind="card_statement",
+                status="recorded",
+                account_id=card.id,
+                amount=Decimal(amount),
+                occurred_on=on,
+                due_date=due,
             )
         )
 
@@ -461,3 +480,133 @@ def test_another_users_items_stay_out(
     other = auth(db_session, monkeypatch, email="other@example.com")
     assert next_30(other)["items"] == []
     assert safe(other)["amount"] == "0.00"
+
+
+def test_an_overdue_statement_stays_until_paid(headers: Headers, db_session: Session) -> None:
+    w = World(db_session)
+    bank = w.account("bank", "HDFC", "50000.00", bank_kind="savings")
+    card = w.account("credit_card", "Regalia", "15000.00", due_day=5)
+    w.statement(card, "15000.00", date(2026, 10, 20), date(2026, 11, 5))
+    w.template(
+        "Salary", "income", "80000.00", bank, category="Salary", start_date=date(2026, 12, 1)
+    )
+    items = next_30(headers)["items"]
+    bill = next(i for i in items if i["kind"] == "card_bill")
+    assert (bill["date"], bill["amount"], bill["overdue"], bill["varies"]) == (
+        "2026-11-05",
+        "15000.00",
+        True,
+        False,
+    )
+    body = safe(headers)
+    assert (body["due"], body["amount"]) == ("15000.00", "35000.00")
+    # The dashboard keeps its 3 days' grace.
+    assert client.get("/api/dashboard", headers=headers).json()["card_bill"] is None
+
+
+def test_a_transfer_reminder_stands_for_the_rd_and_the_emi(
+    headers: Headers, db_session: Session
+) -> None:
+    w = World(db_session)
+    bank = w.account("bank", "HDFC", "50000.00", bank_kind="savings")
+    rd = w.account(
+        "rd",
+        "SBI RD",
+        "5000.00",
+        opened_on=date(2026, 10, 1),
+        deposit_amount=Decimal("5000.00"),
+        due_day=15,
+        tenure_months=12,
+        deposits_at_opening=1,
+        interest_rate=Decimal("7.00"),
+    )
+    loan = w.account(
+        "loan",
+        "Car loan",
+        "100000.00",
+        due_day=20,
+        emi_amount=Decimal("4000.00"),
+        interest_rate=Decimal("12.00"),
+        pay_from_id=bank.id,
+    )
+    w.template("RD", "transfer", "5000.00", bank, to_account_id=rd.id, day=15)
+    w.template("Car EMI", "transfer", "4000.00", bank, to_account_id=loan.id, day=20)
+    assert [i["kind"] for i in next_30(headers)["items"]] == ["recurring", "recurring"]
+    assert safe(headers)["due"] == "9000.00"
+
+
+def test_an_archived_paying_account_is_taken_to_be_a_bank(
+    headers: Headers, db_session: Session
+) -> None:
+    w = World(db_session)
+    w.account("bank", "HDFC", "10000.00", bank_kind="savings")
+    old = w.account("bank", "Old bank", "0.00", bank_kind="savings", archived_at=ADDED)
+    fund = w.add(Instrument(user_id=w.user, kind="mutual_fund", symbol="PPFAS", name="Flexi"))
+    w.add(
+        Sip(
+            user_id=w.user,
+            instrument_id=fund.id,
+            account_id=old.id,
+            amount=Decimal("3000.00"),
+            day=20,
+            start_date=date(2026, 11, 20),
+        )
+    )
+    assert rows(next_30(headers)) == [
+        ("2026-11-20", "sip", "Flexi SIP", "3000.00", "out", "7000.00"),
+    ]
+    assert safe(headers)["due"] == "3000.00"
+
+
+def test_spending_after_a_paid_statement_waits_for_the_next_cycle(
+    headers: Headers, db_session: Session
+) -> None:
+    w = World(db_session)
+    bank = w.account("bank", "HDFC", "50000.00", bank_kind="savings")
+    with_day = w.account("credit_card", "Regalia", "10000.00", due_day=20, statement_day=1)
+    without = w.account("credit_card", "Amex", "10000.00", due_day=20)
+    for card in (with_day, without):
+        w.statement(card, "10000.00", date(2026, 11, 1), date(2026, 11, 20))
+        w.tx("transfer", "10000.00", date(2026, 11, 8), bank, to_account_id=card.id)
+        w.tx("expense", "3000.00", date(2026, 11, 10), card, category="Shopping")
+    # Both bills fall due on 20 December, after the window.
+    assert next_30(headers)["items"] == []
+    shorter = w.account("credit_card", "Short cycle", "3000.00", due_day=5, statement_day=25)
+    assert [(i["date"], i["amount"], i["varies"]) for i in next_30(headers)["items"]] == [
+        ("2026-12-05", "3000.00", True)
+    ]
+    assert shorter.id == next_30(headers)["items"][0]["ref_id"]
+
+
+def test_no_emi_before_the_loan_was_added(headers: Headers, db_session: Session) -> None:
+    w = World(db_session)
+    w.account("bank", "HDFC", "50000.00", bank_kind="savings")
+    w.account(
+        "loan",
+        "Car loan",
+        "100000.00",
+        due_day=5,
+        emi_amount=Decimal("4000.00"),
+        interest_rate=Decimal("12.00"),
+        # 12 November in India, late on the 11th in UTC.
+        created_at=datetime(2026, 11, 11, 20, 0, tzinfo=UTC),
+    )
+    assert [(i["date"], i["overdue"]) for i in next_30(headers)["items"]] == [("2026-12-05", False)]
+
+
+def test_payday_before_the_salary_is_recorded(headers: Headers, db_session: Session) -> None:
+    w = World(db_session)
+    bank = w.account("bank", "HDFC", "10000.00", bank_kind="savings")
+    salary = w.template("Salary", "income", "80000.00", bank, category="Salary", day=12)
+    w.template("Rent", "expense", "3000.00", bank, category="Housing", day=12)
+    w.template("Gym", "expense", "1000.00", bank, category="Health", day=13)
+    body = safe(headers)
+    assert (body["until"], body["reason"]) == ("2026-11-12", "salary")
+    assert body["payday"] == {"name": "Salary", "date": "2026-11-12"}
+    assert body["note"] == "Today's salary isn't recorded yet."
+    assert [d["name"] for d in body["due_items"]] == ["Rent"]
+    assert body["amount"] == "7000.00"
+
+    w.tx("income", "80000.00", TODAY, bank, category="Salary", recurring_template_id=salary.id)
+    body = safe(headers)
+    assert (body["note"], body["payday"]["date"]) == (None, "2026-12-12")
