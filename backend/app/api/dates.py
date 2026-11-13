@@ -8,8 +8,12 @@ from pydantic_core import PydanticCustomError
 INDIA = timezone(timedelta(hours=5, minutes=30))
 
 
+def now_india() -> datetime:
+    return datetime.now(UTC).astimezone(INDIA)
+
+
 def today_india() -> date:
-    return datetime.now(UTC).astimezone(INDIA).date()
+    return now_india().date()
 
 
 def clamped_date(year: int, month: int, day: int) -> date:

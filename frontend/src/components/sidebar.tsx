@@ -7,7 +7,7 @@ import { Suspense, useEffect, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { FOCUS } from "@/components/ui/chunky";
 import { Logo } from "@/components/ui/logo";
-import { StreakBox } from "@/components/streak-box";
+import { StreakNote } from "@/components/streak-note";
 import { apiFetch } from "@/lib/api";
 import { REVIEW_CHANGED, type ReviewList } from "@/lib/review";
 
@@ -96,7 +96,7 @@ export function Sidebar() {
       </Suspense>
       <div className="mt-auto pt-3">
         <Suspense fallback={null}>
-          <StreakBox />
+          <StreakNote />
         </Suspense>
         <form action={logout}>
           <button

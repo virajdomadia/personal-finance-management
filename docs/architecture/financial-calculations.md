@@ -163,6 +163,30 @@ safe to spend = money now − due before payday − set aside for goals − budg
 
 Example, 12 November, salary reminder on the 1st, so the window runs to 30 November: bank ₹60,000 and cash ₹2,000 = ₹62,000. Due: rent ₹20,000 (Housing) on the 15th, an EMI of ₹12,000 on the 20th, a card bill of ₹8,000 on the 25th = ₹40,000. Set aside for goals ₹5,000. Budgets: Food and dining ₹800 left; Housing ₹20,000 left less the ₹20,000 rent = ₹0; Shopping overspent, ₹0. Safe to spend = 62,000 − 40,000 − 5,000 − 800 = **₹16,200**.
 
+## Weekly digest
+
+**Built on branch `weekly-digest`.** See the [design](../superpowers/specs/2026-11-13-weekly-digest-design.md). `GET /digest?week=` works out one week's summary when asked; nothing is stored.
+
+- **The week** runs Monday to Sunday, India's dates. The default is the last whole week, and a Sunday counts as whole from 6 pm India time (the app's reminder goes out at 7 pm), so from Sunday 6 pm to the next Sunday 6 pm the default is the week ending that first Sunday. `week=YYYY-MM-DD` picks the week holding that date; `week=current` is this week so far. A week that hasn't started, or a date before the year 1000, is refused.
+- **Spent** uses exactly the [monthly cash flow](#monthly-cash-flow) rules (expenses plus EMI interest; income, transfers, EMI principal and trades are not spending) over the week's window: Monday to Sunday, or Monday to today for this week so far.
+- **Usual** is the average spending of the 4 weeks before it, each over the same days (Monday to the same weekday when the week isn't whole), added up and divided by the number of weeks, rounded half up to the paisa. An earlier week counts only when the days compared end on or after the user's first transaction (for a whole week, its Sunday; for this week so far, the same weekday), so someone with 2 weeks of history is compared with those 2, and days before any history are never counted as ₹0; with none, there's no usual figure and no comparison.
+- **Difference** = spent − usual; its percent is `difference ÷ usual × 100`, rounded half up, with no percent when usual is 0. The **tone** is "same" when `|difference| × 100 ≤ usual × 5` (decided exactly, not on the rounded percent, so +5.4% is "more"), else "more" or "less"; there is no tone without a usual figure. The clients colour the comparison by this tone and never re-derive it.
+- **Top categories:** the three biggest spending groups of the week, subcategories rolled into their parents, with each one's share, as in the month report.
+- **Budgets at risk** look at the month holding the week's last counted day, up to that day (the [budget](#monthly-budgets) figures for that window). An active budget is at risk when it is **over** (spent > budget) or **on pace to go over**:
+
+  ```
+  used    = spent ÷ budget
+  elapsed = days counted ÷ days in the month
+  on pace to go over  ⇔  the month isn't whole, 50% ≤ used < 100% and used > elapsed + 10 points
+  projected = spent × days in the month ÷ days counted (rounded half up to the paisa)
+  ```
+
+  The 10-point margin lets normal day-to-day unevenness pass, the 50% floor keeps one early purchase from flagging a budget in the first days of a month, and a budget used exactly up (rent paid on the 1st, budget = rent) isn't "on pace": it is at its limit, not past it. **Known gap:** a one-off bill paid early that leaves a little of its budget (rent ₹19,000 of ₹20,000) reads as on pace until the month catches up; the digest shows the projection, so the reason is visible. A whole month (a week ending on its last day) has no "on pace", only over. Over budgets come first, then by percent used, highest first.
+- **Due in the next 7 days:** the [next 30 days](#the-next-30-days) list cut to today + 7 days (always from today, whichever week is shown), overdue items included, with the same running balance. **Due total** adds the amounts of items with money going out.
+- **Headline:** one sentence built from the figures above, e.g. "You spent ₹4,250 last week, ₹600 more than usual." It says "this week" for the current week, "last week" for the one before, and "in the week of 26 October" for older weeks; "So far this week you've spent ₹X, ₹Y less than usual by now." for this week so far; "You didn't spend anything last week." when nothing was spent; and no comparison when there's no usual figure.
+
+Example, Monday 9 November 2026: the default week is 2–8 November. Spent ₹4,250 (groceries ₹3,000, an EMI's ₹1,250 interest; a ₹20,000 card payment and the EMI principal don't count). The four weeks before spent ₹3,000, ₹4,000, ₹3,800 and ₹3,800: usual ₹14,600 ÷ 4 = ₹3,650. Difference +₹600, +16%: "You spent ₹4,250 last week, ₹600 more than usual." Budgets look at November 1–8: 8 of 30 days, 26.67% elapsed; Food and dining ₹8,000 with ₹4,400 spent (55%) is on pace to go over (55 > 36.67 and ≥ 50), projected ₹16,500.
+
 ## Investment returns (built for stocks and mutual funds)
 
 Three figures, always kept apart:

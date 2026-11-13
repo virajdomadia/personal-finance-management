@@ -93,38 +93,47 @@ def _context(db: DbSession, user_id: int, today: date) -> up.Context:
     return up.Context(accounts, load_book(db, user_id, accounts), today)
 
 
+def upcoming_items(
+    db: DbSession, user_id: int, today: date, until: date
+) -> tuple[Decimal, list[UpcomingItem]]:
+    """Everything due up to `until` (overdue included), with the balance after each, and the
+    balance it starts from. `/upcoming` and the weekly digest both list this."""
+    ctx = _context(db, user_id, today)
+    goals = load_goal_book(db, user_id, today)
+    items = up.due_items(db, user_id, ctx, goals, until)
+    start = ctx.money_now()
+    after = up.running(start, items)
+    return start, [
+        UpcomingItem(
+            date=i.date.isoformat(),
+            kind=i.kind,  # type: ignore[arg-type]
+            name=i.name,
+            account_id=i.account_id,
+            account_name=i.account_name,
+            amount=fmt(i.amount),
+            varies=i.varies,
+            direction=i.direction,  # type: ignore[arg-type]
+            overdue=i.overdue,
+            balance_after=fmt(balance),
+            ref_id=i.ref_id,
+        )
+        for i, balance in zip(items, after, strict=True)
+    ]
+
+
 @router.get("/upcoming")
 def upcoming(user: CurrentUser, db: DbSession) -> Upcoming:
     """Everything due in the next 30 days (and anything overdue), with the balance of bank,
     cash and wallet accounts after each item."""
     today = today_india()
     until = today + timedelta(days=up.WINDOW_DAYS)
-    ctx = _context(db, user.id, today)
-    goals = load_goal_book(db, user.id, today)
-    items = up.due_items(db, user.id, ctx, goals, until)
-    start = ctx.money_now()
-    after = up.running(start, items)
+    start, items = upcoming_items(db, user.id, today, until)
     return Upcoming(
         start=today.isoformat(),
         through=until.isoformat(),
         starting_balance=fmt(start),
-        ending_balance=fmt(after[-1] if after else start),
-        items=[
-            UpcomingItem(
-                date=i.date.isoformat(),
-                kind=i.kind,  # type: ignore[arg-type]
-                name=i.name,
-                account_id=i.account_id,
-                account_name=i.account_name,
-                amount=fmt(i.amount),
-                varies=i.varies,
-                direction=i.direction,  # type: ignore[arg-type]
-                overdue=i.overdue,
-                balance_after=fmt(balance),
-                ref_id=i.ref_id,
-            )
-            for i, balance in zip(items, after, strict=True)
-        ],
+        ending_balance=items[-1].balance_after if items else fmt(start),
+        items=items,
     )
 
 
