@@ -12,7 +12,7 @@ const SUMMARY = `flex cursor-pointer list-none items-baseline justify-between ga
 
 // How much can be spent before payday (or the month's end) once bills, goal set-asides and the
 // rest of this month's budgets are covered. Every figure is the server's; it hides if the call fails.
-export function SafeToSpendCard() {
+export function SafeToSpendCard({ refreshKey }: { refreshKey: number }) {
   const [data, setData] = useState<SafeToSpend | null>(null);
 
   useEffect(() => {
@@ -25,7 +25,7 @@ export function SafeToSpendCard() {
     return () => {
       current = false;
     };
-  }, []);
+  }, [refreshKey]);
 
   if (data === null) return null;
   const figure = safeFigure(data.amount);
@@ -52,6 +52,7 @@ export function SafeToSpendCard() {
       <p className="text-xs font-extrabold text-zinc-600">
         {untilText(data)}, after bills, goal set-asides and what&apos;s left of this month&apos;s budgets.
       </p>
+      {data.note && <p className="mt-1 text-xs font-black text-loss">{data.note}</p>}
 
       <details className="group mt-2.5 border-t-[1.5px] border-dashed border-zinc-300 pt-1.5">
         <summary className={`${SUMMARY} text-xs`}>

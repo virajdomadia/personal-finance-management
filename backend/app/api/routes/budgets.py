@@ -144,7 +144,10 @@ class MonthBook:
         self.spent = bd.spent_by_category(
             month_rows(db, user_id, self.start, self.through), self.categories
         )
-        self.lines = bd.lines(bd.load_versions(db, user_id), self.categories, self.spent, first)
+        ended = (first.year, first.month) < (today.year, today.month)
+        self.lines = bd.lines(
+            bd.load_versions(db, user_id), self.categories, self.spent, first, ended
+        )
 
 
 def _month_param(month: str | None, today: date) -> date:

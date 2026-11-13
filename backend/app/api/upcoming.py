@@ -8,7 +8,7 @@ months, the loan's next EMI, the dashboard's card bills and goal reminders.
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -16,11 +16,11 @@ from sqlalchemy.orm import Session
 
 from app.api.balances import balance_of
 from app.api.categories import name_key
-from app.api.dates import clamped_date
+from app.api.dates import INDIA, clamped_date
 from app.api.deposits import rd_due_months
 from app.api.goals import GoalBook, reminder_due
 from app.api.loans import Book, next_emi
-from app.api.recurring import TemplateRow, open_occurrences
+from app.api.recurring import TemplateRow, card_bill_due, open_occurrences
 from app.api.routes.dashboard import card_bills, next_due_date
 from app.api.sips import load_due
 from app.models.account import Account
@@ -29,6 +29,7 @@ from app.models.goal import Goal, GoalEarmark
 from app.models.insurance import InsurancePolicy
 from app.models.investment import Instrument, Sip
 from app.models.recurring import RecurringSkip, RecurringTemplate
+from app.models.sms import SmsEntry
 from app.models.transaction import Transaction
 from app.sms.expected import emis_paid
 
@@ -94,7 +95,10 @@ class Context:
         reserve: Decimal | None = None,
     ) -> Due:
         """`out` pays, `into` receives; `out_unknown` means it's paid from an account the app
-        doesn't know, taken to be a bank."""
+        doesn't know, taken to be a bank. So is an archived account other than a card: the
+        payment will have to come from somewhere."""
+        if out is not None and out.archived_at is not None and out.type != "credit_card":
+            out_unknown = True
         change = ZERO
         if out_unknown or (out is not None and out.id in self.pool_ids):
             change -= amount
@@ -209,15 +213,42 @@ def template_items(templates: list[Template], ctx: Context, until: date) -> list
 # EMIs, SIPs and RD instalments
 
 
-def emi_items(db: Session, user_id: int, ctx: Context, until: date) -> list[Due]:
+def added_on(account: Account) -> date | None:
+    """The day (India's date) the account was added to the app."""
+    created = account.created_at
+    if created is None:
+        return None
+    if created.tzinfo is None:  # SQLite hands back naive UTC
+        created = created.replace(tzinfo=UTC)
+    return created.astimezone(INDIA).date()
+
+
+def reminded(templates: list[Template]) -> set[int]:
+    """Accounts an active transfer reminder pays into: the reminder stands for their bill,
+    instalment or EMI, so it isn't listed twice."""
+    return {
+        e.template.to_account_id
+        for e in templates
+        if e.template.type == "transfer" and e.template.to_account_id is not None
+    }
+
+
+def emi_items(
+    db: Session, user_id: int, ctx: Context, until: date, skip: set[int] | None = None
+) -> list[Due]:
     """Each active loan's instalment day in the window (this month's too, when passed and
-    unpaid), unless an EMI is already recorded for that period."""
+    unpaid), unless an EMI is already recorded for that period or the day is before the loan
+    was added. A loan in `skip` is paid by a transfer reminder."""
+    skip = skip or set()
     items = []
     loans = sorted(
         (
             a
             for a in ctx.accounts.values()
-            if a.type == "loan" and a.archived_at is None and a.due_day is not None
+            if a.type == "loan"
+            and a.archived_at is None
+            and a.due_day is not None
+            and a.id not in skip
         ),
         key=lambda a: a.id,
     )
@@ -228,9 +259,12 @@ def emi_items(db: Session, user_id: int, ctx: Context, until: date) -> list[Due]
         amount = Decimal(upcoming.amount)
         interest = Decimal(upcoming.interest) if upcoming.interest is not None else ZERO
         payer = ctx.account(loan.pay_from_id)
+        since = added_on(loan)
         for year, month in _months(ctx.today, until):
             when = clamped_date(year, month, loan.due_day)
-            if when > until or emis_paid(db, user_id, loan.id, when):
+            if when > until or (since is not None and when < since):
+                continue
+            if emis_paid(db, user_id, loan.id, when):
                 continue
             items.append(
                 ctx.item(
@@ -265,10 +299,12 @@ def sip_items(db: Session, user_id: int, ctx: Context, until: date) -> list[Due]
     return items
 
 
-def rd_items(ctx: Context, until: date) -> list[Due]:
+def rd_items(ctx: Context, until: date, skip: set[int] | None = None) -> list[Due]:
+    """Unpaid instalments in the window. An RD in `skip` is paid by a transfer reminder."""
+    skip = skip or set()
     items = []
     for rd in sorted(ctx.accounts.values(), key=lambda a: a.id):
-        if rd.type != "rd" or rd.archived_at is not None:
+        if rd.type != "rd" or rd.archived_at is not None or rd.id in skip:
             continue
         opened, amount, tenure = rd.opened_on, rd.deposit_amount, rd.tenure_months
         if opened is None or amount is None or tenure is None:
@@ -288,14 +324,43 @@ def rd_items(ctx: Context, until: date) -> list[Due]:
 # Card bills
 
 
+def _last_statement_due(db: Session, user_id: int, card_id: int) -> date | None:
+    """The due date of the card's latest recorded statement, paid or not."""
+    return db.scalar(
+        select(SmsEntry.due_date)
+        .where(
+            SmsEntry.user_id == user_id,
+            SmsEntry.account_id == card_id,
+            SmsEntry.kind == "card_statement",
+            SmsEntry.status == "recorded",
+            SmsEntry.due_date.is_not(None),
+        )
+        .order_by(SmsEntry.occurred_on.desc(), SmsEntry.id.desc())
+        .limit(1)
+    )
+
+
+def next_bill_date(card: Account, today: date, last_due: date | None) -> date | None:
+    """When what is owed now falls due: the due date of the statement a charge made today
+    lands on; without a statement day, the first due day after the last statement's due date,
+    and not before today."""
+    if card.due_day is None:
+        return None
+    if card.statement_day is not None:
+        return card_bill_due(today, card.statement_day, card.due_day)
+    when = next_due_date(card.due_day, today)
+    if last_due is not None and when <= last_due:
+        when = next_due_date(card.due_day, last_due + timedelta(days=1))
+    return when
+
+
 def card_items(
-    db: Session, user_id: int, ctx: Context, templates: list[Template], until: date
+    db: Session, user_id: int, ctx: Context, until: date, skip: set[int] | None = None
 ) -> list[Due]:
-    """One bill per card: the unpaid statement, else what is owed now on the next due date. A
-    card that a transfer reminder pays is left to the reminder."""
-    paid_by_reminder = {
-        e.template.to_account_id for e in templates if e.template.type == "transfer"
-    }
+    """One bill per card: the unpaid part of its latest statement on that statement's due
+    date, overdue until paid; else what is owed now, on the date it will fall due. A card in
+    `skip` is paid by a transfer reminder."""
+    paid_by_reminder = skip or set()
     cards = sorted(
         (
             a
@@ -304,7 +369,7 @@ def card_items(
         ),
         key=lambda a: a.id,
     )
-    statements = {b.account_id: b for b in card_bills(db, user_id, cards, ctx.today)}
+    statements = {b.account_id: b for b in card_bills(db, user_id, cards, ctx.today, grace=None)}
     items = []
     for card in cards:
         bill = statements.get(card.id)
@@ -312,9 +377,10 @@ def card_items(
             when, amount, varies = date.fromisoformat(bill.due_date), Decimal(bill.amount), False
         else:
             owed = balance_of(card, ctx.book.flows)
-            if card.due_day is None or owed <= 0:
+            due = next_bill_date(card, ctx.today, _last_statement_due(db, user_id, card.id))
+            if due is None or owed <= 0:
                 continue
-            when, amount, varies = next_due_date(card.due_day, ctx.today), owed, True
+            when, amount, varies = due, owed, True
         items.append(
             ctx.item(
                 when,
@@ -391,12 +457,13 @@ def due_items(
     """Everything due up to `until`, overdue items included, in list order."""
     if templates is None:
         templates = load_templates(db, user_id, ctx)
+    skip = reminded(templates)
     items = [
         *template_items(templates, ctx, until),
-        *emi_items(db, user_id, ctx, until),
+        *emi_items(db, user_id, ctx, until, skip),
         *sip_items(db, user_id, ctx, until),
-        *rd_items(ctx, until),
-        *card_items(db, user_id, ctx, templates, until),
+        *rd_items(ctx, until, skip),
+        *card_items(db, user_id, ctx, until, skip),
         *goal_items(db, user_id, ctx, goals, until),
     ]
     return sorted((i for i in items if i.date <= until), key=_order)
@@ -421,24 +488,32 @@ def salary_categories(categories: Iterable[Category]) -> set[str]:
     return {c.name_key for c in live if c.id in salary or c.parent_id in salary}
 
 
-def payday(
-    templates: list[Template], categories: Iterable[Category], today: date
-) -> tuple[date, str] | None:
-    """The next occurrence after today of a Salary income reminder, the earliest of them."""
+@dataclass(frozen=True)
+class Payday:
+    date: date
+    name: str
+    pending_today: bool  # today is payday and the salary isn't recorded or skipped yet
+
+
+def payday(templates: list[Template], categories: Iterable[Category], today: date) -> Payday | None:
+    """Today, when a Salary income reminder's occurrence today is still open; else the next
+    occurrence after today of one, the earliest of them."""
     keys = salary_categories(categories)
     found: list[tuple[date, str]] = []
     for entry in templates:
         t = entry.template
         if t.type != "income" or t.category is None or name_key(t.category) not in keys:
             continue
-        later = [
-            d
-            for d in open_occurrences(entry.row, entry.paid, entry.skips, today + PAYDAY_HORIZON)
-            if d > today
-        ]
+        open_ = open_occurrences(entry.row, entry.paid, entry.skips, today + PAYDAY_HORIZON)
+        if today in open_:
+            return Payday(today, t.name, True)
+        later = [d for d in open_ if d > today]
         if later:
             found.append((later[0], t.name))
-    return min(found) if found else None
+    if not found:
+        return None
+    when, name = min(found)
+    return Payday(when, name, False)
 
 
 def in_budget(category: str | None, budget: Category, categories: Iterable[Category]) -> bool:

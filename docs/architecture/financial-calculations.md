@@ -117,7 +117,7 @@ A budget is an amount a month for one **expense** category, top-level or subcate
 - **No rollover.** Unused budget doesn't carry into the next month, and an overspend doesn't reduce the next one.
 - **The overall total** adds up the *counted* budgets: every active budget, except a subcategory's when its parent also has an active budget (the parent's already includes that spending, so nothing counts twice). Overall `left` = total budget − total spent, which can be negative; `remaining`, `over by` and `percent used` as above.
 - **An archived category's budget** is shown as inactive. It isn't counted in the total or in safe to spend, and it can't be changed until the category is restored (removing it still works).
-- **A merged category's budget follows the merge** to the category it was merged into, unless that one has its own budget, in which case the merged one is shown as inactive. Renaming changes nothing: a budget belongs to the category, not to its name.
+- **A merged category's budget follows the merge** to the category it was merged into, unless that one has its own budget. Then, in the current month, the merged one is shown as inactive; in an ended month its amount is added to the target's, so a later merge never changes a past month's total. Renaming changes nothing: a budget belongs to the category, not to its name.
 - Spending with no category ("Uncategorised") can't have a budget.
 
 Example, November to the 12th: Food and dining ₹8,000 with Groceries ₹6,000 and Dining ₹1,200 under it: ₹7,200 spent, ₹800 remaining, 90%. Dining also has its own budget of ₹1,000: ₹1,200 spent, over by ₹200, 120%, shown red. The total counts only Food and dining: ₹8,000 budget, ₹7,200 spent, ₹800 left.
@@ -130,16 +130,18 @@ One list of everything due from today to 30 days ahead, plus anything already ov
 |---|---|
 | Recurring reminders (salary, rent, a card bill transfer) | Every open occurrence up to the end of the window, by the [occurrence rules](#occurrence-rules). The reminder's amount. |
 | Insurance premiums | The policy's reminder, as above, shown as a premium. |
-| EMIs | Each active loan with an instalment day, an EMI and money still owed: the instalment day in each month of the window, unless an EMI is already recorded for that period (in its calendar month or within 15 days, as the SMS matching does). This month's, if passed and unpaid, is overdue. The amount is the next EMI's. |
+| EMIs | Each active loan with an instalment day, an EMI and money still owed: the instalment day in each month of the window, unless an EMI is already recorded for that period (in its calendar month or within 15 days, as the SMS matching does), or the day is before the loan was added to the app. This month's, if passed and unpaid, is overdue. The amount is the next EMI's. |
 | SIPs | Every unrecorded debit date up to the end of the window, by the [SIP due rules](#mutual-fund-rules). The SIP's amount. |
 | RD instalments | Every unpaid instalment date up to the end of the window, by the [RD rules](#rd-interest). The instalment. |
-| Credit card bills | One bill per card: the latest statement's unpaid part on its due date (the dashboard's rule). A card with no unpaid statement but a due day and money owed shows its next due date with what is owed now, marked **amount varies**. A card that a recurring transfer reminder pays is left to that reminder, so its bill isn't listed twice. |
+| Credit card bills | One bill per card: the latest statement's unpaid part on its due date, overdue until it is paid (the dashboard drops a bill 3 days after its due date; this list doesn't). A card with no unpaid statement but a due day and money owed shows what is owed now, marked **amount varies**, on the date it will fall due: the due date of the statement a charge made today lands on, or without a statement day, the first due day after the last statement's due date. |
+
+**A transfer reminder stands for the bill.** A card, loan or RD that an active transfer reminder pays into gets no bill, EMI or instalment of its own: the reminder is listed instead, so the money isn't counted twice.
 | Goal set-asides | A goal's monthly reminder: this month's part still to set aside (overdue from the reminder day), and next month's full amount when its reminder day falls in the window. |
 
 **Running balance.** It starts at the sum of the balances of active bank, cash and wallet accounts (an overdrawn bank counts negative) and moves after each item:
 
 - Money out of one of those accounts lowers it (expenses, EMIs, SIPs, RD instalments, transfers to a card, loan, deposit or any account outside the group). Money into one raises it (income, transfers in from outside the group). A transfer between two of them changes nothing.
-- A card bill lowers it, since it will be paid from a bank. Anything charged to a card (a premium on a card, an EMI paid from a card) changes nothing now: it reaches the bank with a later card bill.
+- A card bill, an RD instalment and an EMI with no paying account lower it, since they will be paid from a bank. So does anything paid from an archived account other than a card. Anything charged to a card (a premium on a card, an EMI paid from a card) changes nothing now: it reaches the bank with a later card bill.
 - A goal set-aside changes nothing, because earmarked money stays in its account.
 
 Items on the same day: overdue first, then money out before money in, so the balance never looks better than it can be.
@@ -151,7 +153,7 @@ safe to spend = money now − due before payday − set aside for goals − budg
 ```
 
 - **Money now** = the balances of active bank, cash and wallet accounts (the running balance's start). Brokers, deposits, investments and cards aren't counted.
-- **Payday** is the next occurrence after today of an active income reminder whose category is Salary or a subcategory of it; with several, the earliest. **Due before payday** adds up everything in the next-30-days rules dated up to the day before payday, overdue items included: money leaving bank, cash or wallet (bills, EMIs, SIPs, RD instalments, transfers out), card bills, and goal set-asides. Anything due on payday itself is left to the new salary. Expected income, the salary included, is never counted before it arrives.
+- **Payday** is the next occurrence after today of an active income reminder whose category is Salary or a subcategory of it; with several, the earliest. **Due before payday** adds up everything in the next-30-days rules dated up to the day before payday, overdue items included: money leaving bank, cash or wallet (bills, EMIs, SIPs, RD instalments, transfers out), card bills, and goal set-asides. Anything due on payday itself is left to the new salary. **On payday before the salary is recorded** (today's occurrence is neither recorded nor skipped), the window ends today and the breakdown says "Today's salary isn't recorded yet." Expected income, the salary included, is never counted before it arrives.
 - **No salary reminder:** the window ends on the last day of this month.
 - **Set aside for goals** = the earmarks of active goals in active bank, cash and wallet accounts (see [free balance](#free-balance)).
 - **Budgets left** = for each counted budget this month, its remaining amount less the bills above that fall in its category this month (so a ₹20,000 rent reminder and a ₹20,000 Housing budget take ₹20,000 once, not twice), never below 0. For an EMI, only its interest is spending (in Loan interest). An overspent budget adds 0: it never gives money back.

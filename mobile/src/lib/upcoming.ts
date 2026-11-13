@@ -39,6 +39,7 @@ export type SafeToSpend = {
   until: string;
   reason: "salary" | "month_end";
   payday: { name: string; date: string } | null;
+  note: string | null; // e.g. "Today's salary isn't recorded yet."
   money: string;
   due: string;
   goals: string;

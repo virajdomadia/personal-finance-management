@@ -21,9 +21,12 @@ export default function DashboardScreen() {
   const [failed, setFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const latest = useRef(0);
+  // Bumped on every reload, so the safe-to-spend card fetches again with the dashboard.
+  const [version, setVersion] = useState(0);
 
   const load = useCallback(async () => {
     const mine = ++latest.current;
+    setVersion(mine);
     try {
       const result = await apiFetch<Dashboard>("/dashboard", { token: token ?? undefined });
       if (mine !== latest.current) return;
@@ -84,6 +87,7 @@ export default function DashboardScreen() {
         data={data}
         failed={failed}
         onOpenAccounts={openAccounts}
+        refreshKey={version}
         dueList={<DueList items={data.recurring ?? []} goals={data.goals_due ?? []} onChanged={() => void load()} />}
       />
     </ScrollView>

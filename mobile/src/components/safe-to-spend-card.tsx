@@ -1,5 +1,5 @@
-import { router, useFocusEffect } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { router } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon, Text } from "react-native-paper";
 
@@ -12,26 +12,26 @@ import { SAFE_TO_SPEND_PATH, type SafeToSpend, isShort, safeText, untilText } fr
 // The dashboard's safe to spend: the server's figure and until when, opening the breakdown, with a
 // small link to the next 30 days under it. It loads itself and hides when it can't, so the
 // dashboard never waits on it.
-export function SafeToSpendCard() {
+// `refreshKey` changes whenever the dashboard reloads (on focus, pull to refresh, or after a
+// reminder is recorded or skipped), and the card fetches again with it.
+export function SafeToSpendCard({ refreshKey }: { refreshKey: number }) {
   const { token, logOut } = useSession();
   const [data, setData] = useState<SafeToSpend | null>(null);
   const latest = useRef(0);
 
-  useFocusEffect(
-    useCallback(() => {
-      const mine = ++latest.current;
-      apiFetch<SafeToSpend>(SAFE_TO_SPEND_PATH, { token: token ?? undefined }).then(
-        (result) => {
-          if (mine === latest.current) setData(result);
-        },
-        (err: unknown) => {
-          if (mine !== latest.current) return;
-          if (err instanceof ApiError && err.status === 401) void logOut();
-          // Anything else keeps what is shown, or nothing.
-        },
-      );
-    }, [token, logOut]),
-  );
+  useEffect(() => {
+    const mine = ++latest.current;
+    apiFetch<SafeToSpend>(SAFE_TO_SPEND_PATH, { token: token ?? undefined }).then(
+      (result) => {
+        if (mine === latest.current) setData(result);
+      },
+      (err: unknown) => {
+        if (mine !== latest.current) return;
+        if (err instanceof ApiError && err.status === 401) void logOut();
+        // Anything else keeps what is shown, or nothing.
+      },
+    );
+  }, [token, logOut, refreshKey]);
 
   if (data === null) return null;
 
@@ -61,6 +61,11 @@ export function SafeToSpendCard() {
             <Text variant="bodySmall" style={styles.label}>
               {until}, after bills, goals and budgets
             </Text>
+            {data.note ? (
+              <Text variant="bodySmall" style={styles.label}>
+                {data.note}
+              </Text>
+            ) : null}
           </ChunkyBox>
         )}
       </Pressable>

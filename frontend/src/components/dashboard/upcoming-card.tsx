@@ -12,7 +12,7 @@ const negative = (amount: string) => amount.startsWith("-");
 
 // Everything due in the next 30 days (and anything overdue) with the bank, cash and wallet balance
 // after each item, all from the server. It hides if the call fails.
-export function UpcomingCard() {
+export function UpcomingCard({ refreshKey }: { refreshKey: number }) {
   const [data, setData] = useState<Upcoming | null>(null);
   const [all, setAll] = useState(false);
 
@@ -26,7 +26,7 @@ export function UpcomingCard() {
     return () => {
       current = false;
     };
-  }, []);
+  }, [refreshKey]);
 
   if (data === null) return null;
   const items = all ? data.items : data.items.slice(0, SHOWN);
