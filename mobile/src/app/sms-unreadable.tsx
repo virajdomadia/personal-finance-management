@@ -1,4 +1,3 @@
-import * as Clipboard from "expo-clipboard";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, ScrollView, StyleSheet, View } from "react-native";
@@ -11,6 +10,7 @@ import { errorMessage } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { readTimeText, samplePayload } from "@/lib/review";
 import { useSession } from "@/lib/session";
+import { loadClipboard, NEEDS_UPDATE } from "@/lib/native";
 import { loadSmsSettings, updateSmsSettings } from "@/lib/sms/settings";
 import type { RawSms } from "@/lib/sms/sync";
 import { BRAND } from "@/lib/theme";
@@ -47,6 +47,13 @@ export default function SmsUnreadableScreen() {
   }, []);
 
   async function copy(message: RawSms) {
+    // Loaded here, not at the top: Expo Router imports every screen at start-up, and a build
+    // without expo-clipboard would otherwise crash the whole app.
+    const Clipboard = loadClipboard();
+    if (Clipboard === null) {
+      setToast(NEEDS_UPDATE);
+      return;
+    }
     await Clipboard.setStringAsync(message.body);
     setToast("Copied");
   }

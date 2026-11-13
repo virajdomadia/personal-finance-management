@@ -1,8 +1,8 @@
-import * as Crypto from "expo-crypto";
 import { useEffect } from "react";
 import { AppState } from "react-native";
 
 import { apiFetch } from "@/lib/api";
+import { loadCrypto } from "@/lib/native";
 import { useSession } from "@/lib/session";
 import { isAvailable, readInbox } from "../../../modules/sms-inbox";
 
@@ -24,6 +24,9 @@ function runSync(token: string): Promise<SyncResult | null> {
     try {
       const settings = await loadSmsSettings();
       if (!settings.enabled) return null;
+      // Loaded here, not at the top: a build without expo-crypto would otherwise crash at start-up.
+      const Crypto = loadCrypto();
+      if (Crypto === null) return null;
       lastRun = Date.now();
       return await syncSms({
         read: (since, limit) => readInbox(since, limit),

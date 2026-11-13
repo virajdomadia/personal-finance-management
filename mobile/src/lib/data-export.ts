@@ -27,7 +27,8 @@ export type ExportFailure =
   | { stage: "server"; status: number }
   | { stage: "save" }
   | { stage: "share" }
-  | { stage: "no-share" };
+  | { stage: "no-share" }
+  | { stage: "needs-update" };
 
 export function exportError(failure: ExportFailure): string {
   switch (failure.stage) {
@@ -43,6 +44,8 @@ export function exportError(failure: ExportFailure): string {
       return "The share sheet couldn't open the file. Try again.";
     case "no-share":
       return "Sharing isn't available on this phone.";
+    case "needs-update":
+      return "Exporting needs the latest version of the app. Install the new build to use it.";
   }
 }
 

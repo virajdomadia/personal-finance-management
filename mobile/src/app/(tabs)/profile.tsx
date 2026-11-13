@@ -8,6 +8,7 @@ import { type Streak } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { EXPORTS, ExportError, type ExportKind, exportError } from "@/lib/data-export";
 import { shareExport } from "@/lib/export-share";
+import { NEEDS_UPDATE } from "@/lib/native";
 import { useSession } from "@/lib/session";
 import { disableWeeklySummary, enableWeeklySummary, readSummaryPref } from "@/lib/weekly-summary";
 
@@ -32,6 +33,7 @@ export default function ProfileScreen() {
         setSummaryOn(result === "on");
         if (result === "denied") setSummaryNote(DENIED);
         if (result === "blocked") setSummaryNote(BLOCKED);
+        if (result === "needs-update") setSummaryNote(NEEDS_UPDATE);
       } else {
         await disableWeeklySummary();
         setSummaryOn(false);
