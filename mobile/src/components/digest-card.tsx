@@ -6,7 +6,7 @@ import { Icon, Text } from "react-native-paper";
 
 import { ChunkyBox } from "@/components/chunky";
 import { ApiError, apiFetch } from "@/lib/api";
-import { DIGEST_PATH, type Digest, changeBadge, changeTone, dueSummary, hiddenKey, riskSummary, weekRange } from "@/lib/digest";
+import { DIGEST_PATH, type Digest, changeBadge, dueSummary, hiddenKey, riskSummary, weekRange } from "@/lib/digest";
 import { useSession } from "@/lib/session";
 import { BRAND } from "@/lib/theme";
 
@@ -57,7 +57,7 @@ export function DigestCard({ refreshKey }: { refreshKey: number }) {
     setHidden(true);
   };
 
-  const badge = changeBadge(data.change);
+  const badge = changeBadge(data);
   const risky = data.budgets.at_risk.length > 0;
 
   return (
@@ -80,7 +80,7 @@ export function DigestCard({ refreshKey }: { refreshKey: number }) {
               {data.headline}
             </Text>
             {badge ? (
-              <View style={[styles.badge, { backgroundColor: BADGE[changeTone(data.change)] }]}>
+              <View style={[styles.badge, { backgroundColor: BADGE[data.tone ?? "same"] }]}>
                 <Text variant="labelMedium" style={styles.label}>
                   {badge}
                 </Text>

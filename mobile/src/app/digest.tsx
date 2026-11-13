@@ -12,12 +12,12 @@ import { ApiError, apiFetch } from "@/lib/api";
 import {
   type Digest,
   changeBadge,
-  changeTone,
   digestPath,
   dueSummary,
   riskText,
   usualText,
   weekRange,
+  weekTabLabel,
 } from "@/lib/digest";
 import { whole } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
@@ -46,6 +46,9 @@ export default function DigestScreen() {
   const insets = useSafeAreaInsets();
   const [which, setWhich] = useState<Which>("week");
   const [data, setData] = useState<Digest | null>(null);
+  // The server's default week, once seen: it names the first tab, and from Sunday 6 pm it is this
+  // week, when "This week so far" would show the same days and is left out.
+  const [defaultWeek, setDefaultWeek] = useState<{ label: string; isCurrent: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const latest = useRef(0);
@@ -57,6 +60,7 @@ export default function DigestScreen() {
       if (mine !== latest.current) return;
       setData(result);
       setError(null);
+      if (which === "week") setDefaultWeek({ label: result.label, isCurrent: result.is_current });
     } catch (err) {
       if (mine !== latest.current) return;
       if (err instanceof ApiError && err.status === 401) {
@@ -89,22 +93,24 @@ export default function DigestScreen() {
     setWhich(next);
   };
 
-  const badge = data ? changeBadge(data.change) : null;
+  const badge = data ? changeBadge(data) : null;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Your week" back />
-      <View style={styles.switch}>
-        <Segmented<Which>
-          label="Which week"
-          value={which}
-          onChange={choose}
-          options={[
-            { value: "week", label: "Last full week" },
-            { value: "so_far", label: "This week so far" },
-          ]}
-        />
-      </View>
+      {defaultWeek !== null && !defaultWeek.isCurrent ? (
+        <View style={styles.switch}>
+          <Segmented<Which>
+            label="Which week"
+            value={which}
+            onChange={choose}
+            options={[
+              { value: "week", label: weekTabLabel(defaultWeek.label) },
+              { value: "so_far", label: "This week so far" },
+            ]}
+          />
+        </View>
+      ) : null}
       {data === null && error === null ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.primary} accessibilityLabel="Loading your week" />
@@ -142,7 +148,7 @@ export default function DigestScreen() {
                 {whole(data.spending)}
               </Text>
               {badge ? (
-                <View style={[styles.badge, { backgroundColor: BADGE[changeTone(data.change)] }]}>
+                <View style={[styles.badge, { backgroundColor: BADGE[data.tone ?? "same"] }]}>
                   <Text variant="labelMedium" style={styles.badgeText}>
                     {badge}
                   </Text>

@@ -57,7 +57,7 @@ export function ProfileView({ streak, summaryOn, summaryBusy, summaryNote, onSum
                 🗞️ Weekly summary
               </Text>
               <Text variant="bodySmall" style={styles.muted}>
-                A reminder on Sunday at 7 pm to see what you spent, budgets at risk and what&apos;s due next.
+                A reminder on Sunday at 7 pm (phone time) to see what you spent, budgets at risk and what&apos;s due next. Logging out turns it off.
               </Text>
             </View>
             <Switch

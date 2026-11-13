@@ -3,7 +3,6 @@
 // headline; this file only words them. Nothing here touches a native module, so it is testable.
 
 import { formatDueDate } from "./accounts.ts";
-import { isZero } from "./cash-flow.ts";
 import { whole } from "./recurring.ts";
 import type { UpcomingItem } from "./upcoming.ts";
 
@@ -42,6 +41,7 @@ export type Digest = {
   usual: string | null;
   usual_weeks: number;
   change: { amount: string; percent: number | null } | null;
+  tone: Tone | null; // the server's exact ±5% comparison; null with no usual figure
   top_spending: DigestSlice[];
   budgets: {
     month: string;
@@ -76,21 +76,20 @@ export function weekRange(start: string, end: string): string {
 
 export type Tone = "more" | "less" | "same";
 
-// Spending more than usual is the bad direction; within ±5% (the server's "about the same") is same.
-export function changeTone(change: Digest["change"]): Tone {
-  if (change === null || isZero(change.amount)) return "same";
-  if (change.percent !== null && Math.abs(change.percent) <= 5) return "same";
-  return change.amount.trim().startsWith("-") ? "less" : "more";
+// The badge from the server's tone (never re-derived from the rounded percent): "▲ ₹600 · 16%",
+// "▼ ₹650 · 18%", "≈ usual", or null with nothing to compare.
+export function changeBadge(d: Pick<Digest, "change" | "tone">): string | null {
+  if (d.change === null || d.tone === null) return null;
+  if (d.tone === "same") return "≈ usual";
+  const amount = whole(d.change.amount.trim().replace(/^-/, ""));
+  const percent = d.change.percent === null ? "" : ` · ${Math.abs(d.change.percent)}%`;
+  return `${d.tone === "more" ? "▲" : "▼"} ${amount}${percent}`;
 }
 
-// The badge: "▲ ₹600 · 16%", "▼ ₹650 · 18%", "≈ usual", or null with nothing to compare.
-export function changeBadge(change: Digest["change"]): string | null {
-  if (change === null) return null;
-  const tone = changeTone(change);
-  if (tone === "same") return "≈ usual";
-  const amount = whole(change.amount.trim().replace(/^-/, ""));
-  const percent = change.percent === null ? "" : ` · ${Math.abs(change.percent)}%`;
-  return `${tone === "more" ? "▲" : "▼"} ${amount}${percent}`;
+// The first tab of the digest screen: "Last week", or "This week" from Sunday 6 pm, when the
+// server's default week is this one and "This week so far" would show the same days.
+export function weekTabLabel(label: string): string {
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 export function usualText(d: Pick<Digest, "usual" | "usual_weeks">): string {
