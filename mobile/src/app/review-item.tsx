@@ -4,7 +4,7 @@ import { KeyboardAvoidingView, ScrollView, StyleSheet, Text as NativeText, View 
 import { Checkbox, HelperText, RadioButton, Text, TextInput, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { ChunkyBox, ChunkyButton, ScreenHeader, Segmented, TONE_SQUARE } from "@/components/chunky";
+import { Chip, ChunkyBox, ChunkyButton, ScreenHeader, Segmented, TONE_SQUARE } from "@/components/chunky";
 import { CategoryChips } from "@/components/category-chips";
 import { Banner, LoadingScreen, useBlockBack } from "@/components/form-parts";
 import { type Account, type AccountList, errorMessage, maskLast4, splitErrors } from "@/lib/accounts";
@@ -23,8 +23,12 @@ import {
   expectedBody,
   expectedChoices,
   marketPrefill,
+  accountHint,
+  initialCategory,
+  initialRemember,
   needsNav,
   rememberLabel,
+  suggestionHint,
   reviewDetails,
   reviewFigure,
   reviewTitle,
@@ -162,12 +166,10 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
   const [stale, setStale] = useState<string | null>(null);
-  // A draft opens with its payee's usual category (or account) already picked.
-  const [category, setCategory] = useState(item.suggested_category ?? "");
-  const [remember, setRemember] = useState(true);
-  const [accountId, setAccountId] = useState(
-    item.suggested_account_id !== null ? String(item.suggested_account_id) : "",
-  );
+  // A confident draft opens with its category picked; any other suggestion is only a hint.
+  const [category, setCategory] = useState(initialCategory(item));
+  const [remember, setRemember] = useState(initialRemember(item));
+  const [accountId, setAccountId] = useState("");
   const [same, setSame] = useState(transactions.length === 1 ? String(transactions[0].id) : "");
   const [transfer, setTransfer] = useState(transactions.length === 1 ? String(transactions[0].id) : "");
   const [expectedKey, setExpectedKey] = useState(expected.length === 1 ? `${expected[0].kind}:${expected[0].id}` : "");
@@ -300,8 +302,18 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
   );
 
   const type = categoryType(item);
+  const hint = suggestionHint(item);
+  const usual = item.reason === "account" ? accountHint(item, accountChoices(item, accounts)) : null;
   const categoryPicker = (optional: boolean) => (
     <>
+      {hint !== null && item.suggested_category !== null ? (
+        <Chip
+          label={`${hint}: use it`}
+          icon="lightbulb-outline"
+          disabled={disabled}
+          onPress={() => setCategory(item.suggested_category ?? "")}
+        />
+      ) : null}
       <View>
         <TextInput
           mode="outlined"
@@ -509,6 +521,18 @@ function Answer({ item, accounts, categories, note, onAnswered }: AnswerProps) {
                     radioList(accountOptions, accountId, setAccountId)
                   )}
                   {errorText("account_id")}
+                  {usual !== null ? (
+                    <Chip
+                      label={`Earlier messages from ${item.payee ?? "this payee"} were in ${usual.name}: use it`}
+                      icon="lightbulb-outline"
+                      disabled={disabled}
+                      onPress={() => {
+                        // Only a guess from the payee: the card number isn't remembered unless asked.
+                        setAccountId(String(usual.id));
+                        setRemember(false);
+                      }}
+                    />
+                  ) : null}
                   {item.reason === "account" && item.last4 !== null ? rememberBox(`Remember ${maskLast4(item.last4)} is this account`) : null}
                   {button("account", item.reason === "card_payment" ? "Paid from this account" : "Save")}
                 </>,

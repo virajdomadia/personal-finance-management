@@ -33,7 +33,8 @@ const FAILED = "We couldn't load To review.";
 
 // What the last "Approve all" did, with the payee of each skipped item from the list it was sent from.
 type Outcome = { result: ApproveResult; labels: Record<number, string> };
-type LearnState = "saving" | "saved" | "failed";
+// "refused": the payee already has another rule (a transfer, say), so it isn't offered again.
+type LearnState = "saving" | "saved" | "failed" | "refused";
 
 export default function ReviewScreen() {
   const { token, logOut } = useSession();
@@ -48,6 +49,7 @@ export default function ReviewScreen() {
   const [approveError, setApproveError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [learned, setLearned] = useState<Record<number, LearnState>>({});
+  const [refusals, setRefusals] = useState<Record<number, string>>({});
   const latest = useRef(0);
   const navigating = useRef(false);
   const approvingRef = useRef(false);
@@ -88,14 +90,14 @@ export default function ReviewScreen() {
 
   // Sends exactly the confident items the owner was shown; the server checks each again.
   const approve = async () => {
-    if (approvingRef.current || items === null) return;
+    if (approvingRef.current || items === null || summary === null) return;
     approvingRef.current = true;
     setApproving(true);
     setApproveError(null);
     try {
       const result = await apiFetch<ApproveResult>("/sms/review/approve", {
         method: "POST",
-        body: JSON.stringify(approveBody(items)),
+        body: JSON.stringify(approveBody(items, summary)),
         token: token ?? undefined,
       });
       setOutcome({ result, labels: Object.fromEntries(items.map((i) => [i.id, i.payee ?? reviewTitle(i)])) });
@@ -132,6 +134,11 @@ export default function ReviewScreen() {
         void logOut();
         return;
       }
+      if (err instanceof ApiError && err.status === 409) {
+        setRefusals((r) => ({ ...r, [offer.entry_id]: errorMessage(err) }));
+        setLearned((l) => ({ ...l, [offer.entry_id]: "refused" }));
+        return;
+      }
       setLearned((l) => ({ ...l, [offer.entry_id]: "failed" }));
     }
   };
@@ -161,6 +168,13 @@ export default function ReviewScreen() {
             {outcome.result.learn.map((offer) => {
               const state = learned[offer.entry_id];
               const text = `Always use ${offer.category} for ${offer.payee}`;
+              if (state === "refused") {
+                return (
+                  <Text key={offer.entry_id} variant="bodySmall" style={styles.muted}>
+                    {refusals[offer.entry_id]}
+                  </Text>
+                );
+              }
               return (
                 <Chip
                   key={offer.entry_id}
@@ -220,13 +234,15 @@ export default function ReviewScreen() {
               {summary !== null && summary.count > 0 ? (
                 <ChunkyBox style={[styles.panel, styles.ready]}>
                   <Text variant="titleMedium" style={styles.ink}>
-                    {summary.count === 1 ? "1 is ready to approve" : `${summary.count} are ready to approve`}
+                    {summary.total === 1 ? "1 is ready to approve" : `${summary.total} are ready to approve`}
                   </Text>
                   <Text variant="bodyMedium" style={styles.ink}>
-                    {confidentTotalsText(summary)}. Their payee rule or past payments say the category.
+                    {confidentTotalsText(summary)}
+                    {summary.count < summary.total ? ` in the oldest ${summary.count}` : ""}. Their payee rule, a known
+                    merchant or past payments say the category.
                   </Text>
                   <ChunkyButton
-                    label={approveButtonText(summary.count)}
+                    label={approveButtonText(summary)}
                     variant="green"
                     onPress={() => {
                       setApproveError(null);
@@ -273,7 +289,7 @@ export default function ReviewScreen() {
       )}
       <Portal>
         <Dialog visible={confirming && summary !== null} onDismiss={() => (approving ? undefined : setConfirming(false))}>
-          <Dialog.Title>{summary ? `${approveButtonText(summary.count)}?` : ""}</Dialog.Title>
+          <Dialog.Title>{summary ? `${approveButtonText(summary)}?` : ""}</Dialog.Title>
           <Dialog.Content style={styles.dialog}>
             <Text variant="titleMedium">{summary ? confidentTotalsText(summary) : ""}</Text>
             {(summary?.categories ?? []).map((c) => (

@@ -33,7 +33,7 @@ export type ReviewItem = {
   // history_total) suggests, the account an unknown-account message's payee used, and whether the
   // item can be approved with the others. `why` is the short reason either way.
   suggested_category: string | null;
-  suggestion_source: "rule" | "history" | null;
+  suggestion_source: "rule" | "merchant" | "history" | null;
   history_count: number;
   history_total: number;
   suggested_account_id: number | null;
@@ -43,7 +43,15 @@ export type ReviewItem = {
 
 // Mirrors ConfidentSummary: the server's totals for every confident item.
 export type CategoryTotal = { category: string; type: "income" | "expense"; count: number; amount: string };
-export type ConfidentSummary = { count: number; spent: string; received: string; categories: CategoryTotal[] };
+// `ids` is the batch "Approve all" sends (the oldest, at most 200); `total` counts every confident item.
+export type ConfidentSummary = {
+  count: number;
+  total: number;
+  ids: number[];
+  spent: string;
+  received: string;
+  categories: CategoryTotal[];
+};
 export type ReviewList = { items: ReviewItem[]; confident: ConfidentSummary };
 
 // Mirrors ApproveResult from POST /sms/review/approve.
@@ -228,16 +236,49 @@ export function whyLine(item: ReviewItem): string {
 
 // The body for POST /sms/review/approve: each confident item with the category it was shown, so the
 // server skips any whose suggestion changed since.
-export function approveBody(items: ReviewItem[]) {
+export function approveBody(items: ReviewItem[], summary: ConfidentSummary) {
+  const byId = new Map(items.map((i) => [i.id, i]));
   return {
-    items: items
-      .filter((i) => i.confident && i.suggested_category !== null)
-      .map((i) => ({ id: i.id, category: i.suggested_category as string })),
+    items: summary.ids.flatMap((id) => {
+      const item = byId.get(id);
+      return item && item.confident && item.suggested_category !== null
+        ? [{ id, category: item.suggested_category }]
+        : [];
+    }),
   };
 }
 
-export function approveButtonText(count: number): string {
-  return `Approve ${count} confident`;
+// "Approve 12 confident", or "Approve 200 of 250" when there are more than one batch takes.
+export function approveButtonText(summary: Pick<ConfidentSummary, "count" | "total">): string {
+  return summary.count < summary.total
+    ? `Approve ${summary.count} of ${summary.total}`
+    : `Approve ${summary.count} confident`;
+}
+
+// A category is filled in only when the item is confident; otherwise the suggestion is a hint the
+// owner can tap, and "Always use" starts off so a guess is never learned by default.
+export function initialCategory(item: ReviewItem): string {
+  return item.confident ? (item.suggested_category ?? "") : "";
+}
+
+export function initialRemember(item: ReviewItem): boolean {
+  return item.confident || item.suggested_category === null;
+}
+
+// "Usually Groceries (3 of 4 times)" for a suggestion that isn't sure enough to fill in.
+export function suggestionHint(item: ReviewItem): string | null {
+  if (item.confident || item.suggested_category === null) return null;
+  if (item.suggestion_source === "history") {
+    return `Usually ${item.suggested_category} (${item.history_count} of ${item.history_total} times)`;
+  }
+  return `Suggested: ${item.suggested_category}`;
+}
+
+// "Earlier messages from Ramesh were in HDFC": only a hint, since a payee says nothing about an
+// unknown card number.
+export function accountHint<T extends { id: number; name: string }>(item: ReviewItem, accounts: T[]): T | null {
+  if (item.suggested_account_id === null) return null;
+  return accounts.find((a) => a.id === item.suggested_account_id) ?? null;
 }
 
 const isZero = (money: string) => /^0+(\.0+)?$/.test(money);

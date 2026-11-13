@@ -3,6 +3,10 @@ import { test } from "node:test";
 
 import {
   accountChoices,
+  accountHint,
+  initialCategory,
+  initialRemember,
+  suggestionHint,
   actionsFor,
   approveBody,
   approveButtonText,
@@ -292,8 +296,11 @@ test("needsNav and expectedBody send a NAV only for a SIP that needs one", () =>
 test("approveBody sends each confident item with the category it was shown", () => {
   const sure = item({ id: 4, confident: true, suggested_category: "Groceries" });
   const unsure = item({ id: 5, suggested_category: "Gift" });
-  assert.deepEqual(approveBody([sure, unsure]), { items: [{ id: 4, category: "Groceries" }] });
-  assert.equal(approveButtonText(2), "Approve 2 confident");
+  const later = item({ id: 7, confident: true, suggested_category: "Gift" }); // not in this batch
+  const summary = { count: 1, total: 2, ids: [4, 5], spent: "0.00", received: "0.00", categories: [] };
+  assert.deepEqual(approveBody([sure, unsure, later], summary), { items: [{ id: 4, category: "Groceries" }] });
+  assert.equal(approveButtonText({ count: 2, total: 2 }), "Approve 2 confident");
+  assert.equal(approveButtonText({ count: 200, total: 250 }), "Approve 200 of 250");
 });
 
 test("confidentTotalsText and categoryTotalText format the server's totals", () => {
@@ -310,4 +317,25 @@ test("approveResultText and whyLine", () => {
   assert.equal(whyLine(item()), "First time for this payee");
   assert.equal(rememberLabel("Ramesh", "Gift"), "Always use Gift for Ramesh");
   assert.equal(rememberLabel("Ramesh", ""), "Always use this for Ramesh");
+});
+
+test("a suggestion fills the category only when confident", () => {
+  const sure = item({ confident: true, suggested_category: "Groceries", suggestion_source: "history", history_count: 3, history_total: 3 });
+  const unsure = item({ suggested_category: "Groceries", suggestion_source: "history", history_count: 3, history_total: 4 });
+  const fresh = item();
+  assert.equal(initialCategory(sure), "Groceries");
+  assert.equal(initialCategory(unsure), "");
+  assert.equal(initialRemember(sure), true);
+  assert.equal(initialRemember(unsure), false);
+  assert.equal(initialRemember(fresh), true);
+  assert.equal(suggestionHint(unsure), "Usually Groceries (3 of 4 times)");
+  assert.equal(suggestionHint(sure), null);
+  assert.equal(suggestionHint(item({ suggested_category: "Gift", suggestion_source: "rule" })), "Suggested: Gift");
+});
+
+test("accountHint names the payee's usual account without choosing it", () => {
+  const accounts = [{ id: 3, name: "HDFC" }, { id: 4, name: "SBI" }];
+  assert.deepEqual(accountHint(item({ reason: "account", suggested_account_id: 4 }), accounts), { id: 4, name: "SBI" });
+  assert.equal(accountHint(item({ reason: "account" }), accounts), null);
+  assert.equal(accountHint(item({ reason: "account", suggested_account_id: 9 }), accounts), null);
 });
