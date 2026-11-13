@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { changeLine, changeTone, digestKey, dueLine, monthHref, riskText, usualLine, weekRange } from "./digest.ts";
+import { changeLine, digestKey, dueLine, monthHref, riskText, usualLine, weekRange } from "./digest.ts";
 
 test("digestKey is per user and per week", () => {
   assert.equal(digestKey(7, "2026-11-02"), "gullak.digest-hidden.7.2026-11-02");
@@ -14,17 +14,14 @@ test("weekRange", () => {
   assert.equal(weekRange("2026-11-30", "2026-12-06"), "30 Nov – 6 Dec");
 });
 
-test("changeTone and changeLine follow the server's sign and ±5%", () => {
-  assert.equal(changeTone(null), "same");
-  assert.equal(changeTone({ amount: "600.00", percent: 16 }), "more");
-  assert.equal(changeTone({ amount: "-650.00", percent: -18 }), "less");
-  assert.equal(changeTone({ amount: "50.00", percent: 1 }), "same");
-  assert.equal(changeTone({ amount: "0.00", percent: null }), "same");
-  assert.equal(changeTone({ amount: "4250.00", percent: null }), "more");
-  assert.equal(changeLine({ amount: "600.00", percent: 16 }), "₹600.00 more than usual (16%)");
-  assert.equal(changeLine({ amount: "-650.00", percent: -18 }), "₹650.00 less than usual (18%)");
-  assert.equal(changeLine({ amount: "4250.00", percent: null }), "₹4,250.00 more than usual");
-  assert.equal(changeLine(null), null);
+test("changeLine words the server's tone", () => {
+  assert.equal(changeLine({ change: { amount: "600.00", percent: 16 }, tone: "more" }), "₹600.00 more than usual (16%)");
+  assert.equal(changeLine({ change: { amount: "-650.00", percent: -18 }, tone: "less" }), "₹650.00 less than usual (18%)");
+  // +5.4% rounds to 5%, but the server says more: the line follows the server.
+  assert.equal(changeLine({ change: { amount: "54.00", percent: 5 }, tone: "more" }), "₹54.00 more than usual (5%)");
+  assert.equal(changeLine({ change: { amount: "-50.00", percent: -5 }, tone: "same" }), "About the same as usual");
+  assert.equal(changeLine({ change: { amount: "4250.00", percent: null }, tone: "more" }), "₹4,250.00 more than usual");
+  assert.equal(changeLine({ change: null, tone: null }), null);
 });
 
 test("usualLine", () => {

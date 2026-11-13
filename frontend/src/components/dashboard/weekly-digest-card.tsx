@@ -9,7 +9,6 @@ import { FALLBACK_COLOUR, iconEmoji } from "@/lib/categories";
 import {
   type Digest,
   changeLine,
-  changeTone,
   digestKey,
   dueLine,
   monthHref,
@@ -64,8 +63,8 @@ export function WeeklyDigestCard() {
     setHidden(true);
   };
 
-  const tone = changeTone(data.change);
-  const change = changeLine(data.change);
+  const tone = data.tone ?? "same";
+  const change = changeLine(data);
   const risks = data.budgets.at_risk;
 
   return (

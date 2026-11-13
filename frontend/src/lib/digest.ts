@@ -39,6 +39,7 @@ export type Digest = {
   usual: string | null;
   usual_weeks: number;
   change: { amount: string; percent: number | null } | null;
+  tone: Tone | null; // the server's exact ±5% comparison; null with no usual figure
   top_spending: DigestSlice[];
   budgets: {
     month: string;
@@ -67,21 +68,14 @@ export function weekRange(start: string, end: string): string {
 
 export type Tone = "more" | "less" | "same";
 
-// Spending more than usual is the bad direction. Within ±5% (the server's "about the same") is same.
-export function changeTone(change: Digest["change"]): Tone {
-  if (change === null || /^-?0+(\.0+)?$/.test(change.amount)) return "same";
-  if (change.percent !== null && Math.abs(change.percent) <= 5) return "same";
-  return change.amount.startsWith("-") ? "less" : "more";
-}
-
-// "₹600.00 more than usual (16%)", "₹650.00 less than usual (18%)" or "about the same as usual".
-export function changeLine(change: Digest["change"]): string | null {
-  if (change === null) return null;
-  const tone = changeTone(change);
-  if (tone === "same") return "About the same as usual";
-  const amount = formatRupees(change.amount.replace(/^-/, ""));
-  const percent = change.percent === null ? "" : ` (${Math.abs(change.percent)}%)`;
-  return `${amount} ${tone} than usual${percent}`;
+// "₹600.00 more than usual (16%)", "₹650.00 less than usual (18%)" or "About the same as usual",
+// worded from the server's tone (never re-derived from the rounded percent).
+export function changeLine(d: Pick<Digest, "change" | "tone">): string | null {
+  if (d.change === null || d.tone === null) return null;
+  if (d.tone === "same") return "About the same as usual";
+  const amount = formatRupees(d.change.amount.replace(/^-/, ""));
+  const percent = d.change.percent === null ? "" : ` (${Math.abs(d.change.percent)}%)`;
+  return `${amount} ${d.tone} than usual${percent}`;
 }
 
 // "Usual: ₹3,650.00 (4-week average)", fewer weeks said as they are.
