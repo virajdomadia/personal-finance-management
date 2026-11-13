@@ -15,11 +15,12 @@ type Props = {
   onPayeeRules: () => void;
   onCategories: () => void;
   onBudgets: () => void;
+  onExport: () => void;
   onLogOut: () => void;
 };
 
 // The profile tab's content, without the session or fetching.
-export function ProfileView({ streak, onGoals, onRecurring, onInsurance, onArchived, onSms, onPayeeRules, onCategories, onBudgets, onLogOut }: Props) {
+export function ProfileView({ streak, onGoals, onRecurring, onInsurance, onArchived, onSms, onPayeeRules, onCategories, onBudgets, onExport, onLogOut }: Props) {
   return (
     <View>
       <ScreenHeader title="You" right={<StreakPill days={streak} />} />
@@ -40,6 +41,7 @@ export function ProfileView({ streak, onGoals, onRecurring, onInsurance, onArchi
           <Row emoji="🗂️" tone="green" title="Categories" meta="Rename, nest, merge and colour your categories" amount="›" onPress={onCategories} accessibilityLabel="Categories" accessibilityHint="Opens Categories" />
           <Row emoji="🏷️" tone="yellow" title="Payee rules" meta="Categories and numbers learned from your answers" amount="›" onPress={onPayeeRules} accessibilityLabel="Payee rules" accessibilityHint="Opens Payee rules" />
           <Row emoji="🗄️" tone="card" title="Archived accounts" amount="›" onPress={onArchived} accessibilityLabel="Archived accounts" accessibilityHint="Opens Archived accounts" />
+          <Row emoji="💾" tone="blue" title="Export my data" meta="Spreadsheets or a full backup, to save or send" amount="›" onPress={onExport} accessibilityLabel="Export my data" accessibilityHint="Chooses a file to export and share" />
           <Row emoji="🚪" tone="pink" title="Log out" onPress={onLogOut} accessibilityLabel="Log out" />
         </View>
       </View>

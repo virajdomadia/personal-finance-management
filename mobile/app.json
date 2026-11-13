@@ -36,6 +36,7 @@
       "expo-secure-store",
       "expo-local-authentication",
       "expo-font",
+      "expo-sharing",
       [
         "react-native-nitro-google-signin",
         {
