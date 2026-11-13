@@ -29,7 +29,34 @@ export type ReviewItem = {
   quantity: string | null;
   candidates: Candidate[] | null;
   suggested_price: string | null;
+  // The category the payee's rule ("rule") or history ("history": history_count of the latest
+  // history_total) suggests, the account an unknown-account message's payee used, and whether the
+  // item can be approved with the others. `why` is the short reason either way.
+  suggested_category: string | null;
+  suggestion_source: "rule" | "merchant" | "history" | null;
+  history_count: number;
+  history_total: number;
+  suggested_account_id: number | null;
+  confident: boolean;
+  why: string;
 };
+
+// Mirrors ConfidentSummary: the server's totals for every confident item.
+export type CategoryTotal = { category: string; type: "income" | "expense"; count: number; amount: string };
+// `ids` is the batch "Approve all" sends (the oldest, at most 200); `total` counts every confident item.
+export type ConfidentSummary = {
+  count: number;
+  total: number;
+  ids: number[];
+  spent: string;
+  received: string;
+  categories: CategoryTotal[];
+};
+export type ReviewList = { items: ReviewItem[]; confident: ConfidentSummary };
+
+// Mirrors ApproveResult from POST /sms/review/approve.
+export type Learnable = { entry_id: number; payee: string; category: string };
+export type ApproveResult = { approved: number; skipped: { id: number; reason: string }[]; learn: Learnable[] };
 
 // The answers POST /sms/review/{id} takes.
 export type Action =
@@ -194,6 +221,85 @@ export function accountChoices<T extends { id: number; type: string }>(item: Rev
 // The category answer. "Always use this" only means something when the message named a payee.
 export function categoryBody(item: ReviewItem, category: string, remember: boolean) {
   return { action: "category" as const, category: category.trim() || null, remember: item.payee !== null && remember };
+}
+
+// The "Always use" switch names the category it will remember once one is picked.
+export function rememberLabel(payee: string, category: string): string {
+  const picked = category.trim();
+  return picked ? `Always use ${picked} for ${payee}` : `Always use this for ${payee}`;
+}
+
+// The line under a row saying why it is ready to approve, or what to look at.
+export function whyLine(item: ReviewItem): string {
+  return item.confident ? `✓ ${item.why}` : item.why;
+}
+
+// The body for POST /sms/review/approve: each confident item with the category it was shown, so the
+// server skips any whose suggestion changed since.
+export function approveBody(items: ReviewItem[], summary: ConfidentSummary) {
+  const byId = new Map(items.map((i) => [i.id, i]));
+  return {
+    items: summary.ids.flatMap((id) => {
+      const item = byId.get(id);
+      return item && item.confident && item.suggested_category !== null
+        ? [{ id, category: item.suggested_category }]
+        : [];
+    }),
+  };
+}
+
+// "Approve 12 confident", or "Approve 200 of 250" when there are more than one batch takes.
+export function approveButtonText(summary: Pick<ConfidentSummary, "count" | "total">): string {
+  return summary.count < summary.total
+    ? `Approve ${summary.count} of ${summary.total}`
+    : `Approve ${summary.count} confident`;
+}
+
+// A category is filled in only when the item is confident; otherwise the suggestion is a hint the
+// owner can tap, and "Always use" starts off so a guess is never learned by default.
+export function initialCategory(item: ReviewItem): string {
+  return item.confident ? (item.suggested_category ?? "") : "";
+}
+
+export function initialRemember(item: ReviewItem): boolean {
+  return item.confident || item.suggested_category === null;
+}
+
+// "Usually Groceries (3 of 4 times)" for a suggestion that isn't sure enough to fill in.
+export function suggestionHint(item: ReviewItem): string | null {
+  if (item.confident || item.suggested_category === null) return null;
+  if (item.suggestion_source === "history") {
+    return `Usually ${item.suggested_category} (${item.history_count} of ${item.history_total} times)`;
+  }
+  return `Suggested: ${item.suggested_category}`;
+}
+
+// "Earlier messages from Ramesh were in HDFC": only a hint, since a payee says nothing about an
+// unknown card number.
+export function accountHint<T extends { id: number; name: string }>(item: ReviewItem, accounts: T[]): T | null {
+  if (item.suggested_account_id === null) return null;
+  return accounts.find((a) => a.id === item.suggested_account_id) ?? null;
+}
+
+const isZero = (money: string) => /^0+(\.0+)?$/.test(money);
+
+// "₹1,240 out · ₹5,000 in", leaving out a side with nothing on it.
+export function confidentTotalsText(summary: ConfidentSummary): string {
+  const parts: string[] = [];
+  if (!isZero(summary.spent)) parts.push(`${whole(summary.spent)} out`);
+  if (!isZero(summary.received)) parts.push(`${whole(summary.received)} in`);
+  return parts.join(" · ");
+}
+
+// "3 × Groceries  ₹1,240": one line of the confirmation.
+export function categoryTotalText(total: CategoryTotal): string {
+  return `${total.count} × ${total.category}  ${whole(total.amount)}`;
+}
+
+export function approveResultText(result: ApproveResult): string {
+  const done = `Approved ${result.approved}`;
+  const skipped = result.skipped.length;
+  return skipped === 0 ? `${done}. All set.` : `${done}. ${skipped} still ${skipped === 1 ? "needs" : "need"} you.`;
 }
 
 type TradeInput = {

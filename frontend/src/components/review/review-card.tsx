@@ -15,7 +15,12 @@ import {
   expectedBody,
   marketPrefill,
   needsNav,
+  accountHint,
+  initialCategory,
+  initialRemember,
+  rememberLabel,
   reviewTitle,
+  suggestionHint,
 } from "@/lib/review";
 import { type CategoryList, formatDate } from "@/lib/transactions";
 import { INPUT } from "@/components/investments/shared";
@@ -72,8 +77,9 @@ export function ReviewCard({ item, accounts, categories, onAnswered, onStale }: 
   const busyRef = useRef(false);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [category, setCategory] = useState("");
-  const [remember, setRemember] = useState(true);
+  // A confident draft arrives with its category picked; any other suggestion is only a hint.
+  const [category, setCategory] = useState(initialCategory(item));
+  const [remember, setRemember] = useState(initialRemember(item));
   const [accountId, setAccountId] = useState("");
   const [units, setUnits] = useState("");
   const [nav, setNav] = useState("");
@@ -168,8 +174,20 @@ export function ReviewCard({ item, accounts, categories, onAnswered, onStale }: 
 
   // The category picker with "Always use this", shared by the category, not-a-transfer and
   // none-of-these answers.
+  const hint = suggestionHint(item);
+  const usual = item.reason === "account" ? accountHint(item, accountChoices(item, accounts)) : null;
   const categoryPicker = (optional: boolean) => (
     <>
+      {hint && item.suggested_category !== null && (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setCategory(item.suggested_category ?? "")}
+          className={`self-start text-left text-xs font-extrabold underline decoration-2 underline-offset-2 hover:text-zinc-600 disabled:opacity-60 ${FOCUS}`}
+        >
+          {hint}: use it
+        </button>
+      )}
       {labelled(
         "category",
         optional ? "Category (optional)" : "Category",
@@ -184,7 +202,7 @@ export function ReviewCard({ item, accounts, categories, onAnswered, onStale }: 
             onChange={(e) => setRemember(e.target.checked)}
             className={`size-4 accent-ink ${FOCUS}`}
           />
-          Always use this for {item.payee}
+          {rememberLabel(item.payee, category)}
         </label>
       )}
     </>
@@ -273,6 +291,19 @@ export function ReviewCard({ item, accounts, categories, onAnswered, onStale }: 
           </p>
           {accountLine && <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">{accountLine}</p>}
           {item.message && <p className="mt-1 text-sm font-bold [overflow-wrap:anywhere]">{item.message}</p>}
+          {item.why && (
+            <p
+              className={`mt-2 inline-flex max-w-full items-center gap-1 rounded-full border-[2px] px-2.5 py-0.5 text-xs font-extrabold [overflow-wrap:anywhere] ${
+                item.confident ? "border-ink bg-green/25 text-ink" : "border-zinc-400 bg-zinc-100 text-zinc-700"
+              }`}
+            >
+              <span aria-hidden="true">{item.confident ? "✓" : "?"}</span>
+              <span>
+                <span className="sr-only">{item.confident ? "Confident: " : "Needs a look: "}</span>
+                {item.why}
+              </span>
+            </p>
+          )}
         </div>
 
         {has("same") && (
@@ -359,6 +390,20 @@ export function ReviewCard({ item, accounts, categories, onAnswered, onStale }: 
                     : accountChoices(item, accounts).map((a) => ({ value: String(a.id), label: a.name }))
                 }
               />,
+            )}
+            {usual && (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                  // Only a guess from the payee: the card number isn't remembered unless asked.
+                  setAccountId(String(usual.id));
+                  setRemember(false);
+                }}
+                className={`self-start text-left text-xs font-extrabold underline decoration-2 underline-offset-2 hover:text-zinc-600 disabled:opacity-60 ${FOCUS}`}
+              >
+                Earlier messages from {item.payee} were in {usual.name}: use it
+              </button>
             )}
             {item.reason === "account" && item.last4 !== null && (
               <label className="flex items-center gap-2 text-sm font-extrabold">
