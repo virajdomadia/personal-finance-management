@@ -323,3 +323,37 @@ def test_a_merged_budget_is_inactive_when_the_target_has_one(headers: Headers) -
     assert body["total"]["amount"] == "3000.00"
     assert client.delete(f"{URL}/{ids['Fuel']}", headers=headers).status_code == 200
     assert [b["name"] for b in month(headers)["budgets"]] == ["Transport"]
+
+
+def test_a_merge_leaves_an_ended_months_total_alone(headers: Headers, db_session: Session) -> None:
+    bank = account(headers, "bank", name="HDFC", bank_kind="savings", balance="100000.00")
+    record(headers, "2026-10-04", "expense", bank, "2500.00", category="Shopping")
+    record(headers, "2026-10-06", "expense", bank, "1500.00", category="Entertainment")
+    ids = categories(headers)
+    for name, amount in (("Shopping", "3000"), ("Entertainment", "2000")):
+        db_session.add(
+            Budget(
+                user_id=my_id(db_session),
+                category_id=ids[name],
+                effective_from=date(2026, 10, 1),
+                amount=Decimal(amount),
+            )
+        )
+    db_session.commit()
+    before = month(headers, month="2026-10")["total"]
+    assert (before["amount"], before["spent"]) == ("5000.00", "4000.00")
+
+    client.post(
+        f"/api/categories/{ids['Entertainment']}/merge",
+        json={"into_id": ids["Shopping"]},
+        headers=headers,
+    )
+    october = month(headers, month="2026-10")
+    assert october["total"] == before
+    assert [(b["name"], b["amount"], b["spent"]) for b in october["budgets"]] == [
+        ("Shopping", "5000.00", "4000.00")
+    ]
+    # This month the merged budget gives way to the target's own.
+    november = month(headers)
+    assert line(november, "Entertainment")["active"] is False
+    assert november["total"]["amount"] == "3000.00"

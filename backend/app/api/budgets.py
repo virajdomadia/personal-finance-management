@@ -122,9 +122,13 @@ def lines(
     categories: list[Category],
     spent: dict[int, Decimal],
     first: date,
+    ended: bool = False,
 ) -> list[Line]:
     """The month's budgets in picker order (each subcategory after its parent), then any merged
-    one that couldn't follow its merge."""
+    one that couldn't follow its merge.
+
+    In an `ended` month a merged budget whose target has its own is added to the target's, so
+    a merge made later never changes that month's total."""
     by_id = {c.id: c for c in categories}
     found = in_force(versions, first)
     shown: dict[int, Line] = {}
@@ -154,6 +158,10 @@ def lines(
         shown[category.id] = make(category, version, not archived, "Archived" if archived else None)
     for category, version in merged:
         target = merge_target(category, by_id)
+        if ended and target.id in shown and target.merged_into_id is None:
+            assert version.amount is not None
+            shown[target.id].amount += version.amount
+            continue
         if target.id in shown or target.merged_into_id is not None:
             note = f"Merged into {target.name}, which has its own budget."
             stranded.append(make(category, version, False, note))
