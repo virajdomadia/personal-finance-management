@@ -60,6 +60,7 @@ function Screens() {
             <Stack.Screen name="review" />
             <Stack.Screen name="review-item" />
             <Stack.Screen name="payee-rules" />
+            <Stack.Screen name="net-worth" />
             <Stack.Screen name="cash-flow" />
             <Stack.Screen name="categories" />
             <Stack.Screen name="category-form" />

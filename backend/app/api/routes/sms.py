@@ -15,7 +15,7 @@ from pydantic_core import PydanticCustomError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.categories import resolve, rule_kind
+from app.api.categories import name_key, resolve, rule_kind
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.routes.accounts import MAX_ID, Flag, Money, field_error, fmt
@@ -27,8 +27,8 @@ from app.db.session import DbSession
 from app.models.account import Account
 from app.models.recurring import RecurringTemplate
 from app.models.sms import AccountIdentifier, PayeeRule, SmsEntry, SmsSample
-from app.sms import recording, review
-from app.sms.ingest import decide
+from app.sms import confidence, recording, review
+from app.sms.ingest import MONEY_IN, MONEY_OUT, decide
 
 router = APIRouter(prefix="/sms", tags=["sms"], dependencies=[Depends(get_current_user)])
 rules_router = APIRouter(
@@ -131,14 +131,52 @@ class ReviewItem(BaseModel):
     # Each {"kind": str, "id": int, "label": str}; a SIP may add "needs_nav": true.
     candidates: list[dict[str, Any]] | None
     suggested_price: str | None  # a draft trade's stock price on the day, or the latest before
+    # The category the payee's rule or history suggests, and where it came from: "rule" (a payee
+    # rule or the built-in list) or "history" (`history_count` of the latest `history_total`).
+    suggested_category: str | None
+    suggestion_source: str | None
+    history_count: int
+    history_total: int
+    # For a message whose account is unknown: the one account the payee's earlier messages used.
+    suggested_account_id: int | None
+    # Approvable with "Approve all confident"; `why` says why it is or what needs a look.
+    confident: bool
+    why: str
+
+
+class CategoryTotal(BaseModel):
+    category: str
+    type: str  # "income" or "expense"
+    count: int
+    amount: str
+
+
+class ConfidentSummary(BaseModel):
+    # The batch "Approve all" sends: the oldest confident items, at most 200 (`ids`), and their
+    # totals. `total` counts every confident item, so a longer list says "200 of 250".
+    count: int
+    total: int
+    ids: list[int]
+    spent: str
+    received: str
+    categories: list[CategoryTotal]
 
 
 class ReviewList(BaseModel):
     items: list[ReviewItem]
+    confident: ConfidentSummary
 
 
-def _item(db: Session, user_id: int, entry: SmsEntry, names: dict[int, str]) -> ReviewItem:
+def _item(
+    db: Session,
+    user_id: int,
+    entry: SmsEntry,
+    names: dict[int, str],
+    found: confidence.Assessment | None = None,
+) -> ReviewItem:
     price = review.suggested_price(db, user_id, entry)
+    if found is None:
+        found = confidence.assess_one(db, user_id, entry)
     return ReviewItem(
         id=entry.id,
         status=entry.status,
@@ -157,6 +195,13 @@ def _item(db: Session, user_id: int, entry: SmsEntry, names: dict[int, str]) -> 
         quantity=None if entry.quantity is None else f"{entry.quantity.normalize():f}",
         candidates=entry.candidates,
         suggested_price=None if price is None else fmt(price),
+        suggested_category=found.suggested_category,
+        suggestion_source=found.source,
+        history_count=found.count,
+        history_total=found.total,
+        suggested_account_id=found.suggested_account_id,
+        confident=found.confident,
+        why=found.why,
     )
 
 
@@ -173,7 +218,74 @@ def list_review(user: CurrentUser, db: DbSession) -> ReviewList:
         .order_by(SmsEntry.occurred_on.desc(), SmsEntry.id.desc())
     ).all()
     names = _account_names(db, user.id)
-    return ReviewList(items=[_item(db, user.id, e, names) for e in entries])
+    ctx = confidence.Context(db, user.id, entries)
+    found = [confidence.assess(ctx, e) for e in entries]
+    summary = confidence.summarise(zip(entries, found, strict=True))
+    return ReviewList(
+        items=[_item(db, user.id, e, names, a) for e, a in zip(entries, found, strict=True)],
+        confident=ConfidentSummary(
+            count=summary.count,
+            total=summary.total,
+            ids=summary.ids,
+            spent=fmt(summary.spent),
+            received=fmt(summary.received),
+            categories=[
+                CategoryTotal(category=g.category, type=g.type, count=g.count, amount=fmt(g.amount))
+                for g in summary.categories
+            ],
+        ),
+    )
+
+
+class ApproveItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: Annotated[int, Field(strict=True, ge=1)]
+    # The category the owner saw suggested: the item is skipped if the suggestion changed.
+    category: Annotated[str, Field(min_length=1, max_length=40)]
+
+
+class ApproveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: Annotated[list[ApproveItem], Field(min_length=1, max_length=confidence.APPROVE_LIMIT)]
+
+
+class Skipped(BaseModel):
+    id: int
+    reason: str
+
+
+class Learnable(BaseModel):
+    entry_id: int
+    payee: str
+    category: str
+
+
+class ApproveResult(BaseModel):
+    approved: int
+    skipped: list[Skipped]
+    # Payees approved from their history, to offer "Always use <category> for <payee>".
+    learn: list[Learnable]
+
+
+@router.post("/review/approve")
+def approve_confident(body: ApproveBody, user: CurrentUser, db: DbSession) -> ApproveResult:
+    """Approves the confident items the owner confirmed, each completely or not at all."""
+    try:
+        recording.lock_user(db, user.id)
+        done = confidence.approve(db, user.id, [(i.id, i.category) for i in body.items])
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return ApproveResult(
+        approved=done.approved,
+        skipped=[Skipped(id=i, reason=r) for i, r in done.skipped],
+        learn=[
+            Learnable(entry_id=x.entry_id, payee=x.payee, category=x.category) for x in done.learn
+        ],
+    )
 
 
 class _Answer(BaseModel):
@@ -339,6 +451,14 @@ class PayeeRuleList(BaseModel):
     rules: list[PayeeRuleResponse]
 
 
+class PayeeRuleCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The message whose payee the rule is for.
+    entry_id: StrictId
+    category: Category = None
+
+
 class PayeeRuleUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -394,6 +514,63 @@ def _rule_target_problem(db: Session, user_id: int, target: int) -> bool:
             )
         )
     return found is None
+
+
+@rules_router.post("", status_code=status.HTTP_201_CREATED)
+def create_rule(body: PayeeRuleCreate, user: CurrentUser, db: DbSession) -> PayeeRuleResponse:
+    """Offered after an approval as "Always use <category> for <payee>": the payee gets a
+    category rule. A rule the payee already has is never overwritten here (a transfer, a reminder
+    or another category): that is changed in Payee rules."""
+    try:
+        recording.lock_user(db, user.id)
+        entry = None
+        if body.entry_id <= MAX_ID:
+            entry = db.scalar(
+                select(SmsEntry).where(SmsEntry.id == body.entry_id, SmsEntry.user_id == user.id)
+            )
+        if entry is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found.")
+        if entry.payee_key is None:
+            raise RequestValidationError([field_error("entry_id", "This message names no payee.")])
+        if entry.kind not in MONEY_IN | MONEY_OUT:
+            raise RequestValidationError(
+                [field_error("entry_id", "This message's money doesn't take a category.")]
+            )
+        if body.category is None:
+            raise RequestValidationError([field_error("category", "Choose a category.")])
+        kind = "income" if entry.kind in MONEY_IN else "expense"
+        category = resolve(db, user.id, kind, body.category)
+        who = entry.payee or entry.payee_key
+        existing = db.scalar(
+            select(PayeeRule).where(
+                PayeeRule.user_id == user.id, PayeeRule.payee_key == entry.payee_key
+            )
+        )
+        if existing is not None and (
+            existing.to_account_id is not None or existing.template_id is not None
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"{who} is set up as a transfer or a regular payment. Change it in Payee rules.",
+            )
+        if (
+            existing is not None
+            and existing.category is not None
+            and name_key(existing.category) != name_key(category)
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"{who} already has a payee rule ({existing.category}). Change it in Payee rules.",
+            )
+        if existing is not None and existing.category is not None:
+            rule = existing  # already says so
+        else:
+            rule = review.remember_category(db, user.id, entry, category)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return _rule_response(db, rule)
 
 
 @rules_router.patch("/{id}")

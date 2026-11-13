@@ -6,7 +6,7 @@ Adds `budgets`: one row per change to a category's monthly budget, applying from
 Downgrading is refused while any budget exists, because the old schema has nowhere to keep it.
 
 Revision ID: 7e5d2fc1e167
-Revises: 2d46fef3dab4
+Revises: 4f9a2c7e1b30
 Create Date: 2026-11-13 15:00:00.000000
 
 """
@@ -18,7 +18,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "7e5d2fc1e167"
-down_revision: str | Sequence[str] | None = "2d46fef3dab4"
+down_revision: str | Sequence[str] | None = "4f9a2c7e1b30"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

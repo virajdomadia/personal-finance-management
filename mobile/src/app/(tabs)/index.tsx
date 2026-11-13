@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChunkyButton } from "@/components/chunky";
 import { DashboardView } from "@/components/dashboard-view";
 import { DueList } from "@/components/due-list";
+import { NetWorthTrend } from "@/components/net-worth-chart";
 import { type Dashboard, type Streak } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -97,6 +98,7 @@ export default function DashboardScreen() {
         failed={failed}
         onOpenAccounts={openAccounts}
         refreshKey={version}
+        trend={<NetWorthTrend />}
         dueList={<DueList items={data.recurring ?? []} goals={data.goals_due ?? []} onChanged={() => void load()} />}
       />
     </ScrollView>

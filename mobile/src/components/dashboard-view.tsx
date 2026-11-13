@@ -63,11 +63,12 @@ type Props = {
   failed: boolean;
   onOpenAccounts: () => void;
   dueList?: ReactNode; // the due and coming-up reminders
+  trend?: ReactNode; // the net worth sparkline, under the figure
   refreshKey?: number; // changes whenever the dashboard reloads
 };
 
 // The dashboard's content, without any loading or fetching, so it can be shown with fixture data.
-export function DashboardView({ data, streak, failed, onOpenAccounts, dueList, refreshKey = 0 }: Props) {
+export function DashboardView({ data, streak, failed, onOpenAccounts, dueList, trend, refreshKey = 0 }: Props) {
   const bill = data.card_bill ?? null;
   // The statement's bill says more than the card's due day, so the card isn't listed twice.
   const due = data.next_card_due && data.next_card_due.account_id !== bill?.account_id ? data.next_card_due : null;
@@ -125,6 +126,7 @@ export function DashboardView({ data, streak, failed, onOpenAccounts, dueList, r
         ) : null}
 
         <Tile tone={negative ? "pink" : "green"} label="Net worth" value={whole(data.net_worth)} size="huge">
+          {trend}
           {data.investments ? (
             <Text variant="bodySmall" style={styles.note}>
               Includes investments at their latest price (or cost if no price yet)
