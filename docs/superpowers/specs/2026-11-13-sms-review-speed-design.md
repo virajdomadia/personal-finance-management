@@ -121,3 +121,30 @@ Each in its own style, as always.
 - **App:** an "Approve N confident" button at the top of To review, a react-native-paper dialog with
   the totals, then a result card with skips and "Always use" chips. Rows show `why` in their meta
   line; the review item screen prefills the category chip and the account.
+
+## Review fixes (2026-11-13)
+
+- **A payee set up as something else is never categorised in bulk.** A payee rule with a transfer
+  account or a reminder, or a payee that is a masked number of one of the owner's own accounts,
+  makes the draft not confident ("Payee is set as a transfer" / "...as a regular payment"), with no
+  suggestion.
+- **`POST /payee-rules` never overwrites.** An existing rule with a transfer or reminder target, or
+  a different category, gives 409 with a message pointing at Payee rules; the clients then show
+  that message instead of the offer. Only money that takes a category (debits, card spends,
+  credits) can make a rule.
+- **Batches of 200.** The `confident` summary covers the oldest 200 confident items (`ids`,
+  `count`) and says how many there are in all (`total`); the button reads "Approve 200 of 250" and
+  the next batch shows after approving.
+- **Queries per request, not per item.** Rules, the category registry (one shared lock), history,
+  accounts, typed-in payments and the accounts anything regular is paid from are read once; expected
+  payments are looked up only for those accounts and memoised. Listing costs about the same
+  queries for 3 items or 33; approving costs about 12 per item (the same save checks one answer
+  runs).
+- **Hints, not guesses.** Only a confident draft opens with its category filled in. Any other
+  suggestion is a tappable hint ("Usually Groceries (3 of 4 times)") and "Always use" starts off.
+  The payee's usual account is a hint only, and using it leaves "Remember XX1234" off.
+- **Approve checks the money once locked:** a transaction that now has a category, a reminder or a
+  different amount is skipped ("This payment changed since").
+- **Sources:** the built-in merchant list is its own source ("Known merchant: Swiggy"); history
+  counts only settled messages, each category under the name it goes by now (renamed or merged
+  names count as their new category).

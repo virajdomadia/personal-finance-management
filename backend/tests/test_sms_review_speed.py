@@ -3,17 +3,18 @@ why, approving every confident draft at once, and payee rules made from an appro
 
 import sys
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import Any
 
 import pytest
 from fastapi.exceptions import RequestValidationError
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from app.api import dates
 from app.models.sms import PayeeRule
 from tests.test_accounts import Headers, auth
-from tests.test_categories import patch
+from tests.test_categories import find, patch
 from tests.test_sms_expected import reminder
 from tests.test_sms_ingest import (
     bank,
@@ -25,7 +26,7 @@ from tests.test_sms_ingest import (
     stored,
     transactions,
 )
-from tests.test_sms_transfers import add_rule, card_payment
+from tests.test_sms_transfers import add_rule, card_payment, user_id
 
 URL = "/api/sms/review"
 TODAY = date(2026, 11, 13)
@@ -315,12 +316,14 @@ def test_summary_totals_the_confident_items(headers: Headers, db_session: Sessio
     bank(headers)
     history(headers, db_session, "Ramesh", "Groceries", "Groceries", "Groceries")
     history(headers, db_session, "Office", "Salary", "Salary", "Salary", kind="credit")
-    waiting(headers, db_session, payee="Ramesh", amount="100.50")
-    waiting(headers, db_session, payee="Ramesh", amount="20.25")
-    waiting(headers, db_session, payee="Office", kind="credit", amount="5000.00")
+    a = waiting(headers, db_session, payee="Ramesh", amount="100.50")
+    b = waiting(headers, db_session, payee="Ramesh", amount="20.25")
+    c = waiting(headers, db_session, payee="Office", kind="credit", amount="5000.00")
     waiting(headers, db_session, payee="Stranger", amount="999.00")  # not confident
     assert review_list(headers)["confident"] == {
         "count": 3,
+        "total": 3,
+        "ids": [a["id"], b["id"], c["id"]],
         "spent": "120.75",
         "received": "5000.00",
         "categories": [
@@ -485,16 +488,25 @@ def test_rule_from_an_entry_makes_the_next_message_automatic(
     assert transactions(db_session)[-1].category == "Groceries"
 
 
-def test_rule_from_an_entry_updates_an_existing_rule(headers: Headers, db_session: Session) -> None:
+def test_rule_from_an_entry_never_overwrites_a_different_rule(
+    headers: Headers, db_session: Session
+) -> None:
     bank(headers)
     body = entry(payee="Ramesh")
     send(headers, body)
-    add_rule(db_session, "ramesh", "Gift")
+    add_rule(db_session, "ramesh", "Groceries")
     id_ = stored(db_session, body["hash"]).id
     response = client.post(
-        "/api/payee-rules", json={"entry_id": id_, "category": "Groceries"}, headers=headers
+        "/api/payee-rules", json={"entry_id": id_, "category": "Shopping"}, headers=headers
     )
-    assert response.status_code == 201, response.json()
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Ramesh already has a payee rule (Groceries). Change it in Payee rules."
+    )
+    same = client.post(
+        "/api/payee-rules", json={"entry_id": id_, "category": "groceries"}, headers=headers
+    )
+    assert same.status_code == 201, same.json()
     [rule] = rules(db_session)
     assert rule.category == "Groceries"
 
@@ -515,3 +527,240 @@ def test_rule_from_an_entry_checks_the_entry(
     assert post(headers, entry_id=no_payee["id"], category="Gift") == 422
     assert post(headers, entry_id=mine["id"]) == 422
     assert rules(db_session) == []
+
+
+# Payees set up as something other than a category
+
+
+def transfer_rule(db: Session, key: str, to_account_id: int) -> None:
+    db.add(PayeeRule(user_id=user_id(db), payee_key=key, display=key, to_account_id=to_account_id))
+    db.commit()
+
+
+def test_a_payee_set_as_a_transfer_is_never_approved_as_spending(
+    headers: Headers, db_session: Session
+) -> None:
+    bank(headers)
+    savings = bank(headers, last4="4321", name="savings")
+    history(headers, db_session, "Ramesh", "Gift", "Gift", "Gift")
+    body = entry(payee="Ramesh")
+    send(headers, body)
+    transfer_rule(db_session, "ramesh", savings)
+    got = item(headers, db_session, body)
+    assert got["confident"] is False
+    assert got["suggested_category"] is None
+    assert got["why"] == "Payee is set as a transfer"
+    assert review_list(headers)["confident"]["count"] == 0
+
+    result = approve(headers, (got["id"], "Gift"))
+    assert result["approved"] == 0
+    assert result["skipped"] == [{"id": got["id"], "reason": "Not confident any more"}]
+    assert transactions(db_session)[-1].category is None
+
+    offer = client.post(
+        "/api/payee-rules", json={"entry_id": got["id"], "category": "Gift"}, headers=headers
+    )
+    assert offer.status_code == 409
+    assert offer.json()["detail"] == (
+        "Ramesh is set up as a transfer or a regular payment. Change it in Payee rules."
+    )
+    [rule] = rules(db_session)
+    assert (rule.category, rule.to_account_id) == (None, savings)
+
+
+def test_a_payee_tied_to_a_reminder_is_not_confident(headers: Headers, db_session: Session) -> None:
+    b = bank(headers, balance="50000.00")
+    history(headers, db_session, "Ramesh", "Gift", "Gift", "Gift")
+    body = entry(payee="Ramesh")
+    send(headers, body)
+    rent = reminder(headers, b)
+    db_session.add(
+        PayeeRule(
+            user_id=user_id(db_session),
+            payee_key="ramesh",
+            display="Ramesh",
+            category="Gift",
+            template_id=rent["id"],
+        )
+    )
+    db_session.commit()
+    got = item(headers, db_session, body)
+    assert got["confident"] is False
+    assert got["why"] == "Payee is set as a regular payment"
+
+
+def test_a_payee_that_is_one_of_your_accounts_is_not_confident(
+    headers: Headers, db_session: Session
+) -> None:
+    bank(headers)
+    history(headers, db_session, "XX4321", "Gift", "Gift", "Gift")
+    body = entry(payee="XX4321")
+    send(headers, body)
+    bank(headers, last4="4321", name="savings")  # added since: the payee is now the owner's own
+    got = item(headers, db_session, body)
+    assert got["confident"] is False
+    assert got["why"] == "Payee is set as a transfer"
+
+
+def test_rule_from_an_entry_needs_money_that_takes_a_category(
+    headers: Headers, db_session: Session
+) -> None:
+    bank(headers)
+    card(headers)
+    paid = card_payment(payee="Bank Transfer")
+    send(headers, paid)
+    id_ = stored(db_session, paid["hash"]).id
+    response = client.post(
+        "/api/payee-rules", json={"entry_id": id_, "category": "Gift"}, headers=headers
+    )
+    assert response.status_code == 422
+    assert rules(db_session) == []
+
+
+# Sources
+
+
+def test_a_known_merchant_says_so(headers: Headers, db_session: Session) -> None:
+    bank(headers)
+    food = find(headers, "Food and dining")
+    assert patch(headers, food["id"], archived=True).status_code == 200
+    body = entry(payee="swiggy@icici", amount="250.00")
+    send(headers, body)  # waits: its merchant category was archived
+    assert patch(headers, food["id"], archived=False).status_code == 200
+    got = item(headers, db_session, body)
+    assert got["suggestion_source"] == "merchant"
+    assert got["suggested_category"] == "Food and dining"
+    assert got["confident"] is True
+    assert got["why"] == "Known merchant: Swiggy"
+
+
+def test_history_counts_only_settled_messages(headers: Headers, db_session: Session) -> None:
+    bank(headers)
+    for _ in range(3):
+        open_ = waiting(headers, db_session, payee="Ramesh")
+        tx = open_["transaction_id"]
+        changed = client.patch(
+            f"/api/transactions/{tx}", json={"category": "Gift"}, headers=headers
+        )
+        assert changed.status_code == 200, changed.json()
+    got = waiting(headers, db_session, payee="Ramesh")
+    assert got["suggested_category"] is None
+    assert got["why"] == "First time for this payee"
+
+
+def test_history_counts_old_names_as_the_category_they_became(
+    headers: Headers, db_session: Session
+) -> None:
+    bank(headers)
+    history(headers, db_session, "Ramesh", "Gift", "Gift", "Gift")
+    gift = find(headers, "Gift")
+    assert patch(headers, gift["id"], name="Presents").status_code == 200
+    # One row still carries the old name (saved mid-rename, say).
+    first = transactions(db_session)[0]
+    first.category = "Gift"
+    db_session.commit()
+    got = waiting(headers, db_session, payee="Ramesh")
+    assert (got["suggested_category"], got["history_count"], got["confident"]) == (
+        "Presents",
+        3,
+        True,
+    )
+
+
+# More than one batch
+
+
+def test_summary_covers_the_oldest_200_confident_items(
+    headers: Headers, db_session: Session
+) -> None:
+    bank(headers, balance="1000000.00")
+    history(headers, db_session, "Ramesh", "Gift", "Gift", "Gift")
+    bodies = [entry(payee="Ramesh", amount=f"{n + 1}.00", date=ago(5)) for n in range(201)]
+    for start in range(0, 201, 100):
+        assert send(headers, *bodies[start : start + 100]).status_code == 200
+    ids = [stored(db_session, b["hash"]).id for b in bodies]
+    summary = review_list(headers)["confident"]
+    assert (summary["count"], summary["total"]) == (200, 201)
+    assert summary["ids"] == ids[:200]
+
+    result = approve(headers, *((i, "Gift") for i in summary["ids"]))
+    assert result["approved"] == 200
+    after = review_list(headers)["confident"]
+    assert (after["count"], after["total"], after["ids"]) == (1, 1, [ids[200]])
+
+
+def test_approve_skips_money_changed_since_it_was_looked_at(
+    headers: Headers, db_session: Session
+) -> None:
+    from app.sms import review as review_module
+
+    bank(headers)
+    history(headers, db_session, "Ramesh", "Gift", "Gift", "Gift")
+    got = waiting(headers, db_session, payee="Ramesh", amount="40.00")
+    real = review_module._lock_transactions
+
+    def edited_meanwhile(db: Session, user_id: int, ids: Any, also: Any = ()) -> Any:
+        txs, accounts = real(db, user_id, ids, also)
+        for tx in txs.values():
+            tx.amount = Decimal("41.00")  # another request changed it before the lock
+        return txs, accounts
+
+    monkeypatch_ = pytest.MonkeyPatch()
+    monkeypatch_.setattr(review_module, "_lock_transactions", edited_meanwhile)
+    try:
+        result = approve(headers, (got["id"], "Gift"))
+    finally:
+        monkeypatch_.undo()
+    assert result["approved"] == 0
+    assert result["skipped"] == [
+        {"id": got["id"], "reason": "This payment changed since. Check it again."}
+    ]
+
+
+# Query counts
+
+
+class QueryCounter:
+    def __init__(self, db: Session) -> None:
+        self.engine = db.get_bind()
+        self.count = 0
+
+    def __enter__(self) -> "QueryCounter":
+        event.listen(self.engine, "before_cursor_execute", self._hit)
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        event.remove(self.engine, "before_cursor_execute", self._hit)
+
+    def _hit(self, *_: object) -> None:
+        self.count += 1
+
+
+def drafts(headers: Headers, db: Session, n: int, payee: str) -> list[int]:
+    history(headers, db, payee, "Gift", "Gift", "Gift")
+    bodies = [entry(payee=payee, amount=f"{k + 1}.{k % 10}0") for k in range(n)]
+    assert send(headers, *bodies).status_code == 200
+    return [stored(db, b["hash"]).id for b in bodies]
+
+
+def test_listing_takes_about_the_same_queries_for_more_items(
+    headers: Headers, db_session: Session
+) -> None:
+    bank(headers, balance="1000000.00")
+    drafts(headers, db_session, 3, "Ramesh")
+    with QueryCounter(db_session) as few:
+        review_list(headers)
+    drafts(headers, db_session, 30, "Suresh")
+    with QueryCounter(db_session) as many:
+        review_list(headers)
+    assert many.count - few.count <= 5, (few.count, many.count)
+
+
+def test_approving_takes_a_few_queries_per_item(headers: Headers, db_session: Session) -> None:
+    bank(headers, balance="1000000.00")
+    ids = drafts(headers, db_session, 20, "Ramesh")
+    with QueryCounter(db_session) as counted:
+        result = approve(headers, *((i, "Gift") for i in ids))
+    assert result["approved"] == 20
+    # About 12 per item: the entry lock and the same save checks a single answer runs.
+    assert counted.count <= 30 + 13 * 20, counted.count

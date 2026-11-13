@@ -15,7 +15,7 @@ from pydantic_core import PydanticCustomError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.categories import resolve, rule_kind
+from app.api.categories import name_key, resolve, rule_kind
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.routes.accounts import MAX_ID, Flag, Money, field_error, fmt
@@ -28,7 +28,7 @@ from app.models.account import Account
 from app.models.recurring import RecurringTemplate
 from app.models.sms import AccountIdentifier, PayeeRule, SmsEntry, SmsSample
 from app.sms import confidence, recording, review
-from app.sms.ingest import decide
+from app.sms.ingest import MONEY_IN, MONEY_OUT, decide
 
 router = APIRouter(prefix="/sms", tags=["sms"], dependencies=[Depends(get_current_user)])
 rules_router = APIRouter(
@@ -152,7 +152,11 @@ class CategoryTotal(BaseModel):
 
 
 class ConfidentSummary(BaseModel):
+    # The batch "Approve all" sends: the oldest confident items, at most 200 (`ids`), and their
+    # totals. `total` counts every confident item, so a longer list says "200 of 250".
     count: int
+    total: int
+    ids: list[int]
     spent: str
     received: str
     categories: list[CategoryTotal]
@@ -172,7 +176,7 @@ def _item(
 ) -> ReviewItem:
     price = review.suggested_price(db, user_id, entry)
     if found is None:
-        found = confidence.assess(db, user_id, entry, confidence.offered_transactions(db, user_id))
+        found = confidence.assess_one(db, user_id, entry)
     return ReviewItem(
         id=entry.id,
         status=entry.status,
@@ -214,13 +218,15 @@ def list_review(user: CurrentUser, db: DbSession) -> ReviewList:
         .order_by(SmsEntry.occurred_on.desc(), SmsEntry.id.desc())
     ).all()
     names = _account_names(db, user.id)
-    offered = confidence.offered_transactions(db, user.id)
-    found = [confidence.assess(db, user.id, e, offered) for e in entries]
-    summary = confidence.summarise(found)
+    ctx = confidence.Context(db, user.id, entries)
+    found = [confidence.assess(ctx, e) for e in entries]
+    summary = confidence.summarise(zip(entries, found, strict=True))
     return ReviewList(
         items=[_item(db, user.id, e, names, a) for e, a in zip(entries, found, strict=True)],
         confident=ConfidentSummary(
             count=summary.count,
+            total=summary.total,
+            ids=summary.ids,
             spent=fmt(summary.spent),
             received=fmt(summary.received),
             categories=[
@@ -242,7 +248,7 @@ class ApproveItem(BaseModel):
 class ApproveBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    items: Annotated[list[ApproveItem], Field(min_length=1, max_length=200)]
+    items: Annotated[list[ApproveItem], Field(min_length=1, max_length=confidence.APPROVE_LIMIT)]
 
 
 class Skipped(BaseModel):
@@ -512,8 +518,9 @@ def _rule_target_problem(db: Session, user_id: int, target: int) -> bool:
 
 @rules_router.post("", status_code=status.HTTP_201_CREATED)
 def create_rule(body: PayeeRuleCreate, user: CurrentUser, db: DbSession) -> PayeeRuleResponse:
-    """Offered after an approval as "Always use <category> for <payee>": the payee's rule gets
-    the category, made when it has none yet."""
+    """Offered after an approval as "Always use <category> for <payee>": the payee gets a
+    category rule. A rule the payee already has is never overwritten here (a transfer, a reminder
+    or another category): that is changed in Payee rules."""
     try:
         recording.lock_user(db, user.id)
         entry = None
@@ -525,12 +532,40 @@ def create_rule(body: PayeeRuleCreate, user: CurrentUser, db: DbSession) -> Paye
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Message not found.")
         if entry.payee_key is None:
             raise RequestValidationError([field_error("entry_id", "This message names no payee.")])
+        if entry.kind not in MONEY_IN | MONEY_OUT:
+            raise RequestValidationError(
+                [field_error("entry_id", "This message's money doesn't take a category.")]
+            )
         if body.category is None:
             raise RequestValidationError([field_error("category", "Choose a category.")])
-        kind = "income" if entry.kind == "credit" else "expense"
-        rule = review.remember_category(
-            db, user.id, entry, resolve(db, user.id, kind, body.category)
+        kind = "income" if entry.kind in MONEY_IN else "expense"
+        category = resolve(db, user.id, kind, body.category)
+        who = entry.payee or entry.payee_key
+        existing = db.scalar(
+            select(PayeeRule).where(
+                PayeeRule.user_id == user.id, PayeeRule.payee_key == entry.payee_key
+            )
         )
+        if existing is not None and (
+            existing.to_account_id is not None or existing.template_id is not None
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"{who} is set up as a transfer or a regular payment. Change it in Payee rules.",
+            )
+        if (
+            existing is not None
+            and existing.category is not None
+            and name_key(existing.category) != name_key(category)
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"{who} already has a payee rule ({existing.category}). Change it in Payee rules.",
+            )
+        if existing is not None and existing.category is not None:
+            rule = existing  # already says so
+        else:
+            rule = review.remember_category(db, user.id, entry, category)
         db.commit()
     except Exception:
         db.rollback()
