@@ -10,6 +10,7 @@ import { LockScreen } from "@/components/lock-screen";
 
 import { SessionProvider, useSession } from "@/lib/session";
 import { useAppLock } from "@/lib/use-app-lock";
+import { useWeeklySummary } from "@/lib/use-weekly-summary";
 import { lightTheme } from "@/lib/theme";
 
 // Keep the splash up until Nunito is ready, so no screen flashes in the system font.
@@ -20,6 +21,7 @@ function Screens() {
   const loggedIn = token !== null;
   const { colors } = useTheme();
   const { locked, covered, unlock } = useAppLock(loggedIn);
+  useWeeklySummary(loggedIn);
   const hidden = locked || covered;
 
   return (
@@ -68,6 +70,7 @@ function Screens() {
             <Stack.Screen name="budget-form" />
             <Stack.Screen name="safe-to-spend" />
             <Stack.Screen name="upcoming" />
+            <Stack.Screen name="digest" />
           </Stack.Protected>
           <Stack.Protected guard={!loggedIn}>
             <Stack.Screen name="login" />
