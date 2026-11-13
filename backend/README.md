@@ -31,3 +31,16 @@ uv run python -m app.cli refresh-prices
 ```
 
 A local run takes about 6 seconds for around 14,000 fund NAVs and 2,600 stocks.
+
+## Net worth snapshots
+
+After the prices, the same nightly job writes each user's net worth snapshot for that evening's date (IST): the dashboard's net worth, have, owe and asset split, one row per user per date, replaced if the job runs again that date. The response's `snapshots` is how many were written. A run that starts after midnight still files the snapshot under the evening it was meant for (India time minus 3 hours). The first `GET /api/net-worth` of a day also writes the user's snapshot if there is none yet. The rules are in [financial calculations](../docs/architecture/financial-calculations.md#net-worth-over-time).
+
+To estimate the 12 month-ends before snapshots began, from transactions (investments left out, rows marked estimated):
+
+```bash
+uv run python -m app.cli backfill-net-worth              # every user
+uv run python -m app.cli backfill-net-worth me@gmail.com --months 6
+```
+
+It never replaces a real snapshot and can be re-run.

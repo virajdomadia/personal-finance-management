@@ -99,6 +99,13 @@ def test_review_list_shows_open_items_newest_first(headers: Headers, db_session:
         "quantity": None,
         "candidates": None,
         "suggested_price": None,
+        "suggested_category": None,
+        "suggestion_source": None,
+        "history_count": 0,
+        "history_total": 0,
+        "suggested_account_id": None,
+        "confident": False,
+        "why": "First time for this payee",
     }
 
 

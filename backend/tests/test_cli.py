@@ -43,3 +43,58 @@ def test_refresh_prices_runs_the_job_and_closes_the_fetcher(db_session, monkeypa
     out = capsys.readouterr().out
     assert out == "Updated: {'crypto': 0, 'mutual_fund': 2, 'stock': 2}\nFailed: {}\n"
     assert fetcher.client.is_closed
+
+
+def _cash_user(db, email, added):
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from app.models.account import Account
+
+    user = create_user(db, email)
+    db.add(
+        Account(
+            user_id=user.id,
+            type="cash",
+            name="Cash",
+            opening_balance=Decimal("500.00"),
+            created_at=datetime(added.year, added.month, added.day, tzinfo=UTC),
+        )
+    )
+    db.commit()
+    return user
+
+
+def test_backfill_net_worth_for_one_user_or_everyone(db_session, monkeypatch, capsys):
+    from contextlib import nullcontext
+    from datetime import date
+
+    from sqlalchemy import select
+
+    from app import cli
+    from app.models.snapshot import NetWorthSnapshot
+
+    _cash_user(db_session, "me@gmail.com", date(2026, 9, 10))
+    _cash_user(db_session, "mum@gmail.com", date(2026, 10, 2))
+    monkeypatch.setattr(cli, "SessionLocal", lambda: nullcontext(db_session))
+    monkeypatch.setattr(cli, "today_india", lambda: date(2026, 11, 13))
+
+    assert cli.main(["backfill-net-worth", "ME@gmail.com"]) == 0
+    assert capsys.readouterr().out == "me@gmail.com: 2 estimated month-ends\n"
+
+    assert cli.main(["backfill-net-worth", "--months", "1"]) == 0
+    assert capsys.readouterr().out == (
+        "me@gmail.com: 1 estimated month-ends\nmum@gmail.com: 1 estimated month-ends\n"
+    )
+    dates = db_session.scalars(select(NetWorthSnapshot.date).order_by(NetWorthSnapshot.id))
+    assert len(list(dates)) == 3
+
+
+def test_backfill_net_worth_unknown_email_is_an_error(db_session, monkeypatch, capsys):
+    from contextlib import nullcontext
+
+    from app import cli
+
+    monkeypatch.setattr(cli, "SessionLocal", lambda: nullcontext(db_session))
+    assert cli.main(["backfill-net-worth", "nobody@gmail.com"]) == 1
+    assert "No user with email nobody@gmail.com" in capsys.readouterr().err
