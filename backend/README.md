@@ -31,3 +31,48 @@ uv run python -m app.cli refresh-prices
 ```
 
 A local run takes about 6 seconds for around 14,000 fund NAVs and 2,600 stocks.
+
+## Export, backup and restore
+
+Each signed-in user can download their own data (read-only, never anyone else's):
+
+- `GET /api/export/csv`: a zip with one CSV per entity (accounts, transactions, stock, fund and crypto trades, SIPs, loans, deposits, goals, insurance policies, recurring templates, budgets, categories). Human headers, names instead of ids, plain numbers (`1234.50`), ISO dates, UTF-8 with a BOM for Excel.
+- `GET /api/export/backup`: the full JSON backup below.
+
+### Backup format (version 1)
+
+```json
+{
+  "format": "pfm-backup",
+  "format_version": 1,
+  "alembic_revision": "<the database's alembic_version>",
+  "exported_at": "2026-11-13T10:15:00+00:00",
+  "user": {"email": "me@example.com"},
+  "tables": {"accounts": [{"id": 1, "name": "HDFC", "opening_balance": "1000.00"}]}
+}
+```
+
+`tables` has every row the user owns, every column by name, except columns pointing at `users.id`. Decimals are strings, dates and times ISO 8601, JSON columns as stored.
+
+The tables are found from the SQLAlchemy metadata (`app/export/tables.py`): every table with a `user_id` is included, a table without one is included when a foreign key ties it to a user's table, and `EXCLUDED` lists the rest with reasons (`users`: login identity; `market_codes`: shared market data). `tests/test_export_coverage.py` fails on any table that is neither, and on ids restore couldn't remap (a foreign key to an unexported table, an `_id` column that isn't a foreign key, a JSON column without an entry in `JSON_ID_FIELDS` in `app/export/backup.py`). So a new table with `user_id` is backed up automatically; a table that shouldn't be needs a line in `EXCLUDED`. `tests/export_fixture.py` must put a row in every exported table, or the restore test fails.
+
+### Restore procedure
+
+Restore is an admin step, done from a machine that can reach the database:
+
+```bash
+# A backup of one user (same file as the website's "Download backup")
+uv run python -m app.cli export-user me@example.com backup.json
+
+# Load it into a user (created if missing) who has no data yet
+uv run python -m app.cli restore-user me@example.com backup.json
+
+# Or replace that user's data: deletes it and loads the backup in one transaction
+uv run python -m app.cli restore-user me@example.com backup.json --replace
+```
+
+- The database must be at the backup's schema revision (`alembic_revision`); otherwise restore refuses. Migrate an empty database to that revision (`uv run alembic upgrade <revision>`), restore, then `uv run alembic upgrade head`.
+- Restore refuses a user who already has rows (categories are seeded on first sign-in) unless `--replace` is given.
+- Every row gets a new id and every foreign key is remapped, so it works on a database with other users. Ids inside `sms_entries.candidates` are remapped too; choices pointing at rows no longer in the backup are dropped.
+- Any error rolls the whole restore back.
+- To restore production, point `DATABASE_URL` at it for the one command, and take a Neon branch first.
