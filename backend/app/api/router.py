@@ -11,6 +11,7 @@ from app.api.routes import (
     crypto_trades,
     dashboard,
     deposits,
+    digest,
     fund_trades,
     funds,
     goals,
@@ -42,6 +43,7 @@ api_router.include_router(categories.router)
 api_router.include_router(cash_flow.router)
 api_router.include_router(budgets.router)
 api_router.include_router(upcoming.router)
+api_router.include_router(digest.router)
 api_router.include_router(sms.router)
 api_router.include_router(sms.rules_router)
 api_router.include_router(funds.router)
