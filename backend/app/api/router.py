@@ -12,6 +12,7 @@ from app.api.routes import (
     dashboard,
     deposits,
     digest,
+    export,
     fund_trades,
     funds,
     goals,
@@ -59,6 +60,7 @@ api_router.include_router(market.router)
 api_router.include_router(crypto_trades.router)
 api_router.include_router(trades.router)
 api_router.include_router(portfolio.router)
+api_router.include_router(export.router)
 api_router.include_router(net_worth.router)
 api_router.include_router(health.router)
 api_router.include_router(cron.router)
