@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.export import csv_export
 from app.main import app
 from app.models.user import User
 from tests import export_fixture
@@ -114,3 +115,52 @@ def test_a_new_user_gets_headers_only(db_session: Session, monkeypatch: pytest.M
     files = _zip(auth(db_session, monkeypatch))
     assert _rows(files["transactions.csv"]) == []
     assert files["transactions.csv"].decode("utf-8-sig").startswith("Date,Type,Amount,Account")
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('=HYPERLINK("http://evil","x")', "'=HYPERLINK(\"http://evil\",\"x\")"),
+        ("=1+1", "'=1+1"),
+        ("@SUM(A1)", "'@SUM(A1)"),
+        ("+91 98765 43210", "'+91 98765 43210"),
+        ("+919876543210", "'+919876543210"),
+        ("-2+3", "'-2+3"),
+        ("\tcmd", "'\tcmd"),
+        ("-1500.00", "-1500.00"),
+        ("1500.00", "1500.00"),
+        ("Swiggy", "Swiggy"),
+    ],
+)
+def test_text_that_a_spreadsheet_would_run_is_quoted(text: str, expected: str) -> None:
+    assert csv_export.safe(text) == expected
+
+
+def test_a_payee_note_cannot_become_a_formula(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = auth(db_session, monkeypatch)
+    bank = client.post(
+        "/api/accounts",
+        json={"type": "bank", "name": "=cmd", "bank_kind": "savings", "balance": "-1500.00"},
+        headers=headers,
+    ).json()["id"]
+    response = client.post(
+        "/api/transactions",
+        json={
+            "type": "expense",
+            "date": date.today().isoformat(),
+            "account_id": bank,
+            "amount": "25.00",
+            "category": "Groceries",
+            "note": '=HYPERLINK("http://evil","x")',
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.json()
+    files = _zip(headers)
+    (tx,) = _rows(files["transactions.csv"])
+    assert tx["Note"] == "'=HYPERLINK(\"http://evil\",\"x\")"
+    assert tx["Account"] == "'=cmd"
+    (account,) = _rows(files["accounts.csv"])
+    assert account["Balance"] == "-1525.00"

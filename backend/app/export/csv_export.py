@@ -6,6 +6,7 @@ dates, UTF-8 with a byte order mark so Excel reads ₹ and non-English names.
 
 import csv
 import io
+import re
 import zipfile
 from collections.abc import Iterable
 from datetime import date, datetime
@@ -68,12 +69,25 @@ def amount(value: Decimal | None) -> str:
     return f"{whole}.{fraction.ljust(2, '0')}"
 
 
+# A spreadsheet runs a cell that starts with one of these as a formula. A note or payee can be
+# anything (an SMS payee is chosen by whoever sent the money), so such text gets a leading quote.
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+PLAIN_NUMBER = re.compile(r"-?[0-9]+(\.[0-9]+)?")
+
+
+def safe(text: str) -> str:
+    """Text a spreadsheet shows as text. Our own numbers (`-1500.00`) stay numbers."""
+    if text.startswith(FORMULA_START) and not PLAIN_NUMBER.fullmatch(text):
+        return "'" + text
+    return text
+
+
 def to_csv(headers: list[str], rows: Iterable[list[Any]]) -> bytes:
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\r\n")
     writer.writerow(headers)
     for row in rows:
-        writer.writerow([v if isinstance(v, str) else cell(v) for v in row])
+        writer.writerow([safe(v if isinstance(v, str) else cell(v)) for v in row])
     return ("﻿" + out.getvalue()).encode("utf-8")
 
 
