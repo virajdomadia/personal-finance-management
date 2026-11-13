@@ -1,14 +1,17 @@
-"""Downloads of the signed-in user's own data: a JSON backup and a zip of CSVs. Read-only."""
+"""Downloads of the signed-in user's own data: a gzipped JSON backup and a zip of CSVs.
+Read-only."""
 
-import json
+import logging
 
 from fastapi import APIRouter, Depends, Response
 
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.db.session import DbSession
-from app.export.backup import dump
+from app.export.backup import dump, encode
 from app.export.csv_export import build_zip
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/export", tags=["export"], dependencies=[Depends(get_current_user)])
 
@@ -19,9 +22,11 @@ def _attachment(name: str) -> dict[str, str]:
 
 @router.get("/backup")
 def backup(user: CurrentUser, db: DbSession) -> Response:
-    body = json.dumps(dump(db, user), ensure_ascii=False, indent=1)
-    name = f"pfm-backup-{today_india().isoformat()}.json"
-    return Response(body, media_type="application/json", headers=_attachment(name))
+    body, raw_size = encode(dump(db, user))
+    # Vercel refuses responses over 4.5 MB; these sizes show how close a backup is getting.
+    log.info("backup for user %s: %d bytes of JSON, %d gzipped", user.id, raw_size, len(body))
+    name = f"pfm-backup-{today_india().isoformat()}.json.gz"
+    return Response(body, media_type="application/gzip", headers=_attachment(name))
 
 
 @router.get("/csv")

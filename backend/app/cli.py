@@ -1,7 +1,7 @@
 """Admin commands for users and their data: python -m app.cli <command>."""
 
 import argparse
-import json
+import gzip
 import sys
 from datetime import date
 
@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.dates import today_india
 from app.api.snapshots import BACKFILL_MONTHS, backfill
 from app.db.session import SessionLocal
-from app.export.backup import dump, restore
+from app.export.backup import decode, dump, encode, restore
 from app.models.user import User
 from app.prices.fetch import default_fetcher
 from app.prices.refresh import run_nightly
@@ -54,20 +54,25 @@ def revoke_sessions(db: Session, email: str) -> User:
 
 
 def export_user(db: Session, email: str, path: str) -> int:
-    """Writes the user's backup to `path`. Returns the number of rows written."""
+    """Writes the user's backup to `path`, gzipped when it ends in .gz. Returns the rows."""
     document = dump(db, _find(db, email))
-    with open(path, "w", encoding="utf-8") as out:
-        json.dump(document, out, ensure_ascii=False, indent=1)
+    data, _ = encode(document)
+    if not path.endswith(".gz"):
+        data = gzip.decompress(data)
+    with open(path, "wb") as out:
+        out.write(data)
     return sum(len(rows) for rows in document["tables"].values())
 
 
 def restore_user(db: Session, email: str, path: str, replace: bool = False) -> int:
-    """Loads a backup into the user (created if missing) in one transaction. Returns the rows."""
+    """Loads a .json or .json.gz backup into the user (created if missing) in one transaction.
+    Returns the number of rows."""
     try:
-        with open(path, encoding="utf-8") as source:
-            document = json.load(source)
-    except (OSError, json.JSONDecodeError) as error:
+        with open(path, "rb") as source:
+            data = source.read()
+    except OSError as error:
         raise ValueError(f"Can't read {path}: {error}") from error
+    document = decode(data)
     email = email.strip().lower()
     try:
         user = db.scalar(select(User).where(User.email == email))

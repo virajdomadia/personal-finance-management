@@ -150,7 +150,6 @@ def build(db: Session, headers: Headers, user_id: int, today: date) -> None:
     sms_tx = db.query(Transaction).filter_by(user_id=u, source="sms").one()
     candidates = [
         {"kind": "transaction", "id": sms_tx.id, "label": "Refund"},
-        {"kind": "transaction", "id": 999999, "label": "Deleted since"},
         {"kind": "account", "id": sbi.id, "label": "SBI"},
         {"kind": "emi", "id": car.id, "label": "Car loan EMI"},
         {"kind": "sip", "id": sip.id, "label": "PPFCF SIP", "needs_nav": True},

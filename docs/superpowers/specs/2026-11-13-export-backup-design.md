@@ -12,7 +12,7 @@ Everything not decided by the plan was left to Claude ("do what's best"). Those 
 
 ## The JSON backup
 
-`GET /api/export/backup` returns one document, downloaded as `pfm-backup-YYYY-MM-DD.json`:
+`GET /api/export/backup` returns one document, as compact JSON gzipped (`pfm-backup-YYYY-MM-DD.json.gz`, `application/gzip`, so it stays well under Vercel's 4.5 MB response limit; both sizes are logged):
 
 ```json
 {

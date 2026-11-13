@@ -2,8 +2,10 @@
 figure the app shows comes out the same."""
 
 import json
+import random
 from contextlib import nullcontext
-from datetime import date
+from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +16,18 @@ from sqlalchemy.orm import Session
 
 from app import cli
 from app.core.security import create_token
-from app.export.backup import RestoreError, _metadata_plan, restore, row_counts
+from app.export.backup import (
+    RestoreError,
+    _metadata_plan,
+    decode,
+    encode,
+    restore,
+    row_counts,
+)
 from app.main import app
 from app.models.account import Account
 from app.models.category import Category
+from app.models.market import MarketCode
 from app.models.transaction import Transaction
 from app.models.user import User
 from tests import export_fixture
@@ -45,6 +55,7 @@ PAGES = [
     "/api/categories",
     "/api/transactions",
     "/api/payee-rules",
+    "/api/sms/review",
 ]
 
 
@@ -101,8 +112,11 @@ def me(db_session: Session, monkeypatch: pytest.MonkeyPatch) -> Headers:
 def _backup(headers: Headers) -> dict[str, Any]:
     response = client.get("/api/export/backup", headers=headers)
     assert response.status_code == 200
-    assert response.headers["content-disposition"].startswith('attachment; filename="pfm-backup-')
-    return response.json()
+    assert response.headers["content-type"] == "application/gzip"
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith('attachment; filename="pfm-backup-')
+    assert disposition.endswith('.json.gz"')
+    return decode(response.content)
 
 
 def _restore_into(db: Session, email: str, document: dict[str, Any], **kw: Any) -> Headers:
@@ -142,11 +156,8 @@ def test_restore_gives_identical_figures(me: Headers, db_session: Session) -> No
     assert balances(copy) == balances(me)
     assert len(balances(me)) == 12
 
-    # The copy's own backup is the same data, apart from ids and the one stale SMS choice.
+    # The copy's own backup is the same data, apart from ids.
     again = _backup(copy)
-    for entry in document["tables"]["sms_entries"]:
-        if entry["candidates"]:
-            entry["candidates"] = [c for c in entry["candidates"] if c["id"] != 999999]
 
     # Rows of one table may come back in another order (a merged category waits for its target).
     def rows(tables: dict[str, Any]) -> dict[str, list[str]]:
@@ -250,8 +261,160 @@ def test_cli_export_and_restore(
     assert cli.main(["restore-user", "fresh@example.com", str(out)]) == 1
     assert "--replace" in capsys.readouterr().err
     assert cli.main(["restore-user", "fresh@example.com", str(out), "--replace"]) == 0
+    assert json.loads(out.read_text(encoding="utf-8"))["format"] == "pfm-backup"
+
+    # The website's download is gzipped; restore-user reads it as it is.
+    gz = tmp_path / "pfm-backup.json.gz"
+    gz.write_bytes(client.get("/api/export/backup", headers=me).content)
+    assert cli.main(["restore-user", "gz@example.com", str(gz)]) == 0
+    gzipped = _headers_for(db_session, "gz@example.com")
+    assert _without_ids(_get(gzipped, "/api/dashboard")) == _without_ids(_get(me, "/api/dashboard"))
+    assert cli.main(["export-user", "me@example.com", str(tmp_path / "again.json.gz")]) == 0
+    assert (tmp_path / "again.json.gz").read_bytes()[:2] == b"\x1f\x8b"
+    (tmp_path / "broken.json").write_text("{not json", encoding="utf-8")
+    capsys.readouterr()
+    assert cli.main(["restore-user", "gz@example.com", str(tmp_path / "broken.json")]) == 1
+    assert "readable backup" in capsys.readouterr().err
 
 
 def test_every_table_in_the_plan_is_in_the_backup(me: Headers) -> None:
     names = {t.name for t in _metadata_plan().exported}
     assert set(_backup(me)["tables"]) == names
+
+
+def _accounts_of(db: Session, email: str) -> dict[str, Account]:
+    user = db.scalars(select(User).where(User.email == email)).one()
+    return {a.name: a for a in db.scalars(select(Account).where(Account.user_id == user.id))}
+
+
+def test_rows_keep_their_order_and_may_point_at_each_other(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An RD paid from a bank opened after it, and two accounts that pay each other."""
+    me = auth(db_session, monkeypatch, "me@example.com")
+    user = db_session.scalars(select(User).where(User.email == "me@example.com")).one()
+
+    def add(name: str, type_: str) -> Account:
+        row = Account(user_id=user.id, type=type_, name=name, opening_balance=Decimal("1.00"))
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    rd, a, b, bank = add("RD", "rd"), add("A", "bank"), add("B", "credit_card"), add("Bank", "bank")
+    rd.pay_from_id, a.pay_from_id, b.pay_from_id = bank.id, b.id, a.id
+    db_session.commit()
+
+    _restore_into(db_session, "copy@example.com", _backup(me))
+    copy = _accounts_of(db_session, "copy@example.com")
+    assert sorted(copy, key=lambda n: copy[n].id) == ["RD", "A", "B", "Bank"]
+    assert copy["RD"].pay_from_id == copy["Bank"].id
+    assert (copy["A"].pay_from_id, copy["B"].pay_from_id) == (copy["B"].id, copy["A"].id)
+
+
+def _choices(headers: Headers) -> list[dict[str, Any]]:
+    return [c for e in _get(headers, "/api/sms/review")["items"] for c in e["candidates"] or []]
+
+
+def test_a_stale_sms_choice_is_dropped(me: Headers, db_session: Session) -> None:
+    document = _backup(me)
+    entry = next(e for e in document["tables"]["sms_entries"] if e["candidates"])
+    entry["candidates"].append({"kind": "transaction", "id": 999999, "label": "Deleted since"})
+    labels = [c["label"] for c in _choices(_restore_into(db_session, "copy@example.com", document))]
+    assert labels and "Deleted since" not in labels
+
+
+def test_market_choices_travel_by_code(me: Headers, db_session: Session) -> None:
+    document = _backup(me)
+    entry = next(e for e in document["tables"]["sms_entries"] if e["candidates"])
+    market = next(c for c in entry["candidates"] if c["kind"] == "market")
+    assert (market["market_kind"], market["market_code"]) == ("stock", "INFY")
+    market["id"] = 10**9  # another database's id: the code finds this database's row
+    entry["candidates"].append({**market, "market_code": "NOT-LISTED", "label": "Gone"})
+    copy = _restore_into(db_session, "copy@example.com", document)
+    expected = db_session.scalars(
+        select(MarketCode.id).where(MarketCode.kind == "stock", MarketCode.code == "INFY")
+    ).one()
+    found = [c for c in _choices(copy) if c["kind"] == "market"]
+    assert [c["id"] for c in found] == [expected]
+    assert all("market_code" not in c for c in found)
+
+
+def _first_with_choices(d: dict[str, Any]) -> dict[str, Any]:
+    return next(e for e in d["tables"]["sms_entries"] if e["candidates"])
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda d: d.update(tables=[]), "must be an object"),
+        (lambda d: d["tables"].update(accounts={}), "accounts must be a list"),
+        (lambda d: d["tables"]["accounts"].append("x"), "isn't an object"),
+        (lambda d: d["tables"]["accounts"].append({"name": "No id"}), "whole-number id"),
+        (lambda d: d["tables"]["accounts"].append({"id": "7"}), "whole-number id"),
+        (lambda d: d["tables"]["accounts"].append(dict(d["tables"]["accounts"][0])), "twice"),
+        (lambda d: _first_with_choices(d).update(candidates=["x"]), "list of objects"),
+    ],
+)
+def test_restore_refuses_a_malformed_backup(
+    me: Headers, db_session: Session, change: Any, message: str
+) -> None:
+    document = _backup(me)
+    change(document)
+    with pytest.raises(RestoreError, match=message):
+        _restore_into(db_session, "copy@example.com", document)
+
+
+def test_a_large_backup_stays_well_under_vercels_limit() -> None:
+    """15,000 rows of prices, SMS and transactions: Vercel refuses responses over 4.5 MB."""
+    rng = random.Random(7)
+    start = date(2024, 1, 1)
+
+    def day(n: int) -> str:
+        return (start + timedelta(days=n)).isoformat()
+
+    tables: dict[str, list[dict[str, Any]]] = {
+        "instrument_prices": [
+            {
+                "id": i,
+                "instrument_id": 1 + i % 40,
+                "date": day(i // 40),
+                "price": f"{rng.uniform(10, 5000):.4f}",
+                "trade_id": None,
+                "source": "auto",
+                "created_at": f"{day(i // 40)}T16:30:{i % 60:02d}+00:00",
+            }
+            for i in range(1, 7001)
+        ],
+        "sms_entries": [
+            {
+                "id": i,
+                "hash": f"{rng.getrandbits(256):064x}",
+                "sender": "VM-HDFCBK",
+                "bank": "hdfc",
+                "kind": "debit",
+                "amount": f"{rng.uniform(10, 20000):.2f}",
+                "occurred_on": day(i // 5),
+                "payee": f"merchant{rng.randint(1, 400)}@okicici",
+                "status": "recorded",
+                "candidates": None,
+            }
+            for i in range(1, 4001)
+        ],
+        "transactions": [
+            {
+                "id": i,
+                "type": "expense",
+                "amount": f"{rng.uniform(10, 20000):.2f}",
+                "date": day(i // 4),
+                "account_id": 1 + i % 6,
+                "category": rng.choice(["Groceries", "Food and dining", "Fuel", "Shopping"]),
+                "note": f"note {rng.randint(1, 10**6)}",
+                "source": "sms",
+            }
+            for i in range(1, 4001)
+        ],
+    }
+    gz, raw = encode({"format": "pfm-backup", "tables": tables})
+    print(f"15,000 rows: {raw} bytes of JSON, {len(gz)} gzipped")
+    assert len(gz) < 1_500_000  # a third of the 4.5 MB limit
+    assert raw > 3 * len(gz)
