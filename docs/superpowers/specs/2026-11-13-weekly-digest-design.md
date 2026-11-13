@@ -79,6 +79,10 @@ Backend tests first (`tests/test_digest.py`), with frozen dates and times: Sunda
 3. Tapping it opens the digest screen with live figures, from a cold start and from the background.
 4. Turning the switch off: no notification the next Sunday.
 5. Dashboard: the "Your week" card, its Hide button, and that the card returns the following week; no streak chip on the dashboard; streak still on Profile.
+6. The notification's small icon (the adaptive icon's monochrome layer, tinted #FFC800 by the `expo-notifications` config plugin) looks right in the status bar and shade.
+7. The digest screen: "Last full week" / "This week so far", budgets at risk open Budgets, "Month report" opens the right month, "Next 30 days" opens the list.
+
+`npx expo-doctor` flags only patch-version mismatches that were there before (expo, expo-dev-client, expo-font, expo-linking, expo-local-authentication, expo-router, expo-secure-store, expo-status-bar); nothing about `expo-notifications` (installed at ~58.1.9 by `npx expo install`).
 
 ## Design calls made by Claude ("do what's best"), not yet confirmed by the owner
 
