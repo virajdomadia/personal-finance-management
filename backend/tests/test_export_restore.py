@@ -4,14 +4,14 @@ figure the app shows comes out the same."""
 import json
 import random
 from contextlib import nullcontext
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app import cli
@@ -309,6 +309,31 @@ def test_rows_keep_their_order_and_may_point_at_each_other(
     assert sorted(copy, key=lambda n: copy[n].id) == ["RD", "A", "B", "Bank"]
     assert copy["RD"].pay_from_id == copy["Bank"].id
     assert (copy["A"].pay_from_id, copy["B"].pay_from_id) == (copy["B"].id, copy["A"].id)
+
+
+def test_filling_links_in_keeps_updated_at(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Links filled in after the insert must not stamp the row as changed now."""
+    me = auth(db_session, monkeypatch, "me@example.com")
+    user = db_session.scalars(select(User).where(User.email == "me@example.com")).one()
+    rd = Account(user_id=user.id, type="rd", name="RD", opening_balance=Decimal("1.00"))
+    bank = Account(user_id=user.id, type="bank", name="Bank", opening_balance=Decimal("1.00"))
+    db_session.add_all([rd, bank])
+    db_session.flush()
+    rd.pay_from_id = bank.id
+    db_session.flush()
+    long_ago = datetime(2025, 1, 2, 3, 4, 5)
+    db_session.execute(
+        update(Account).where(Account.user_id == user.id).values(updated_at=long_ago)
+    )
+    db_session.commit()
+
+    _restore_into(db_session, "copy@example.com", _backup(me))
+    copy = _accounts_of(db_session, "copy@example.com")
+    assert copy["RD"].pay_from_id == copy["Bank"].id
+    assert copy["RD"].updated_at.replace(tzinfo=None) == long_ago
+    assert copy["Bank"].updated_at.replace(tzinfo=None) == long_ago
 
 
 def _choices(headers: Headers) -> list[dict[str, Any]]:

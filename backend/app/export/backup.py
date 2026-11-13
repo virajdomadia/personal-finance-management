@@ -426,8 +426,14 @@ def _insert_table(
 
 def _fill(db: Session, table: Table, name: str, pairs: list[dict[str, Any]]) -> None:
     if pairs:
+        values: dict[Any, Any] = {name: bindparam("_to")}
+        # A column with an onupdate (updated_at = now()) would stamp the restored row as changed
+        # today. Naming it in the SET, as itself, keeps the backed-up value.
+        for column in table.columns:
+            if column.onupdate is not None and column.name != name:
+                values[column.name] = column
         db.connection().execute(
-            update(table).where(table.c.id == bindparam("_row")).values({name: bindparam("_to")}),
+            update(table).where(table.c.id == bindparam("_row")).values(values),
             pairs,
         )
 
