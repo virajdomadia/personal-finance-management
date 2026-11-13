@@ -6,7 +6,7 @@ import { Button, Dialog, Portal, Text } from "react-native-paper";
 import { ProfileView } from "@/components/profile-view";
 import { type Streak } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { EXPORTS, type ExportKind, exportError } from "@/lib/data-export";
+import { EXPORTS, ExportError, type ExportKind, exportError } from "@/lib/data-export";
 import { shareExport } from "@/lib/export-share";
 import { useSession } from "@/lib/session";
 import { disableWeeklySummary, enableWeeklySummary, readSummaryPref } from "@/lib/weekly-summary";
@@ -53,12 +53,13 @@ export default function ProfileScreen() {
     shareExport(kind, token ?? undefined).then(
       () => setExporting(null),
       (err: unknown) => {
-        if (err instanceof ApiError && err.status === 401) {
+        const failure = err instanceof ExportError ? err.failure : ({ stage: "save" } as const);
+        if (failure.stage === "server" && failure.status === 401) {
           setExporting(null);
           void logOut();
           return;
         }
-        setExportMessage(err instanceof ApiError ? exportError(err.status) : exportError(null));
+        setExportMessage(exportError(failure));
         setExporting("choose");
       },
     );

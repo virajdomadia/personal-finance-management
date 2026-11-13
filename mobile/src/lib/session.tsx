@@ -2,6 +2,7 @@ import * as SecureStore from "expo-secure-store";
 import { createContext, use, useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { apiFetch } from "@/lib/api";
+import { clearExports } from "@/lib/export-share";
 import { getGoogleIdToken, signOutOfGoogle } from "@/lib/google";
 
 const TOKEN_KEY = "pfm_token";
@@ -40,6 +41,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const logOut = useCallback(async () => {
     setToken(null);
+    clearExports(); // exported files hold the whole financial history
     try {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
     } finally {
