@@ -20,7 +20,7 @@ const CARDS: { kind: ExportKind; emoji: string; title: string; button: string; b
     emoji: "🗄️",
     title: "Full backup",
     button: "Download backup (JSON)",
-    body: "Everything you've entered, in one file, so it can be loaded back in. Keep it somewhere safe: it holds your whole financial history.",
+    body: "Everything you've entered, in one compressed JSON file (.json.gz), so it can be loaded back in. Keep it somewhere safe: it holds your whole financial history.",
   },
 ];
 

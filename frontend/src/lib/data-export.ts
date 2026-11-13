@@ -3,7 +3,7 @@
 export type ExportKind = "backup" | "csv";
 
 export const EXPORTS: Record<ExportKind, { path: string; fallback: string }> = {
-  backup: { path: "/api/export/backup", fallback: "pfm-backup.json" },
+  backup: { path: "/api/export/backup", fallback: "pfm-backup.json.gz" },
   csv: { path: "/api/export/csv", fallback: "pfm-export.zip" },
 };
 

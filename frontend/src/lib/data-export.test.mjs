@@ -5,7 +5,7 @@ import { EXPORTS, downloadError, fileNameFrom } from "./data-export.ts";
 
 test("file name comes from the attachment header", () => {
   assert.equal(fileNameFrom('attachment; filename="pfm-export-2026-11-13.zip"', "x.zip"), "pfm-export-2026-11-13.zip");
-  assert.equal(fileNameFrom("attachment; filename=pfm-backup-2026-11-13.json", "x.json"), "pfm-backup-2026-11-13.json");
+  assert.equal(fileNameFrom("attachment; filename=pfm-backup-2026-11-13.json.gz", "x.json.gz"), "pfm-backup-2026-11-13.json.gz");
 });
 
 test("a missing or odd name falls back", () => {
@@ -14,6 +14,7 @@ test("a missing or odd name falls back", () => {
 });
 
 test("downloads go through the /api proxy", () => {
+  assert.equal(EXPORTS.backup.fallback, "pfm-backup.json.gz");
   assert.equal(EXPORTS.backup.path, "/api/export/backup");
   assert.equal(EXPORTS.csv.path, "/api/export/csv");
 });
