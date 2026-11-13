@@ -8,7 +8,7 @@ import { ChunkyButton } from "@/components/chunky";
 import { DashboardView } from "@/components/dashboard-view";
 import { DueList } from "@/components/due-list";
 import { NetWorthTrend } from "@/components/net-worth-chart";
-import { type Dashboard, type Streak } from "@/lib/accounts";
+import { type Dashboard } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useSession } from "@/lib/session";
 
@@ -19,7 +19,6 @@ export default function DashboardScreen() {
   const { colors } = useTheme();
   const { top } = useSafeAreaInsets();
   const [data, setData] = useState<Dashboard | null>(null);
-  const [streak, setStreak] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const latest = useRef(0);
@@ -29,18 +28,11 @@ export default function DashboardScreen() {
   const load = useCallback(async () => {
     const mine = ++latest.current;
     setVersion(mine);
-    // The streak is a nicety: if it can't load, the chip is simply hidden.
-    const streakRequest = apiFetch<Streak>("/streak", { token: token ?? undefined }).then(
-      (s) => s.days,
-      () => null,
-    );
     try {
       const result = await apiFetch<Dashboard>("/dashboard", { token: token ?? undefined });
       if (mine !== latest.current) return;
       setData(result);
       setFailed(false);
-      const days = await streakRequest;
-      if (mine === latest.current) setStreak(days);
     } catch (err) {
       if (mine !== latest.current) return;
       if (err instanceof ApiError && err.status === 401) {
@@ -94,7 +86,6 @@ export default function DashboardScreen() {
     >
       <DashboardView
         data={data}
-        streak={streak}
         failed={failed}
         onOpenAccounts={openAccounts}
         refreshKey={version}

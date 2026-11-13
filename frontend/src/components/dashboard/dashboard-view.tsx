@@ -13,6 +13,7 @@ import { NetWorthTrend } from "@/components/net-worth/net-worth-trend";
 import { MonthCard } from "@/components/dashboard/month-card";
 import { SafeToSpendCard } from "@/components/dashboard/safe-to-spend-card";
 import { UpcomingCard } from "@/components/dashboard/upcoming-card";
+import { WeeklyDigestCard } from "@/components/dashboard/weekly-digest-card";
 import {
   FOCUS,
   PageHeader,
@@ -171,6 +172,7 @@ function Content({
         </Tile>
       )}
       <SetupChecklist fallback={hasAccounts ? null : emptyPrompt} />
+      {hasAccounts && <WeeklyDigestCard />}
       {(hasAccounts || investments || hasSplit) && (
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-[2fr_1fr_1fr]">
           {hasAccounts && (
