@@ -205,7 +205,7 @@
 ### Task 9: Docs, roadmap and hand-off
 
 **Files:**
-- Modify: `docs/product/roadmap.md` (Milestone 4 status: automatic prices), `docs/architecture/database-design.md` (`market_codes`, `source_code`, `source`), `backend/README.md` (`refresh-prices`, `CRON_SECRET`)
+- Modify: `docs/architecture/database-design.md` (`market_codes`, `source_code`, `source`), `backend/README.md` (`refresh-prices`, `CRON_SECRET`)
 
 - [ ] **Step 1: Update the docs.**
 - [ ] **Step 2: Run** `npm run lint && npm test` from the repo root. Expected: PASS.

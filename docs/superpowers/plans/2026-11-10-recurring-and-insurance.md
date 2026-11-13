@@ -180,7 +180,7 @@ def financial_year(day: date) -> int   # reuse app.api.deposits.financial_year
 ### Task 5: Dashboard and docs
 
 **Files:**
-- Modify: `backend/app/api/routes/dashboard.py` (new key `recurring: list[DueItem]`, from `due_items`), `docs/architecture/financial-calculations.md` (occurrence rules, the 45-day window, the card bill date, the funding estimate), `docs/architecture/database-design.md` (the new tables), `docs/product/roadmap.md` (Milestone 2: recurring templates built on branch `recurring-insurance`; link the spec)
+- Modify: `backend/app/api/routes/dashboard.py` (new key `recurring: list[DueItem]`, from `due_items`), `docs/architecture/financial-calculations.md` (occurrence rules, the 45-day window, the card bill date, the funding estimate), `docs/architecture/database-design.md` (the new tables)
 - Test: `backend/tests/test_dashboard.py`
 
 - [ ] **Step 1:** Write the failing test: the dashboard `recurring` shows a due rent and a coming-up premium, and every existing dashboard key is unchanged (compare against a run with no templates).

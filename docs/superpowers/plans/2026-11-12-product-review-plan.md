@@ -33,7 +33,7 @@ Phases 6 and 7 come after the cash-flow work (Phases 2 to 5). Their problems are
 The vision says "not building" for automatic prices, NAVs and transaction detection. All three are built.
 
 - Rewrite the *Out of scope* table in `docs/product/vision.md`. The principle becomes **"Nothing is recorded without the owner's action"**: SMS creates drafts the owner reviews, and prices are market data, not records. Keep bank sync, aggregators, AI advice and auto bill-pay out of scope.
-- Update the domain status table and `docs/product/roadmap.md` to match `main`: SMS, nightly prices, goals, insurance, recurring.
+- Update the domain status table to match `main`: SMS, nightly prices, goals, insurance, recurring.
 - Replace the roadmap order with the phases below.
 - Write down the audience: **the owner plus invited family members, each with separate data**. Shared household accounts are not planned (see Phase 7).
 
