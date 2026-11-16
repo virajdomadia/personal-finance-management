@@ -3,7 +3,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api.deps import CurrentUser, get_current_user
+from app.api.deps import SignedInUser as CurrentUser
+from app.api.deps import get_signed_in_user
 from app.core.config import get_settings
 from app.core.google import GoogleUnavailable, InvalidGoogleToken, verify_google_id_token
 from app.core.security import create_token
@@ -12,7 +13,7 @@ from app.models.user import User
 
 # Login is public; the session check below is the protected part of this router.
 public_router = APIRouter(prefix="/auth", tags=["auth"])
-router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(get_signed_in_user)])
 
 
 class GoogleLoginRequest(BaseModel):
@@ -58,7 +59,7 @@ def google_login(body: GoogleLoginRequest, db: DbSession) -> LoginResponse:
         db.rollback()
         raise _unavailable("Database unavailable. Try again.") from None
 
-    if user is None:
+    if user is None or user.owner_id is not None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This Google account is not allowed.")
     return LoginResponse(token=create_token(user.id, user.session_version, settings.token_secret))
 

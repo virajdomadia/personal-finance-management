@@ -13,6 +13,7 @@ from app.api.routes import (
     deposits,
     digest,
     export,
+    family,
     fund_trades,
     funds,
     goals,
@@ -41,6 +42,7 @@ api_router.include_router(auth.router)
 api_router.include_router(accounts.router)
 api_router.include_router(deposits.router)
 api_router.include_router(imports.router)
+api_router.include_router(family.router)
 api_router.include_router(statement_import.router)
 api_router.include_router(holdings_import.router)
 api_router.include_router(dashboard.router)
