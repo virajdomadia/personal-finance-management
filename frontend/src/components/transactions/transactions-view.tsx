@@ -229,11 +229,19 @@ export function TransactionsView({ initialQuery }: { initialQuery: string }) {
       <PageHeader
         title="Transactions"
         action={
-          canAdd ? (
-            <button type="button" className={PRIMARY} onClick={openAdd}>
-              + Add transaction
-            </button>
-          ) : null
+          <>
+            <Link href="/data#import" className={QUIET}>
+              Import from Excel
+            </Link>
+            <Link href="/import/statement" className={QUIET}>
+              Import a bank statement
+            </Link>
+            {canAdd ? (
+              <button type="button" className={PRIMARY} onClick={openAdd}>
+                + Add transaction
+              </button>
+            ) : null}
+          </>
         }
       />
 

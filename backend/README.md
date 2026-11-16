@@ -63,6 +63,22 @@ Each signed-in user can download their own data (read-only, never anyone else's)
 
 Columns are found by header name, so the Transactions sheet of the Excel export loads back in. Accounts are matched by name, ignoring case. Each row goes through the same rules as a transaction typed in by hand, and the below-₹0 check runs row after row. A row with the same date, type, amount and accounts as a saved transaction is a duplicate and is skipped, so importing a file twice adds nothing. A preview never creates a category; the import creates a new category for a new name, as typing one in does. Imported rows have `source = "import"`, and the SMS reader links an SMS to them like a typed-in transaction (`TYPED_SOURCES` in `app/sms/ingest.py`).
 
+### Importing holdings from Excel
+
+`app/export/holdings_import.py`, routes in `app/api/routes/holdings_import.py`. For stocks, mutual funds and crypto you already own. Same body, limits and report as the transactions import.
+
+- `GET /api/import/holdings/template`: a Holdings sheet (Type, Name, Symbol, Account, Quantity, Average price, Invested, Date, Market code) with dropdowns for type and the user's bank and broker accounts, and a "How to fill" sheet.
+- `POST /api/import/holdings/preview` and `POST /api/import/holdings`: as for transactions. Each row also reports `invested`, the amount that will be stored.
+
+Each row is what adding an existing holding by hand makes: the stock, fund or coin, unless one of that kind already matches (stocks and coins by symbol; funds by symbol if given, else by name, ignoring case), plus an opening buy that moves no cash. Rows go through the same request bodies and save checks as the forms (`StockCreate`/`FirstTrade`, `FundCreate`/`FirstFundTrade`, `CoinCreate`/`FirstCryptoTrade`), so the messages are the same, named by column. Stocks and crypto need a broker account, funds a bank account. Give the average price or the amount invested; if both, they must agree within ₹1 (or quantity × ₹0.005). A stock stores the average price rounded to paise; a fund or coin stores the amount invested (or quantity × average price) and its average works out from that. A blank date means today. A market code is checked against `market_codes` and links a holding the row creates; an existing holding's link is left alone. Two rows for the same new holding create it once. A row matching a saved opening buy (same holding, account, quantity, date and amount) is a duplicate and is skipped.
+
+### Importing a bank or card statement (any bank)
+
+`app/export/statement_files.py` turns the file into rows: CSV (any delimiter, UTF-8 or Windows encodings), `.xlsx`, old `.xls` (`xlrd`), the HTML some banks save with an `.xls` name, and PDF (`pdfplumber`; ruled tables, else columns lined up by word position). A locked PDF's password comes in the `X-File-Password` header, never the URL. `app/export/statements.py` finds the header row in the first 60 rows by the names banks use (Txn Date / Value Date, Narration / Particulars, Withdrawal / Debit, Deposit / Credit, or one Amount with a Dr/Cr column or suffix), reads day-first dates in every common shape, joins a narration wrapped onto the next row, and skips opening balances, totals and footers.
+
+- `POST /api/import/statement/preview?account_id=…`: the file as the body. Saves nothing. Each line comes with the payee pulled out of the narration, a suggested type and category (the owner's payee rules, then the built-in merchant list for money out, or Salary / Interest / Dividends / Refund words for money in), a suggested transfer when the narration names another of the owner's accounts by its last 4 digits (or a card statement's "payment received"), and `duplicate` when the account already has a movement in the same direction and amount within a day. A locked PDF returns 422 with `needs_password` (and `wrong_password`).
+- `POST /api/import/statement`: the lines the owner kept, as edited (JSON). Each goes through the same rules as a transaction typed in by hand, uncategorised allowed as for an SMS, with the below-₹0 check row after row; all are saved or none. `remember` on a line makes its category or transfer the payee's rule. Rows have `source = "statement"`.
+
 ### Backup format (version 1)
 
 ```json

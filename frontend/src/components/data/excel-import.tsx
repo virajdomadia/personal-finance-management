@@ -1,23 +1,26 @@
 "use client";
 
-import { type ChangeEvent, useRef, useState } from "react";
+import { type ChangeEvent, type ReactNode, useRef, useState } from "react";
 
 import { logout } from "@/app/login/actions";
 import { Notice } from "@/components/investments/shared";
 import { FOCUS, Segmented, TABLE, TD, TD_NUM, TH, buttonClass } from "@/components/ui/chunky";
 import { downloadError } from "@/lib/data-export";
 import {
-  IMPORT_PATHS,
+  type BaseRow,
+  type HoldingRow,
+  IMPORTS,
+  type ImportKind,
   type ImportReport,
   type ImportRow,
   type ImportStatus,
   type RowFilter,
-  TEMPLATE_FALLBACK,
   XLSX_TYPE,
   accountsLabel,
   amountLabel,
   canImport,
   dateLabel,
+  holdingLabel,
   importButton,
   importError,
   importedMessage,
@@ -30,6 +33,7 @@ import {
 import { saveDownload } from "./download";
 
 type Busy = "template" | "checking" | "importing" | null;
+type Report = ImportReport<BaseRow>;
 
 class ImportFailed extends Error {
   constructor(
@@ -41,7 +45,7 @@ class ImportFailed extends Error {
 }
 
 // The file goes as the raw request body (not a form upload), through the /api proxy like downloads.
-async function send(path: string, file: File): Promise<ImportReport> {
+async function send(path: string, file: File): Promise<Report> {
   let res: Response;
   try {
     res = await fetch(path, {
@@ -54,7 +58,7 @@ async function send(path: string, file: File): Promise<ImportReport> {
     throw new ImportFailed("Couldn't reach the server. Check your connection and try again.", 0);
   }
   if (!res.ok) throw new ImportFailed(importError(res.status, await res.text().catch(() => "")), res.status);
-  return (await res.json()) as ImportReport;
+  return (await res.json()) as Report;
 }
 
 const COUNT_TONE: Record<ImportStatus, string> = {
@@ -69,13 +73,68 @@ const STATUS_BADGE: Record<ImportStatus, string> = {
   error: "bg-pink-strong text-white",
 };
 
-export function ExcelImport() {
+type Column = { label: string; numeric?: boolean; className?: string; cell: (row: BaseRow) => ReactNode };
+
+// Each kind's rows are read as that kind's shape: the report always comes from that kind's endpoint.
+const txn = (cell: (row: ImportRow) => ReactNode) => (row: BaseRow) => cell(row as ImportRow);
+const holding = (cell: (row: HoldingRow) => ReactNode) => (row: BaseRow) => cell(row as HoldingRow);
+
+type Copy = {
+  anchor: string; // the section's id, for links like /data#import
+  heading: string;
+  file: string;
+  emoji: string;
+  title: string;
+  body: string;
+  caption: string;
+  columns: Column[];
+};
+
+const COPY: Record<ImportKind, Copy> = {
+  transactions: {
+    anchor: "import",
+    heading: "import-xlsx",
+    file: "import-file",
+    emoji: "📥",
+    title: "Import transactions from Excel",
+    body: "Fill in the template, one transaction per row, then choose the file here. You'll see every row checked before anything is added. Rows already saved are skipped, so the same file can't add things twice.",
+    caption: "Each row of the file, as it was read",
+    columns: [
+      { label: "Date", className: "whitespace-nowrap", cell: txn((r) => dateLabel(r.date)) },
+      { label: "Type", cell: txn((r) => r.type ?? "—") },
+      { label: "Amount", numeric: true, cell: txn((r) => amountLabel(r.amount)) },
+      { label: "Account", className: "min-w-44 break-words", cell: txn(accountsLabel) },
+      { label: "Category", className: "min-w-28 break-words", cell: txn((r) => r.category ?? "—") },
+    ],
+  },
+  holdings: {
+    anchor: "import-investments",
+    heading: "import-investments-title",
+    file: "import-investments-file",
+    emoji: "📈",
+    title: "Import investments from Excel",
+    body: "Already own stocks, mutual funds or crypto? Fill in the template, one holding per row: what it is, where you hold it, how many, and the average price or the amount you put in. Then choose the file here. You'll see every row checked before anything is added, and rows already saved are skipped.",
+    caption: "Each holding in the file, as it was read",
+    columns: [
+      { label: "Type", cell: holding((r) => r.type ?? "—") },
+      { label: "Holding", className: "min-w-40 break-words", cell: holding(holdingLabel) },
+      { label: "Account", className: "min-w-28 break-words", cell: holding((r) => r.account ?? "—") },
+      { label: "Quantity", numeric: true, cell: holding((r) => r.quantity ?? "—") },
+      { label: "Invested", numeric: true, cell: holding((r) => amountLabel(r.invested)) },
+      { label: "Date", className: "whitespace-nowrap", cell: holding((r) => (r.date ? dateLabel(r.date) : "Today")) },
+    ],
+  },
+};
+
+export function ExcelImport({ kind = "transactions" }: { kind?: ImportKind }) {
+  const config = IMPORTS[kind];
+  const copy = COPY[kind];
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [report, setReport] = useState<ImportReport | null>(null);
+  const [report, setReport] = useState<Report | null>(null);
   const [filter, setFilter] = useState<RowFilter>("all");
 
   const fail = (err: unknown) => {
@@ -91,7 +150,7 @@ export function ExcelImport() {
   const template = () => {
     setBusy("template");
     setError(null);
-    saveDownload(IMPORT_PATHS.template, TEMPLATE_FALLBACK)
+    saveDownload(config.paths.template, config.fallback)
       .catch((err: Error & { status?: number }) => {
         if (err.status === 401) void logout();
         setError(err.message || downloadError(0));
@@ -108,7 +167,7 @@ export function ExcelImport() {
     setFile(chosen);
     if (!chosen) return;
     setBusy("checking");
-    send(IMPORT_PATHS.preview, chosen)
+    send(config.paths.preview, chosen)
       .then(setReport, fail)
       .finally(() => setBusy(null));
   };
@@ -117,7 +176,7 @@ export function ExcelImport() {
     if (!file || !canImport(report)) return;
     setBusy("importing");
     setError(null);
-    send(IMPORT_PATHS.import, file)
+    send(config.paths.import, file)
       .then((result) => {
         if (result.problems > 0) {
           // Something changed since the preview (an account renamed, say): nothing was saved.
@@ -126,7 +185,7 @@ export function ExcelImport() {
           setError("Some rows have problems now, so nothing was added. Fix them in the file and choose it again.");
           return;
         }
-        setDone(importedMessage(result));
+        setDone(importedMessage(result, kind));
         setReport(null);
         clearPicker();
       }, fail)
@@ -138,17 +197,15 @@ export function ExcelImport() {
 
   return (
     <section
-      aria-labelledby="import-xlsx"
-      className="mt-6 flex min-w-0 flex-col gap-3 rounded-[18px] border-[2.5px] border-ink bg-card p-4 shadow-chunky"
+      id={copy.anchor}
+      aria-labelledby={copy.heading}
+      className="mt-6 flex min-w-0 scroll-mt-4 flex-col gap-3 rounded-[18px] border-[2.5px] border-ink bg-card p-4 shadow-chunky"
     >
-      <h2 id="import-xlsx" className="text-lg font-black">
-        <span aria-hidden="true">📥 </span>
-        Import transactions from Excel
+      <h2 id={copy.heading} className="text-lg font-black">
+        <span aria-hidden="true">{copy.emoji} </span>
+        {copy.title}
       </h2>
-      <p className="max-w-prose text-sm font-bold text-zinc-600">
-        Fill in the template, one transaction per row, then choose the file here. You&apos;ll see every row checked before
-        anything is added. Rows already saved are skipped, so the same file can&apos;t add things twice.
-      </p>
+      <p className="max-w-prose text-sm font-bold text-zinc-600">{copy.body}</p>
       <div>
         <button
           type="button"
@@ -161,12 +218,12 @@ export function ExcelImport() {
         </button>
       </div>
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="import-file" className="text-xs font-black tracking-wider uppercase">
+        <label htmlFor={copy.file} className="text-xs font-black tracking-wider uppercase">
           Your filled-in file (.xlsx)
         </label>
         <input
           ref={input}
-          id="import-file"
+          id={copy.file}
           type="file"
           accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           disabled={busy === "checking" || busy === "importing"}
@@ -198,7 +255,7 @@ export function ExcelImport() {
             ))}
           </ul>
           <p role="status" className="text-sm font-extrabold">
-            {previewSummary(report)}
+            {previewSummary(report, kind)}
           </p>
           {problems > 0 ? <ProblemList rows={visibleRows(report.rows, "problems")} /> : null}
           {problems > 0 ? (
@@ -212,7 +269,7 @@ export function ExcelImport() {
               ]}
             />
           ) : null}
-          {shown.length > 0 ? <RowsTable rows={shown} /> : null}
+          {shown.length > 0 ? <RowsTable rows={shown} columns={copy.columns} caption={copy.caption} /> : null}
           <div>
             <button
               type="button"
@@ -221,7 +278,7 @@ export function ExcelImport() {
               aria-busy={busy === "importing"}
               onClick={runImport}
             >
-              {busy === "importing" ? "Importing…" : importButton(report)}
+              {busy === "importing" ? "Importing…" : importButton(report, kind)}
             </button>
           </div>
         </div>
@@ -231,31 +288,21 @@ export function ExcelImport() {
 }
 
 // Scrolls inside its own box on a narrow screen, so the page itself never scrolls sideways.
-function RowsTable({ rows }: { rows: ImportRow[] }) {
+function RowsTable({ rows, columns, caption }: { rows: BaseRow[]; columns: Column[]; caption: string }) {
   return (
     <div className="max-h-[28rem] overflow-auto pb-1" tabIndex={0} role="region" aria-label="Rows in the file">
       <table className={`${TABLE} min-w-[44rem]`}>
-        <caption className="sr-only">Each row of the file, as it was read</caption>
+        <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
             <th scope="col" className={`${TH} text-right`}>
               Row
             </th>
-            <th scope="col" className={TH}>
-              Date
-            </th>
-            <th scope="col" className={TH}>
-              Type
-            </th>
-            <th scope="col" className={`${TH} text-right`}>
-              Amount
-            </th>
-            <th scope="col" className={TH}>
-              Account
-            </th>
-            <th scope="col" className={TH}>
-              Category
-            </th>
+            {columns.map((c) => (
+              <th key={c.label} scope="col" className={c.numeric ? `${TH} text-right` : TH}>
+                {c.label}
+              </th>
+            ))}
             <th scope="col" className={TH}>
               Status
             </th>
@@ -263,7 +310,21 @@ function RowsTable({ rows }: { rows: ImportRow[] }) {
         </thead>
         <tbody>
           {rows.map((r) => (
-            <ImportTableRow key={r.row} row={r} />
+            <tr key={r.row} className={r.status === "error" ? "bg-pink/10" : undefined}>
+              <td className={`${TD} text-right tabular-nums`}>{r.row}</td>
+              {columns.map((c) => (
+                <td key={c.label} className={`${c.numeric ? TD_NUM : TD} ${c.className ?? ""}`}>
+                  {c.cell(r)}
+                </td>
+              ))}
+              <td className={TD}>
+                <span
+                  className={`inline-block rounded-full border-[1.5px] border-ink px-2 text-[11px] font-black whitespace-nowrap ${STATUS_BADGE[r.status]}`}
+                >
+                  {statusLabel(r.status)}
+                </span>
+              </td>
+            </tr>
           ))}
         </tbody>
       </table>
@@ -271,28 +332,8 @@ function RowsTable({ rows }: { rows: ImportRow[] }) {
   );
 }
 
-function ImportTableRow({ row }: { row: ImportRow }) {
-  return (
-    <tr className={row.status === "error" ? "bg-pink/10" : undefined}>
-      <td className={`${TD} text-right tabular-nums`}>{row.row}</td>
-      <td className={`${TD} whitespace-nowrap`}>{dateLabel(row.date)}</td>
-      <td className={TD}>{row.type ?? "—"}</td>
-      <td className={TD_NUM}>{amountLabel(row.amount)}</td>
-      <td className={`${TD} min-w-44 break-words`}>{accountsLabel(row)}</td>
-      <td className={`${TD} min-w-28 break-words`}>{row.category ?? "—"}</td>
-      <td className={TD}>
-        <span
-          className={`inline-block rounded-full border-[1.5px] border-ink px-2 text-[11px] font-black whitespace-nowrap ${STATUS_BADGE[row.status]}`}
-        >
-          {statusLabel(row.status)}
-        </span>
-      </td>
-    </tr>
-  );
-}
-
 // What's wrong with each problem row. Kept out of the table so it reads on a phone without scrolling sideways.
-function ProblemList({ rows }: { rows: ImportRow[] }) {
+function ProblemList({ rows }: { rows: BaseRow[] }) {
   return (
     <div className="rounded-[14px] border-[2.5px] border-ink bg-pink/10 px-3 py-2">
       <h3 className="mb-1 text-xs font-black tracking-wider uppercase">What to fix</h3>

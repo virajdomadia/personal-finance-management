@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  IMPORTS,
   IMPORT_PATHS,
   XLSX_TYPE,
   accountsLabel,
   amountLabel,
   canImport,
   dateLabel,
+  holdingLabel,
   importButton,
   importError,
   importedMessage,
@@ -107,4 +109,38 @@ test("file errors show the server's words", () => {
   assert.match(importError(401, ""), /signed out/);
   assert.match(importError(500, "oops"), /Try again/);
   assert.match(importError(422, JSON.stringify({ detail: [{ msg: "x" }] })), /Try again/);
+});
+
+test("holdings have their own template and endpoints", () => {
+  assert.equal(IMPORTS.holdings.paths.template, "/api/import/holdings/template");
+  assert.equal(IMPORTS.holdings.paths.preview, "/api/import/holdings/preview");
+  assert.equal(IMPORTS.holdings.paths.import, "/api/import/holdings");
+  assert.equal(IMPORTS.holdings.fallback, "pfm-holdings-template.xlsx");
+  assert.deepEqual(IMPORTS.transactions.paths, IMPORT_PATHS);
+});
+
+test("the wording names holdings for a holdings import", () => {
+  assert.equal(previewSummary(report({ ok: 1 }), "holdings"), "1 holding ready to add.");
+  assert.equal(previewSummary(report({ ok: 3, duplicates: 1 }), "holdings"), "3 holdings ready to add. 1 row already saved will be skipped.");
+  assert.match(previewSummary(report({ ok: 3, problems: 1 }), "holdings"), /Fix the 1 row/);
+  assert.equal(importButton(report({ ok: 2 }), "holdings"), "Import 2 holdings");
+  assert.equal(importButton(report({ ok: 2, problems: 1 }), "holdings"), "Import 0 holdings");
+  assert.equal(importedMessage(report({ imported: 1 }), "holdings"), "Added 1 holding.");
+  assert.equal(importedMessage(report({ imported: 2, duplicates: 1 }), "holdings"), "Added 2 holdings. Skipped 1 duplicate already saved.");
+});
+
+test("a holding reads as its name and symbol", () => {
+  assert.equal(holdingLabel({ name: "Infosys", symbol: "INFY" }), "Infosys (INFY)");
+  assert.equal(holdingLabel({ name: "BTC", symbol: "btc" }), "BTC");
+  assert.equal(holdingLabel({ name: "Parag Parikh Flexi Cap", symbol: null }), "Parag Parikh Flexi Cap");
+  assert.equal(holdingLabel({ name: null, symbol: "INFY" }), "INFY");
+  assert.equal(holdingLabel({ name: null, symbol: null }), "—");
+});
+
+test("the problem filter works on holding rows too", () => {
+  const rows = [
+    { row: 2, status: "ok", errors: [] },
+    { row: 3, status: "error", errors: ["Account: Stocks need a broker account."] },
+  ];
+  assert.deepEqual(visibleRows(rows, "problems").map((r) => r.row), [3]);
 });

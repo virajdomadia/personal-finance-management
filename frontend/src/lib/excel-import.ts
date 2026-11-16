@@ -1,22 +1,55 @@
-// Importing transactions from an Excel workbook on the Your data page. The server reads and checks
-// the file; this only words its report. Mirrors ImportReport in backend/app/api/routes/imports.py.
+// Importing transactions or holdings from an Excel workbook on the Your data page. The server reads
+// and checks the file; this only words its report. Mirrors ImportReport in
+// backend/app/api/routes/imports.py and HoldingsReport in backend/app/api/routes/holdings_import.py.
 
 import { formatRupees } from "./accounts.ts";
 import { formatDate } from "./transactions.ts";
 
 export const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-export const IMPORT_PATHS = {
-  template: "/api/import/transactions/template",
-  preview: "/api/import/transactions/preview",
-  import: "/api/import/transactions",
-} as const;
-export const TEMPLATE_FALLBACK = "pfm-transactions-template.xlsx";
+// What can be imported from a workbook. Each has its own template and endpoints, and the same report.
+export type ImportKind = "transactions" | "holdings";
+
+type ImportConfig = {
+  paths: { template: string; preview: string; import: string };
+  fallback: string; // the template's file name when the response doesn't give one
+  noun: [one: string, many: string];
+};
+
+export const IMPORTS: Record<ImportKind, ImportConfig> = {
+  transactions: {
+    paths: {
+      template: "/api/import/transactions/template",
+      preview: "/api/import/transactions/preview",
+      import: "/api/import/transactions",
+    },
+    fallback: "pfm-transactions-template.xlsx",
+    noun: ["transaction", "transactions"],
+  },
+  holdings: {
+    paths: {
+      template: "/api/import/holdings/template",
+      preview: "/api/import/holdings/preview",
+      import: "/api/import/holdings",
+    },
+    fallback: "pfm-holdings-template.xlsx",
+    noun: ["holding", "holdings"],
+  },
+};
+
+export const IMPORT_PATHS = IMPORTS.transactions.paths;
+export const TEMPLATE_FALLBACK = IMPORTS.transactions.fallback;
 
 export type ImportStatus = "ok" | "duplicate" | "error";
 
-export type ImportRow = {
+// What every row of either report has.
+export type BaseRow = {
   row: number; // the spreadsheet row number
+  status: ImportStatus;
+  errors: string[];
+};
+
+export type ImportRow = BaseRow & {
   date: string | null;
   type: string | null;
   amount: string | null;
@@ -24,17 +57,34 @@ export type ImportRow = {
   to_account: string | null;
   category: string | null;
   note: string | null;
-  status: ImportStatus;
-  errors: string[];
 };
 
-export type ImportReport = {
-  rows: ImportRow[];
+// A stock, fund or coin already owned. Cells are as read; `invested` is the amount that will be stored.
+export type HoldingRow = BaseRow & {
+  type: string | null;
+  name: string | null;
+  symbol: string | null;
+  account: string | null;
+  quantity: string | null;
+  invested: string | null;
+  date: string | null;
+};
+
+export type ImportReport<R extends BaseRow = ImportRow> = {
+  rows: R[];
   ok: number;
   duplicates: number;
   problems: number;
   imported: number;
 };
+
+// Only the counts: what the wording below needs, whichever kind of row.
+type Counts = Pick<ImportReport<BaseRow>, "ok" | "duplicates" | "problems" | "imported">;
+
+function noun(kind: ImportKind, count: number): string {
+  const [one, many] = IMPORTS[kind].noun;
+  return plural(count, one, many);
+}
 
 export type RowFilter = "all" | "problems";
 
@@ -43,7 +93,7 @@ function plural(count: number, one: string, many = `${one}s`): string {
 }
 
 // The three counts above the table, in the order people care about.
-export function summaryCounts(report: ImportReport): { key: ImportStatus; label: string; count: number }[] {
+export function summaryCounts(report: Counts): { key: ImportStatus; label: string; count: number }[] {
   return [
     { key: "ok", label: "Ready to add", count: report.ok },
     { key: "duplicate", label: "Already saved, skipped", count: report.duplicates },
@@ -52,7 +102,7 @@ export function summaryCounts(report: ImportReport): { key: ImportStatus; label:
 }
 
 // One line under the counts saying what happens next.
-export function previewSummary(report: ImportReport): string {
+export function previewSummary(report: Counts, kind: ImportKind = "transactions"): string {
   if (report.problems > 0) {
     return `Fix the ${plural(report.problems, "row")} with problems in the file, then choose it again. Nothing is added until every row is right.`;
   }
@@ -62,21 +112,21 @@ export function previewSummary(report: ImportReport): string {
       : "There's nothing to add in this file.";
   }
   const skipped = report.duplicates > 0 ? ` ${plural(report.duplicates, "row")} already saved will be skipped.` : "";
-  return `${plural(report.ok, "transaction")} ready to add.${skipped}`;
+  return `${noun(kind, report.ok)} ready to add.${skipped}`;
 }
 
-export function canImport(report: ImportReport | null): boolean {
+export function canImport(report: Counts | null): boolean {
   return report !== null && report.problems === 0 && report.ok > 0;
 }
 
-export function importButton(report: ImportReport | null): string {
-  return `Import ${plural(report && report.problems === 0 ? report.ok : 0, "transaction")}`;
+export function importButton(report: Counts | null, kind: ImportKind = "transactions"): string {
+  return `Import ${noun(kind, report && report.problems === 0 ? report.ok : 0)}`;
 }
 
 // After a successful import.
-export function importedMessage(report: ImportReport): string {
+export function importedMessage(report: Counts, kind: ImportKind = "transactions"): string {
   const skipped = report.duplicates > 0 ? ` Skipped ${plural(report.duplicates, "duplicate")} already saved.` : "";
-  return `Added ${plural(report.imported, "transaction")}.${skipped}`;
+  return `Added ${noun(kind, report.imported)}.${skipped}`;
 }
 
 export function statusLabel(status: ImportStatus): string {
@@ -102,7 +152,13 @@ export function amountLabel(value: string | null): string {
   return /^-?\d+(\.\d+)?$/.test(value) ? formatRupees(value) : value;
 }
 
-export function visibleRows(rows: ImportRow[], filter: RowFilter): ImportRow[] {
+// "Infosys (INFY)", or whichever of the two was given.
+export function holdingLabel(row: Pick<HoldingRow, "name" | "symbol">): string {
+  if (row.name && row.symbol && row.name.toUpperCase() !== row.symbol.toUpperCase()) return `${row.name} (${row.symbol})`;
+  return row.name ?? row.symbol ?? "—";
+}
+
+export function visibleRows<R extends BaseRow>(rows: R[], filter: RowFilter): R[] {
   return filter === "problems" ? rows.filter((r) => r.status === "error") : rows;
 }
 

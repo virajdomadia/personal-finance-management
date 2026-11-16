@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { logout } from "@/app/login/actions";
@@ -95,6 +96,25 @@ export function DataView() {
         ))}
       </div>
       <ExcelImport />
+      <ExcelImport kind="holdings" />
+      <section
+        aria-labelledby="import-statement"
+        className="mt-6 flex flex-col gap-3 rounded-[18px] border-[2.5px] border-ink bg-card p-4 shadow-chunky"
+      >
+        <h2 id="import-statement" className="text-lg font-black">
+          <span aria-hidden="true">🏦 </span>
+          Import a bank or card statement
+        </h2>
+        <p className="max-w-prose text-sm font-bold text-zinc-600">
+          Download a statement from any bank or card (CSV, Excel or PDF) and bring its transactions in. You&apos;ll check
+          each line and its category before anything is added.
+        </p>
+        <div>
+          <Link href="/import/statement" className={buttonClass("primary")}>
+            Import a statement
+          </Link>
+        </div>
+      </section>
       <p className="mt-5 max-w-prose rounded-[14px] border-[2.5px] border-dashed border-ink bg-due px-3.5 py-3 text-sm font-bold">
         Restoring a backup isn&apos;t a button yet: the app&apos;s owner loads it on the server with the{" "}
         <code className="font-black">restore-user</code> command.
