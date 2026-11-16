@@ -37,6 +37,8 @@ import {
 } from "@/lib/review";
 import { useSession } from "@/lib/session";
 import { BRAND, INPUT_RADIUS } from "@/lib/theme";
+import { OwnProfileOnly } from "@/components/own-profile-only";
+import { useProfile } from "@/lib/profile";
 
 // Every field a 422 can name that this screen shows a control for; anything else goes in the banner.
 const FIELDS = [
@@ -57,7 +59,7 @@ const FIELDS = [
 
 type Loaded = { item: ReviewItem | null; accounts: Account[]; categories: CategoryTree };
 
-export default function ReviewItemScreen() {
+function ReviewItemScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { token, logOut } = useSession();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -672,3 +674,10 @@ const styles = StyleSheet.create({
   sideBox: { gap: 4 },
   action: { alignSelf: "stretch" },
 });
+
+// SMS are always the owner's: while a family member is chosen this says so instead.
+export default function ReviewItemRoute() {
+  const { profile } = useProfile();
+  if (profile !== null) return <OwnProfileOnly title="To review" />;
+  return <ReviewItemScreen />;
+}

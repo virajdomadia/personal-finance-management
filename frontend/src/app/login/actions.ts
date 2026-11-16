@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS } from "@/lib/auth";
+import { PROFILE_COOKIE } from "@/lib/family";
 
 export type LoginState = { error: string | null };
 
@@ -46,6 +47,8 @@ export async function loginWithGoogle(credential: string): Promise<LoginState> {
     path: "/",
     maxAge: SESSION_MAX_AGE_SECONDS,
   });
+  // A fresh sign-in starts on the owner's own profile.
+  cookieStore.delete(PROFILE_COOKIE);
   // Success is a null error; the client navigates, since an action that redirects rejects its promise.
   return { error: null };
 }
@@ -53,5 +56,6 @@ export async function loginWithGoogle(credential: string): Promise<LoginState> {
 export async function logout(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete(SESSION_COOKIE);
+  cookieStore.delete(PROFILE_COOKIE);
   redirect("/login");
 }

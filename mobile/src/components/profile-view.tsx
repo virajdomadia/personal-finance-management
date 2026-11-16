@@ -6,6 +6,10 @@ import { streakLabel } from "@/lib/fun";
 import { BRAND, INPUT_RADIUS, SHADOW_OFFSET_SM } from "@/lib/theme";
 
 type Props = {
+  viewing: string; // "Viewing: Me"
+  viewingMember: boolean;
+  onViewing: () => void;
+  onManageFamily: () => void;
   streak: number | null;
   summaryOn: boolean;
   summaryBusy: boolean;
@@ -39,11 +43,24 @@ function StreakPill({ days }: { days: number | null }) {
 }
 
 // The profile tab's content, without the session or fetching.
-export function ProfileView({ streak, summaryOn, summaryBusy, summaryNote, onSummary, onGoals, onRecurring, onInsurance, onArchived, onSms, onPayeeRules, onCategories, onBudgets, onExport, onLogOut }: Props) {
+export function ProfileView({ viewing, viewingMember, onViewing, onManageFamily, streak, summaryOn, summaryBusy, summaryNote, onSummary, onGoals, onRecurring, onInsurance, onArchived, onSms, onPayeeRules, onCategories, onBudgets, onExport, onLogOut }: Props) {
   return (
     <View>
       <ScreenHeader title="You" right={<StreakPill days={streak} />} />
       <View style={styles.body}>
+        <View style={styles.menu}>
+          <Row
+            emoji={viewingMember ? "👀" : "🙂"}
+            tone={viewingMember ? "blue" : "card"}
+            title={`${viewing} ▾`}
+            meta="Switch to a family member to record their money"
+            amount="›"
+            onPress={onViewing}
+            accessibilityLabel={viewing}
+            accessibilityHint="Chooses whose profile to view"
+          />
+          <Row emoji="👨‍👩‍👧" tone="purple" title="Manage family" meta="Add, rename or remove family members" amount="›" onPress={onManageFamily} accessibilityLabel="Manage family" accessibilityHint="Opens Manage family" />
+        </View>
         <Tile tone="yellow" emoji="🔥" label="Streak">
           <Text variant="titleMedium" style={styles.streak}>
             {streak !== null && streak > 0

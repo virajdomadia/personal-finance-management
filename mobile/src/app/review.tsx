@@ -28,6 +28,8 @@ import {
 } from "@/lib/review";
 import { useSession } from "@/lib/session";
 import { BRAND } from "@/lib/theme";
+import { OwnProfileOnly } from "@/components/own-profile-only";
+import { useProfile } from "@/lib/profile";
 
 const FAILED = "We couldn't load To review.";
 
@@ -36,7 +38,7 @@ type Outcome = { result: ApproveResult; labels: Record<number, string> };
 // "refused": the payee already has another rule (a transfer, say), so it isn't offered again.
 type LearnState = "saving" | "saved" | "failed" | "refused";
 
-export default function ReviewScreen() {
+function ReviewScreen() {
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -336,3 +338,10 @@ const styles = StyleSheet.create({
   sure: { color: BRAND.greenStrong, fontWeight: "800" },
   error: { color: BRAND.loss },
 });
+
+// SMS are always the owner's: while a family member is chosen this says so instead.
+export default function ReviewRoute() {
+  const { profile } = useProfile();
+  if (profile !== null) return <OwnProfileOnly title="To review" />;
+  return <ReviewScreen />;
+}

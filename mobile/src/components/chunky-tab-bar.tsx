@@ -12,6 +12,7 @@ const TAB_ICONS: Record<string, { focusedIcon: string; unfocusedIcon: string }> 
   accounts: { focusedIcon: "wallet", unfocusedIcon: "wallet-outline" },
   transactions: { focusedIcon: "swap-horizontal-bold", unfocusedIcon: "swap-horizontal" },
   investments: { focusedIcon: "chart-line", unfocusedIcon: "chart-line-variant" },
+  family: { focusedIcon: "account-group", unfocusedIcon: "account-group-outline" },
   profile: { focusedIcon: "account", unfocusedIcon: "account-outline" },
 };
 
@@ -56,9 +57,9 @@ const styles = StyleSheet.create({
   bar: { paddingTop: 4, backgroundColor: "transparent" },
   box: { flexDirection: "row", justifyContent: "space-around", alignItems: "center", padding: 6 },
   tab: {
-    minWidth: 52,
+    minWidth: 46, // six tabs fit a 320dp-wide phone
     height: 44,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: INPUT_RADIUS - 2,

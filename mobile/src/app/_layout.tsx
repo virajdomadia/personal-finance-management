@@ -7,7 +7,9 @@ import { StyleSheet, View } from "react-native";
 import { PaperProvider, useTheme } from "react-native-paper";
 
 import { LockScreen } from "@/components/lock-screen";
+import { ProfileBar } from "@/components/profile-bar";
 
+import { ProfileProvider } from "@/lib/profile";
 import { SessionProvider, useSession } from "@/lib/session";
 import { useAppLock } from "@/lib/use-app-lock";
 import { useWeeklySummary } from "@/lib/use-weekly-summary";
@@ -31,6 +33,7 @@ function Screens() {
         importantForAccessibility={hidden ? "no-hide-descendants" : "auto"}
         accessibilityElementsHidden={hidden}
       >
+        <ProfileBar>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Protected guard={loggedIn}>
             <Stack.Screen name="(tabs)" />
@@ -75,11 +78,13 @@ function Screens() {
             <Stack.Screen name="digest" />
             <Stack.Screen name="excel-import" />
             <Stack.Screen name="statement-import" />
+            <Stack.Screen name="family-members" />
           </Stack.Protected>
           <Stack.Protected guard={!loggedIn}>
             <Stack.Screen name="login" />
           </Stack.Protected>
         </Stack>
+        </ProfileBar>
       </View>
       {locked ? (
         <LockScreen onUnlock={unlock} />
@@ -105,8 +110,10 @@ export default function RootLayout() {
   return (
     <PaperProvider theme={lightTheme}>
       <SessionProvider>
-        <StatusBar style="dark" />
-        <Screens />
+        <ProfileProvider>
+          <StatusBar style="dark" />
+          <Screens />
+        </ProfileProvider>
       </SessionProvider>
     </PaperProvider>
   );

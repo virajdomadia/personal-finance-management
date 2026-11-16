@@ -2,7 +2,7 @@
 // sheet on it, so the owner can save it to Drive, email it, and so on.
 // Both packages are loaded only when this build has their native modules (see native.ts): this file
 // is reached from the session at start-up, so a static import would crash an older build outright.
-import { API_URL } from "@/lib/api";
+import { API_URL, reportProfileGone, requestProfile } from "@/lib/api";
 import { EXPORTS, ExportError, type ExportKind, fileNameFrom, isExportFile } from "@/lib/data-export";
 import { loadFileSharing } from "@/lib/native";
 
@@ -25,17 +25,29 @@ export function clearExports(): void {
 async function download(path: string, token: string | undefined): Promise<{ bytes: Uint8Array; name: string | null }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const profile = requestProfile(path); // an export is the chosen profile's, like everything else
   try {
     let response: Response;
     try {
       response = await fetch(`${API_URL}/api${path}`, {
         signal: controller.signal,
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: { ...profile.headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       });
     } catch {
       throw new ExportError({ stage: "network" });
     }
-    if (!response.ok) throw new ExportError({ stage: "server", status: response.status });
+    if (!response.ok) {
+      if (response.status === 404) {
+        let detail: unknown;
+        try {
+          detail = ((await response.json()) as { detail?: unknown }).detail;
+        } catch {
+          detail = undefined;
+        }
+        reportProfileGone(404, detail, profile.sent);
+      }
+      throw new ExportError({ stage: "server", status: response.status });
+    }
     try {
       return {
         bytes: new Uint8Array(await response.arrayBuffer()),
