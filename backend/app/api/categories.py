@@ -284,6 +284,12 @@ def resolve(
     return found.name
 
 
+def exists(db: Session, user_id: int, kind: str, name: str) -> bool:
+    """Whether `resolve` would find this name rather than create a new category."""
+    ensure_seeded(db, user_id)
+    return _find(db, user_id, kind, name_key(name)) is not None
+
+
 def usable(db: Session, user_id: int, kind: str, name: str) -> str | None:
     """`resolve` for automatic categorising (SMS): None when the category is archived."""
     try:

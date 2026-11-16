@@ -5,15 +5,37 @@ import { useState } from "react";
 import { logout } from "@/app/login/actions";
 import { Notice } from "@/components/investments/shared";
 import { PageHeader, buttonClass } from "@/components/ui/chunky";
-import { EXPORTS, type ExportKind, downloadError, fileNameFrom } from "@/lib/data-export";
+import { EXPORTS, type ExportKind, downloadError } from "@/lib/data-export";
 
-const CARDS: { kind: ExportKind; emoji: string; title: string; button: string; body: string }[] = [
+import { saveDownload } from "./download";
+import { ExcelImport } from "./excel-import";
+
+type Card = {
+  kind: ExportKind;
+  emoji: string;
+  title: string;
+  button: string;
+  body: string;
+  variant: "primary" | "green";
+  wide?: boolean;
+};
+
+const CARDS: Card[] = [
   {
     kind: "csv",
     emoji: "📑",
     title: "Spreadsheets",
     button: "Download spreadsheets (CSV zip)",
     body: "One file each for accounts, transactions, trades, loans, deposits, goals, policies, reminders, budgets and categories. Opens in Excel or Google Sheets.",
+    variant: "green",
+  },
+  {
+    kind: "xlsx",
+    emoji: "📗",
+    title: "Excel workbook",
+    button: "Download workbook (.xlsx)",
+    body: "The same tables in one workbook, a sheet for each, with real numbers and dates. Opens in Excel or Google Sheets.",
+    variant: "green",
   },
   {
     kind: "backup",
@@ -21,23 +43,10 @@ const CARDS: { kind: ExportKind; emoji: string; title: string; button: string; b
     title: "Full backup",
     button: "Download backup (JSON)",
     body: "Everything you've entered, in one compressed JSON file (.json.gz), so it can be loaded back in. Keep it somewhere safe: it holds your whole financial history.",
+    variant: "primary",
+    wide: true,
   },
 ];
-
-// Downloads go through the /api proxy, which turns the session cookie into the API's token.
-async function download(kind: ExportKind): Promise<void> {
-  const { path, fallback } = EXPORTS[kind];
-  const res = await fetch(path, { cache: "no-store" });
-  if (!res.ok) throw Object.assign(new Error(downloadError(res.status)), { status: res.status });
-  const url = URL.createObjectURL(await res.blob());
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileNameFrom(res.headers.get("content-disposition"), fallback);
-  document.body.append(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 export function DataView() {
   const [busy, setBusy] = useState<ExportKind | null>(null);
@@ -46,7 +55,7 @@ export function DataView() {
   const start = (kind: ExportKind) => {
     setBusy(kind);
     setError(null);
-    download(kind)
+    saveDownload(EXPORTS[kind].path, EXPORTS[kind].fallback)
       .catch((err: Error & { status?: number }) => {
         if (err.status === 401) void logout();
         setError(err.message || downloadError(0));
@@ -62,11 +71,11 @@ export function DataView() {
       </p>
       <Notice message={error} />
       <div className="grid gap-4 sm:grid-cols-2">
-        {CARDS.map(({ kind, emoji, title, button, body }) => (
+        {CARDS.map(({ kind, emoji, title, button, body, variant, wide }) => (
           <section
             key={kind}
             aria-labelledby={`export-${kind}`}
-            className="flex flex-col gap-3 rounded-[18px] border-[2.5px] border-ink bg-card p-4 shadow-chunky"
+            className={`flex flex-col gap-3 rounded-[18px] border-[2.5px] border-ink bg-card p-4 shadow-chunky ${wide ? "sm:col-span-2" : ""}`}
           >
             <h2 id={`export-${kind}`} className="text-lg font-black">
               <span aria-hidden="true">{emoji} </span>
@@ -75,7 +84,7 @@ export function DataView() {
             <p className="flex-1 text-sm font-bold text-zinc-600">{body}</p>
             <button
               type="button"
-              className={buttonClass(kind === "csv" ? "green" : "primary")}
+              className={buttonClass(variant)}
               disabled={busy !== null}
               aria-busy={busy === kind}
               onClick={() => start(kind)}
@@ -85,6 +94,7 @@ export function DataView() {
           </section>
         ))}
       </div>
+      <ExcelImport />
       <p className="mt-5 max-w-prose rounded-[14px] border-[2.5px] border-dashed border-ink bg-due px-3.5 py-3 text-sm font-bold">
         Restoring a backup isn&apos;t a button yet: the app&apos;s owner loads it on the server with the{" "}
         <code className="font-black">restore-user</code> command.

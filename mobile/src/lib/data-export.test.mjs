@@ -15,12 +15,20 @@ test("each export has its API path and type", () => {
     [EXPORTS.csv.path, EXPORTS.csv.mimeType, EXPORTS.backup.path, EXPORTS.backup.mimeType],
     ["/export/csv", "application/zip", "/export/backup", "application/gzip"],
   );
+  assert.deepEqual(EXPORTS.xlsx, {
+    path: "/export/xlsx",
+    fallback: "pfm-export.xlsx",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    title: "Excel workbook (.xlsx)",
+  });
 });
 
 test("only earlier exports are cleared from the cache", () => {
   assert.ok(isExportFile("pfm-export-2026-11-13.zip"));
   assert.ok(isExportFile("pfm-backup-2026-11-13.json.gz"));
   assert.ok(isExportFile("pfm-backup.json"));
+  assert.ok(isExportFile("pfm-export-2026-11-16.xlsx"));
+  assert.ok(isExportFile(EXPORTS.xlsx.fallback));
   assert.ok(!isExportFile("ImagePicker.jpg"));
   assert.ok(!isExportFile("pfm-notes.txt"));
 });

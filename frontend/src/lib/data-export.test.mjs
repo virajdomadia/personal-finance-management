@@ -8,6 +8,10 @@ test("file name comes from the attachment header", () => {
   assert.equal(fileNameFrom("attachment; filename=pfm-backup-2026-11-13.json.gz", "x.json.gz"), "pfm-backup-2026-11-13.json.gz");
 });
 
+test("the workbook's dated name is kept", () => {
+  assert.equal(fileNameFrom('attachment; filename="pfm-export-2026-11-16.xlsx"', EXPORTS.xlsx.fallback), "pfm-export-2026-11-16.xlsx");
+});
+
 test("a missing or odd name falls back", () => {
   assert.equal(fileNameFrom(null, EXPORTS.csv.fallback), "pfm-export.zip");
   assert.equal(fileNameFrom('attachment; filename="../../evil.sh"', "pfm-backup.json"), "pfm-backup.json");
@@ -17,6 +21,8 @@ test("downloads go through the /api proxy", () => {
   assert.equal(EXPORTS.backup.fallback, "pfm-backup.json.gz");
   assert.equal(EXPORTS.backup.path, "/api/export/backup");
   assert.equal(EXPORTS.csv.path, "/api/export/csv");
+  assert.equal(EXPORTS.xlsx.path, "/api/export/xlsx");
+  assert.equal(EXPORTS.xlsx.fallback, "pfm-export.xlsx");
 });
 
 test("errors are worded for people", () => {

@@ -66,7 +66,7 @@ export default function ProfileScreen() {
       },
     );
   };
-  const busy = exporting === "csv" || exporting === "backup";
+  const busy = exporting !== null && exporting !== "choose";
 
   useFocusEffect(
     useCallback(() => {
@@ -110,7 +110,7 @@ export default function ProfileScreen() {
           <Dialog.Title>Export my data</Dialog.Title>
           <Dialog.Content>
             <Text variant="bodyMedium">
-              Spreadsheets open in Excel or Sheets. The full backup holds everything, for loading back in later. Only your own data is included.
+              Spreadsheets and the Excel workbook open in Excel or Sheets. The full backup holds everything, for loading back in later. Only your own data is included.
             </Text>
             {exportMessage ? (
               <Text variant="bodyMedium" accessibilityLiveRegion="polite" style={{ marginTop: 8, fontWeight: "700" }}>
@@ -119,7 +119,7 @@ export default function ProfileScreen() {
             ) : null}
           </Dialog.Content>
           <Dialog.Actions style={{ flexDirection: "column", alignItems: "stretch" }}>
-            {(["csv", "backup"] as const).map((kind) => (
+            {(["csv", "xlsx", "backup"] as const).map((kind) => (
               <Button
                 key={kind}
                 mode={kind === "csv" ? "contained" : "outlined"}
