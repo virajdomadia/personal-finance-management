@@ -7,8 +7,10 @@ import { ProfileView } from "@/components/profile-view";
 import { type Streak } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { EXPORTS, ExportError, type ExportKind, exportError } from "@/lib/data-export";
+import { type Family, possessive, viewingLabel } from "@/lib/family";
 import { shareExport } from "@/lib/export-share";
 import { NEEDS_UPDATE } from "@/lib/native";
+import { useProfile } from "@/lib/profile";
 import { useSession } from "@/lib/session";
 import { disableWeeklySummary, enableWeeklySummary, readSummaryPref } from "@/lib/weekly-summary";
 
@@ -18,6 +20,10 @@ const FAILED = "Couldn't set the reminder. Try again.";
 
 export default function ProfileScreen() {
   const { token, logOut } = useSession();
+  const { profile, switchProfile, syncFamily } = useProfile();
+  const [family, setFamily] = useState<Family | null>(null);
+  const [familyFailed, setFamilyFailed] = useState(false);
+  const [choosing, setChoosing] = useState(false);
   const [streak, setStreak] = useState<number | null>(null);
   const [summaryOn, setSummaryOn] = useState(readSummaryPref);
   const [summaryBusy, setSummaryBusy] = useState(false);
@@ -68,6 +74,26 @@ export default function ProfileScreen() {
   };
   const busy = exporting !== null && exporting !== "choose";
 
+  const loadFamily = useCallback(() => {
+    setFamilyFailed(false);
+    apiFetch<Family>("/family", { token: token ?? undefined }).then(
+      (f) => {
+        setFamily(f);
+        syncFamily(f);
+      },
+      (err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) void logOut();
+        else setFamilyFailed(true);
+      },
+    );
+  }, [token, logOut, syncFamily]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadFamily();
+    }, [loadFamily]),
+  );
+
   useFocusEffect(
     useCallback(() => {
       const mine = ++latest.current;
@@ -86,6 +112,13 @@ export default function ProfileScreen() {
   return (
     <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
       <ProfileView
+        viewing={viewingLabel(profile)}
+        viewingMember={profile !== null}
+        onViewing={() => {
+          setChoosing(true);
+          loadFamily();
+        }}
+        onManageFamily={() => router.push("/family-members")}
         streak={streak}
         summaryOn={summaryOn}
         summaryBusy={summaryBusy}
@@ -106,11 +139,53 @@ export default function ProfileScreen() {
         onLogOut={() => void logOut()}
       />
       <Portal>
+        <Dialog visible={choosing} onDismiss={() => setChoosing(false)}>
+          <Dialog.Title>Whose profile?</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium">
+              Everything you see and record is for the profile you choose, until you switch back. Bank SMS stay yours.
+            </Text>
+            {familyFailed && family === null ? (
+              <Text variant="bodyMedium" accessibilityRole="alert" style={{ marginTop: 8, fontWeight: "700" }}>
+                We couldn&apos;t load your family. Try again.
+              </Text>
+            ) : null}
+          </Dialog.Content>
+          <Dialog.Actions style={{ flexDirection: "column", alignItems: "stretch" }}>
+            {[{ id: null, name: "Me" }, ...(family?.members ?? [])].map((person) => {
+              const selected = (profile?.id ?? null) === person.id;
+              return (
+                <Button
+                  key={person.id ?? "me"}
+                  mode={selected ? "contained" : "outlined"}
+                  icon={selected ? "check" : undefined}
+                  accessibilityState={{ selected }}
+                  onPress={() => {
+                    setChoosing(false);
+                    if (!selected) switchProfile(person.id === null ? null : { id: person.id, name: person.name });
+                  }}
+                  style={{ marginBottom: 8 }}
+                >
+                  {person.name}
+                </Button>
+              );
+            })}
+            <Button
+              onPress={() => {
+                setChoosing(false);
+                router.push("/family-members");
+              }}
+            >
+              Manage family
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
         <Dialog visible={exporting !== null} onDismiss={() => (busy ? undefined : setExporting(null))}>
           <Dialog.Title>Export my data</Dialog.Title>
           <Dialog.Content>
             <Text variant="bodyMedium">
-              Spreadsheets and the Excel workbook open in Excel or Sheets. The full backup holds everything, for loading back in later. Only your own data is included.
+              Spreadsheets and the Excel workbook open in Excel or Sheets. The full backup holds everything, for loading back in later.{" "}
+              {profile === null ? "Only your own data is included." : `Only ${possessive(profile.name)} data is included.`}
             </Text>
             {exportMessage ? (
               <Text variant="bodyMedium" accessibilityLiveRegion="polite" style={{ marginTop: 8, fontWeight: "700" }}>
