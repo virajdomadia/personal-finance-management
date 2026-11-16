@@ -9,6 +9,8 @@ import {
   type Account,
   type AccountForm,
   type AccountType,
+  FD_PAYOUT_LABELS,
+  type FdPayout,
   TYPE_LABELS,
   TYPE_ORDER,
   changedPayload,
@@ -25,6 +27,8 @@ import { todayIndia } from "@/lib/transactions";
 
 const TYPE_OPTIONS = TYPE_ORDER.map((type) => ({ value: type, label: TYPE_LABELS[type] }));
 
+const PAYOUT_OPTIONS = (Object.keys(FD_PAYOUT_LABELS) as FdPayout[]).map((value) => ({ value, label: FD_PAYOUT_LABELS[value] }));
+
 const BANK_KINDS = [
   { value: "savings", label: "Savings" },
   { value: "salary", label: "Salary" },
@@ -39,6 +43,7 @@ const INSTITUTION_LABELS: Record<AccountType, string> = {
   wallet: "Provider",
   ppf: "Bank or post office",
   rd: "Bank or post office",
+  fd: "Bank",
   loan: "Lender",
 };
 
@@ -66,6 +71,8 @@ function blankForm(type: AccountType): AccountForm {
     deposit_amount: "",
     tenure_months: "",
     deposits_paid: "",
+    matures_on: "",
+    fd_payout: type === "fd" ? "cumulative" : "",
     moved_from_card: "",
   };
 }
@@ -205,11 +212,12 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict,
   }
   const payFromCard = accounts.find((a) => String(a.id) === form.pay_from_id && a.type === "credit_card");
   const HINTS = new Set<keyof AccountForm>([
-    ...(type === "credit_card" || type === "loan" || editing ? (["balance"] as const) : []),
+    ...(type === "credit_card" || type === "loan" || type === "fd" || editing ? (["balance"] as const) : []),
     ...(type === "credit_card" ? (["statement_day", "due_day"] as const) : []),
     ...(type === "loan" ? (["due_day", "interest_rate", "emis_left", "pay_from_id"] as const) : []),
     ...(type === "ppf" ? (["interest_rate", "opened_on", "pay_from_id"] as const) : []),
     ...(type === "rd" ? (["interest_rate", "opened_on", "pay_from_id", "due_day", "deposits_paid"] as const) : []),
+    ...(type === "fd" ? (["interest_rate", "pay_from_id"] as const) : []),
     ...(type === "bank" || type === "credit_card" ? (["last4"] as const) : []),
   ]);
   const field = (key: keyof AccountForm, label: string, input: React.ReactNode, hint?: string) => (
@@ -282,7 +290,7 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict,
           {field("name", "Name", <input {...props("name")} type="text" autoComplete="off" maxLength={60} required />)}
           {field(
             "balance",
-            type === "credit_card" ? "Amount owed (₹)" : type === "loan" ? "Outstanding (₹)" : "Balance (₹)",
+            type === "credit_card" ? "Amount owed (₹)" : type === "loan" ? "Outstanding (₹)" : type === "fd" ? "Principal (₹)" : "Balance (₹)",
             <input {...props("balance")} type="text" inputMode="decimal" autoComplete="off" required />,
             editing
               ? "Changing this corrects the balance. Your transactions stay as they are."
@@ -290,7 +298,9 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict,
                 ? "Enter what you owe as a positive amount."
                 : type === "loan"
                   ? "The principal still to repay, as your lender shows it."
-                  : undefined,
+                  : type === "fd"
+                    ? "The amount you put in."
+                    : undefined,
           )}
 
           {type !== "cash" &&
@@ -415,6 +425,34 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict,
                 "Deposits paid from",
                 <Select {...selectProps("pay_from_id")} options={payFromOptions} onChange={(value) => set("pay_from_id", value)} />,
                 "The account new deposits usually come from.",
+              )}
+            </>
+          )}
+
+          {type === "fd" && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                {field(
+                  "interest_rate",
+                  "Interest rate (% a year)",
+                  <input {...props("interest_rate")} type="text" inputMode="decimal" autoComplete="off" />,
+                  "As your bank states it.",
+                )}
+                {field(
+                  "fd_payout",
+                  "Interest paid",
+                  <Select {...selectProps("fd_payout")} options={PAYOUT_OPTIONS} onChange={(value) => set("fd_payout", value)} />,
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                {field("opened_on", "Opened on", <input {...props("opened_on")} type="date" max={todayIndia()} />)}
+                {field("matures_on", "Matures on", <input {...props("matures_on")} type="date" min={form.opened_on || undefined} />)}
+              </div>
+              {field(
+                "pay_from_id",
+                "Linked bank",
+                <Select {...selectProps("pay_from_id")} options={payFromOptions} onChange={(value) => set("pay_from_id", value)} />,
+                "Where the money came from, and where interest and the maturity amount go.",
               )}
             </>
           )}

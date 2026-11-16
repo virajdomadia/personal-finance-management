@@ -134,6 +134,7 @@ test("type labels match the approved table", () => {
     wallet: "Wallet or prepaid card",
     ppf: "PPF",
     rd: "Recurring deposit",
+    fd: "Fixed deposit",
     loan: "Loan",
   });
 });
@@ -261,8 +262,9 @@ test("investmentsIn is what You have holds beyond the account balances", () => {
   assert.equal(investmentsIn(list("0.07", [])), "0.07");
   assert.equal(investmentsIn(list("90071992547409.93", [account("bank", "0.01")])), "90071992547409.92");
   assert.equal(investmentsIn(list("10.00", [account("bank", "10"), account("cash", "5.00", true)])), null);
-  // PPF and RD balances are part of You have, not investments.
+  // PPF, RD and FD balances are part of You have, not investments.
   assert.equal(investmentsIn(list("1800.00", [account("bank", "100.00"), account("ppf", "1000.00"), account("rd", "700.00")])), null);
+  assert.equal(investmentsIn(list("1100.00", [account("bank", "100.00"), account("fd", "1000.00")])), null);
 });
 
 test("deposit accounts: labels, applicable fields and payload", () => {
@@ -299,9 +301,77 @@ test("deposit accounts: labels, applicable fields and payload", () => {
   assert.ok(renderedFields("rd", "edit").includes("tenure_months"));
 });
 
+test("FD accounts: label, payout labels, applicable fields and payload", async () => {
+  const { FD_PAYOUT_LABELS } = await import("./accounts.ts");
+  assert.equal(TYPE_LABELS.fd, "Fixed deposit");
+  assert.deepEqual(FD_PAYOUT_LABELS, { cumulative: "Cumulative", monthly: "Monthly payout", quarterly: "Quarterly payout" });
+  const form = {
+    ...blank,
+    type: "fd",
+    balance: "₹1,00,000",
+    institution: "HDFC",
+    interest_rate: "7.25",
+    opened_on: "2026-11-15",
+    matures_on: "2027-11-15",
+    fd_payout: "quarterly",
+    pay_from_id: "7",
+    due_day: "15",
+    deposit_amount: "500",
+  };
+  assert.deepEqual(toPayload(form, "create"), {
+    type: "fd",
+    name: "Main",
+    balance: "100000",
+    institution: "HDFC",
+    interest_rate: "7.25",
+    opened_on: "2026-11-15",
+    matures_on: "2027-11-15",
+    fd_payout: "quarterly",
+    pay_from_id: 7,
+  });
+  assert.equal(toPayload({ ...form, pay_from_id: "" }, "create").pay_from_id, null);
+  assert.deepEqual(renderedFields("fd", "create"), [
+    "type",
+    "name",
+    "balance",
+    "institution",
+    "interest_rate",
+    "opened_on",
+    "matures_on",
+    "fd_payout",
+    "pay_from_id",
+  ]);
+});
+
 test("formatFullDate reads the ISO string without a Date", () => {
   assert.equal(formatFullDate("2036-04-01"), "1 Apr 2036");
   assert.equal(formatFullDate("2026-11-25"), "25 Nov 2026");
+});
+
+test("formFromAccount and changedPayload for an FD", () => {
+  const fd = {
+    ...account,
+    type: "fd",
+    name: "HDFC FD",
+    credit_limit: null,
+    available_credit: null,
+    statement_day: null,
+    institution: "HDFC",
+    interest_rate: "7.25",
+    opened_on: "2026-11-15",
+    matures_on: "2027-11-15",
+    fd_payout: "cumulative",
+    pay_from_id: 7,
+    deposit: { kind: "fd", matured: false },
+  };
+  const form = formFromAccount(fd);
+  assert.equal(form.matures_on, "2027-11-15");
+  assert.equal(form.fd_payout, "cumulative");
+  assert.deepEqual(changedPayload(form, fd), {});
+  assert.deepEqual(changedPayload({ ...form, fd_payout: "monthly", matures_on: "2028-11-15" }, fd), {
+    matures_on: "2028-11-15",
+    fd_payout: "monthly",
+  });
 });
 
 test("changedPayload for an RD leaves out unchanged deposits_paid and tenure_months, and sends changed ones as numbers", () => {

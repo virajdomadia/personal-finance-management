@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  DEPOSIT_SHORT,
+  FD_PAYOUTS,
+  FD_PAYOUT_LABELS,
   TYPE_LABELS,
   TYPE_ORDER,
   changedPayload,
@@ -39,6 +42,8 @@ const blank = {
   deposit_amount: "",
   tenure_months: "",
   deposits_paid: "",
+  matures_on: "",
+  fd_payout: "",
   moved_from_card: "",
 };
 const loan = (o = {}) => ({ ...blank, type: "loan", ...o });
@@ -150,6 +155,7 @@ test("type labels match the approved table", () => {
     wallet: "Wallet or prepaid card",
     ppf: "PPF",
     rd: "Recurring deposit",
+    fd: "Fixed deposit",
     loan: "Loan",
   });
 });
@@ -308,7 +314,7 @@ const rdForm = (o = {}) => ({
 });
 
 test("deposit accounts: order and payload", () => {
-  assert.deepEqual(TYPE_ORDER, ["bank", "credit_card", "cash", "broker", "wallet", "ppf", "rd", "loan"]);
+  assert.deepEqual(TYPE_ORDER, ["bank", "credit_card", "cash", "broker", "wallet", "ppf", "rd", "fd", "loan"]);
   assert.deepEqual(toPayload(rdForm(), "create"), {
     type: "rd",
     name: "Main",
@@ -407,4 +413,103 @@ test("depositErrors still checks deposits_paid when the tenure is invalid", () =
 test("headlineBalance is the free balance, or the balance for an older response", () => {
   assert.equal(headlineBalance({ balance: "80000.00", free_balance: "30000.00" }), "30000.00");
   assert.equal(headlineBalance({ balance: "80000.00" }), "80000.00");
+});
+
+const fdForm = (o = {}) => ({
+  ...blank,
+  type: "fd",
+  name: "HDFC FD",
+  balance: "₹1,00,000",
+  institution: "HDFC",
+  interest_rate: "7.25",
+  opened_on: "2026-01-10",
+  matures_on: "2027-01-10",
+  fd_payout: "quarterly",
+  pay_from_id: "7",
+  ...o,
+});
+
+test("an FD: labels, payout choices and its fields in the payload", () => {
+  assert.equal(TYPE_LABELS.fd, "Fixed deposit");
+  assert.equal(DEPOSIT_SHORT.fd, "FD");
+  assert.deepEqual(FD_PAYOUTS.map((p) => FD_PAYOUT_LABELS[p]), ["Cumulative", "Monthly payout", "Quarterly payout"]);
+  assert.deepEqual(toPayload(fdForm(), "create"), {
+    type: "fd",
+    name: "HDFC FD",
+    balance: "100000",
+    institution: "HDFC",
+    interest_rate: "7.25",
+    opened_on: "2026-01-10",
+    matures_on: "2027-01-10",
+    fd_payout: "quarterly",
+    pay_from_id: 7,
+  });
+  assert.equal(toPayload(fdForm({ pay_from_id: "" }), "create").pay_from_id, null);
+  assert.deepEqual(renderedFields("fd", "edit"), [
+    "name",
+    "balance",
+    "institution",
+    "interest_rate",
+    "opened_on",
+    "matures_on",
+    "fd_payout",
+    "pay_from_id",
+  ]);
+});
+
+const fdAccount = {
+  id: 21,
+  type: "fd",
+  name: "HDFC FD",
+  balance: "100000.00",
+  institution: "HDFC",
+  bank_kind: null,
+  last4: null,
+  credit_limit: null,
+  statement_day: null,
+  due_day: null,
+  interest_rate: "7.25",
+  emi_amount: null,
+  emis_left: null,
+  pay_from_id: 7,
+  opened_on: "2026-01-10",
+  deposit_amount: null,
+  tenure_months: null,
+  matures_on: "2027-01-10",
+  fd_payout: "cumulative",
+  deposit: { kind: "fd", payout: "cumulative" },
+};
+
+test("formFromAccount reads an FD's maturity and payout, and an edit sends only what changed", () => {
+  const form = formFromAccount(fdAccount);
+  assert.equal(form.matures_on, "2027-01-10");
+  assert.equal(form.fd_payout, "cumulative");
+  assert.deepEqual(changedPayload(form, fdAccount), {});
+  assert.deepEqual(changedPayload({ ...form, fd_payout: "monthly" }, fdAccount), { fd_payout: "monthly" });
+  assert.deepEqual(changedPayload({ ...form, matures_on: "2028-01-10" }, fdAccount), { matures_on: "2028-01-10" });
+});
+
+test("depositErrors checks an FD's rate, dates and payout with the server's words", () => {
+  assert.deepEqual(depositErrors(fdForm()), {});
+  assert.deepEqual(depositErrors(fdForm({ pay_from_id: "" })), {});
+  assert.deepEqual(depositErrors(fdForm({ interest_rate: " ", opened_on: "", matures_on: "", fd_payout: "" })), {
+    interest_rate: "Enter the yearly interest rate.",
+    opened_on: "Choose the date it was opened.",
+    matures_on: "Choose the maturity date.",
+    fd_payout: "Choose how the interest is paid.",
+  });
+  assert.equal(depositErrors(fdForm({ matures_on: "2026-01-10" })).matures_on, "Choose a maturity date after the opening date.");
+  assert.equal(depositErrors(fdForm({ matures_on: "2025-12-31" })).matures_on, "Choose a maturity date after the opening date.");
+});
+
+test("an FD counts in You have, not in investments", () => {
+  const list = {
+    accounts: [
+      { type: "bank", balance: "100.00", archived: false },
+      { type: "fd", balance: "5000.00", archived: false },
+    ],
+    total_have: "5100.00",
+    total_owe: "0.00",
+  };
+  assert.equal(investmentsIn(list), null);
 });

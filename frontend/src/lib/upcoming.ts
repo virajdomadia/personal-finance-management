@@ -3,7 +3,7 @@
 
 import { formatDueDate, formatRupees } from "./accounts.ts";
 
-export type UpcomingKind = "recurring" | "insurance" | "emi" | "sip" | "rd" | "card_bill" | "goal";
+export type UpcomingKind = "recurring" | "insurance" | "emi" | "sip" | "rd" | "fd" | "fd_interest" | "card_bill" | "goal";
 
 export type UpcomingItem = {
   date: string;
@@ -53,6 +53,8 @@ export const KIND_LABELS: Record<UpcomingKind, string> = {
   emi: "EMI",
   sip: "SIP",
   rd: "RD instalment",
+  fd: "FD maturity",
+  fd_interest: "FD interest",
   card_bill: "Card bill",
   goal: "Goal set-aside",
 };

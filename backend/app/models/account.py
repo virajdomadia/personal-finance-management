@@ -34,6 +34,9 @@ class Account(Base):
     deposit_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     tenure_months: Mapped[int | None]
     deposits_at_opening: Mapped[int | None]
+    # FD only: the maturity date, and "cumulative", "monthly" or "quarterly" interest payout.
+    matures_on: Mapped[dt.date | None] = mapped_column(Date)
+    fd_payout: Mapped[str | None] = mapped_column(String(20))
     archived_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

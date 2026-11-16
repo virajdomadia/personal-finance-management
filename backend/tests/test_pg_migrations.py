@@ -248,7 +248,8 @@ MARKET_REVISION = "c7e2a95d1b48"
 SMS_REVISION = "e3b81f46a0d7"
 CATEGORIES_REVISION = "2d46fef3dab4"
 NET_WORTH_REVISION = "4f9a2c7e1b30"
-HEAD_REVISION = "7e5d2fc1e167"
+BUDGETS_REVISION = "7e5d2fc1e167"
+HEAD_REVISION = "a1c3e5f7b902"
 SMS_TABLES = {"account_identifiers", "sms_entries", "payee_rules", "sms_samples"}
 GOAL_TABLES = {"goals", "goal_earmarks", "goal_holdings"}
 RECURRING_TABLES = {
@@ -691,5 +692,28 @@ def test_budgets_migration_round_trips_and_guards_data(migrations_db: str) -> No
     run_sql(migrations_db, "DELETE FROM budgets")
     command.downgrade(config, NET_WORTH_REVISION)
     assert "budgets" not in tables(migrations_db)
+    command.upgrade(config, "head")
+    assert tables(migrations_db) == ALL_TABLES
+
+
+def test_fd_migration_round_trips_and_guards_fds(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, "head")
+    seed_investments(migrations_db, "5")
+    run_sql(
+        migrations_db,
+        "INSERT INTO accounts (id, user_id, type, name, opening_balance, interest_rate, opened_on,"
+        " matures_on, fd_payout, created_at, updated_at)"
+        " VALUES (2, 1, 'fd', 'FD', 1000, 7, '2026-01-01', '2027-01-01', 'cumulative', :s, :s)",
+    )
+
+    with pytest.raises(RuntimeError, match="Fixed deposits exist"):
+        command.downgrade(config, BUDGETS_REVISION)
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(HEAD_REVISION,)]
+
+    run_sql(migrations_db, "DELETE FROM accounts WHERE type = 'fd'")
+    command.downgrade(config, BUDGETS_REVISION)
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(BUDGETS_REVISION,)]
+
     command.upgrade(config, "head")
     assert tables(migrations_db) == ALL_TABLES

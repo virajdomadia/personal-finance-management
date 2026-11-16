@@ -1,4 +1,16 @@
-import { type Account, type AccountType, type PpfFigures, TYPE_LABELS, TYPE_ORDER, cleanMoney, formatDueDate, formatRupees } from "./accounts.ts";
+import {
+  type Account,
+  type AccountType,
+  DEPOSIT_TYPES,
+  FD_PAYOUT_LABELS,
+  type FdPayout,
+  type PpfFigures,
+  TYPE_LABELS,
+  TYPE_ORDER,
+  cleanMoney,
+  formatDueDate,
+  formatRupees,
+} from "./accounts.ts";
 import { type TransactionForm, blankForm } from "./transactions.ts";
 
 const idText = (id: number | null) => (id === null ? "" : String(id));
@@ -54,23 +66,80 @@ export function interestForm(account: Account): TransactionForm {
   };
 }
 
-export type CloseRdForm = { amount: string; date: string; account_id: string };
+// "SBI FD matured on 1 Nov 2026. Close or renew it." for an FD still open on or after its maturity
+// date (the server says when), or null.
+export function fdMaturedText(account: Account): string | null {
+  const deposit = account.deposit;
+  if (account.type !== "fd" || deposit?.kind !== "fd" || !deposit.matured || account.archived) return null;
+  return `${account.name} matured on ${formatLongDate(deposit.maturity_date)}. Close or renew it.`;
+}
 
-// The RD's usual bank is pre-selected only while it is still an active bank; otherwise the user must choose.
-export function closeRdForm(account: Account, today: string, banks?: Account[]): CloseRdForm {
+// Closing an RD or an FD takes the same three fields.
+export type CloseDepositForm = { amount: string; date: string; account_id: string };
+
+const maturityValue = (account: Account) =>
+  account.deposit?.kind === "rd" || account.deposit?.kind === "fd" ? account.deposit.maturity_value : "";
+
+// The deposit's usual bank is pre-selected only while it is still an active bank; otherwise the user must choose.
+export function closeDepositForm(account: Account, today: string, banks?: Account[]): CloseDepositForm {
   return {
-    amount: account.deposit?.kind === "rd" ? account.deposit.maturity_value : "",
+    amount: maturityValue(account),
     date: today,
     account_id: isOffered(account.pay_from_id, banks) ? idText(account.pay_from_id) : "",
   };
 }
 
-export function closeRdPayload(form: CloseRdForm): Record<string, unknown> {
+export function closeDepositPayload(form: CloseDepositForm): Record<string, unknown> {
   return {
     amount: cleanMoney(form.amount),
     date: form.date,
     account_id: form.account_id === "" ? null : Number(form.account_id),
   };
+}
+
+// Renewing an FD: what the bank paid at maturity and where, then how much of it goes into the new FD
+// and on what terms. Anything not renewed stays in the bank.
+export type RenewFdForm = CloseDepositForm & {
+  reinvest: string;
+  name: string;
+  interest_rate: string;
+  matures_on: string;
+  fd_payout: "" | FdPayout;
+};
+
+// Starts from the old FD: its maturity value, its bank, its rate and payout, renewing all of the
+// amount received. A blank name keeps the old name; a blank amount to renew renews all of it.
+export function renewFdForm(account: Account, today: string, banks?: Account[]): RenewFdForm {
+  const close = closeDepositForm(account, today, banks);
+  return {
+    ...close,
+    reinvest: close.amount,
+    name: "",
+    interest_rate: account.interest_rate ?? "",
+    matures_on: "",
+    fd_payout: account.fd_payout ?? "",
+  };
+}
+
+export function renewFdPayload(form: RenewFdForm): Record<string, unknown> {
+  const reinvest = cleanMoney(form.reinvest);
+  const rate = cleanMoney(form.interest_rate);
+  const name = form.name.trim();
+  return {
+    ...closeDepositPayload(form),
+    ...(reinvest === "" ? {} : { reinvest }),
+    ...(name === "" ? {} : { name }),
+    interest_rate: rate === "" ? null : rate,
+    matures_on: form.matures_on === "" ? null : form.matures_on,
+    fd_payout: form.fd_payout === "" ? null : form.fd_payout,
+  };
+}
+
+// "₹1,500 interest every month", from the server's payout figure; null for a cumulative FD.
+export function fdPayoutText(account: Account): string | null {
+  const deposit = account.deposit;
+  if (deposit?.kind !== "fd" || deposit.payout === "cumulative" || deposit.payout_amount === null) return null;
+  return `${formatRupees(deposit.payout_amount)} interest every ${deposit.payout === "monthly" ? "month" : "quarter"}`;
 }
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -81,7 +150,7 @@ export function formatLongDate(iso: string): string {
   return `${Number(day)} ${MONTH_NAMES[Number(month) - 1]} ${year}`;
 }
 
-// The figure lines under a PPF or RD row, all from the server's numbers. Empty for other types.
+// The figure lines under a PPF, RD or FD row, all from the server's numbers. Empty for other types.
 export function depositLines(account: Account): string[] {
   const deposit = account.deposit;
   if (deposit?.kind === "ppf") {
@@ -98,25 +167,41 @@ export function depositLines(account: Account): string[] {
       `${formatRupees(deposit.maturity_value)} on ${formatLongDate(deposit.maturity_date)}`,
     ];
   }
+  if (deposit?.kind === "fd") {
+    const terms = [
+      account.interest_rate !== null ? `${account.interest_rate}% a year` : null,
+      FD_PAYOUT_LABELS[deposit.payout],
+    ].filter(Boolean);
+    const maturity = `${deposit.matured ? "Matured" : "Matures"} ${formatLongDate(deposit.maturity_date)}`;
+    if (deposit.payout === "cumulative") {
+      return [
+        terms.join(" · "),
+        `Value today ≈ ${formatRupees(deposit.value_today)} (estimate)`,
+        `${formatRupees(deposit.maturity_value)} on ${formatLongDate(deposit.maturity_date)}`,
+      ];
+    }
+    const payout = fdPayoutText(account);
+    return [terms.join(" · "), ...(payout ? [payout] : []), maturity];
+  }
   return [];
 }
 
-// Accounts a form can offer as "paid from": a PPF or RD comes from an active bank; a loan from any
+// Accounts a form can offer as "paid from": a PPF, RD or FD comes from an active bank; a loan from any
 // account but a loan or a deposit. Never the account being edited.
 export function payFromAccounts(accounts: Account[], type: AccountType, editingId?: number): Account[] {
-  if (type === "ppf" || type === "rd") return accounts.filter((a) => a.type === "bank");
-  return accounts.filter((a) => a.type !== "loan" && a.type !== "ppf" && a.type !== "rd" && a.id !== editingId);
+  if (DEPOSIT_TYPES.has(type)) return accounts.filter((a) => a.type === "bank");
+  return accounts.filter((a) => a.type !== "loan" && !DEPOSIT_TYPES.has(a.type) && a.id !== editingId);
 }
 
 export type AccountSection = { key: string; title: string; data: Account[] };
 
-// The Accounts tab's groups in TYPE_ORDER; PPF and RD share one "Deposits" group.
+// The Accounts tab's groups in TYPE_ORDER; PPF, RD and FD share one "Deposits" group.
 export function accountSections(accounts: Account[]): AccountSection[] {
   const sections: AccountSection[] = [];
   for (const type of TYPE_ORDER) {
     const data = accounts.filter((a) => a.type === type);
     if (data.length === 0) continue;
-    const deposit = type === "ppf" || type === "rd";
+    const deposit = DEPOSIT_TYPES.has(type);
     const last = sections[sections.length - 1];
     if (deposit && last?.key === "deposits") last.data.push(...data);
     else sections.push({ key: deposit ? "deposits" : type, title: deposit ? "Deposits" : TYPE_LABELS[type], data });

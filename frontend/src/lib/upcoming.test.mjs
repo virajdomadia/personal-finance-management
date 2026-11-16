@@ -59,6 +59,8 @@ test("item amounts, signs and meta", () => {
   assert.equal(signedAmountText({ ...item, varies: false, direction: "none" }), "₹4,250.00");
   assert.equal(itemMeta(item), "Card bill · HDFC · overdue");
   assert.equal(itemMeta({ kind: "goal", account_name: null, overdue: false }), "Goal set-aside");
+  assert.equal(itemMeta({ kind: "fd", account_name: null, overdue: true }), "FD maturity · overdue");
+  assert.equal(itemMeta({ kind: "fd_interest", account_name: null, overdue: false }), "FD interest");
 });
 
 test("breakdown lists the four lines with their items", () => {

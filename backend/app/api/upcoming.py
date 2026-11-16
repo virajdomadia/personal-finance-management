@@ -2,7 +2,8 @@
 docs/architecture/financial-calculations.md, "The next 30 days" and "Safe to spend".
 
 Each kind of item comes from its existing due rules: recurring occurrences, SIP and RD due
-months, the loan's next EMI, the dashboard's card bills and goal reminders.
+months, the loan's next EMI, the dashboard's card bills and goal reminders. FDs add their
+maturity (overdue until the FD is closed or renewed) and a payout FD's interest payments.
 """
 
 from collections import defaultdict
@@ -17,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.api.balances import balance_of
 from app.api.categories import name_key
 from app.api.dates import INDIA, clamped_date
-from app.api.deposits import rd_due_months
+from app.api.deposits import add_months, deposit_figures, rd_due_months
 from app.api.goals import GoalBook, reminder_due
 from app.api.loans import Book, next_emi
 from app.api.recurring import TemplateRow, card_bill_due, open_occurrences
@@ -45,7 +46,7 @@ SALARY = name_key("Salary")
 @dataclass(frozen=True)
 class Due:
     date: date
-    kind: str  # recurring | insurance | emi | sip | rd | card_bill | goal
+    kind: str  # recurring | insurance | emi | sip | rd | fd | fd_interest | card_bill | goal
     name: str
     amount: Decimal
     varies: bool  # a card bill with no statement yet: what is owed now
@@ -321,6 +322,43 @@ def rd_items(ctx: Context, until: date, skip: set[int] | None = None) -> list[Du
     return items
 
 
+PAYOUT_MONTHS = {"monthly": 1, "quarterly": 3}
+
+
+def fd_items(ctx: Context, until: date) -> list[Due]:
+    """An open FD's maturity once it falls in the window, overdue until the FD is closed or
+    renewed, and a payout FD's interest payments from today to the window's end. Both are money
+    into the FD's bank."""
+    items = []
+    for fd in sorted(ctx.accounts.values(), key=lambda a: a.id):
+        if fd.type != "fd" or fd.archived_at is not None:
+            continue
+        figures = deposit_figures(fd, ctx.book, ctx.today)
+        if figures is None or figures.kind != "fd" or fd.opened_on is None:
+            continue
+        maturity = date.fromisoformat(figures.maturity_date)
+        bank = ctx.account(fd.pay_from_id)
+        if bank is not None and bank.archived_at is not None:
+            bank = None
+        if balance_of(fd, ctx.book.flows) <= 0:
+            continue
+        if maturity <= until:
+            amount = Decimal(figures.maturity_value)
+            items.append(ctx.item(maturity, "fd", f"{fd.name} matures", amount, fd.id, into=bank))
+        step = PAYOUT_MONTHS.get(figures.payout)
+        if step is None or figures.payout_amount is None:
+            continue
+        payout = Decimal(figures.payout_amount)
+        k = 1
+        while (when := add_months(fd.opened_on, k * step)) <= until and when < maturity:
+            if when >= ctx.today:
+                items.append(
+                    ctx.item(when, "fd_interest", f"{fd.name} interest", payout, fd.id, into=bank)
+                )
+            k += 1
+    return items
+
+
 # Card bills
 
 
@@ -463,6 +501,7 @@ def due_items(
         *emi_items(db, user_id, ctx, until, skip),
         *sip_items(db, user_id, ctx, until),
         *rd_items(ctx, until, skip),
+        *fd_items(ctx, until),
         *card_items(db, user_id, ctx, until, skip),
         *goal_items(db, user_id, ctx, goals, until),
     ]

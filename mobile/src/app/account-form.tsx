@@ -20,6 +20,9 @@ import {
   type AccountForm,
   type AccountList,
   type AccountType,
+  DEPOSIT_TYPES,
+  FD_PAYOUTS,
+  FD_PAYOUT_LABELS,
   TYPE_LABELS,
   TYPE_ORDER,
   changedPayload,
@@ -55,6 +58,7 @@ const INSTITUTION_LABELS: Record<AccountType, string> = {
   wallet: "Provider",
   ppf: "Bank or post office",
   rd: "Bank or post office",
+  fd: "Bank",
   loan: "Lender",
 };
 
@@ -80,19 +84,21 @@ function blankForm(type: AccountType): AccountForm {
     deposit_amount: "",
     tenure_months: "",
     deposits_paid: "",
+    matures_on: "",
+    fd_payout: "",
     moved_from_card: "",
   };
 }
 
 // Finds the account to edit in the list, because the API has no single-account route.
 export default function AccountFormScreen() {
-  // `type` (from the first-run checklist, or Add investment for a PPF or RD) starts a new account on that type. A bank starts on kind
+  // `type` (from the first-run checklist, or Add investment for a PPF, RD or FD) starts a new account on that type. A bank starts on kind
   // Salary, because the checklist asks for the account the salary lands in.
   const { id, type } = useLocalSearchParams<{ id?: string; type?: string }>();
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const editing = id !== undefined;
-  const start = type === "bank" || type === "credit_card" || type === "loan" || type === "ppf" || type === "rd" ? type : null;
+  const start = type === "bank" || type === "credit_card" || type === "loan" || type === "ppf" || type === "rd" || type === "fd" ? type : null;
   const [account, setAccount] = useState<Account | null>(null);
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "missing" | "failed">(editing ? "loading" : "ready");
@@ -431,13 +437,15 @@ function FormBody({
     if (key === "balance" && editing) return "Changing this corrects the balance. Your transactions stay as they are.";
     if (key === "balance" && type === "credit_card") return "Enter what you owe as a positive amount.";
     if (key === "balance" && type === "loan") return "The principal still to repay, as your lender shows it.";
+    if (key === "balance" && type === "fd") return "The amount you put in.";
     if (key === "emis_left") return "Goes down as you record EMIs.";
     if (key === "interest_rate") {
       return type === "loan" ? "Optional. Used to suggest each EMI's interest." : "The yearly rate, for example 7.10.";
     }
     if (key === "deposits_paid") return "Instalments you have already paid, before using this app.";
     if (key === "tenure_months") return "1 to 120 months.";
-    if (key === "pay_from_id" && (type === "ppf" || type === "rd")) {
+    if (key === "pay_from_id" && DEPOSIT_TYPES.has(type)) {
+      if (type === "fd") return "Optional. Where the money came from, and where interest and maturity are paid.";
       return type === "rd" ? "The bank your instalments come from." : "Optional. Pre-fills Deposit.";
     }
     if (key === "pay_from_id") return "For a loan on a credit card, choose the card. Its available credit leaves out what the loan still owes.";
@@ -501,7 +509,7 @@ function FormBody({
   const day = (key: "statement_day" | "due_day", label: string) =>
     input(key, label, { keyboardType: "number-pad", maxLength: 2 });
 
-  // A loan can be paid from any account but another loan; a PPF or RD deposit comes from a bank.
+  // A loan can be paid from any account but another loan; a PPF, RD or FD deposit comes from a bank.
   const payFrom = payFromAccounts(accounts, type, account?.id);
   // Kept when the linked account was archived after the loan was set up, so the choice still shows.
   if (account?.pay_from_id != null && !payFrom.some((a) => a.id === account.pay_from_id)) {
@@ -576,7 +584,10 @@ function FormBody({
           )}
 
           {input("name", "Name", { maxLength: 60 })}
-          {money("balance", type === "credit_card" ? "Amount owed (₹)" : type === "loan" ? "Outstanding (₹)" : "Balance (₹)")}
+          {money(
+            "balance",
+            type === "credit_card" ? "Amount owed (₹)" : type === "loan" ? "Outstanding (₹)" : type === "fd" ? "Principal (₹)" : "Balance (₹)",
+          )}
 
           {type !== "cash" ? input("institution", INSTITUTION_LABELS[type], { maxLength: 60 }) : null}
 
@@ -608,7 +619,7 @@ function FormBody({
             </>
           ) : null}
 
-          {type === "ppf" || type === "rd" ? (
+          {DEPOSIT_TYPES.has(type) ? (
             <>
               {money("interest_rate", "Interest rate (% a year)")}
               {field(
@@ -630,15 +641,44 @@ function FormBody({
                   {input("deposits_paid", "Instalments paid so far", { keyboardType: "number-pad", maxLength: 3 })}
                 </>
               ) : null}
+              {type === "fd" ? (
+                <>
+                  {field(
+                    "matures_on",
+                    <DateField
+                      label="Matures on"
+                      value={form.matures_on}
+                      onChange={(iso) => set("matures_on", iso)}
+                      disabled={busy}
+                      minDate={form.opened_on || undefined}
+                      invalid={Boolean(errors.matures_on)}
+                      chips={[]}
+                    />,
+                  )}
+                  {field(
+                    "fd_payout",
+                    <View>
+                      <Text variant="labelLarge" style={{ color: BRAND.zinc600 }}>
+                        Interest paid
+                      </Text>
+                      <View style={styles.chips}>
+                        {FD_PAYOUTS.map((payout) => (
+                          <Choice key={payout} label={FD_PAYOUT_LABELS[payout]} selected={form.fd_payout === payout} disabled={busy} onPress={() => set("fd_payout", payout)} />
+                        ))}
+                      </View>
+                    </View>,
+                  )}
+                </>
+              ) : null}
               {field(
                 "pay_from_id",
                 <View>
                   <Text variant="labelLarge" style={{ color: BRAND.zinc600 }}>
-                    Deposits paid from
+                    {type === "fd" ? "Bank" : "Deposits paid from"}
                   </Text>
                   <View style={styles.chips}>
                     {[
-                      ...(type === "ppf" ? [{ id: "", name: "Not linked" }] : []),
+                      ...(type === "ppf" || type === "fd" ? [{ id: "", name: "Not linked" }] : []),
                       ...payFrom.map((a) => ({ id: String(a.id), name: a.name })),
                     ].map((option) => (
                       <Choice key={option.id || "none"} label={option.name} selected={form.pay_from_id === option.id} disabled={busy} onPress={() => set("pay_from_id", option.id)} />

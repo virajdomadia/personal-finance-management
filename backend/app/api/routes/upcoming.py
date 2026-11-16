@@ -24,7 +24,9 @@ from app.models.account import Account
 
 router = APIRouter(tags=["upcoming"], dependencies=[Depends(get_current_user)])
 
-Kind = Literal["recurring", "insurance", "emi", "sip", "rd", "card_bill", "goal"]
+Kind = Literal[
+    "recurring", "insurance", "emi", "sip", "rd", "fd", "fd_interest", "card_bill", "goal"
+]
 
 
 class UpcomingItem(BaseModel):
@@ -38,7 +40,7 @@ class UpcomingItem(BaseModel):
     direction: Literal["out", "in", "none"]
     overdue: bool
     balance_after: str  # bank, cash and wallet together, after this item
-    ref_id: int  # the reminder, loan, SIP, RD, card or goal
+    ref_id: int  # the reminder, loan, SIP, RD, FD, card or goal
 
 
 class Upcoming(BaseModel):

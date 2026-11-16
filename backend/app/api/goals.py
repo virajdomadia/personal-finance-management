@@ -147,7 +147,7 @@ class EarmarkLine(BaseModel):
 
 class HoldingLine(BaseModel):
     id: int
-    kind: Literal["stock", "mutual_fund", "crypto", "ppf", "rd"]
+    kind: Literal["stock", "mutual_fund", "crypto", "ppf", "rd", "fd"]
     instrument_id: int | None
     account_id: int | None
     name: str

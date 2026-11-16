@@ -22,14 +22,15 @@ import {
 import { ApiError, apiFetch } from "@/lib/api";
 import { freeBalanceText, overSetAsideText } from "@/lib/goals";
 import { emiForm, todayIndia } from "@/lib/transactions";
-import { depositLines, instalmentForm, interestForm, ppfDepositForm, ppfInterestText, rdDueText } from "@/lib/deposits";
+import { depositLines, fdMaturedText, instalmentForm, interestForm, ppfDepositForm, ppfInterestText, rdDueText } from "@/lib/deposits";
 import { TransactionDialog } from "@/components/transactions/transaction-dialog";
 import { FOCUS, PageHeader, ProgressBar, Tile, buttonClass } from "@/components/ui/chunky";
 import { EmptyState } from "@/components/ui/empty-state";
 import { accountEmoji } from "@/lib/fun";
 
 import { AccountDialog } from "./account-dialog";
-import { CloseRdDialog } from "./close-rd-dialog";
+import { CloseDepositDialog } from "./close-deposit-dialog";
+import { RenewFdDialog } from "./renew-fd-dialog";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; data: AccountList };
 type Dialog =
@@ -40,7 +41,8 @@ type Dialog =
   | { kind: "instalment"; account: Account }
   | { kind: "ppf-deposit"; account: Account }
   | { kind: "ppf-interest"; account: Account }
-  | { kind: "close-rd"; account: Account };
+  | { kind: "close-deposit"; account: Account } // an RD or FD
+  | { kind: "renew-fd"; account: Account };
 
 // What the first-run checklist asks the add dialog to start on (`/accounts?add=...`).
 export type AddStart = { type: AccountType; bank_kind?: string };
@@ -160,7 +162,8 @@ export function AccountsView({ add = null }: { add?: AddStart | null }) {
           onArchive={(account) => setDialog({ kind: "archive", account })}
           onRecordEmi={(loan) => setDialog({ kind: "emi", loan })}
           onDeposit={(account, kind) => setDialog({ kind, account })}
-          onCloseRd={(account) => setDialog({ kind: "close-rd", account })}
+          onCloseDeposit={(account) => setDialog({ kind: "close-deposit", account })}
+          onRenewFd={(account) => setDialog({ kind: "renew-fd", account })}
           onRestore={async (account) => {
             setNotice(null);
             try {
@@ -240,8 +243,9 @@ export function AccountsView({ add = null }: { add?: AddStart | null }) {
         />
       )}
 
-      {dialog.kind === "close-rd" && (
-        <CloseRdDialog
+      {(dialog.kind === "close-deposit" || dialog.kind === "renew-fd") && (
+        <DepositDialog
+          kind={dialog.kind}
           account={dialog.account}
           accounts={activeAccounts}
           onClose={closeDialog}
@@ -283,7 +287,8 @@ function Content({
   onRestore,
   onRecordEmi,
   onDeposit,
-  onCloseRd,
+  onCloseDeposit,
+  onRenewFd,
 }: {
   data: AccountList;
   archived: boolean;
@@ -294,27 +299,39 @@ function Content({
   onRestore: (account: Account) => Promise<void>;
   onRecordEmi: (loan: Account) => void;
   onDeposit: (account: Account, kind: "instalment" | "ppf-deposit" | "ppf-interest") => void;
-  onCloseRd: (account: Account) => void;
+  onCloseDeposit: (account: Account) => void;
+  onRenewFd: (account: Account) => void;
 }) {
   const dueLines = archived
     ? []
     : data.accounts.flatMap((account) => {
         const rd = rdDueText(account);
         const ppf = ppfInterestText(account);
-        return [
-          ...(rd ? [{ key: `rd-${account.id}`, text: rd, label: "Record instalment", run: () => onDeposit(account, "instalment") }] : []),
-          ...(ppf ? [{ key: `ppf-${account.id}`, text: ppf, label: "Record interest", run: () => onDeposit(account, "ppf-interest") }] : []),
-        ];
+        const fd = fdMaturedText(account);
+        const lines: DueLine[] = [];
+        if (rd) lines.push({ key: `rd-${account.id}`, text: rd, actions: [{ label: "Record instalment", run: () => onDeposit(account, "instalment") }] });
+        if (ppf) lines.push({ key: `ppf-${account.id}`, text: ppf, actions: [{ label: "Record interest", run: () => onDeposit(account, "ppf-interest") }] });
+        if (fd) {
+          lines.push({
+            key: `fd-${account.id}`,
+            text: fd,
+            actions: [
+              { label: "Close", ariaLabel: `Close FD ${account.name}`, run: () => onCloseDeposit(account) },
+              { label: "Renew", ariaLabel: `Renew FD ${account.name}`, run: () => onRenewFd(account) },
+            ],
+          });
+        }
+        return lines;
       });
   const groups = TYPE_ORDER.map((type) => ({
     type,
     accounts: data.accounts.filter((a) => a.type === type),
   })).filter((g) => g.accounts.length > 0);
 
-  // PPF and RD share one "Deposits" group.
+  // PPF, RD and FD share one "Deposits" group.
   const sections: { key: string; title: string; accounts: Account[] }[] = [];
   for (const g of groups) {
-    const deposit = g.type === "ppf" || g.type === "rd";
+    const deposit = g.type === "ppf" || g.type === "rd" || g.type === "fd";
     const last = sections[sections.length - 1];
     if (deposit && last?.key === "deposits") last.accounts.push(...g.accounts);
     else sections.push({ key: deposit ? "deposits" : g.type, title: deposit ? "Deposits" : TYPE_LABELS[g.type], accounts: [...g.accounts] });
@@ -359,9 +376,13 @@ function Content({
                 <span aria-hidden="true">⏰ </span>
                 {line.text}
               </span>
-              <button type="button" className={ROW_ACTION} onClick={line.run}>
-                {line.label}
-              </button>
+              <span className="flex flex-wrap gap-1.5">
+                {line.actions.map((action) => (
+                  <button key={action.label} type="button" className={ROW_ACTION} aria-label={action.ariaLabel} onClick={action.run}>
+                    {action.label}
+                  </button>
+                ))}
+              </span>
             </li>
           ))}
         </ul>
@@ -411,7 +432,8 @@ function Content({
                     onRestore={onRestore}
                     onRecordEmi={onRecordEmi}
                     onDeposit={onDeposit}
-                    onCloseRd={onCloseRd}
+                    onCloseDeposit={onCloseDeposit}
+                    onRenewFd={onRenewFd}
                   />
                 ))}
               </ul>
@@ -422,6 +444,8 @@ function Content({
     </>
   );
 }
+
+type DueLine = { key: string; text: string; actions: { label: string; ariaLabel?: string; run: () => void }[] };
 
 function includedHint(data: AccountList): string | null {
   const investments = investmentsIn(data);
@@ -435,7 +459,8 @@ function AccountRow({
   onRestore,
   onRecordEmi,
   onDeposit,
-  onCloseRd,
+  onCloseDeposit,
+  onRenewFd,
 }: {
   account: Account;
   onEdit: (account: Account) => void;
@@ -443,7 +468,8 @@ function AccountRow({
   onRestore: (account: Account) => Promise<void>;
   onRecordEmi: (loan: Account) => void;
   onDeposit: (account: Account, kind: "instalment" | "ppf-deposit" | "ppf-interest") => void;
-  onCloseRd: (account: Account) => void;
+  onCloseDeposit: (account: Account) => void;
+  onRenewFd: (account: Account) => void;
 }) {
   const [restoring, setRestoring] = useState(false);
   const [today] = useState(todayIndia);
@@ -584,8 +610,18 @@ function AccountRow({
               </button>
             )}
             {account.type === "rd" && (
-              <button type="button" className={ROW_ACTION} aria-label={`Close RD ${account.name}`} onClick={() => onCloseRd(account)}>
+              <button type="button" className={ROW_ACTION} aria-label={`Close RD ${account.name}`} onClick={() => onCloseDeposit(account)}>
                 Close RD
+              </button>
+            )}
+            {figures?.kind === "fd" && figures.matured && (
+              <button type="button" className={ROW_ACTION} aria-label={`Renew FD ${account.name}`} onClick={() => onRenewFd(account)}>
+                Renew
+              </button>
+            )}
+            {account.type === "fd" && (
+              <button type="button" className={ROW_ACTION} aria-label={`Close FD ${account.name}`} onClick={() => onCloseDeposit(account)}>
+                Close FD
               </button>
             )}
             <button type="button" className={ROW_ACTION} aria-label={`Edit ${account.name}`} onClick={() => onEdit(account)}>
@@ -599,6 +635,21 @@ function AccountRow({
       </div>
     </li>
   );
+}
+
+// Closing an RD or FD, or renewing an FD.
+function DepositDialog({
+  kind,
+  ...props
+}: {
+  kind: "close-deposit" | "renew-fd";
+  account: Account;
+  accounts: Account[];
+  onClose: () => void;
+  onDone: () => void;
+  onConflict: (message: string) => void;
+}) {
+  return kind === "renew-fd" ? <RenewFdDialog {...props} /> : <CloseDepositDialog {...props} />;
 }
 
 function ArchiveDialog({

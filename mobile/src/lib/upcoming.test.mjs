@@ -98,3 +98,15 @@ test("breakdown lines", () => {
     "₹20,000 left, less ₹20,000 in bills above",
   );
 });
+
+test("an FD's maturity and interest have their own labels", () => {
+  const maturity = item({ kind: "fd", name: "HDFC FD matures", direction: "in", amount: "107450.25", account_name: null });
+  assert.deepEqual(itemDetail(maturity), ["FD maturity"]);
+  assert.equal(itemAmountText(maturity), "+₹1,07,450.25");
+  const interest = item({ kind: "fd_interest", name: "HDFC FD interest", direction: "in", amount: "1812.50", account_name: "HDFC" });
+  assert.deepEqual(itemDetail(interest), ["FD interest · HDFC"]);
+  assert.equal(
+    duePartMeta({ name: "HDFC FD matures", amount: "107450.25", date: "2026-11-10", kind: "fd", overdue: true, varies: false }),
+    "FD maturity · 10 Nov · overdue",
+  );
+});

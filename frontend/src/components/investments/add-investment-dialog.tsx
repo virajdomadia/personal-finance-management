@@ -17,7 +17,7 @@ import { SipDialog } from "./sip-dialog";
 import { AddFlow, DIALOG, QUIET } from "./shared";
 import { TradeDialog } from "./trade-dialog";
 
-export type AddType = "stock" | "mutual_fund" | "crypto" | "ppf" | "rd" | "sip";
+export type AddType = "stock" | "mutual_fund" | "crypto" | "ppf" | "rd" | "fd" | "sip";
 // Where the dialog opens: at step 1, or straight at a type's second step (an empty section's button).
 export type AddStart = { type: AddType; opening: boolean } | null;
 
@@ -29,6 +29,7 @@ const CHOICES: Choice[] = [
   { type: "crypto", title: "Crypto", text: "Coins on an exchange", emoji: investmentEmoji("crypto"), tone: "blue" },
   { type: "ppf", title: "PPF", text: "Public Provident Fund account", emoji: accountEmoji("ppf"), tone: "orange" },
   { type: "rd", title: "Recurring deposit", text: "A monthly RD at a bank or post office", emoji: accountEmoji("rd"), tone: "orange" },
+  { type: "fd", title: "Fixed deposit", text: "A lump sum at a bank for a fixed term", emoji: accountEmoji("fd"), tone: "orange" },
 ];
 
 type Props = {
@@ -47,7 +48,7 @@ type Props = {
 };
 
 // The one way to add an investment: step 1 picks the type, step 2 is that type's own form (the trade
-// dialog for a first purchase, the account dialog for a PPF or RD, or the SIP dialog). Back returns here.
+// dialog for a first purchase, the account dialog for a PPF, RD or FD, or the SIP dialog). Back returns here.
 export function AddInvestmentDialog(props: Props) {
   const [type, setType] = useState<AddType | null>(props.start?.type ?? null);
   // "Already hold it" comes only from an empty section's button. Back to step 1 forgets it, so a type
@@ -121,7 +122,7 @@ export function AddInvestmentDialog(props: Props) {
         onFundCreated={props.onCreated}
       />
     );
-  } else if (type === "ppf" || type === "rd") {
+  } else if (type === "ppf" || type === "rd" || type === "fd") {
     step = (
       <AccountDialog
         account={null}
@@ -152,6 +153,7 @@ function TypeStep({ stocks, funds, coins, onClose, onPick }: Props & { onPick: (
     crypto: coins !== null,
     ppf: true,
     rd: true,
+    fd: true,
   };
 
   return (

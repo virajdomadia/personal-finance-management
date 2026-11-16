@@ -38,8 +38,12 @@ TYPE_NAMES = {
     "wallet": "Wallet",
     "ppf": "PPF",
     "rd": "RD",
+    "fd": "FD",
     "loan": "Loan",
 }
+
+
+PAYOUT_NAMES = {"cumulative": "Cumulative", "monthly": "Monthly", "quarterly": "Quarterly"}
 
 
 def cell(value: Any) -> str:
@@ -254,13 +258,14 @@ def _loans(db: Session, user_id: int, accounts: list[Account], names: dict[int, 
 
 
 def _deposits(db: Session, user_id: int, accounts: list[Account], names: dict[int, str]) -> bytes:
-    deposits = [a for a in accounts if a.type in ("ppf", "rd")]
+    deposits = [a for a in accounts if a.type in ("ppf", "rd", "fd")]
     book = load_book(db, user_id, accounts)
     tags = load_goal_tags(db, user_id)
     today = today_india()
     headers = [
         "Name", "Type", "Institution", "Balance", "Interest rate (%)", "Opened on",
-        "Maturity date", "Monthly instalment", "Tenure (months)", "Paid from", "Archived",
+        "Maturity date", "Monthly instalment", "Tenure (months)", "Interest payout", "Paid from",
+        "Archived",
     ]  # fmt: skip
     rows = []
     for a in deposits:
@@ -270,7 +275,8 @@ def _deposits(db: Session, user_id: int, accounts: list[Account], names: dict[in
             [
                 a.name, TYPE_NAMES[a.type], a.institution, r.balance, money(a.interest_rate),
                 a.opened_on, figures.maturity_date if figures else "", money(a.deposit_amount),
-                a.tenure_months, names.get(a.pay_from_id, "") if a.pay_from_id else "",
+                a.tenure_months, PAYOUT_NAMES.get(a.fd_payout or "", ""),
+                names.get(a.pay_from_id, "") if a.pay_from_id else "",
                 a.archived_at is not None,
             ]
         )  # fmt: skip

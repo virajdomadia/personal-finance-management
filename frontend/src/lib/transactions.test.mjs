@@ -282,6 +282,15 @@ test("a new form never starts on a deposit the expense can't be paid from", () =
   assert.equal(newTransactionForm("2026-01-01", null, set).account_id, "");
 });
 
+test("an FD follows the same rules as a PPF or RD", () => {
+  const withFd = [...set, acct(6, "fd")];
+  assert.deepEqual(ids(fromOptions("expense", withFd, f())), [1, 2, 5]);
+  assert.deepEqual(ids(toOptions(withFd, f({ type: "transfer", account_id: "6" }))), [1]);
+  assert.deepEqual(ids(fromOptions("transfer", withFd, f({ type: "transfer", to_account_id: "6" }))), [1]);
+  assert.deepEqual(incomeCategories(withFd, f({ type: "income", account_id: "6" }), ["Salary", "Interest"]), ["Interest"]);
+  assert.equal(newTransactionForm("2026-01-01", 6, withFd).account_id, "");
+});
+
 test("transfer pickers leave deposits out against a non-bank account", () => {
   assert.deepEqual(ids(toOptions(set, f({ type: "transfer", account_id: "2" }))), [1, 5]);
   assert.deepEqual(ids(fromOptions("transfer", set, f({ type: "transfer", to_account_id: "2" }))), [1, 5]);

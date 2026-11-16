@@ -1,13 +1,16 @@
-"""Interest maths for PPF and recurring deposits (RD). Pure functions, no database.
+"""Interest maths for PPF, recurring deposits (RD) and fixed deposits (FD). Pure functions, no
+database.
 
-Two rules live here:
+Three rules live here:
 - PPF: interest for a month is rate / 12 / 100 on the lowest balance between the end of the 5th and
   the end of the month; the year's months (April to March) are summed and rounded once
   to the nearest rupee, as a bank passbook shows.
 - RD: quarterly compounding, an amount held for m whole months grows by (1 + rate / 400) ** (m / 3).
+- FD: compounded every whole quarter, then simple interest for the days left over (the method
+  Indian banks publish for cumulative FDs). A payout FD pays its interest out instead.
 
 A bank whose method differs is matched by changing only `rd_maturity_value` and
-`rd_interest_so_far`.
+`rd_interest_so_far`, or `fd_value` for an FD.
 """
 
 from datetime import UTC, date
@@ -183,6 +186,46 @@ def rd_months_paid(transfer_dates: list[date]) -> int:
     return len({(d.year, d.month) for d in transfer_dates})
 
 
+def fd_value(amount: Decimal, rate: Decimal, start: date, end: date) -> Decimal:
+    """`amount` placed on `start`, compounded each whole quarter, simple interest for the days
+    after the last whole quarter, as at `end`. Not rounded: callers round their totals."""
+    if end <= start:
+        return amount
+    with localcontext() as ctx:
+        ctx.prec = 34
+        quarters = whole_months(start, end) // 3
+        last = add_months(start, quarters * 3)
+        days = (end - last).days
+        return amount * (1 + rate / 400) ** quarters * (1 + rate * days / 36500)
+
+
+def fd_maturity_value(principals: list[Dated], rate: Decimal, maturity: date) -> Decimal:
+    return _paise(sum((fd_value(p.amount, rate, p.date, maturity) for p in principals), Decimal(0)))
+
+
+def fd_interest_so_far(
+    principals: list[Dated],
+    rate: Decimal,
+    today: date,
+    maturity: date,
+    recorded_interest: Decimal,
+) -> Decimal:
+    until = min(today, maturity)
+    earned = sum(
+        (fd_value(p.amount, rate, p.date, until) - p.amount for p in principals), Decimal(0)
+    )
+    return _paise(max(earned - recorded_interest, Decimal(0)))
+
+
+def fd_payout_amount(principal: Decimal, rate: Decimal, payout: str) -> Decimal | None:
+    """The interest a payout FD pays each month or quarter; None for a cumulative FD."""
+    if payout == "monthly":
+        return _paise(principal * rate / 1200)
+    if payout == "quarterly":
+        return _paise(principal * rate / 400)
+    return None
+
+
 PPF_YEAR_LIMIT = Decimal("150000.00")
 
 
@@ -211,6 +254,21 @@ class RdFigures(BaseModel):
     value_today: str
     maturity_value: str
     due: list[str]
+
+
+class FdFigures(BaseModel):
+    kind: Literal["fd"]
+    maturity_date: str
+    payout: str
+    principal: str
+    interest_so_far: str
+    value_today: str
+    maturity_value: str
+    payout_amount: str | None
+    matured: bool
+
+
+DepositFigures = PpfFigures | RdFigures | FdFigures
 
 
 def _fmt(value: Decimal) -> str:
@@ -305,23 +363,61 @@ def _rd_figures(account: Account, book: Book, today: date) -> RdFigures | None:
     )
 
 
-def deposit_figures(account: Account, book: Book, today: date) -> PpfFigures | RdFigures | None:
+def _fd_figures(account: Account, book: Book, today: date) -> FdFigures | None:
+    opened, maturity, rate = account.opened_on, account.matures_on, account.interest_rate
+    payout = account.fd_payout
+    if opened is None or maturity is None or rate is None or payout is None:
+        return None
+    moves = book.deposit_moves.get(account.id, [])
+    # The opening balance is the principal placed on the opening date; transfers in add to it.
+    principals = [Dated(opened, account.opening_balance), *_transfers_in(moves)]
+    principals = [p for p in principals if p.amount > 0]
+    principal = sum((p.amount for p in principals), Decimal(0))
+    recorded = sum((m.amount for m in moves if m.kind == "interest"), Decimal(0))
+    balance = balance_of(account, book.flows)
+    # A closed or emptied FD earns nothing more; a payout FD's interest goes to the bank.
+    earning = account.archived_at is None and balance > 0
+    interest = (
+        fd_interest_so_far(principals, rate, today, maturity, recorded)
+        if earning and payout == "cumulative"
+        else Decimal(0)
+    )
+    return FdFigures(
+        kind="fd",
+        maturity_date=maturity.isoformat(),
+        payout=payout,
+        principal=_fmt(principal),
+        interest_so_far=_fmt(interest),
+        value_today=_fmt(balance + interest),
+        maturity_value=_fmt(
+            fd_maturity_value(principals, rate, maturity) if payout == "cumulative" else principal
+        ),
+        payout_amount=None
+        if (amount := fd_payout_amount(principal, rate, payout)) is None
+        else _fmt(amount),
+        matured=today >= maturity,
+    )
+
+
+def deposit_figures(account: Account, book: Book, today: date) -> DepositFigures | None:
     if account.type == "ppf":
         return _ppf_figures(account, book, today)
     if account.type == "rd":
         return _rd_figures(account, book, today)
+    if account.type == "fd":
+        return _fd_figures(account, book, today)
     return None
 
 
 class DepositRow(NamedTuple):
     account: Account
     balance: Decimal
-    figures: PpfFigures | RdFigures
+    figures: DepositFigures
     interest_estimate: Decimal
 
 
 def deposit_rows(active: list[Account], book: Book, today: date) -> list[DepositRow]:
-    """One row per active PPF or RD, in the order `active` has them (balance plus the estimate)."""
+    """One row per active PPF, RD or FD, in the order `active` has them (balance and estimate)."""
     rows = []
     for account in active:
         figures = deposit_figures(account, book, today)

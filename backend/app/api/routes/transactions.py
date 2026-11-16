@@ -262,14 +262,22 @@ def validate_transaction_values(
         raise RequestValidationError(errors)
 
 
+_DEPOSIT_NAMES = {"ppf": "PPF account", "rd": "RD", "fd": "FD"}
+
+
 def _deposit_name(account: Account) -> str:
-    return "PPF account" if account.type == "ppf" else "RD"
+    return _DEPOSIT_NAMES[account.type]
+
+
+def _article(account: Account) -> str:
+    """The article before the name: an RD, an FD, a PPF account."""
+    return "an" if account.type in ("rd", "fd") else "a"
 
 
 def _validate_deposits(
     values: dict[str, Any], accounts: dict[int, Account], errors: list[dict[str, Any]]
 ) -> None:
-    """A PPF or RD takes deposits, interest and withdrawals to a bank, and nothing else."""
+    """A PPF, RD or FD takes deposits, interest and withdrawals to a bank, and nothing else."""
     type_ = values["type"]
     source = accounts.get(values["account_id"] or 0)
     target = accounts.get(values["to_account_id"] or 0)
@@ -279,8 +287,7 @@ def _validate_deposits(
         return account is not None and account.type in DEPOSIT_TYPES
 
     def only(account: Account) -> str:
-        article = "An" if account.type == "rd" else "A"
-        what = f"{article} {_deposit_name(account)}"
+        what = f"{_article(account).capitalize()} {_deposit_name(account)}"
         return f"{what} only takes deposits, interest and withdrawals to a bank."
 
     if type_ in ("expense", "emi") and source is not None and deposit(source):
@@ -290,13 +297,8 @@ def _validate_deposits(
     if type_ == "income" and source is not None and deposit(source):
         category = values["category"]
         if category is not None and category.casefold() != "interest":
-            article = "an" if source.type == "rd" else "a"
-            found.append(
-                (
-                    "category",
-                    f"Interest is the only income {article} {_deposit_name(source)} takes.",
-                )
-            )
+            what = f"{_article(source)} {_deposit_name(source)}"
+            found.append(("category", f"Interest is the only income {what} takes."))
     if type_ == "transfer" and source is not None and target is not None:
         if deposit(target) and source.type != "bank":
             found.append(("account_id", only(target)))

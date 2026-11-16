@@ -4,7 +4,7 @@ import type { DueItem } from "./recurring.ts";
 // The active goal a holding is in. Mirrors GoalTag in backend/app/api/routes/accounts.py.
 export type GoalTag = { id: number; name: string };
 
-export type AccountType = "bank" | "credit_card" | "cash" | "broker" | "wallet" | "ppf" | "rd" | "loan";
+export type AccountType = "bank" | "credit_card" | "cash" | "broker" | "wallet" | "ppf" | "rd" | "fd" | "loan";
 
 // The suggested split of a loan's next EMI. Interest is null when it can't be worked out.
 export type NextEmi = { amount: string; interest: string | null; principal: string | null };
@@ -30,6 +30,21 @@ export type RdFigures = {
   due: string[];
 };
 
+// How an FD pays its interest: all at maturity, or to the bank each month or quarter.
+export type FdPayout = "cumulative" | "monthly" | "quarterly";
+
+export type FdFigures = {
+  kind: "fd";
+  maturity_date: string;
+  payout: FdPayout;
+  principal: string;
+  interest_so_far: string; // an estimate; 0 for a payout FD, whose interest goes to the bank
+  value_today: string;
+  maturity_value: string; // the estimate at maturity; the principal for a payout FD
+  payout_amount: string | null; // interest paid to the bank each month or quarter; null for cumulative
+  matured: boolean; // today is on or after the maturity date
+};
+
 export type Account = {
   id: number;
   type: AccountType;
@@ -53,7 +68,9 @@ export type Account = {
   opened_on: string | null;
   deposit_amount: string | null;
   tenure_months: number | null;
-  deposit: PpfFigures | RdFigures | null;
+  matures_on: string | null; // an FD's maturity date
+  fd_payout: FdPayout | null;
+  deposit: PpfFigures | RdFigures | FdFigures | null;
   archived: boolean;
 };
 
@@ -98,6 +115,8 @@ export type AccountForm = {
   deposit_amount: string;
   tenure_months: string;
   deposits_paid: string;
+  matures_on: string;
+  fd_payout: string;
   moved_from_card: "" | "yes"; // create only
 };
 
@@ -109,10 +128,17 @@ export const TYPE_LABELS: Record<AccountType, string> = {
   wallet: "Wallet or prepaid card",
   ppf: "PPF",
   rd: "Recurring deposit",
+  fd: "Fixed deposit",
   loan: "Loan",
 };
 
-export const TYPE_ORDER: AccountType[] = ["bank", "credit_card", "cash", "broker", "wallet", "ppf", "rd", "loan"];
+export const TYPE_ORDER: AccountType[] = ["bank", "credit_card", "cash", "broker", "wallet", "ppf", "rd", "fd", "loan"];
+
+export const FD_PAYOUT_LABELS: Record<FdPayout, string> = {
+  cumulative: "Cumulative",
+  monthly: "Monthly payout",
+  quarterly: "Quarterly payout",
+};
 
 // Accounts whose balance is what's owed.
 export const OWED_TYPES = new Set<AccountType>(["credit_card", "loan"]);
@@ -126,6 +152,7 @@ const APPLICABLE: Record<AccountType, (keyof AccountForm)[]> = {
   wallet: ["institution"],
   ppf: ["institution", "interest_rate", "opened_on", "pay_from_id"],
   rd: ["institution", "interest_rate", "opened_on", "pay_from_id", "deposit_amount", "due_day", "tenure_months", "deposits_paid"],
+  fd: ["institution", "interest_rate", "opened_on", "matures_on", "fd_payout", "pay_from_id"],
   loan: ["institution", "due_day", "interest_rate", "emi_amount", "emis_left", "pay_from_id"],
 };
 
@@ -206,6 +233,8 @@ export function formFromAccount(account: Account): AccountForm {
     deposit_amount: account.deposit_amount ?? "",
     tenure_months: account.tenure_months === null ? "" : String(account.tenure_months),
     deposits_paid: account.deposit?.kind === "rd" ? String(account.deposit.deposits_paid) : "",
+    matures_on: account.matures_on ?? "",
+    fd_payout: account.fd_payout ?? "",
     moved_from_card: "",
   };
 }
@@ -303,7 +332,7 @@ function toPaise(value: string): bigint {
 }
 
 // Mirrors HAVE_TYPES in backend/app/api/routes/accounts.py.
-const HAVE_TYPES = new Set<AccountType>(["bank", "cash", "broker", "wallet", "ppf", "rd"]);
+const HAVE_TYPES = new Set<AccountType>(["bank", "cash", "broker", "wallet", "ppf", "rd", "fd"]);
 
 // "You have" is the active accounts' balances plus investments. This is the investments part,
 // or null when there is none. Only meaningful for the active list, which holds every active account.

@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  closeRdForm,
-  closeRdPayload,
+  closeDepositForm,
+  fdMaturedText,
+  fdPayoutText,
+  renewFdForm,
+  renewFdPayload,
+  closeDepositPayload,
   instalmentForm,
   interestForm,
   ppfDepositForm,
@@ -103,23 +107,23 @@ test("interestForm is income into the deposit", () => {
   assert.equal(form.date, "2027-03-31");
 });
 
-test("closeRdForm and closeRdPayload", () => {
-  const form = closeRdForm(rd(), "2026-11-20");
+test("closeDepositForm and closeDepositPayload", () => {
+  const form = closeDepositForm(rd(), "2026-11-20");
   assert.deepEqual(form, { amount: "62000.50", date: "2026-11-20", account_id: "7" });
-  assert.deepEqual(closeRdPayload({ amount: "₹62,000.50", date: "2026-11-20", account_id: "7" }), {
+  assert.deepEqual(closeDepositPayload({ amount: "₹62,000.50", date: "2026-11-20", account_id: "7" }), {
     amount: "62000.50",
     date: "2026-11-20",
     account_id: 7,
   });
-  assert.equal(closeRdPayload({ amount: "1", date: "2026-11-20", account_id: "" }).account_id, null);
+  assert.equal(closeDepositPayload({ amount: "1", date: "2026-11-20", account_id: "" }).account_id, null);
 });
 
-test("closeRdForm clears a pay-from that isn't an active bank", () => {
+test("closeDepositForm clears a pay-from that isn't an active bank", () => {
   const banks = [{ id: 7, type: "bank", archived: false }, { id: 8, type: "bank", archived: false }];
-  assert.equal(closeRdForm(rd(), "2026-11-20", banks).account_id, "7");
-  assert.equal(closeRdForm(rd({ pay_from_id: 9 }), "2026-11-20", banks).account_id, "");
-  assert.equal(closeRdForm(rd({ pay_from_id: 7 }), "2026-11-20", []).account_id, "");
-  assert.equal(closeRdForm(rd({ pay_from_id: null }), "2026-11-20", banks).account_id, "");
+  assert.equal(closeDepositForm(rd(), "2026-11-20", banks).account_id, "7");
+  assert.equal(closeDepositForm(rd({ pay_from_id: 9 }), "2026-11-20", banks).account_id, "");
+  assert.equal(closeDepositForm(rd({ pay_from_id: 7 }), "2026-11-20", []).account_id, "");
+  assert.equal(closeDepositForm(rd({ pay_from_id: null }), "2026-11-20", banks).account_id, "");
 });
 
 test("instalmentForm starts with no account when the usual bank isn't an active bank", () => {
@@ -179,4 +183,147 @@ test("accountSections puts PPF and RD in one Deposits group, in type order", asy
   const sections = accountSections(list);
   assert.deepEqual(sections.map((s) => s.title), ["Bank account", "Deposits", "Loan"]);
   assert.deepEqual(sections[1].data.map((a) => a.type), ["ppf", "rd"]);
+});
+
+const fd = (o = {}, d = {}) => ({
+  id: 21,
+  type: "fd",
+  name: "HDFC FD",
+  balance: "100000.00",
+  interest_rate: "7.25",
+  pay_from_id: 7,
+  matures_on: "2027-01-10",
+  fd_payout: "cumulative",
+  archived: false,
+  deposit: {
+    kind: "fd",
+    maturity_date: "2027-01-10",
+    payout: "cumulative",
+    principal: "100000.00",
+    interest_so_far: "6200.00",
+    value_today: "106200.00",
+    maturity_value: "107450.25",
+    payout_amount: null,
+    matured: false,
+    ...d,
+  },
+  ...o,
+});
+const payoutFd = (payout, o = {}) =>
+  fd(
+    { fd_payout: payout, ...o },
+    {
+      payout,
+      interest_so_far: "0.00",
+      value_today: "100000.00",
+      maturity_value: "100000.00",
+      payout_amount: payout === "monthly" ? "604.17" : "1812.50",
+    },
+  );
+
+test("depositLines for an FD: terms, then the estimate and maturity value, or the payout", async () => {
+  const { depositLines } = await import("./deposits.ts");
+  assert.deepEqual(depositLines(fd()), [
+    "7.25% a year · Cumulative",
+    "Value today ≈ ₹1,06,200.00 (estimate)",
+    "₹1,07,450.25 on 10 Jan 2027",
+  ]);
+  assert.deepEqual(depositLines(payoutFd("monthly")), [
+    "7.25% a year · Monthly payout",
+    "₹604.17 interest every month",
+    "Matures 10 Jan 2027",
+  ]);
+  assert.deepEqual(depositLines(payoutFd("quarterly")), [
+    "7.25% a year · Quarterly payout",
+    "₹1,812.50 interest every quarter",
+    "Matures 10 Jan 2027",
+  ]);
+  const matured = fd({}, { payout: "monthly", payout_amount: "604.17", matured: true });
+  assert.equal(depositLines(matured)[2], "Matured 10 Jan 2027");
+  assert.equal(depositLines(fd({ interest_rate: null }))[0], "Cumulative");
+});
+
+test("fdPayoutText is only for a payout FD", () => {
+  assert.equal(fdPayoutText(fd()), null);
+  assert.equal(fdPayoutText(payoutFd("monthly")), "₹604.17 interest every month");
+  assert.equal(fdPayoutText(payoutFd("quarterly")), "₹1,812.50 interest every quarter");
+});
+
+test("fdMaturedText asks to close or renew a matured FD that is still open", () => {
+  assert.equal(fdMaturedText(fd()), null);
+  assert.equal(fdMaturedText(fd({}, { matured: true })), "HDFC FD matured on 10 Jan 2027. Close or renew it.");
+  assert.equal(fdMaturedText(fd({ archived: true }, { matured: true })), null);
+  assert.equal(fdMaturedText(rd()), null);
+});
+
+test("closeDepositForm starts an FD at its maturity value and its bank", () => {
+  const banks = [{ id: 7, type: "bank", archived: false }];
+  assert.deepEqual(closeDepositForm(fd(), "2027-01-10", banks), { amount: "107450.25", date: "2027-01-10", account_id: "7" });
+  assert.equal(closeDepositForm(fd({ pay_from_id: null }), "2027-01-10", banks).account_id, "");
+  assert.equal(closeDepositForm({ type: "ppf", pay_from_id: null, deposit: null }, "2027-01-10").amount, "");
+});
+
+test("renewFdForm starts from the old FD and renews all of the amount received", () => {
+  const banks = [{ id: 7, type: "bank", archived: false }];
+  assert.deepEqual(renewFdForm(fd(), "2027-01-10", banks), {
+    amount: "107450.25",
+    date: "2027-01-10",
+    account_id: "7",
+    reinvest: "107450.25",
+    name: "",
+    interest_rate: "7.25",
+    matures_on: "",
+    fd_payout: "cumulative",
+  });
+  assert.equal(renewFdForm(payoutFd("quarterly"), "2027-01-10", []).account_id, "");
+  assert.equal(renewFdForm(payoutFd("quarterly"), "2027-01-10", []).fd_payout, "quarterly");
+});
+
+test("renewFdPayload cleans money, leaves out a blank name and amount to renew, and sends other blanks as null", () => {
+  const form = {
+    amount: "₹1,07,450.25",
+    date: "2027-01-10",
+    account_id: "7",
+    reinvest: "1,00,000",
+    name: "  HDFC FD 2  ",
+    interest_rate: "7.10",
+    matures_on: "2028-01-10",
+    fd_payout: "monthly",
+  };
+  assert.deepEqual(renewFdPayload(form), {
+    amount: "107450.25",
+    date: "2027-01-10",
+    account_id: 7,
+    reinvest: "100000",
+    name: "HDFC FD 2",
+    interest_rate: "7.10",
+    matures_on: "2028-01-10",
+    fd_payout: "monthly",
+  });
+  assert.deepEqual(
+    renewFdPayload({ ...form, reinvest: " ", name: "", account_id: "", interest_rate: "", matures_on: "", fd_payout: "" }),
+    {
+      amount: "107450.25",
+      date: "2027-01-10",
+      account_id: null,
+      interest_rate: null,
+      matures_on: null,
+      fd_payout: null,
+    },
+  );
+});
+
+test("an FD is paid from banks only and sits in the Deposits group after RD", async () => {
+  const { accountSections, payFromAccounts } = await import("./deposits.ts");
+  const list = ["bank", "credit_card", "fd", "loan"].map((type, i) => ({ id: i + 1, type }));
+  assert.deepEqual(payFromAccounts(list, "fd").map((a) => a.type), ["bank"]);
+  assert.deepEqual(payFromAccounts(list, "loan").map((a) => a.type), ["bank", "credit_card"]);
+  const sections = accountSections([
+    { id: 1, type: "fd" },
+    { id: 2, type: "ppf" },
+    { id: 3, type: "rd" },
+    { id: 4, type: "loan" },
+  ]);
+  assert.deepEqual(sections.map((s) => s.title), ["Deposits", "Loan"]);
+  assert.deepEqual(sections[0].data.map((a) => a.type), ["ppf", "rd", "fd"]);
 });

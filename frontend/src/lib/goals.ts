@@ -17,7 +17,7 @@ export type EarmarkLine = { account_id: number; account_name: string; amount: st
 
 export type HoldingLine = {
   id: number;
-  kind: "stock" | "mutual_fund" | "crypto" | "ppf" | "rd";
+  kind: "stock" | "mutual_fund" | "crypto" | "ppf" | "rd" | "fd";
   instrument_id: number | null;
   account_id: number | null;
   name: string;

@@ -51,6 +51,7 @@ const TYPE_TONE: Record<Account["type"], Tone> = {
   wallet: "yellow",
   ppf: "orange",
   rd: "orange",
+  fd: "orange",
   loan: "due",
 };
 

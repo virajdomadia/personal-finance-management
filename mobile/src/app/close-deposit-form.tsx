@@ -16,14 +16,17 @@ import { DateField } from "@/components/date-field";
 import { Banner, Choice } from "@/components/form-parts";
 import { type Account, type AccountList, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { type CloseRdForm, closeRdForm, closeRdPayload } from "@/lib/deposits";
+import { type CloseDepositForm, closeDepositForm, closeDepositPayload } from "@/lib/deposits";
 import { useSession } from "@/lib/session";
 import { BRAND } from "@/lib/theme";
 import { previousDay, savedMonth, todayIndia } from "@/lib/transactions";
 
 const FIELDS = ["amount", "date", "account_id"] as const;
 
-export default function CloseRdScreen() {
+// Closes an RD or an FD: either can be closed this way, so the screen takes its words from the account.
+const isClosable = (a: Account) => a.type === "rd" || a.type === "fd";
+
+export default function CloseDepositScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { token, logOut } = useSession();
   const { colors } = useTheme();
@@ -31,7 +34,7 @@ export default function CloseRdScreen() {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [form, setForm] = useState<CloseRdForm | null>(null);
+  const [form, setForm] = useState<CloseDepositForm | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -57,8 +60,8 @@ export default function CloseRdScreen() {
       .then((result) => {
         if (!current) return;
         setAccounts(result.accounts);
-        const rd = result.accounts.find((a) => a.type === "rd" && String(a.id) === id);
-        if (rd) setForm((existing) => existing ?? closeRdForm(rd, todayIndia(), result.accounts));
+        const found = result.accounts.find((a) => isClosable(a) && String(a.id) === id);
+        if (found) setForm((existing) => existing ?? closeDepositForm(found, todayIndia(), result.accounts));
       })
       .catch((err: unknown) => {
         if (!current) return;
@@ -73,13 +76,14 @@ export default function CloseRdScreen() {
     };
   }, [id, token, logOut, attempt]);
 
-  const rd = accounts?.find((a) => a.type === "rd" && String(a.id) === id) ?? null;
+  const deposit = accounts?.find((a) => isClosable(a) && String(a.id) === id) ?? null;
+  const what = deposit?.type === "fd" ? "FD" : "RD";
   const banks = (accounts ?? []).filter((a) => a.type === "bank");
   const busy = saving;
 
-  const header = <ScreenHeader title="Close RD" back backDisabled={saving} />;
+  const header = <ScreenHeader title={`Close ${what}`} back backDisabled={saving} />;
 
-  if (accounts === null || rd === null || form === null) {
+  if (accounts === null || deposit === null || form === null) {
     return (
       <View style={[styles.screen, { backgroundColor: colors.background }]}>
         {header}
@@ -102,7 +106,7 @@ export default function CloseRdScreen() {
           ) : (
             <>
               <Text variant="bodyLarge" style={styles.centerText}>
-                This RD was not found. It may already be closed.
+                This deposit was not found. It may already be closed.
               </Text>
               <ChunkyButton label="Back to accounts" onPress={() => router.back()} />
             </>
@@ -112,22 +116,22 @@ export default function CloseRdScreen() {
     );
   }
 
-  const set = (key: keyof CloseRdForm, value: string) => setForm((f) => (f ? { ...f, [key]: value } : f));
+  const set = (key: keyof CloseDepositForm, value: string) => setForm((f) => (f ? { ...f, [key]: value } : f));
   const today = todayIndia();
   const yesterday = previousDay(today);
 
   async function save() {
-    if (savingRef.current || form === null || rd === null) return;
+    if (savingRef.current || form === null || deposit === null) return;
     savingRef.current = true;
     setSaving(true);
     setErrors({});
     setGeneral([]);
     let done = false;
     try {
-      await apiFetch(`/accounts/${rd.id}/close-rd`, {
+      await apiFetch(`/accounts/${deposit.id}/close-${deposit.type}`, {
         method: "POST",
         token: token ?? undefined,
-        body: closeRdPayload(form),
+        body: closeDepositPayload(form),
       });
       done = true;
       if (/^\d{4}-\d{2}/.test(form.date)) savedMonth.current = form.date.slice(0, 7);
@@ -163,7 +167,7 @@ export default function CloseRdScreen() {
         >
           <Banner messages={general} />
 
-          <Text variant="titleMedium">{rd.name}</Text>
+          <Text variant="titleMedium">{deposit.name}</Text>
 
           <View>
             <TextInput
@@ -216,12 +220,12 @@ export default function CloseRdScreen() {
           </View>
 
           <Text variant="bodyMedium" style={{ color: BRAND.zinc600 }}>
-            Balance {formatRupees(rd.balance)}. The difference is recorded as interest, or as a fee if you received
-            less. The RD is then archived.
+            Balance {formatRupees(deposit.balance)}. The difference is recorded as interest, or as a fee if you received
+            less. The {what} is then archived.
           </Text>
 
           <ChunkyButton
-            label={saving ? "Closing..." : "Close RD"}
+            label={saving ? "Closing..." : `Close ${what}`}
             onPress={() => void save()}
             loading={saving}
             style={styles.save}

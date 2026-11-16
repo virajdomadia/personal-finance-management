@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type Account, type AccountList, type GoalTag, formatFullDate, formatRupees } from "@/lib/accounts";
 import { apiFetch } from "@/lib/api";
+import { depositShortLabel } from "@/lib/deposits";
 import {
   type Coin,
   type CoinTotal,
@@ -1039,7 +1040,7 @@ function DepositItem({ row }: { row: DepositRow }) {
           {row.name}
         </Link>
         <p className="text-xs font-bold text-zinc-600">
-          {row.type === "ppf" ? "PPF" : "RD"} · Matures {formatFullDate(row.maturity_date)}
+          {depositShortLabel(row.type)} · Matures {formatFullDate(row.maturity_date)}
         </p>
       </div>
       <p className="text-right text-sm tabular-nums">

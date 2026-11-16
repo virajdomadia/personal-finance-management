@@ -52,7 +52,7 @@ type Dialog =
   | { kind: "archive" }
   | { kind: "delete" };
 
-const HOLDING_EMOJI: Record<HoldingLine["kind"], string> = { stock: "📈", mutual_fund: "🥧", crypto: "🪙", ppf: "🏛️", rd: "🏦" };
+const HOLDING_EMOJI: Record<HoldingLine["kind"], string> = { stock: "📈", mutual_fund: "🥧", crypto: "🪙", ppf: "🏛️", rd: "🏦", fd: "🔒" };
 
 const HOLDING_KIND: Record<HoldingLine["kind"], string> = {
   stock: "Stock",
@@ -60,6 +60,7 @@ const HOLDING_KIND: Record<HoldingLine["kind"], string> = {
   crypto: "Coin",
   ppf: "PPF",
   rd: "RD",
+  fd: "FD",
 };
 
 // A history line's amount is negative for a release.
@@ -369,7 +370,7 @@ function Basket({ goal, onRemove }: { goal: GoalDetail; onRemove: (holding: Hold
       <EmptyState emoji="🧺" title="The basket is empty">
         {goal.archived
           ? "Restore this goal to put money toward it again."
-          : "Use Set aside to label money in a bank, cash or wallet account for this goal, or Add holding for a fund, stock, coin, PPF or RD you own."}
+          : "Use Set aside to label money in a bank, cash or wallet account for this goal, or Add holding for a fund, stock, coin, PPF, RD or FD you own."}
       </EmptyState>
     );
   }

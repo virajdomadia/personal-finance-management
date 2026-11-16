@@ -125,11 +125,11 @@ export type Totals = {
   realised: string;
 };
 
-// One active PPF or RD. The estimate comes from the server; the app never works out interest.
+// One active PPF, RD or FD. The estimate comes from the server; the app never works out interest.
 export type DepositRow = {
   account_id: number;
   name: string;
-  type: "ppf" | "rd";
+  type: "ppf" | "rd" | "fd";
   balance: string;
   maturity_date: string | null;
   interest_estimate: string;

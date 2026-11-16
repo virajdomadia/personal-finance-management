@@ -4,7 +4,7 @@ import type { DueItem } from "./recurring.ts";
 // The active goal a holding is in. Mirrors GoalTag in backend/app/api/routes/accounts.py.
 export type GoalTag = { id: number; name: string };
 
-export type AccountType = "bank" | "credit_card" | "cash" | "broker" | "wallet" | "ppf" | "rd" | "loan";
+export type AccountType = "bank" | "credit_card" | "cash" | "broker" | "wallet" | "ppf" | "rd" | "fd" | "loan";
 
 // The suggested split of a loan's next EMI. Interest is null when it can't be worked out.
 export type NextEmi = { amount: string; interest: string | null; principal: string | null };
@@ -30,6 +30,23 @@ export type RdFigures = {
   due: string[];
 };
 
+export type FdPayout = "cumulative" | "monthly" | "quarterly";
+
+// An FD's figures, all worked out by the server. `interest_so_far` is an estimate for a cumulative FD
+// (0 for a payout FD); `payout_amount` is what each payout pays the bank (null when cumulative);
+// `maturity_value` is the estimate at maturity (the principal for a payout FD).
+export type FdFigures = {
+  kind: "fd";
+  maturity_date: string;
+  payout: FdPayout;
+  principal: string;
+  interest_so_far: string;
+  value_today: string;
+  maturity_value: string;
+  payout_amount: string | null;
+  matured: boolean;
+};
+
 export type Account = {
   id: number;
   type: AccountType;
@@ -37,7 +54,7 @@ export type Account = {
   balance: string; // the real balance
   set_aside: string; // what active goals have set aside here
   free_balance: string; // balance - set_aside; negative when more is set aside than held
-  in_goal: GoalTag | null; // a PPF or RD in an active goal
+  in_goal: GoalTag | null; // a PPF, RD or FD in an active goal
   institution: string | null;
   bank_kind: string | null;
   last4: string | null;
@@ -53,7 +70,9 @@ export type Account = {
   opened_on: string | null;
   deposit_amount: string | null;
   tenure_months: number | null;
-  deposit: PpfFigures | RdFigures | null;
+  matures_on: string | null;
+  fd_payout: FdPayout | null;
+  deposit: PpfFigures | RdFigures | FdFigures | null;
   archived: boolean;
 };
 
@@ -105,6 +124,8 @@ export type AccountForm = {
   deposit_amount: string;
   tenure_months: string;
   deposits_paid: string;
+  matures_on: string;
+  fd_payout: "" | FdPayout;
   moved_from_card: "" | "yes"; // create only
 };
 
@@ -116,10 +137,22 @@ export const TYPE_LABELS: Record<AccountType, string> = {
   wallet: "Wallet or prepaid card",
   ppf: "PPF",
   rd: "Recurring deposit",
+  fd: "Fixed deposit",
   loan: "Loan",
 };
 
-export const TYPE_ORDER: AccountType[] = ["bank", "credit_card", "cash", "broker", "wallet", "ppf", "rd", "loan"];
+export const TYPE_ORDER: AccountType[] = ["bank", "credit_card", "cash", "broker", "wallet", "ppf", "rd", "fd", "loan"];
+
+// The deposit types, which share the Deposits group, and their short names.
+export const DEPOSIT_TYPES = new Set<AccountType>(["ppf", "rd", "fd"]);
+export const DEPOSIT_SHORT: Record<"ppf" | "rd" | "fd", string> = { ppf: "PPF", rd: "RD", fd: "FD" };
+
+export const FD_PAYOUTS: FdPayout[] = ["cumulative", "monthly", "quarterly"];
+export const FD_PAYOUT_LABELS: Record<FdPayout, string> = {
+  cumulative: "Cumulative",
+  monthly: "Monthly payout",
+  quarterly: "Quarterly payout",
+};
 
 // Accounts whose balance is what's owed.
 export const OWED_TYPES = new Set<AccountType>(["credit_card", "loan"]);
@@ -133,6 +166,7 @@ const APPLICABLE: Record<AccountType, (keyof AccountForm)[]> = {
   wallet: ["institution"],
   ppf: ["institution", "interest_rate", "opened_on", "pay_from_id"],
   rd: ["institution", "interest_rate", "opened_on", "pay_from_id", "deposit_amount", "due_day", "tenure_months", "deposits_paid"],
+  fd: ["institution", "interest_rate", "opened_on", "matures_on", "fd_payout", "pay_from_id"],
   loan: ["institution", "due_day", "interest_rate", "emi_amount", "emis_left", "pay_from_id"],
 };
 
@@ -207,6 +241,8 @@ export function formFromAccount(account: Account): AccountForm {
     deposit_amount: account.deposit_amount ?? "",
     tenure_months: account.tenure_months === null ? "" : String(account.tenure_months),
     deposits_paid: account.deposit?.kind === "rd" ? String(account.deposit.deposits_paid) : "",
+    matures_on: account.matures_on ?? "",
+    fd_payout: account.fd_payout ?? "",
     moved_from_card: "",
   };
 }
@@ -269,14 +305,23 @@ export function countError(value: string): string | null {
 const TENURE_MESSAGE = "Enter the tenure in months, from 1 to 120.";
 const PAID_MESSAGE = "Enter the instalments paid so far, from 0 to the tenure.";
 
-// The server's checks for a PPF or RD, so a blank or out-of-range field is caught before the trip.
+// The server's checks for a PPF, RD or FD, so a blank or out-of-range field is caught before the trip.
 // Messages are the server's own. Empty for every other type.
 export function depositErrors(form: AccountForm): Record<string, string> {
   const errors: Record<string, string> = {};
-  if (form.type !== "ppf" && form.type !== "rd") return errors;
+  if (!DEPOSIT_TYPES.has(form.type)) return errors;
   if (form.interest_rate.trim() === "") errors.interest_rate = "Enter the yearly interest rate.";
   if (form.opened_on.trim() === "") errors.opened_on = "Choose the date it was opened.";
   if (form.type === "ppf") return errors;
+  if (form.type === "fd") {
+    const opened = form.opened_on.trim();
+    const matures = form.matures_on.trim();
+    if (matures === "") errors.matures_on = "Choose the maturity date.";
+    // ISO dates compare as text, so this is no date arithmetic.
+    else if (opened !== "" && matures <= opened) errors.matures_on = "Choose a maturity date after the opening date.";
+    if (form.fd_payout === "") errors.fd_payout = "Choose how the interest is paid.";
+    return errors;
+  }
 
   if (form.pay_from_id.trim() === "") errors.pay_from_id = "Choose the bank the instalments come from.";
   const amount = cleanMoney(form.deposit_amount);
@@ -347,7 +392,7 @@ function toPaise(value: string): bigint {
 }
 
 // Mirrors HAVE_TYPES in backend/app/api/routes/accounts.py.
-const HAVE_TYPES = new Set<AccountType>(["bank", "cash", "broker", "wallet", "ppf", "rd"]);
+const HAVE_TYPES = new Set<AccountType>(["bank", "cash", "broker", "wallet", "ppf", "rd", "fd"]);
 
 // "You have" is the active accounts' balances plus investments. This is the investments part,
 // or null when there is none. Only meaningful for the active list, which holds every active account.
