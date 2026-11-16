@@ -11,7 +11,11 @@ from app.models.user import User
 _UNAUTHENTICATED = HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
 
 
-def get_current_user(request: Request, db: DbSession) -> User:
+PROFILE_HEADER = "x-profile"
+_NO_SUCH_PROFILE = HTTPException(status.HTTP_404_NOT_FOUND, "That family member wasn't found.")
+
+
+def get_signed_in_user(request: Request, db: DbSession) -> User:
     """The signed-in user, re-checked against the database so removals and revocations bite."""
     settings = get_settings()
     if not settings.token_secret:
@@ -26,9 +30,28 @@ def get_current_user(request: Request, db: DbSession) -> User:
         user = db.get(User, claims.user_id)
         if user is not None and user.session_version != claims.session_version:
             user = None
-    if user is None:
+    if user is None or user.owner_id is not None:  # a family member never signs in
         raise _UNAUTHENTICATED
     return user
 
 
+def get_current_user(request: Request, db: DbSession) -> User:
+    """Whose data this request is for: the signed-in user, or one of their family members when
+    the `X-Profile` header names one. Anyone else's id is refused like a missing one."""
+    user = get_signed_in_user(request, db)
+    wanted = request.headers.get(PROFILE_HEADER, "").strip()
+    if not wanted:
+        return user
+    if not wanted.isascii() or not wanted.isdecimal() or len(wanted) > 10:
+        raise _NO_SUCH_PROFILE
+    if int(wanted) == user.id:
+        return user
+    member = db.get(User, int(wanted))
+    if member is None or member.owner_id != user.id:
+        raise _NO_SUCH_PROFILE
+    return member
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
+# For what is always the signed-in person's, whichever profile is chosen: sign-in, SMS, family.
+SignedInUser = Annotated[User, Depends(get_signed_in_user)]

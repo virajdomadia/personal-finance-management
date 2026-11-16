@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 
 from app.api.categories import name_key, resolve, rule_kind
 from app.api.dates import today_india
-from app.api.deps import CurrentUser, get_current_user
+from app.api.deps import SignedInUser as CurrentUser
+from app.api.deps import get_signed_in_user
 from app.api.routes.accounts import MAX_ID, Flag, Money, field_error, fmt
 from app.api.routes.funds import Nav, Units
 from app.api.routes.stocks import StockName, Symbol
@@ -30,9 +31,9 @@ from app.models.sms import AccountIdentifier, PayeeRule, SmsEntry, SmsSample
 from app.sms import confidence, recording, review
 from app.sms.ingest import MONEY_IN, MONEY_OUT, decide
 
-router = APIRouter(prefix="/sms", tags=["sms"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/sms", tags=["sms"], dependencies=[Depends(get_signed_in_user)])
 rules_router = APIRouter(
-    prefix="/payee-rules", tags=["sms"], dependencies=[Depends(get_current_user)]
+    prefix="/payee-rules", tags=["sms"], dependencies=[Depends(get_signed_in_user)]
 )
 
 SmsKind = Literal["debit", "credit", "card_spend", "card_payment", "card_statement", "demat"]

@@ -249,7 +249,8 @@ SMS_REVISION = "e3b81f46a0d7"
 CATEGORIES_REVISION = "2d46fef3dab4"
 NET_WORTH_REVISION = "4f9a2c7e1b30"
 BUDGETS_REVISION = "7e5d2fc1e167"
-HEAD_REVISION = "a1c3e5f7b902"
+FD_REVISION = "a1c3e5f7b902"
+HEAD_REVISION = "b7d2e4f6a813"
 SMS_TABLES = {"account_identifiers", "sms_entries", "payee_rules", "sms_samples"}
 GOAL_TABLES = {"goals", "goal_earmarks", "goal_holdings"}
 RECURRING_TABLES = {
@@ -714,6 +715,28 @@ def test_fd_migration_round_trips_and_guards_fds(migrations_db: str) -> None:
     run_sql(migrations_db, "DELETE FROM accounts WHERE type = 'fd'")
     command.downgrade(config, BUDGETS_REVISION)
     assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(BUDGETS_REVISION,)]
+
+    command.upgrade(config, "head")
+    assert tables(migrations_db) == ALL_TABLES
+
+
+def test_family_migration_round_trips_and_guards_members(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, "head")
+    seed_investments(migrations_db, "5")
+    run_sql(
+        migrations_db,
+        "INSERT INTO users (id, email, owner_id, name, created_at)"
+        " VALUES (2, 'family-1-1@members.invalid', 1, 'Papa', :s)",
+    )
+
+    with pytest.raises(RuntimeError, match="Family members exist"):
+        command.downgrade(config, FD_REVISION)
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(HEAD_REVISION,)]
+
+    run_sql(migrations_db, "DELETE FROM users WHERE owner_id IS NOT NULL")
+    command.downgrade(config, FD_REVISION)
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(FD_REVISION,)]
 
     command.upgrade(config, "head")
     assert tables(migrations_db) == ALL_TABLES
