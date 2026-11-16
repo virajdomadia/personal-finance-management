@@ -3,7 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { FAB, Icon, Text, useTheme } from "react-native-paper";
 
-import { ChunkyBox, ChunkyButton, Chip, Row, ScreenHeader, Segmented } from "@/components/chunky";
+import { ChunkyBox, ChunkyButton, Chip, HeaderAction, Row, ScreenHeader, Segmented } from "@/components/chunky";
 import { GoalTagLine } from "@/components/goal-tag";
 import { CoinGeckoCredit } from "@/components/coingecko-credit";
 import { LinkPrompt } from "@/components/link-prompt";
@@ -388,14 +388,21 @@ export default function InvestmentsScreen() {
       <ScreenHeader
         title="Investments"
         right={
-          <ChunkyButton
-            compact
-            variant="alt"
-            icon="sync"
-            label="Sync prices"
-            loading={sync.status === "syncing"}
-            onPress={() => void syncPrices()}
-          />
+          <>
+            <HeaderAction
+              icon="file-excel-outline"
+              label="Import from Excel"
+              onPress={() => go({ pathname: "/excel-import", params: { kind: "holdings" } })}
+            />
+            <ChunkyButton
+              compact
+              variant="alt"
+              icon="sync"
+              label="Sync prices"
+              loading={sync.status === "syncing"}
+              onPress={() => void syncPrices()}
+            />
+          </>
         }
       />
       {sync.status === "idle" ? null : (

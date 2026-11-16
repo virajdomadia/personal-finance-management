@@ -7,6 +7,7 @@
 import { requireOptionalNativeModule } from "expo";
 import type * as ClipboardPackage from "expo-clipboard";
 import type * as CryptoPackage from "expo-crypto";
+import type * as DocumentPickerPackage from "expo-document-picker";
 import type * as FileSystemPackage from "expo-file-system";
 import type * as NotificationsPackage from "expo-notifications";
 import type * as SharingPackage from "expo-sharing";
@@ -23,6 +24,12 @@ function has(...names: string[]): boolean {
 export function loadFileSharing(): { fs: typeof FileSystemPackage; sharing: typeof SharingPackage } | null {
   if (!has("ExpoSharing", "FileSystem")) return null;
   return { fs: require("expo-file-system"), sharing: require("expo-sharing") };
+}
+
+// Importing a file: the system picker copies it to the cache, then it's read from there.
+export function loadFilePicking(): { picker: typeof DocumentPickerPackage; fs: typeof FileSystemPackage } | null {
+  if (!has("ExpoDocumentPicker", "FileSystem")) return null;
+  return { picker: require("expo-document-picker"), fs: require("expo-file-system") };
 }
 
 // Every module expo-notifications loads when its package is imported.

@@ -18,10 +18,11 @@ export function fileNameFrom(header: string | null | undefined, fallback: string
   return name && /^[\w.-]+$/.test(name) ? name : fallback;
 }
 
-// Exports are written to the cache folder. Earlier ones are removed before a new one and on log out,
-// so copies of the owner's finances don't pile up on the phone.
+// Exports, and the import templates (they list the accounts and categories), are written to the
+// cache folder. Earlier ones are removed before a new one and on log out, so copies of the owner's
+// finances don't pile up on the phone.
 export function isExportFile(name: string): boolean {
-  return /^pfm-(export|backup)[\w.-]*\.(zip|xlsx|json|json\.gz)$/.test(name);
+  return /^pfm-(export|backup|transactions-template|holdings-template)[\w.-]*\.(zip|xlsx|json|json\.gz)$/.test(name);
 }
 
 // Where an export went wrong, so the message says what really happened.

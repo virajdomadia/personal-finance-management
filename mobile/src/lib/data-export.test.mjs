@@ -31,6 +31,8 @@ test("only earlier exports are cleared from the cache", () => {
   assert.ok(isExportFile(EXPORTS.xlsx.fallback));
   assert.ok(!isExportFile("ImagePicker.jpg"));
   assert.ok(!isExportFile("pfm-notes.txt"));
+  assert.ok(isExportFile("pfm-transactions-template.xlsx"));
+  assert.ok(isExportFile("pfm-holdings-template.xlsx"));
 });
 
 test("errors say what really went wrong", () => {
