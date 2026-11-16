@@ -17,6 +17,7 @@ from app.api.routes import (
     funds,
     goals,
     health,
+    holdings_import,
     imports,
     market,
     net_worth,
@@ -26,6 +27,7 @@ from app.api.routes import (
     setup,
     sips,
     sms,
+    statement_import,
     stocks,
     streak,
     trades,
@@ -39,6 +41,8 @@ api_router.include_router(auth.router)
 api_router.include_router(accounts.router)
 api_router.include_router(deposits.router)
 api_router.include_router(imports.router)
+api_router.include_router(statement_import.router)
+api_router.include_router(holdings_import.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(streak.router)
 api_router.include_router(setup.router)

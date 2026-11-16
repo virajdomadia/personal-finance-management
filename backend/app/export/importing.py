@@ -101,9 +101,15 @@ class Report:
 # Reading the file
 
 
-def read_rows(data: bytes) -> list[tuple[int, dict[str, Any]]]:
+def read_rows(
+    data: bytes,
+    sheet: str = "Transactions",
+    columns: list[str] = COLUMNS,
+    required: list[str] = REQUIRED,
+) -> list[tuple[int, dict[str, Any]]]:
     """(row number, {column: raw value}) for each non-blank row of the first sheet that has
-    the needed headers (a sheet named Transactions is tried first)."""
+    the `required` headers (a sheet named `sheet` is tried first). Every one of `columns` is
+    in each row's dict, None where the sheet hasn't that column."""
     if len(data) > MAX_BYTES:
         raise FileProblem("The file is over 4 MB. Split it into smaller files.")
     try:
@@ -112,22 +118,22 @@ def read_rows(data: bytes) -> list[tuple[int, dict[str, Any]]]:
         message = "This isn't an Excel file (.xlsx). Save it as .xlsx and try again."
         raise FileProblem(message) from None
     try:
-        worksheets = sorted(book.worksheets, key=lambda ws: ws.title.casefold() != "transactions")
+        worksheets = sorted(book.worksheets, key=lambda ws: ws.title.casefold() != sheet.casefold())
         for ws in worksheets:
             lines = ws.iter_rows(values_only=True)
             header = next(lines, None)
             if header is None:
                 continue
-            columns = {str(h).strip().casefold(): i for i, h in enumerate(header) if h is not None}
-            if not all(c.casefold() in columns for c in REQUIRED):
+            found_at = {str(h).strip().casefold(): i for i, h in enumerate(header) if h is not None}
+            if not all(c.casefold() in found_at for c in required):
                 continue
             found = []
             for number, line in enumerate(lines, start=2):
                 values = {
-                    c: line[columns[c.casefold()]]
-                    if c.casefold() in columns and columns[c.casefold()] < len(line)
+                    c: line[found_at[c.casefold()]]
+                    if c.casefold() in found_at and found_at[c.casefold()] < len(line)
                     else None
-                    for c in COLUMNS
+                    for c in columns
                 }
                 if all(v is None or str(v).strip() == "" for v in values.values()):
                     continue
@@ -139,9 +145,9 @@ def read_rows(data: bytes) -> list[tuple[int, dict[str, Any]]]:
             return found
     finally:
         book.close()
+    named = ", ".join(required[:-1]) + " and " + required[-1]
     raise FileProblem(
-        "Couldn't find the columns Date, Type, Amount and Account. "
-        "Start from the template, or keep its header row."
+        f"Couldn't find the columns {named}. Start from the template, or keep its header row."
     )
 
 
@@ -256,7 +262,7 @@ def _values(raw: dict[str, Any], names: AccountNames) -> tuple[dict[str, Any], l
     return values, errors
 
 
-def _rule_errors(error: RequestValidationError) -> list[str]:
+def rule_errors(error: RequestValidationError) -> list[str]:
     messages = []
     for e in error.errors():
         key = e["loc"][-1] if e.get("loc") else ""
@@ -265,7 +271,7 @@ def _rule_errors(error: RequestValidationError) -> list[str]:
     return messages
 
 
-def _step_problem(
+def step_problem(
     accounts: dict[int, Account], flows: dict[int, Decimal], movement: Movement
 ) -> str | None:
     """The below-₹0 and largest-balance checks for one more movement, as a save makes them."""
@@ -326,7 +332,7 @@ def run_import(db: Session, user_id: int, data: bytes, save: bool) -> Report:
             try:
                 validate_transaction_values(values, accounts)
             except RequestValidationError as error:
-                errors = _rule_errors(error)
+                errors = rule_errors(error)
         if errors:
             row.status, row.errors = "error", errors
             continue
@@ -348,7 +354,7 @@ def run_import(db: Session, user_id: int, data: bytes, save: bool) -> Report:
             values["to_account_id"],
             values["interest"],
         )
-        problem = _step_problem(accounts, flows, movement)
+        problem = step_problem(accounts, flows, movement)
         if problem:
             row.status, row.errors = "error", [f"Amount: {problem}"]
             continue
@@ -365,7 +371,7 @@ def run_import(db: Session, user_id: int, data: bytes, save: bool) -> Report:
                 if save or not creates:
                     values["category"] = resolve(db, user_id, kind, name)
         except RequestValidationError as error:
-            row.status, row.errors = "error", _rule_errors(error)
+            row.status, row.errors = "error", rule_errors(error)
             continue
         for account_id, change in net_flows([movement]).items():
             flows[account_id] = flows.get(account_id, Decimal(0)) + change

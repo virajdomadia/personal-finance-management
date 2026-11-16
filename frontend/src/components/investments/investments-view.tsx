@@ -223,6 +223,9 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
             <span role="status" className={`text-sm font-bold ${sync.status === "partial" ? "text-loss" : "text-zinc-600"}`}>
               {sync.status === "syncing" ? "" : syncStatusText(sync)}
             </span>
+            <Link href="/data#import-investments" className={SECONDARY}>
+              Import from Excel
+            </Link>
             <button type="button" className={SECONDARY} disabled={sync.status === "syncing"} onClick={syncPrices}>
               {sync.status === "syncing" ? "Syncing…" : "Sync prices"}
             </button>

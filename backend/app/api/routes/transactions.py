@@ -660,7 +660,7 @@ def update_transaction(
     if link_changed and period_of(db, tx.id) is not None:
         raise RequestValidationError([field_error("recurring_template_id", PERIOD_LINKED)])
     # An SMS transaction waiting in review for its category can still be edited meanwhile.
-    uncategorised_sms = tx.category is None and tx.source == "sms"
+    uncategorised_sms = tx.category is None and tx.source in ("sms", "statement")
     save_checks(
         db,
         user.id,
