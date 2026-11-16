@@ -50,7 +50,18 @@ It never replaces a real snapshot and can be re-run.
 Each signed-in user can download their own data (read-only, never anyone else's):
 
 - `GET /api/export/csv`: a zip with one CSV per entity (accounts, transactions, stock, fund and crypto trades, SIPs, loans, deposits, goals, insurance policies, recurring templates, budgets, categories, net worth history). Human headers, names instead of ids, plain numbers (`1234.50`), ISO dates, UTF-8 with a BOM for Excel.
+- `GET /api/export/xlsx`: the same tables as one Excel workbook, one sheet each (`app/export/xlsx.py`). Money, quantities and dates are typed cells; every text cell is stored as text, never a formula, and digits with a leading zero (a card's last 4) stay text.
 - `GET /api/export/backup`: the full JSON backup below, as compact JSON gzipped (`pfm-backup-<date>.json.gz`, `application/gzip`). Gzipped, a backup has plenty of headroom under Vercel's 4.5 MB response limit: 15,000 synthetic rows of prices, SMS and transactions are 2.6 MB of JSON but 0.38 MB gzipped (a test keeps it under 1.5 MB). Each download logs both sizes.
+
+### Importing transactions from Excel
+
+`app/export/importing.py`, routes in `app/api/routes/imports.py`. The request body is the raw `.xlsx` file (up to 4 MB, 2000 rows).
+
+- `GET /api/import/transactions/template`: a Transactions sheet (Date, Type, Amount, Account, To account, Category, Interest, Note) with dropdowns for type, the user's accounts and categories, and a "How to fill" sheet.
+- `POST /api/import/transactions/preview`: every row checked, nothing saved. Returns each row with `status` `ok`, `duplicate` or `error` and its messages.
+- `POST /api/import/transactions`: saves every `ok` row, or nothing if any row is in error.
+
+Columns are found by header name, so the Transactions sheet of the Excel export loads back in. Accounts are matched by name, ignoring case. Each row goes through the same rules as a transaction typed in by hand, and the below-₹0 check runs row after row. A row with the same date, type, amount and accounts as a saved transaction is a duplicate and is skipped, so importing a file twice adds nothing. A preview never creates a category; the import creates a new category for a new name, as typing one in does. Imported rows have `source = "import"`, and the SMS reader links an SMS to them like a typed-in transaction (`TYPED_SOURCES` in `app/sms/ingest.py`).
 
 ### Backup format (version 1)
 

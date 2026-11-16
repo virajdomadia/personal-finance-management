@@ -226,7 +226,7 @@ class Context:
             db.scalars(
                 select(Transaction).where(
                     Transaction.user_id == user_id,
-                    Transaction.source == "manual",
+                    Transaction.source.in_(ingest.TYPED_SOURCES),
                     Transaction.amount.in_(amounts),
                     Transaction.date >= min(days) - ingest.MANUAL_WINDOW,
                     Transaction.date <= max(days) + ingest.MANUAL_WINDOW,

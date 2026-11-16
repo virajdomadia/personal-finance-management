@@ -1,5 +1,5 @@
-"""Downloads of the signed-in user's own data: a gzipped JSON backup and a zip of CSVs.
-Read-only."""
+"""Downloads of the signed-in user's own data: a gzipped JSON backup, a zip of CSVs and one
+Excel workbook. Read-only."""
 
 import logging
 
@@ -10,6 +10,7 @@ from app.api.deps import CurrentUser, get_current_user
 from app.db.session import DbSession
 from app.export.backup import dump, encode
 from app.export.csv_export import build_zip
+from app.export.xlsx import XLSX_TYPE, build_workbook
 
 log = logging.getLogger(__name__)
 
@@ -33,3 +34,9 @@ def backup(user: CurrentUser, db: DbSession) -> Response:
 def spreadsheets(user: CurrentUser, db: DbSession) -> Response:
     name = f"pfm-export-{today_india().isoformat()}.zip"
     return Response(build_zip(db, user.id), media_type="application/zip", headers=_attachment(name))
+
+
+@router.get("/xlsx")
+def workbook(user: CurrentUser, db: DbSession) -> Response:
+    name = f"pfm-export-{today_india().isoformat()}.xlsx"
+    return Response(build_workbook(db, user.id), media_type=XLSX_TYPE, headers=_attachment(name))

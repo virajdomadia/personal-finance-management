@@ -43,6 +43,9 @@ CARD_KINDS = {"card_spend", "card_payment", "card_statement"}
 # A debit card's spend lands on its bank through an identifier, so cards count for debits too.
 BANK_SIDE_TYPES = ("bank", "wallet", "credit_card")
 MANUAL_WINDOW = timedelta(days=1)
+# Transactions the owner put in themselves, typed or imported from a spreadsheet: an SMS for the
+# same payment links to one of these instead of recording it again.
+TYPED_SOURCES = ("manual", "import")
 PAIR_WINDOW = timedelta(days=3)
 PAYERS = ("bank", "wallet")
 # A payee that is a masked account number, as a payee key: "xx650", "x8650", "a/c xx8650".
@@ -350,7 +353,7 @@ def _typed_by_hand(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | Non
         select(Transaction)
         .where(
             Transaction.user_id == user_id,
-            Transaction.source == "manual",
+            Transaction.source.in_(TYPED_SOURCES),
             Transaction.amount == entry.amount,
             Transaction.date >= entry.occurred_on - MANUAL_WINDOW,
             Transaction.date <= entry.occurred_on + MANUAL_WINDOW,

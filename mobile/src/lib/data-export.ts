@@ -1,9 +1,12 @@
-// "Export my data" on Profile: the two files the server builds, and how they're named and shared.
+// "Export my data" on Profile: the files the server builds, and how they're named and shared.
 
-export type ExportKind = "csv" | "backup";
+export type ExportKind = "csv" | "xlsx" | "backup";
+
+export const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 export const EXPORTS: Record<ExportKind, { path: string; fallback: string; mimeType: string; title: string }> = {
   csv: { path: "/export/csv", fallback: "pfm-export.zip", mimeType: "application/zip", title: "Spreadsheets (CSV zip)" },
+  xlsx: { path: "/export/xlsx", fallback: "pfm-export.xlsx", mimeType: XLSX_MIME, title: "Excel workbook (.xlsx)" },
   backup: { path: "/export/backup", fallback: "pfm-backup.json.gz", mimeType: "application/gzip", title: "Full backup (JSON)" },
 };
 
@@ -18,7 +21,7 @@ export function fileNameFrom(header: string | null | undefined, fallback: string
 // Exports are written to the cache folder. Earlier ones are removed before a new one and on log out,
 // so copies of the owner's finances don't pile up on the phone.
 export function isExportFile(name: string): boolean {
-  return /^pfm-(export|backup)[\w.-]*\.(zip|json|json\.gz)$/.test(name);
+  return /^pfm-(export|backup)[\w.-]*\.(zip|xlsx|json|json\.gz)$/.test(name);
 }
 
 // Where an export went wrong, so the message says what really happened.

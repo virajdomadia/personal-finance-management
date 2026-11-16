@@ -11,7 +11,7 @@ import zipfile
 from collections.abc import Iterable
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -86,6 +86,11 @@ def safe(text: str) -> str:
     return text
 
 
+class Sheet(NamedTuple):
+    headers: list[str]
+    rows: list[list[Any]]
+
+
 def to_csv(headers: list[str], rows: Iterable[list[Any]]) -> bytes:
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\r\n")
@@ -104,30 +109,35 @@ def build_zip(db: Session, user_id: int) -> bytes:
     return out.getvalue()
 
 
-def spreadsheets(db: Session, user_id: int) -> dict[str, bytes]:
+def sheets(db: Session, user_id: int) -> dict[str, Sheet]:
+    """Every table, keyed by its file name without the extension, in download order."""
     accounts = sorted(
         db.scalars(select(Account).where(Account.user_id == user_id)).all(), key=list_sort_key
     )
     names = {a.id: a.name for a in accounts}
     return {
-        "accounts.csv": _accounts(db, user_id, accounts, names),
-        "transactions.csv": _transactions(db, user_id, names),
-        "stock_trades.csv": _trades(db, user_id, names, "stock"),
-        "fund_trades.csv": _trades(db, user_id, names, "mutual_fund"),
-        "crypto_trades.csv": _trades(db, user_id, names, "crypto"),
-        "sips.csv": _sips(db, user_id, names),
-        "loans.csv": _loans(db, user_id, accounts, names),
-        "deposits.csv": _deposits(db, user_id, accounts, names),
-        "goals.csv": _goals(db, user_id),
-        "insurance_policies.csv": _policies(db, user_id, names),
-        "recurring_templates.csv": _templates(db, user_id, names),
-        "budgets.csv": _budgets(db, user_id),
-        "categories.csv": _categories(db, user_id),
-        "net_worth_history.csv": _net_worth(db, user_id),
+        "accounts": _accounts(db, user_id, accounts, names),
+        "transactions": _transactions(db, user_id, names),
+        "stock_trades": _trades(db, user_id, names, "stock"),
+        "fund_trades": _trades(db, user_id, names, "mutual_fund"),
+        "crypto_trades": _trades(db, user_id, names, "crypto"),
+        "sips": _sips(db, user_id, names),
+        "loans": _loans(db, user_id, accounts, names),
+        "deposits": _deposits(db, user_id, accounts, names),
+        "goals": _goals(db, user_id),
+        "insurance_policies": _policies(db, user_id, names),
+        "recurring_templates": _templates(db, user_id, names),
+        "budgets": _budgets(db, user_id),
+        "categories": _categories(db, user_id),
+        "net_worth_history": _net_worth(db, user_id),
     }
 
 
-def _accounts(db: Session, user_id: int, accounts: list[Account], names: dict[int, str]) -> bytes:
+def spreadsheets(db: Session, user_id: int) -> dict[str, bytes]:
+    return {f"{name}.csv": to_csv(*sheet) for name, sheet in sheets(db, user_id).items()}
+
+
+def _accounts(db: Session, user_id: int, accounts: list[Account], names: dict[int, str]) -> Sheet:
     book = load_book(db, user_id, accounts)
     tags = load_goal_tags(db, user_id)
     headers = [
@@ -145,10 +155,10 @@ def _accounts(db: Session, user_id: int, accounts: list[Account], names: dict[in
                 a.due_day, money(a.interest_rate), r.set_aside, a.archived_at is not None,
             ]
         )  # fmt: skip
-    return to_csv(headers, rows)
+    return Sheet(headers, rows)
 
 
-def _transactions(db: Session, user_id: int, names: dict[int, str]) -> bytes:
+def _transactions(db: Session, user_id: int, names: dict[int, str]) -> Sheet:
     found = db.scalars(
         select(Transaction)
         .where(Transaction.user_id == user_id)
@@ -180,14 +190,14 @@ def _transactions(db: Session, user_id: int, names: dict[int, str]) -> bytes:
         ]  # fmt: skip
         for t in found
     ]
-    return to_csv(headers, rows)
+    return Sheet(headers, rows)
 
 
 QUANTITY = {"stock": "Shares", "mutual_fund": "Units", "crypto": "Quantity"}
 PRICE = {"stock": "Price", "mutual_fund": "NAV", "crypto": "Price"}
 
 
-def _trades(db: Session, user_id: int, names: dict[int, str], kind: str) -> bytes:
+def _trades(db: Session, user_id: int, names: dict[int, str], kind: str) -> Sheet:
     found = db.execute(
         select(InvestmentTrade, Instrument)
         .join(Instrument, Instrument.id == InvestmentTrade.instrument_id)
@@ -216,10 +226,10 @@ def _trades(db: Session, user_id: int, names: dict[int, str], kind: str) -> byte
         ]  # fmt: skip
         for t, i in found
     ]
-    return to_csv(headers, rows)
+    return Sheet(headers, rows)
 
 
-def _sips(db: Session, user_id: int, names: dict[int, str]) -> bytes:
+def _sips(db: Session, user_id: int, names: dict[int, str]) -> Sheet:
     found = db.execute(
         select(Sip, Instrument)
         .join(Instrument, Instrument.id == Sip.instrument_id)
@@ -231,10 +241,10 @@ def _sips(db: Session, user_id: int, names: dict[int, str]) -> bytes:
         [i.name, money(s.amount), s.day, s.start_date, names.get(s.account_id, ""), s.active]
         for s, i in found
     ]
-    return to_csv(headers, rows)
+    return Sheet(headers, rows)
 
 
-def _loans(db: Session, user_id: int, accounts: list[Account], names: dict[int, str]) -> bytes:
+def _loans(db: Session, user_id: int, accounts: list[Account], names: dict[int, str]) -> Sheet:
     loans = [a for a in accounts if a.type == "loan"]
     book = load_book(db, user_id, accounts)
     tags = load_goal_tags(db, user_id)
@@ -254,10 +264,10 @@ def _loans(db: Session, user_id: int, accounts: list[Account], names: dict[int, 
                 names.get(a.pay_from_id, "") if a.pay_from_id else "", a.archived_at is not None,
             ]
         )  # fmt: skip
-    return to_csv(headers, rows)
+    return Sheet(headers, rows)
 
 
-def _deposits(db: Session, user_id: int, accounts: list[Account], names: dict[int, str]) -> bytes:
+def _deposits(db: Session, user_id: int, accounts: list[Account], names: dict[int, str]) -> Sheet:
     deposits = [a for a in accounts if a.type in ("ppf", "rd", "fd")]
     book = load_book(db, user_id, accounts)
     tags = load_goal_tags(db, user_id)
@@ -280,10 +290,10 @@ def _deposits(db: Session, user_id: int, accounts: list[Account], names: dict[in
                 a.archived_at is not None,
             ]
         )  # fmt: skip
-    return to_csv(headers, rows)
+    return Sheet(headers, rows)
 
 
-def _goals(db: Session, user_id: int) -> bytes:
+def _goals(db: Session, user_id: int) -> Sheet:
     book = load_goal_book(db, user_id, today_india())
     headers = [
         "Name", "Kind", "Target", "Target date", "Saved", "Set aside from accounts",
@@ -304,10 +314,10 @@ def _goals(db: Session, user_id: int) -> bytes:
         ]  # fmt: skip
         for g in book.responses.values()
     ]
-    return to_csv(headers, rows)
+    return Sheet(headers, rows)
 
 
-def _policies(db: Session, user_id: int, names: dict[int, str]) -> bytes:
+def _policies(db: Session, user_id: int, names: dict[int, str]) -> Sheet:
     found = db.execute(
         select(InsurancePolicy, RecurringTemplate)
         .join(RecurringTemplate, RecurringTemplate.id == InsurancePolicy.template_id)
@@ -336,10 +346,10 @@ def _policies(db: Session, user_id: int, names: dict[int, str]) -> bytes:
         ]  # fmt: skip
         for p, t in found
     ]
-    return to_csv(headers, rows)
+    return Sheet(headers, rows)
 
 
-def _templates(db: Session, user_id: int, names: dict[int, str]) -> bytes:
+def _templates(db: Session, user_id: int, names: dict[int, str]) -> Sheet:
     found = db.scalars(
         select(RecurringTemplate)
         .where(RecurringTemplate.user_id == user_id)
@@ -368,7 +378,7 @@ def _templates(db: Session, user_id: int, names: dict[int, str]) -> bytes:
         ]  # fmt: skip
         for t in found
     ]
-    return to_csv(headers, rows)
+    return Sheet(headers, rows)
 
 
 def _category_names(db: Session, user_id: int) -> dict[int, Category]:
@@ -376,7 +386,7 @@ def _category_names(db: Session, user_id: int) -> dict[int, Category]:
     return {c.id: c for c in rows}
 
 
-def _budgets(db: Session, user_id: int) -> bytes:
+def _budgets(db: Session, user_id: int) -> Sheet:
     categories = _category_names(db, user_id)
     found = db.scalars(
         select(Budget).where(Budget.user_id == user_id).order_by(Budget.effective_from, Budget.id)
@@ -390,10 +400,10 @@ def _budgets(db: Session, user_id: int) -> bytes:
         ]
         for b in found
     ]
-    return to_csv(headers, rows)
+    return Sheet(headers, rows)
 
 
-def _categories(db: Session, user_id: int) -> bytes:
+def _categories(db: Session, user_id: int) -> Sheet:
     categories = _category_names(db, user_id)
 
     def name(id_: int | None) -> str:
@@ -412,10 +422,10 @@ def _categories(db: Session, user_id: int) -> bytes:
         ]
         for c in sorted(categories.values(), key=lambda c: (c.kind, c.name.casefold(), c.id))
     ]
-    return to_csv(headers, rows)
+    return Sheet(headers, rows)
 
 
-def _net_worth(db: Session, user_id: int) -> bytes:
+def _net_worth(db: Session, user_id: int) -> Sheet:
     found = db.scalars(
         select(NetWorthSnapshot)
         .where(NetWorthSnapshot.user_id == user_id)
@@ -433,4 +443,4 @@ def _net_worth(db: Session, user_id: int) -> bytes:
         ]  # fmt: skip
         for n in found
     ]
-    return to_csv(headers, rows)
+    return Sheet(headers, rows)

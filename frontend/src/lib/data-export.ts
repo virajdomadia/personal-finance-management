@@ -1,10 +1,11 @@
-// The two downloads on the Your data page. The server builds both files; the browser only saves them.
+// The downloads on the Your data page. The server builds both files; the browser only saves them.
 
-export type ExportKind = "backup" | "csv";
+export type ExportKind = "backup" | "csv" | "xlsx";
 
 export const EXPORTS: Record<ExportKind, { path: string; fallback: string }> = {
   backup: { path: "/api/export/backup", fallback: "pfm-backup.json.gz" },
   csv: { path: "/api/export/csv", fallback: "pfm-export.zip" },
+  xlsx: { path: "/api/export/xlsx", fallback: "pfm-export.xlsx" },
 };
 
 // The file name from a `Content-Disposition: attachment; filename="..."` header, else the fallback.
