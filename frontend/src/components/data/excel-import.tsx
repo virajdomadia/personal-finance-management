@@ -138,8 +138,9 @@ export function ExcelImport() {
 
   return (
     <section
+      id="import"
       aria-labelledby="import-xlsx"
-      className="mt-6 flex min-w-0 flex-col gap-3 rounded-[18px] border-[2.5px] border-ink bg-card p-4 shadow-chunky"
+      className="mt-6 scroll-mt-4 flex min-w-0 flex-col gap-3 rounded-[18px] border-[2.5px] border-ink bg-card p-4 shadow-chunky"
     >
       <h2 id="import-xlsx" className="text-lg font-black">
         <span aria-hidden="true">📥 </span>
