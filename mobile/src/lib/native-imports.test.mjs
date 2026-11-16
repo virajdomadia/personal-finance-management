@@ -8,7 +8,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const SRC = fileURLToPath(new URL("..", import.meta.url));
-const GUARDED = ["expo-sharing", "expo-file-system", "expo-notifications", "expo-clipboard", "expo-crypto"];
+const GUARDED = ["expo-sharing", "expo-file-system", "expo-notifications", "expo-clipboard", "expo-crypto", "expo-document-picker"];
 
 function sourceFiles(dir) {
   return readdirSync(dir).flatMap((name) => {

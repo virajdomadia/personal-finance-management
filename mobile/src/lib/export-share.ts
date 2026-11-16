@@ -49,12 +49,20 @@ async function download(path: string, token: string | undefined): Promise<{ byte
   }
 }
 
-export async function shareExport(kind: ExportKind, token: string | undefined): Promise<void> {
+export function shareExport(kind: ExportKind, token: string | undefined): Promise<void> {
+  return shareDownload(EXPORTS[kind], token);
+}
+
+// Any file the server builds for the owner to keep, such as an import template: downloaded, then
+// handed to the share sheet so it can be saved or opened in Excel or Sheets.
+export async function shareDownload(
+  { path, fallback, mimeType, title }: { path: string; fallback: string; mimeType: string; title: string },
+  token: string | undefined,
+): Promise<void> {
   const found = loadFileSharing();
   if (found === null) throw new ExportError({ stage: "needs-update" });
   const { File, Paths } = found.fs;
   const Sharing = found.sharing;
-  const { path, fallback, mimeType, title } = EXPORTS[kind];
   const { bytes, name } = await download(path, token);
 
   clearExports();

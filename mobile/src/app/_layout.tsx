@@ -73,6 +73,8 @@ function Screens() {
             <Stack.Screen name="safe-to-spend" />
             <Stack.Screen name="upcoming" />
             <Stack.Screen name="digest" />
+            <Stack.Screen name="excel-import" />
+            <Stack.Screen name="statement-import" />
           </Stack.Protected>
           <Stack.Protected guard={!loggedIn}>
             <Stack.Screen name="login" />
