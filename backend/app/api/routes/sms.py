@@ -89,6 +89,10 @@ class SmsResult(BaseModel):
     # What became of the message: "recorded", "review", "draft", "ignored" or "duplicate".
     status: str
     reason: str | None
+    # So the phone can open what the message became: the To review item (`entry_id`) and, once
+    # recorded or matched, the transaction (`transaction_id`). Both null for a duplicate.
+    entry_id: int | None = None
+    transaction_id: int | None = None
 
 
 class SmsResults(BaseModel):
@@ -106,7 +110,15 @@ def post_entries(body: SmsBatch, user: CurrentUser, db: DbSession) -> SmsResults
         if repeat:
             results.append(SmsResult(hash=sms.hash, status="duplicate", reason=None))
         else:
-            results.append(SmsResult(hash=sms.hash, status=entry.status, reason=entry.reason))
+            results.append(
+                SmsResult(
+                    hash=sms.hash,
+                    status=entry.status,
+                    reason=entry.reason,
+                    entry_id=entry.id,
+                    transaction_id=entry.transaction_id,
+                )
+            )
     return SmsResults(results=results)
 
 

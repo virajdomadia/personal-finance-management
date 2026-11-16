@@ -32,6 +32,9 @@ export type SmsSettings = {
   // epoch ms of a sync that stopped on three refusals in a row, 0 when not stopped. The next sync
   // that finishes clears it.
   stoppedAt: number;
+  // Post a notification when an SMS arrives and is recorded or waits in To review. On by default;
+  // only matters while `enabled`. Off still reads arrived SMS, it just says nothing.
+  notify: boolean;
 };
 
 // The server's field names. Nothing else may be added: the server rejects extra fields.
@@ -55,6 +58,7 @@ export type SyncDeps = {
   // Received SMS with date > sinceMillis, OLDEST first, at most `limit`.
   read: (sinceMillis: number, limit: number) => Promise<RawSms[]>;
   // Rejects with an error carrying `status: 422` when the server refuses the entries' shape.
+  // Resolves to the server's answer, `{ results: [...] }` (see readResults).
   post: (entries: SmsEntry[]) => Promise<unknown>;
   hash: (text: string) => Promise<string>;
   settings: SmsSettings;
@@ -66,7 +70,51 @@ export type SyncDeps = {
   pageSize?: number;
 };
 
-export type SyncResult = { sent: number; unreadable: number; banks: string[] };
+// What the server made of one sent line, with the parsed fields the phone sent for it (never the
+// message text). `entryId` is the To review item and `transactionId` the transaction, when the
+// server says; an older server sends neither.
+export type EntryOutcome = {
+  hash: string;
+  kind: SmsEntry["kind"];
+  bank: string;
+  amount: string | null;
+  payee: string | null;
+  last4: string | null;
+  quantity: string | null;
+  receivedAt: number; // epoch ms the phone received the SMS
+  status: string; // "recorded", "review", "draft", "ignored" or "duplicate"
+  reason: string | null;
+  entryId: number | null;
+  transactionId: number | null;
+};
+
+// `outcomes` lists every line the server answered in this run, in the order sent.
+export type SyncResult = { sent: number; unreadable: number; banks: string[]; outcomes: EntryOutcome[] };
+
+type ServerResult = { status: string; reason: string | null; entryId: number | null; transactionId: number | null };
+
+function idOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+// The server's answer to POST /sms/entries, by hash. Anything malformed is left out.
+export function readResults(response: unknown): Map<string, ServerResult> {
+  const found = new Map<string, ServerResult>();
+  const results = typeof response === "object" && response !== null ? (response as { results?: unknown }).results : undefined;
+  if (!Array.isArray(results)) return found;
+  for (const r of results) {
+    if (typeof r !== "object" || r === null) continue;
+    const { hash, status, reason, entry_id, transaction_id } = r as Record<string, unknown>;
+    if (typeof hash !== "string" || typeof status !== "string") continue;
+    found.set(hash.toLowerCase(), {
+      status,
+      reason: typeof reason === "string" ? reason : null,
+      entryId: idOrNull(entry_id),
+      transactionId: idOrNull(transaction_id),
+    });
+  }
+  return found;
+}
 
 // Midnight in India at the start of `startDate`, no earlier than 90 days before `now`'s day.
 // An empty or malformed start date means today.
@@ -158,6 +206,28 @@ export async function syncSms({
   const banks = new Set<string>();
   let sent = 0;
   let unreadableCount = 0;
+  const outcomes: EntryOutcome[] = [];
+  const receivedAt = new Map<string, number>();
+
+  // Posts lines and keeps what the server made of each.
+  const send = async (entries: SmsEntry[]) => {
+    const results = readResults(await post(entries));
+    for (const e of entries) {
+      const r = results.get(e.hash);
+      if (r === undefined) continue;
+      outcomes.push({
+        hash: e.hash,
+        kind: e.kind,
+        bank: e.bank,
+        amount: e.amount,
+        payee: e.payee,
+        last4: e.last4,
+        quantity: e.quantity,
+        receivedAt: receivedAt.get(e.hash) ?? 0,
+        ...r,
+      });
+    }
+  };
 
   const keep = async (messages: RawSms[]) => {
     if (messages.length === 0) return;
@@ -219,7 +289,7 @@ export async function syncSms({
   };
   // Posts one message's lines, at most a batch per request.
   const postLines = async (entries: SmsEntry[]) => {
-    for (let i = 0; i < entries.length; i += BATCH_SIZE) await post(entries.slice(i, i + BATCH_SIZE));
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) await send(entries.slice(i, i + BATCH_SIZE));
   };
 
   for (;;) {
@@ -266,7 +336,10 @@ export async function syncSms({
               toEntry((await hash(indexed ? `${base}:${n}` : base)).toLowerCase(), message.address, bank, line, today, istDay(received)),
             ),
           );
-          if (built.every((e): e is SmsEntry => e !== null)) entries = built;
+          if (built.every((e): e is SmsEntry => e !== null)) {
+            entries = built;
+            for (const e of built) receivedAt.set(e.hash, message.date);
+          }
           else result = "unreadable";
         }
         if (result === "unreadable") unreadable.push({ ...message });
@@ -301,7 +374,7 @@ export async function syncSms({
       }
       try {
         if (entries.length > BATCH_SIZE) await postLines(entries);
-        else await post(entries);
+        else await send(entries);
       } catch (error) {
         if (!isRefused(error)) throw error;
         // The server refused something in this batch: send each message on its own.
@@ -333,5 +406,5 @@ export async function syncSms({
   }
 
   await save(() => ({ lastSyncAt: now.getTime(), stoppedAt: 0 }));
-  return { sent, unreadable: unreadableCount, banks: [...banks].sort() };
+  return { sent, unreadable: unreadableCount, banks: [...banks].sort(), outcomes };
 }

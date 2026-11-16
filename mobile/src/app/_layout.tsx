@@ -11,6 +11,7 @@ import { ProfileBar } from "@/components/profile-bar";
 
 import { ProfileProvider } from "@/lib/profile";
 import { SessionProvider, useSession } from "@/lib/session";
+import { useSmsNotificationTaps } from "@/lib/sms/use-sms-notification-taps";
 import { useAppLock } from "@/lib/use-app-lock";
 import { useWeeklySummary } from "@/lib/use-weekly-summary";
 import { lightTheme } from "@/lib/theme";
@@ -24,6 +25,7 @@ function Screens() {
   const { colors } = useTheme();
   const { locked, covered, unlock } = useAppLock(loggedIn);
   useWeeklySummary(loggedIn);
+  useSmsNotificationTaps(loggedIn);
   const hidden = locked || covered;
 
   return (

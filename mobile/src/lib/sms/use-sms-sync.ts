@@ -1,49 +1,20 @@
 import { useEffect } from "react";
 import { AppState } from "react-native";
 
-import { apiFetch } from "@/lib/api";
-import { loadCrypto } from "@/lib/native";
 import { useSession } from "@/lib/session";
-import { isAvailable, readInbox } from "../../../modules/sms-inbox";
+import { addSmsArrivedListener, isAvailable, setReceiverEnabled } from "../../../modules/sms-inbox";
 
-import { loadSmsSettings, updateSmsSettings } from "./settings";
-import { type SmsEntry, type SyncResult, syncSms } from "./sync";
+import { lastSyncStarted, runSync, syncArrived } from "./runner";
+import { loadSmsSettings } from "./settings";
+import type { SyncResult } from "./sync";
 
 const MIN_GAP_MS = 30_000;
 
-type EntryResult = { hash: string; status: string; reason: string | null };
-
-// One sync at a time for the whole app, shared by the hook and syncSmsNow.
-let inFlight: Promise<SyncResult | null> | null = null;
-let lastRun = 0;
 let currentToken: string | null = null;
 
-function runSync(token: string): Promise<SyncResult | null> {
-  if (inFlight) return inFlight;
-  inFlight = (async () => {
-    try {
-      const settings = await loadSmsSettings();
-      if (!settings.enabled) return null;
-      // Loaded here, not at the top: a build without expo-crypto would otherwise crash at start-up.
-      const Crypto = loadCrypto();
-      if (Crypto === null) return null;
-      lastRun = Date.now();
-      return await syncSms({
-        read: (since, limit) => readInbox(since, limit),
-        post: (entries: SmsEntry[]) =>
-          apiFetch<{ results: EntryResult[] }>("/sms/entries", { method: "POST", token, body: { entries } }),
-        hash: (text) => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text),
-        settings,
-        now: new Date(),
-        save: async (update) => {
-          await updateSmsSettings(update);
-        },
-      });
-    } finally {
-      inFlight = null;
-    }
-  })();
-  return inFlight;
+function quiet(error: unknown): void {
+  // Whatever wasn't sent is read again next time.
+  if (__DEV__) console.warn("SMS sync failed", error);
 }
 
 // Reads right away, for "Read now" and for switching SMS reading on. Resolves null when reading is
@@ -53,9 +24,11 @@ export function syncSmsNow(): Promise<SyncResult | null> {
   return runSync(currentToken);
 }
 
-// Reads new bank SMS when the app opens and whenever it comes back to the front, at most every
-// 30 seconds. Never in the background. Does nothing while SMS reading is off or on an app build
-// without the native reader.
+// Reads new bank SMS when the app opens, whenever it comes back to the front (at most every 30
+// seconds) and as soon as a bank SMS arrives while it is in the front. In the background an arrived
+// SMS is read by the headless task (background.ts) instead. Does nothing while SMS reading is off
+// or on an app build without the native reader. Also keeps the arrival receiver switched on only
+// while SMS reading is.
 export function useSmsSync(): void {
   const { token } = useSession();
 
@@ -63,20 +36,28 @@ export function useSmsSync(): void {
     currentToken = token;
     if (!token || !isAvailable()) return;
 
+    void loadSmsSettings()
+      .then((settings) => setReceiverEnabled(settings.enabled))
+      .catch(() => {});
+
     const run = () => {
-      if (Date.now() - lastRun < MIN_GAP_MS) return;
-      runSync(token).catch((error: unknown) => {
-        // Quiet: whatever wasn't sent is read again next time.
-        if (__DEV__) console.warn("SMS sync failed", error);
-      });
+      if (Date.now() - lastSyncStarted() < MIN_GAP_MS) return;
+      runSync(token).catch(quiet);
     };
 
     run();
-    const subscription = AppState.addEventListener("change", (state) => {
+    const appState = AppState.addEventListener("change", (state) => {
       if (state === "active") run();
     });
+    // The same sync as in the background, so the same notifications: posted while the app is open
+    // too, as a banner. Nothing is notified twice: each message is sent once and a repeat comes
+    // back as a duplicate.
+    const arrivals = addSmsArrivedListener(() => {
+      syncArrived(token).catch(quiet);
+    });
     return () => {
-      subscription.remove();
+      appState.remove();
+      arrivals?.remove();
       if (currentToken === token) currentToken = null;
     };
   }, [token]);

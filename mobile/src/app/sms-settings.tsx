@@ -10,27 +10,51 @@ import { Banner } from "@/components/form-parts";
 import { ApiError } from "@/lib/api";
 import { bankName, earliestStartDate, readTimeText, smsStatus } from "@/lib/review";
 import { useSession } from "@/lib/session";
+import { askNotificationPermission, notificationsAllowed } from "@/lib/sms/notifications";
 import { loadSmsSettings, saveSmsSettings } from "@/lib/sms/settings";
 import type { SmsSettings } from "@/lib/sms/sync";
 import { syncSmsNow } from "@/lib/sms/use-sms-sync";
 import { BRAND, INPUT_RADIUS, SHADOW_OFFSET_SM } from "@/lib/theme";
 import { todayIndia } from "@/lib/transactions";
-import { isAvailable } from "../../modules/sms-inbox";
+import { isAvailable, receivesSms, setReceiverEnabled } from "../../modules/sms-inbox";
 
 type Permission = "granted" | "denied" | "blocked";
 
 const DENIED = "Gullak needs permission to read SMS to do this. It stays off until you allow it.";
 const BLOCKED = "SMS permission is turned off for Gullak. Allow it in your phone's settings, then switch this on.";
 
-async function askForSms(): Promise<Permission> {
-  const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_SMS, {
-    title: "Read bank SMS?",
-    message: "Gullak reads messages from banks, cards and CDSL to fill in your transactions. Other messages are never opened.",
-    buttonPositive: "Allow",
-    buttonNegative: "Not now",
-  });
+const NOTIFY_DENIED = "Gullak needs permission to send notifications to do this. It stays off until you allow it.";
+const NOTIFY_BLOCKED =
+  "Notifications are turned off for Gullak. Allow them in your phone's settings, then switch this on.";
+const NOTIFY_OFF_IN_SETTINGS =
+  "Notifications are turned off for Gullak in your phone's settings, so nothing is shown. SMS are still read.";
+const NO_RECEIVE =
+  "Without permission to receive SMS, Gullak only notices a new bank SMS when you open the app, and notifies you then.";
+
+function asPermission(result: string | undefined): Permission {
   if (result === PermissionsAndroid.RESULTS.GRANTED) return "granted";
   return result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN ? "blocked" : "denied";
+}
+
+// READ_SMS to read the inbox and RECEIVE_SMS to hear a new SMS arrive. Both are in Android's SMS
+// group, so the phone asks once. Reading needs only READ_SMS; `receive` says whether arrivals are heard.
+async function askForSms(): Promise<{ read: Permission; receive: boolean }> {
+  const { READ_SMS, RECEIVE_SMS } = PermissionsAndroid.PERMISSIONS;
+  if (!receivesSms()) {
+    const read = await PermissionsAndroid.request(READ_SMS, {
+      title: "Read bank SMS?",
+      message: "Gullak reads messages from banks, cards and CDSL to fill in your transactions. Other messages are never opened.",
+      buttonPositive: "Allow",
+      buttonNegative: "Not now",
+    });
+    return { read: asPermission(read), receive: false };
+  }
+  const results = await PermissionsAndroid.requestMultiple([READ_SMS, RECEIVE_SMS]);
+  return { read: asPermission(results[READ_SMS]), receive: results[RECEIVE_SMS] === PermissionsAndroid.RESULTS.GRANTED };
+}
+
+function canReceiveSms(): Promise<boolean> {
+  return PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECEIVE_SMS);
 }
 
 function readResultText(result: { sent: number; unreadable: number } | null): string {
@@ -48,6 +72,8 @@ export default function SmsSettingsScreen() {
   const [settings, setSettings] = useState<SmsSettings | null>(null);
   const [permissionNote, setPermissionNote] = useState<Permission | null>(null);
   const [revoked, setRevoked] = useState(false);
+  // About the notify switch: a refused permission, or notifications turned off in phone settings.
+  const [notifyNote, setNotifyNote] = useState<"denied" | "blocked" | "off-in-settings" | "no-receive" | null>(null);
   const [switching, setSwitching] = useState(false);
   const [reading, setReading] = useState(false);
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
@@ -61,6 +87,11 @@ export default function SmsSettingsScreen() {
       const granted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS);
       setRevoked(!granted);
     } else setRevoked(false);
+    // Switched on here, then notifications were turned off in the phone's settings.
+    if (next.enabled && next.notify && receivesSms()) {
+      const allowed = await notificationsAllowed();
+      setNotifyNote((note) => (allowed ? (note === "off-in-settings" ? null : note) : "off-in-settings"));
+    }
   }, [available]);
 
   useFocusEffect(
@@ -111,17 +142,29 @@ export default function SmsSettingsScreen() {
     try {
       if (!on) {
         setSettings(await saveSmsSettings({ enabled: false }));
+        setReceiverEnabled(false);
         setPermissionNote(null);
+        setNotifyNote(null);
         return;
       }
       const permission = await askForSms();
-      if (permission !== "granted") {
-        setPermissionNote(permission);
+      if (permission.read !== "granted") {
+        setPermissionNote(permission.read);
         return;
       }
       setPermissionNote(null);
       setRevoked(false);
-      setSettings(await saveSmsSettings({ enabled: true }));
+      let next = await saveSmsSettings({ enabled: true });
+      setReceiverEnabled(true);
+      // Notifications come on with reading (unless switched off before): ask for them now.
+      if (next.notify && receivesSms()) {
+        const notify = await askNotificationPermission();
+        if (notify !== "granted") {
+          next = await saveSmsSettings({ notify: false });
+          setNotifyNote(notify === "blocked" ? "blocked" : "denied");
+        } else setNotifyNote(permission.receive ? null : "no-receive");
+      }
+      setSettings(next);
     } finally {
       busy.current = false;
       setSwitching(false);
@@ -131,10 +174,36 @@ export default function SmsSettingsScreen() {
 
   async function allowAgain() {
     const permission = await askForSms();
-    if (permission === "granted") {
+    if (permission.read === "granted") {
       setRevoked(false);
       await readNow();
-    } else setPermissionNote(permission);
+    } else setPermissionNote(permission.read);
+  }
+
+  // Off stops the notifications only: an arrived SMS is still read, so balances stay current.
+  async function toggleNotify(value: boolean) {
+    if (busy.current) return;
+    busy.current = true;
+    setSwitching(true);
+    try {
+      if (!value) {
+        setSettings(await saveSmsSettings({ notify: false }));
+        setNotifyNote(null);
+        return;
+      }
+      let receive = await canReceiveSms();
+      if (!receive) receive = (await askForSms()).receive;
+      const notify = await askNotificationPermission();
+      if (notify !== "granted") {
+        setNotifyNote(notify === "blocked" ? "blocked" : "denied");
+        return;
+      }
+      setNotifyNote(receive ? null : "no-receive");
+      setSettings(await saveSmsSettings({ notify: true }));
+    } finally {
+      busy.current = false;
+      setSwitching(false);
+    }
   }
 
   async function changeStart(startDate: string) {
@@ -159,6 +228,7 @@ export default function SmsSettingsScreen() {
   const earliest = earliestStartDate(today);
   const on = settings.enabled && available;
   const unreadable = settings.unreadable.length;
+  const canNotify = receivesSms();
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -194,6 +264,40 @@ export default function SmsSettingsScreen() {
             Anything Gullak isn&apos;t sure about waits in To review for you.
           </Text>
         </ChunkyBox>
+
+        {on ? (
+          <ChunkyBox style={styles.card}>
+            <View style={styles.switchLine}>
+              <Text variant="titleMedium" style={styles.switchLabel}>
+                Notify me when an SMS is recorded
+              </Text>
+              <Switch
+                value={settings.notify && canNotify}
+                onValueChange={(value) => void toggleNotify(value)}
+                disabled={!canNotify || switching}
+                color={BRAND.greenStrong}
+                accessibilityLabel="Notify me when an SMS is recorded"
+              />
+            </View>
+            {!canNotify ? (
+              <Text variant="bodyMedium" style={styles.warn}>
+                Needs the latest app version.
+              </Text>
+            ) : null}
+            <Text variant="bodyMedium" style={styles.body}>
+              When a bank SMS arrives, Gullak reads it straight away, even with the app closed, and tells you what it
+              recorded or what needs your answer. The message text is never shown. Switched off, new SMS are still read.
+            </Text>
+          </ChunkyBox>
+        ) : null}
+        {on && notifyNote === "denied" ? <Banner messages={[NOTIFY_DENIED]} /> : null}
+        {on && (notifyNote === "blocked" || notifyNote === "off-in-settings") ? (
+          <View style={styles.group}>
+            <Banner messages={[notifyNote === "blocked" ? NOTIFY_BLOCKED : NOTIFY_OFF_IN_SETTINGS]} />
+            <ChunkyButton variant="alt" label="Open phone settings" onPress={() => void Linking.openSettings()} />
+          </View>
+        ) : null}
+        {on && notifyNote === "no-receive" ? <Banner messages={[NO_RECEIVE]} tone="info" /> : null}
 
         {permissionNote === "denied" ? <Banner messages={[DENIED]} /> : null}
         {permissionNote === "blocked" ? (

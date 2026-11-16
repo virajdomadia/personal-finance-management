@@ -1,0 +1,25 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+  <!-- To hear a bank SMS arrive. The text itself is still only read through READ_SMS. -->
+  <uses-permission android:name="android.permission.RECEIVE_SMS" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+  <application>
+    <!-- Off until SMS reading is turned on in the app (SmsInbox.setReceiverEnabled), so a phone
+         that never uses SMS reading is never woken by a message. Only the system's SMS service
+         (BROADCAST_SMS) can send it this broadcast. -->
+    <receiver
+      android:name="expo.modules.smsinbox.SmsArrivedReceiver"
+      android:enabled="false"
+      android:exported="true"
+      android:permission="android.permission.BROADCAST_SMS">
+      <intent-filter>
+        <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+      </intent-filter>
+    </receiver>
+
+    <service
+      android:name="expo.modules.smsinbox.SmsArrivedTaskService"
+      android:exported="false" />
+  </application>
+</manifest>

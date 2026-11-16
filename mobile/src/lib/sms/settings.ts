@@ -9,8 +9,8 @@ import { type RawSms, type SmsSettings, mergeSmsSettings } from "./sync.ts";
 const KEY = "sms-settings";
 
 function defaults(): SmsSettings {
-  // Off by default; the first read starts today.
-  return { enabled: false, startDate: istDay(new Date()), lastReadAt: 0, unreadable: [], banks: [], refusedIds: [], lastSyncAt: 0, stoppedAt: 0 };
+  // Off by default; the first read starts today. Notifications are on once reading is.
+  return { enabled: false, startDate: istDay(new Date()), lastReadAt: 0, unreadable: [], banks: [], refusedIds: [], lastSyncAt: 0, stoppedAt: 0, notify: true };
 }
 
 function isSms(value: unknown): value is RawSms {
@@ -38,6 +38,7 @@ function clean(stored: unknown): SmsSettings {
     refusedIds: Array.isArray(s.refusedIds) ? s.refusedIds.filter((b): b is string => typeof b === "string") : base.refusedIds,
     lastSyncAt: typeof s.lastSyncAt === "number" && Number.isFinite(s.lastSyncAt) ? s.lastSyncAt : base.lastSyncAt,
     stoppedAt: typeof s.stoppedAt === "number" && Number.isFinite(s.stoppedAt) ? s.stoppedAt : base.stoppedAt,
+    notify: typeof s.notify === "boolean" ? s.notify : base.notify,
   };
 }
 

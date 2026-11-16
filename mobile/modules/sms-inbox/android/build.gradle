@@ -13,3 +13,8 @@ android {
     versionName "1.0.0"
   }
 }
+
+dependencies {
+  // HeadlessJsTaskService, for reading an arrived SMS while the app is in the background.
+  implementation 'com.facebook.react:react-android'
+}

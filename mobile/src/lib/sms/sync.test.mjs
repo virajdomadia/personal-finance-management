@@ -537,3 +537,51 @@ test("test_a_running_sync_does_not_restore_a_cleared_streak", async () => {
   await syncSms({ read, post, hash: sha256, settings: start, now: NOW, save });
   assert.deepEqual(state.current.refusedIds, []);
 });
+
+test("test_outcomes_keep_what_the_server_made_of_each_line", async () => {
+  const base = NOW.getTime() - 10_000;
+  const messages = [boiMessage(0, base), boiMessage(1, base + 1000), boiMessage(2, base + 2000)];
+  const { read } = inbox(messages);
+  const answers = [
+    { status: "recorded", reason: null, entry_id: 11, transaction_id: 101 },
+    { status: "review", reason: "category", entry_id: 12, transaction_id: 102 },
+    { status: "duplicate", reason: null, entry_id: null, transaction_id: null },
+  ];
+  // Like the server: one result per line, in order, keyed by hash.
+  const post = async (entries) => ({ results: entries.map((e, i) => ({ hash: e.hash, ...answers[i] })) });
+  const { save } = saver(settings());
+
+  const result = await syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save });
+
+  assert.equal(result.outcomes.length, 3);
+  const [first, second, third] = result.outcomes;
+  assert.equal(first.status, "recorded");
+  assert.equal(first.transactionId, 101);
+  assert.equal(first.entryId, 11);
+  assert.equal(first.amount, "1000.00");
+  assert.equal(first.bank, "boi");
+  assert.equal(first.receivedAt, messages[0].date);
+  assert.equal(second.reason, "category");
+  assert.equal(second.receivedAt, messages[1].date);
+  assert.equal(third.status, "duplicate");
+  assert.equal(third.entryId, null);
+  assert.ok(!JSON.stringify(result.outcomes).includes(messages[0].body), "no message text");
+});
+
+test("test_an_older_server_without_ids_still_gives_outcomes", async () => {
+  const { read } = inbox([boiMessage(0, NOW.getTime() - 1000)]);
+  const post = async (entries) => ({ results: entries.map((e) => ({ hash: e.hash.toUpperCase(), status: "recorded", reason: null })) });
+  const { save } = saver(settings());
+  const result = await syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save });
+  assert.equal(result.outcomes.length, 1);
+  assert.equal(result.outcomes[0].transactionId, null);
+  assert.equal(result.outcomes[0].entryId, null);
+});
+
+test("test_a_response_without_results_gives_no_outcomes", async () => {
+  const { read } = inbox([boiMessage(0, NOW.getTime() - 1000)]);
+  const { save } = saver(settings());
+  const result = await syncSms({ read, post: async () => undefined, hash: sha256, settings: settings(), now: NOW, save });
+  assert.equal(result.sent, 1);
+  assert.deepEqual(result.outcomes, []);
+});
