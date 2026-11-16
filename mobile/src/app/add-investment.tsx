@@ -54,6 +54,13 @@ const CHOICES: Choice[] = [
     next: { pathname: "/account-form", params: { type: "rd" } },
   },
   {
+    title: "Fixed deposit",
+    text: "A lump sum at a bank for a fixed term",
+    emoji: accountEmoji("fd"),
+    tone: "orange",
+    next: { pathname: "/account-form", params: { type: "fd" } },
+  },
+  {
     title: "Start a SIP",
     text: "Before its first instalment. Each month it shows as due.",
     emoji: "🗓️",

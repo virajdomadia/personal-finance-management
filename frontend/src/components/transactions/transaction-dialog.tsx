@@ -333,7 +333,7 @@ export function TransactionDialog({
               )
             : type === "income" && isDeposit(accounts.find((a) => String(a.id) === form.account_id))
             ? (
-                // Income into a PPF or RD can only be interest, so there is nothing to choose.
+                // Income into a PPF, RD or FD can only be interest, so there is nothing to choose.
                 <p className="text-sm font-black">
                   Category: <span className="font-extrabold">Interest</span>
                 </p>

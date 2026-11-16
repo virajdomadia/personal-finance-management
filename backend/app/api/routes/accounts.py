@@ -14,8 +14,7 @@ from sqlalchemy.orm import Session
 from app.api.balances import LIABILITY_TYPES, balance_of, opening_for
 from app.api.dates import iso_date, today_india
 from app.api.deposits import (
-    PpfFigures,
-    RdFigures,
+    DepositFigures,
     deposit_figures,
     rd_deposits_paid,
     rd_months_recorded,
@@ -35,8 +34,9 @@ if TYPE_CHECKING:
 
 router = APIRouter(prefix="/accounts", tags=["accounts"], dependencies=[Depends(get_current_user)])
 
-AccountType = Literal["bank", "credit_card", "cash", "broker", "wallet", "ppf", "rd", "loan"]
+AccountType = Literal["bank", "credit_card", "cash", "broker", "wallet", "ppf", "rd", "fd", "loan"]
 BankKind = Literal["savings", "salary", "current"]
+FdPayout = Literal["cumulative", "monthly", "quarterly"]
 
 TYPE_ORDER = {
     "bank": 0,
@@ -46,10 +46,11 @@ TYPE_ORDER = {
     "wallet": 4,
     "ppf": 5,
     "rd": 6,
-    "loan": 7,
+    "fd": 7,
+    "loan": 8,
 }
-HAVE_TYPES = {"bank", "cash", "broker", "wallet", "ppf", "rd"}
-DEPOSIT_TYPES = {"ppf", "rd"}
+HAVE_TYPES = {"bank", "cash", "broker", "wallet", "ppf", "rd", "fd"}
+DEPOSIT_TYPES = {"ppf", "rd", "fd"}
 
 # Optional details each type may carry; a non-null value for any other detail is rejected.
 # `emis_left` is stored as `emis_at_opening` (see app/api/loans.py); the rest are columns.
@@ -66,6 +67,8 @@ STORED = {
     "opened_on",
     "deposit_amount",
     "tenure_months",
+    "matures_on",
+    "fd_payout",
 }
 # `emis_left` and `deposits_paid` are stored as counts at opening (see loans.py, deposits.py).
 DETAILS = STORED | {"emis_left", "deposits_paid"}
@@ -86,6 +89,7 @@ APPLICABLE = {
         "tenure_months",
         "deposits_paid",
     },
+    "fd": {"institution", "interest_rate", "opened_on", "matures_on", "fd_payout", "pay_from_id"},
     "loan": {"institution", "due_day", "interest_rate", "emi_amount", "emis_left", "pay_from_id"},
 }
 MAX_ID = 2147483647  # the largest value of an integer primary key
@@ -222,6 +226,7 @@ Last4 = Annotated[str | None, BeforeValidator(_last4)]
 Day = Annotated[int | None, BeforeValidator(_day)]
 Kind = Annotated[AccountType | None, BeforeValidator(_choice(get_args(AccountType)))]
 Bank = Annotated[BankKind | None, BeforeValidator(_choice(get_args(BankKind)))]
+Payout = Annotated[FdPayout | None, BeforeValidator(_choice(get_args(FdPayout)))]
 Rate = Annotated[Decimal | None, BeforeValidator(_rate)]
 Count = Annotated[int | None, BeforeValidator(_count)]
 Ref = Annotated[int | None, BeforeValidator(_ref)]
@@ -252,6 +257,8 @@ class AccountCreate(BaseModel):
     deposit_amount: Money = None
     tenure_months: Tenure = None
     deposits_paid: Paid = None
+    matures_on: Opened = None
+    fd_payout: Payout = None
     # Loans paid from a card: the balance is already in the card's, so move it off the card.
     moved_from_card: Flag = False
 
@@ -277,6 +284,8 @@ class AccountUpdate(BaseModel):
     deposit_amount: Money = None
     tenure_months: Tenure = None
     deposits_paid: Paid = None
+    matures_on: Opened = None
+    fd_payout: Payout = None
 
 
 class GoalTag(BaseModel):
@@ -307,10 +316,12 @@ class AccountResponse(BaseModel):
     opened_on: str | None
     deposit_amount: str | None
     tenure_months: int | None
-    deposit: PpfFigures | RdFigures | None
+    matures_on: str | None
+    fd_payout: str | None
+    deposit: DepositFigures | None
     set_aside: str  # what active goals have set aside here; `balance` stays the real balance
     free_balance: str  # balance - set_aside, negative when more is set aside than held
-    in_goal: GoalTag | None  # a PPF or RD in an active goal
+    in_goal: GoalTag | None  # a PPF, RD or FD in an active goal
 
 
 class AccountList(BaseModel):
@@ -375,19 +386,27 @@ _RD_REQUIRED = {
     "tenure_months": "Enter the tenure in months, from 1 to 120.",
     "deposits_paid": "Enter the instalments paid so far, from 0 to the tenure.",
 }
+_FD_REQUIRED = {
+    "matures_on": "Choose the maturity date.",
+    "fd_payout": "Choose how the interest is paid.",
+}
+_EXTRA_REQUIRED = {"rd": _RD_REQUIRED, "fd": _FD_REQUIRED}
 
 
 def _deposit_errors(
     values: dict[str, Any], type_: str, check_paid: bool = True
 ) -> list[dict[str, Any]]:
     errors = []
-    required = _REQUIRED | (_RD_REQUIRED if type_ == "rd" else {})
+    required = _REQUIRED | _EXTRA_REQUIRED.get(type_, {})
     for field, message in required.items():
         if values.get(field) is None:
             errors.append(field_error(field, message))
     opened = values.get("opened_on")
     if opened is not None and opened > today_india():
         errors.append(field_error("opened_on", "The date can't be in the future."))
+    matures = values.get("matures_on")
+    if opened is not None and matures is not None and matures <= opened:
+        errors.append(field_error("matures_on", "Choose a maturity date after the opening date."))
     amount = values.get("deposit_amount")
     if amount is not None and amount <= 0:
         errors.append(field_error("deposit_amount", "Instalment must be greater than 0."))
@@ -450,6 +469,8 @@ def to_response(account: Account, book: Book, tags: "GoalTags") -> AccountRespon
         opened_on=None if account.opened_on is None else account.opened_on.isoformat(),
         deposit_amount=_money_text(account.deposit_amount),
         tenure_months=account.tenure_months,
+        matures_on=None if account.matures_on is None else account.matures_on.isoformat(),
+        fd_payout=account.fd_payout,
         deposit=deposit_figures(account, book, today_india()),
         set_aside=fmt(tags.set_aside_by_account.get(account.id, Decimal(0))),
         free_balance=fmt(free_balance(account, book.flows, tags.set_aside_by_account)),
@@ -637,7 +658,8 @@ def update_account(
 
 
 def _ppf_ids(db: Session, user_id: int, id: int) -> list[int]:
-    """The active PPFs paid from this account, in id order."""
+    """The active PPFs and FDs linked to this account, in id order. Their link is only a default,
+    so archiving the bank clears it."""
     if not 1 <= id <= MAX_ID:
         return []
     return list(
@@ -645,7 +667,7 @@ def _ppf_ids(db: Session, user_id: int, id: int) -> list[int]:
             select(Account.id)
             .where(
                 Account.user_id == user_id,
-                Account.type == "ppf",
+                Account.type.in_(("ppf", "fd")),
                 Account.pay_from_id == id,
                 Account.archived_at.is_(None),
             )
@@ -844,7 +866,8 @@ def restore_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
                         f"{bank.name} is archived.",
                     )
                 account.pay_from_id = None
-        if account.type == "rd" and balance_of(account, load_book(db, user.id).flows) == 0:
+        closable = account.type in ("rd", "fd")
+        if closable and balance_of(account, load_book(db, user.id).flows) == 0:
             paid_out = db.scalar(
                 select(Transaction.id)
                 .join(Account, Account.id == Transaction.to_account_id)
@@ -857,8 +880,10 @@ def restore_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
                 .limit(1)
             )
             if paid_out is not None:
+                what = "RD" if account.type == "rd" else "FD"
                 raise HTTPException(
-                    status.HTTP_409_CONFLICT, "This RD was closed. Its record stays in the archive."
+                    status.HTTP_409_CONFLICT,
+                    f"This {what} was closed. Its record stays in the archive.",
                 )
         account.archived_at = None
         db.commit()

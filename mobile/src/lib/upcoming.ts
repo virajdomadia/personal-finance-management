@@ -6,7 +6,7 @@ import { formatDueDate } from "./accounts.ts";
 import { isZero, signedWhole } from "./cash-flow.ts";
 import { whole } from "./recurring.ts";
 
-export type UpcomingKind = "recurring" | "insurance" | "emi" | "sip" | "rd" | "card_bill" | "goal";
+export type UpcomingKind = "recurring" | "insurance" | "emi" | "sip" | "rd" | "fd" | "fd_interest" | "card_bill" | "goal";
 
 export type UpcomingItem = {
   date: string;
@@ -59,6 +59,8 @@ export const KIND_EMOJI: Record<UpcomingKind, string> = {
   emi: "🏦",
   sip: "📈",
   rd: "🐷",
+  fd: "🔒",
+  fd_interest: "🏦",
   card_bill: "💳",
   goal: "🎯",
 };
@@ -69,6 +71,8 @@ export const KIND_LABEL: Record<UpcomingKind, string> = {
   emi: "EMI",
   sip: "SIP",
   rd: "RD instalment",
+  fd: "FD maturity",
+  fd_interest: "FD interest",
   card_bill: "Card bill",
   goal: "Goal set-aside",
 };

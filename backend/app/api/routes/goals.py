@@ -54,9 +54,9 @@ _ARCHIVED = "Restore this goal first."
 _LATER_RELEASE = "Delete the later release first."
 _ENTRY_NOT_FOUND = "Entry not found."
 _HOLDING_NOT_FOUND = "Holding not found."
-_CHOOSE_HOLDING = "Choose a fund, stock, coin, PPF or RD."
-_DEPOSIT = "Choose a PPF or RD account."
-_DEPOSIT_TYPES = ("ppf", "rd")
+_CHOOSE_HOLDING = "Choose a fund, stock, coin, PPF, RD or FD."
+_DEPOSIT = "Choose a PPF, RD or FD account."
+_DEPOSIT_TYPES = ("ppf", "rd", "fd")
 _CHANGED = "This goal changed while saving. Try again."
 
 

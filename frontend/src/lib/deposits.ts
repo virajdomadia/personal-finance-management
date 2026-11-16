@@ -1,4 +1,14 @@
-import { type Account, type AccountType, type PpfFigures, cleanMoney, formatFullDate, formatDueDate, formatRupees } from "./accounts.ts";
+import {
+  type Account,
+  type AccountType,
+  type FdPayout,
+  type PpfFigures,
+  FD_PAYOUT_LABELS,
+  cleanMoney,
+  formatFullDate,
+  formatDueDate,
+  formatRupees,
+} from "./accounts.ts";
 import { type TransactionForm, blankForm } from "./transactions.ts";
 
 const idText = (id: number | null) => (id === null ? "" : String(id));
@@ -19,6 +29,18 @@ export function ppfInterestText(account: Account): string | null {
   if (account.type !== "ppf" || deposit?.kind !== "ppf" || deposit.interest_due === null) return null;
   const { year, amount } = deposit.interest_due;
   return `${account.name}: record interest for ${year}, about ${whole(amount)}.`;
+}
+
+// "HDFC FD matured on 15 Nov 2026. Close or renew it." for a matured FD still open, else null.
+export function fdMaturedText(account: Account): string | null {
+  const deposit = account.deposit;
+  if (account.type !== "fd" || deposit?.kind !== "fd" || !deposit.matured || account.archived) return null;
+  return `${account.name} matured on ${formatFullDate(deposit.maturity_date)}. Close or renew it.`;
+}
+
+// The short name of a deposit type, for lists that mix them: "PPF", "RD" or "FD".
+export function depositShortLabel(type: "ppf" | "rd" | "fd"): string {
+  return type.toUpperCase();
 }
 
 export function ppfRoomText(figures: PpfFigures): string {
@@ -49,17 +71,20 @@ export function interestForm(account: Account): TransactionForm {
   };
 }
 
-export type CloseRdForm = { amount: string; date: string; account_id: string };
+// Closing an RD or FD: the amount received (the server's maturity estimate to start with), the
+// date and the bank it lands in.
+export type CloseDepositForm = { amount: string; date: string; account_id: string };
 
-export function closeRdForm(account: Account, today: string): CloseRdForm {
+export function closeDepositForm(account: Account, today: string): CloseDepositForm {
+  const deposit = account.deposit;
   return {
-    amount: account.deposit?.kind === "rd" ? account.deposit.maturity_value : "",
+    amount: deposit?.kind === "rd" || deposit?.kind === "fd" ? deposit.maturity_value : "",
     date: today,
     account_id: idText(account.pay_from_id),
   };
 }
 
-export function closeRdPayload(form: CloseRdForm): Record<string, unknown> {
+export function closeDepositPayload(form: CloseDepositForm): Record<string, unknown> {
   return {
     amount: cleanMoney(form.amount),
     date: form.date,
@@ -67,14 +92,54 @@ export function closeRdPayload(form: CloseRdForm): Record<string, unknown> {
   };
 }
 
-// Accounts a form can offer as "paid from": a PPF or RD comes from an active bank; a loan from any
-// account but a loan or a deposit. Never the account being edited.
-export function payFromAccounts(accounts: Account[], type: AccountType, editingId?: number): Account[] {
-  if (type === "ppf" || type === "rd") return accounts.filter((a) => a.type === "bank");
-  return accounts.filter((a) => a.type !== "loan" && a.type !== "ppf" && a.type !== "rd" && a.id !== editingId);
+// Renewing an FD: closing it at the amount received, then putting some or all of it in a new FD.
+export type RenewFdForm = CloseDepositForm & {
+  reinvest: string; // blank means all of the amount received
+  name: string; // blank keeps the old name
+  interest_rate: string;
+  matures_on: string;
+  fd_payout: string;
+};
+
+export function renewFdForm(account: Account, today: string): RenewFdForm {
+  const close = closeDepositForm(account, today);
+  return {
+    ...close,
+    reinvest: close.amount,
+    name: "",
+    interest_rate: account.interest_rate ?? "",
+    matures_on: "",
+    fd_payout: account.fd_payout ?? "",
+  };
 }
 
-// The figure lines under a PPF or RD row, all from the server's numbers. Empty for other types.
+export function renewFdPayload(form: RenewFdForm): Record<string, unknown> {
+  const money = (raw: string) => {
+    const cleaned = cleanMoney(raw);
+    return cleaned === "" ? null : cleaned;
+  };
+  return {
+    ...closeDepositPayload(form),
+    reinvest: money(form.reinvest),
+    name: form.name.trim() === "" ? null : form.name.trim(),
+    interest_rate: money(form.interest_rate),
+    matures_on: form.matures_on === "" ? null : form.matures_on,
+    fd_payout: form.fd_payout === "" ? null : form.fd_payout,
+  };
+}
+
+const DEPOSIT_TYPES = new Set<AccountType>(["ppf", "rd", "fd"]);
+
+// Accounts a form can offer as "paid from": a PPF, RD or FD comes from an active bank; a loan from
+// any account but a loan or a deposit. Never the account being edited.
+export function payFromAccounts(accounts: Account[], type: AccountType, editingId?: number): Account[] {
+  if (DEPOSIT_TYPES.has(type)) return accounts.filter((a) => a.type === "bank");
+  return accounts.filter((a) => a.type !== "loan" && !DEPOSIT_TYPES.has(a.type) && a.id !== editingId);
+}
+
+const PAYOUT_EVERY: Record<Exclude<FdPayout, "cumulative">, string> = { monthly: "month", quarterly: "quarter" };
+
+// The figure lines under a PPF, RD or FD row, all from the server's numbers. Empty for other types.
 export function depositLines(account: Account): string[] {
   const deposit = account.deposit;
   if (deposit?.kind === "ppf") {
@@ -89,6 +154,26 @@ export function depositLines(account: Account): string[] {
       `Paid ${deposit.deposits_paid} of ${account.tenure_months}`,
       `Value today ≈ ${formatRupees(deposit.value_today)} (estimate)`,
       `${formatRupees(deposit.maturity_value)} on ${formatFullDate(deposit.maturity_date)}`,
+    ];
+  }
+  if (deposit?.kind === "fd") {
+    const rate = account.interest_rate !== null ? [`${account.interest_rate}% a year`] : [];
+    const matures = `${deposit.matured ? "Matured" : "Matures"} ${formatFullDate(deposit.maturity_date)}`;
+    if (deposit.payout === "cumulative") {
+      return [
+        ...rate,
+        FD_PAYOUT_LABELS.cumulative,
+        `Value today ≈ ${formatRupees(deposit.value_today)} (estimate)`,
+        `${formatRupees(deposit.maturity_value)} on ${formatFullDate(deposit.maturity_date)}`,
+      ];
+    }
+    return [
+      ...rate,
+      FD_PAYOUT_LABELS[deposit.payout],
+      ...(deposit.payout_amount !== null
+        ? [`${formatRupees(deposit.payout_amount)} interest every ${PAYOUT_EVERY[deposit.payout]}`]
+        : []),
+      matures,
     ];
   }
   return [];

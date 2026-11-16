@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { logout } from "@/app/login/actions";
 import { type AccountList, errorMessage, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
+import { depositShortLabel } from "@/lib/deposits";
 import { DIALOG, PRIMARY, QUIET } from "@/components/investments/shared";
 import { Select, type SelectOption } from "@/components/ui/select";
 import { formatCoinQty } from "@/lib/crypto";
@@ -21,7 +22,7 @@ type Props = {
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; options: SelectOption[] };
 
-// The owner's stocks, funds and coins with units held, and their active PPFs and RDs, leaving out
+// The owner's stocks, funds and coins with units held, and their active PPFs, RDs and FDs, leaving out
 // anything already in a goal (a holding belongs to one active goal at most). An option's value is
 // "i:<instrument id>" or "a:<account id>".
 async function loadOptions(): Promise<SelectOption[]> {
@@ -41,8 +42,8 @@ async function loadOptions(): Promise<SelectOption[]> {
     options.push({ value: `i:${c.coin_id}`, label: `Coin · ${c.symbol} · ${formatCoinQty(c.quantity)}` });
   }
   for (const a of accounts.accounts) {
-    if ((a.type !== "ppf" && a.type !== "rd") || a.in_goal) continue;
-    options.push({ value: `a:${a.id}`, label: `${a.type === "ppf" ? "PPF" : "RD"} · ${a.name} · ${whole(a.balance)}` });
+    if ((a.type !== "ppf" && a.type !== "rd" && a.type !== "fd") || a.in_goal) continue;
+    options.push({ value: `a:${a.id}`, label: `${depositShortLabel(a.type)} · ${a.name} · ${whole(a.balance)}` });
   }
   return options;
 }
@@ -170,7 +171,7 @@ export function HoldingDialog({ goal, onClose, onSaved, onConflict }: Props) {
             ) : null}
             {load.status === "ready" && options.length === 0 && (
               <p className="mt-1 text-xs font-bold text-zinc-600">
-                Every stock, fund, coin, PPF and RD you hold is already in a goal, or you don&apos;t hold any yet.
+                Every stock, fund, coin, PPF, RD and FD you hold is already in a goal, or you don&apos;t hold any yet.
               </p>
             )}
           </div>

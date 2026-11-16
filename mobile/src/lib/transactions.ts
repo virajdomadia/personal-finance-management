@@ -211,12 +211,12 @@ export function groupByDate(transactions: Transaction[]): { date: string; transa
 // to the month the transaction landed in rather than have it seem to vanish.
 export const savedMonth: { current: string | null } = { current: null };
 
-export const isDeposit = (a: Account | undefined) => a?.type === "ppf" || a?.type === "rd";
+export const isDeposit = (a: Account | undefined) => a?.type === "ppf" || a?.type === "rd" || a?.type === "fd";
 const byId = (accounts: Account[], id: string) => accounts.find((a) => String(a.id) === id);
 const isActiveBank = (a: Account) => a.type === "bank" && !a.archived;
 
 // The accounts the "paid from" / "received in" / "from" picker offers. The server refuses an expense
-// or EMI paid from a PPF or RD, and a transfer between a deposit and anything but a bank; so those
+// or EMI paid from a PPF, RD or FD, and a transfer between a deposit and anything but a bank; so those
 // aren't offered. The account already chosen stays listed so a pre-filled form still shows it.
 export function fromOptions(type: TransactionType, accounts: Account[], form: TransactionForm): Account[] {
   const toAccount = byId(accounts, form.to_account_id);
@@ -259,7 +259,7 @@ export function startForm(accounts: Account[], date: string, preferred: number |
   return applyDepositRules(blankForm("expense", date, defaultAccountId(accounts, preferred)), accounts);
 }
 
-// Income into a PPF or RD can only be interest, so that is the one category offered.
+// Income into a PPF, RD or FD can only be interest, so that is the one category offered.
 export function incomeCategories(accounts: Account[], form: TransactionForm, categories: string[]): string[] {
   return isDeposit(byId(accounts, form.account_id)) ? ["Interest"] : categories;
 }

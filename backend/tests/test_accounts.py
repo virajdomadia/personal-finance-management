@@ -107,6 +107,8 @@ def test_response_shape(headers: Headers) -> None:
         "opened_on": None,
         "deposit_amount": None,
         "tenure_months": None,
+        "matures_on": None,
+        "fd_payout": None,
         "deposit": None,
         "set_aside": "0.00",
         "free_balance": "2500.00",

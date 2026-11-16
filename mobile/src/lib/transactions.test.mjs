@@ -18,6 +18,7 @@ import {
   fromOptions,
   groupByDate,
   incomeCategories,
+  isDeposit,
   toOptions,
   previousDay,
   renderedFields,
@@ -335,4 +336,18 @@ test("dayLabel says Today and Yesterday, then the date", () => {
   assert.equal(dayLabel("2026-11-11", "2026-11-11"), "Today");
   assert.equal(dayLabel("2026-11-10", "2026-11-11"), "Yesterday");
   assert.equal(dayLabel("2026-11-09", "2026-11-11"), "9 Nov 2026");
+});
+
+test("an FD follows the same rules as a PPF or RD", () => {
+  const fd = acct(8, "fd");
+  const withFd = [bank, cash, fd, card];
+  assert.equal(isDeposit(fd), true);
+  assert.deepEqual(ids(fromOptions("expense", withFd, form("expense"))), [1, 3, 7]);
+  assert.deepEqual(ids(fromOptions("emi", withFd, form("emi"))), [1, 3, 7]);
+  assert.deepEqual(ids(fromOptions("transfer", withFd, form("transfer", "", "8"))), [1]);
+  assert.deepEqual(ids(toOptions(withFd, form("transfer", "8"))), [1]);
+  assert.deepEqual(ids(toOptions(withFd, form("transfer", "3"))), [1, 7]);
+  assert.deepEqual(incomeCategories(withFd, form("income", "8"), ["Salary", "Interest"]), ["Interest"]);
+  assert.equal(applyDepositRules(form("expense", "8"), withFd).account_id, "");
+  assert.equal(applyDepositRules(form("transfer", "3", "8"), withFd).account_id, "");
 });

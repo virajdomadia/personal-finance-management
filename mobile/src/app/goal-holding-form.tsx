@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ChunkyBox, ChunkyButton, ScreenHeader } from "@/components/chunky";
 import { Banner, LoadingScreen, useBlockBack } from "@/components/form-parts";
-import { type AccountList, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
+import { type AccountList, DEPOSIT_SHORT, errorMessage, formatRupees, splitErrors } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { formatCoinQty } from "@/lib/crypto";
 import { formatUnits } from "@/lib/funds";
@@ -22,7 +22,7 @@ type Loaded = { goal: GoalDetail; groups: Group[] };
 
 const taken = (rows: { in_goal?: unknown }[]) => rows.some((r) => r.in_goal);
 
-// The stocks, funds and coins held now, and the active PPFs and RDs, leaving out anything already in a
+// The stocks, funds and coins held now, and the active PPFs, RDs and FDs, leaving out anything already in a
 // goal: a holding belongs to one active goal at most.
 function holdingGroups(portfolio: Portfolio, accounts: AccountList): Group[] {
   const stocks = portfolio.by_stock
@@ -43,17 +43,17 @@ function holdingGroups(portfolio: Portfolio, accounts: AccountList): Group[] {
       detail: `${formatCoinQty(c.quantity)} ${c.symbol} · ${formatRupees(c.value)}`,
     }));
   const deposits = accounts.accounts
-    .filter((a) => (a.type === "ppf" || a.type === "rd") && !a.in_goal)
+    .filter((a) => (a.type === "ppf" || a.type === "rd" || a.type === "fd") && !a.in_goal)
     .map((a) => ({
       value: `a:${a.id}`,
       title: a.name,
-      detail: `${a.type === "ppf" ? "PPF" : "RD"} · ${formatRupees(a.balance)}`,
+      detail: `${DEPOSIT_SHORT[a.type as "ppf" | "rd" | "fd"]} · ${formatRupees(a.balance)}`,
     }));
   return [
     { label: "Stocks", options: stocks },
     { label: "Mutual funds", options: funds },
     { label: "Crypto", options: coins },
-    { label: "PPF and RD", options: deposits },
+    { label: "Deposits", options: deposits },
   ].filter((g) => g.options.length > 0);
 }
 
@@ -135,7 +135,7 @@ function FormBody({ goal, groups }: Loaded) {
   async function save() {
     if (savingRef.current) return;
     if (choice === "") {
-      setError("Choose a fund, stock, coin, PPF or RD.");
+      setError("Choose a fund, stock, coin, PPF, RD or FD.");
       return;
     }
     savingRef.current = true;
@@ -196,7 +196,7 @@ function FormBody({ goal, groups }: Loaded) {
           <View style={styles.empty}>
             <Text variant="titleMedium">Nothing left to add</Text>
             <Text variant="bodyMedium" style={[styles.centerText, { color: BRAND.zinc600 }]}>
-              Everything you hold is already in a goal, or you don&apos;t hold any stocks, funds, coins, PPF or RD yet.
+              Everything you hold is already in a goal, or you don&apos;t hold any stocks, funds, coins, PPF, RD or FD yet.
             </Text>
           </View>
         ) : (

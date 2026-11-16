@@ -38,6 +38,7 @@ const ACCOUNT_EMOJI: Record<string, string> = {
   wallet: "👛",
   ppf: "🐷",
   rd: "🪙",
+  fd: "🔒",
   loan: "🧾",
 };
 

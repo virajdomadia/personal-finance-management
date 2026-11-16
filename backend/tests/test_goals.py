@@ -732,13 +732,13 @@ def test_holding_must_be_held_units_or_a_ppf_or_rd(headers: Headers, db_session:
     for account_id in (bank, 999999):
         wrong = add_holding(headers, goal_id, account_id=account_id)
         assert wrong.status_code == 422
-        assert messages(wrong) == {"account_id": "Choose a PPF or RD account."}
+        assert messages(wrong) == {"account_id": "Choose a PPF, RD or FD account."}
     missing = add_holding(headers, goal_id, instrument_id=999999)
-    assert messages(missing) == {"instrument_id": "Choose a fund, stock, coin, PPF or RD."}
+    assert messages(missing) == {"instrument_id": "Choose a fund, stock, coin, PPF, RD or FD."}
     for body in ({}, {"instrument_id": gone, "account_id": rd}):
         neither = client.post(f"{URL}/{goal_id}/holdings", json=body, headers=headers)
         assert neither.status_code == 422
-        assert messages(neither) == {"instrument_id": "Choose a fund, stock, coin, PPF or RD."}
+        assert messages(neither) == {"instrument_id": "Choose a fund, stock, coin, PPF, RD or FD."}
 
     added = add_holding(headers, goal_id, account_id=rd)
     assert added.status_code == 201, added.json()

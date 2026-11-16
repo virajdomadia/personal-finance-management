@@ -133,6 +133,8 @@ One list of everything due from today to 30 days ahead, plus anything already ov
 | EMIs | Each active loan with an instalment day, an EMI and money still owed: the instalment day in each month of the window, unless an EMI is already recorded for that period (in its calendar month or within 15 days, as the SMS matching does), or the day is before the loan was added to the app. This month's, if passed and unpaid, is overdue. The amount is the next EMI's. |
 | SIPs | Every unrecorded debit date up to the end of the window, by the [SIP due rules](#mutual-fund-rules). The SIP's amount. |
 | RD instalments | Every unpaid instalment date up to the end of the window, by the [RD rules](#rd-interest). The instalment. |
+| FD maturity | An open FD whose maturity date is on or before the end of the window, overdue once past until the FD is closed or renewed. Money in to its bank: the maturity value. See [FD interest](#fd-interest). |
+| FD interest | A monthly or quarterly payout FD's interest payments from today to the end of the window, before maturity. Money in to its bank: the payout amount. |
 | Credit card bills | One bill per card: the latest statement's unpaid part on its due date, overdue until it is paid (the dashboard drops a bill 3 days after its due date; this list doesn't). A card with no unpaid statement but a due day and money owed shows what is owed now, marked **amount varies**, on the date it will fall due: the due date of the statement a charge made today lands on, or without a statement day, the first due day after the last statement's due date. |
 
 **A transfer reminder stands for the bill.** A card, loan or RD that an active transfer reminder pays into gets no bill, EMI or instalment of its own: the reminder is listed instead, so the money isn't counted twice.
@@ -273,9 +275,21 @@ An instalment never posts on its own. A month is due when its instalment day (cl
 
 Active PPF and RD accounts also show on the Investments page and count in the investments totals (`overall` in the portfolio, `investments` on the dashboard) at their balance, never at the estimate. The balance is added to both invested and value, so unrealised is unchanged and its percent is over the larger invested total. Net worth is unaffected, since the deposits are already in it as accounts.
 
-### Closing an RD
+### FD interest
 
-Close RD records, in one step: the interest (what you received minus the balance) as an income with category "Interest", then a transfer of what you received to the bank, then archives the RD, which ends at exactly ₹0. If you received less than the balance, as with a penalty for closing early, the shortfall is an expense with category "Fees and charges" instead. Example: balance ₹20,000 and ₹19,800 received gives a ₹200 fee and a ₹19,800 transfer.
+**Built (2026-11-16).** An FD (type `fd`) is a deposit account like a PPF or RD, with the same transaction rules. Its balance is the principal: the opening balance on the opening date plus every transfer in, each placed on its own date. It has a maturity date and a payout: `cumulative`, `monthly` or `quarterly`.
+
+- **Value of an amount** placed on a start date, at an end date: compounded every whole quarter, then simple interest for the days after the last whole quarter: `amount × (1 + rate ÷ 400)^quarters × (1 + rate × days ÷ 36500)`. This is the method Indian banks publish for cumulative FDs. ₹1,00,000 at 7% for one year gives **₹1,07,185.90**. For 444 days at 7.25% (four quarters, then 79 days) it gives **₹1,09,135.58**.
+- **Maturity value** of a cumulative FD is the sum of each principal's value at maturity. A payout FD matures at its principal.
+- **Interest so far** of a cumulative FD is the sum of each principal's value today (or at maturity, if earlier) minus the principal, less the interest already recorded into the FD, never below zero. A payout FD's is zero: its interest goes to the bank.
+- **Payout amount** is `principal × rate ÷ 1200` a month or `principal × rate ÷ 400` a quarter. Payment dates step a month or a quarter from the opening date.
+- A closed (archived) or emptied FD earns nothing more.
+
+### Closing an RD or FD
+
+Close RD (and Close FD, the same rules) records, in one step: the interest (what you received minus the balance) as an income with category "Interest", then a transfer of what you received to the bank, then archives the RD, which ends at exactly ₹0. If you received less than the balance, as with a penalty for closing early, the shortfall is an expense with category "Fees and charges" instead. Example: balance ₹20,000 and ₹19,800 received gives a ₹200 fee and a ₹19,800 transfer.
+
+**Renewing an FD** closes it the same way at the amount received, paid to a bank, and then, in the same step, transfers the amount renewed (all of it unless a smaller amount is given) from that bank into a new FD opened on the renewal date with its own rate, maturity date and payout. What isn't renewed stays in the bank. Every row is an ordinary transaction, so each can be edited later.
 
 ## Recurring reminders and health insurance
 

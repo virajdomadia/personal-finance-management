@@ -45,6 +45,7 @@ const HOLDING_KIND: Record<HoldingLine["kind"], string> = {
   crypto: "Coin",
   ppf: "PPF",
   rd: "RD",
+  fd: "FD",
 };
 const HOLDING_EMOJI: Record<HoldingLine["kind"], string> = {
   stock: "📈",
@@ -52,6 +53,7 @@ const HOLDING_EMOJI: Record<HoldingLine["kind"], string> = {
   crypto: "🪙",
   ppf: "🐷",
   rd: "🪙",
+  fd: "🔒",
 };
 const HOLDING_TONE: Record<HoldingLine["kind"], Tone> = {
   stock: "blue",
@@ -59,6 +61,7 @@ const HOLDING_TONE: Record<HoldingLine["kind"], Tone> = {
   crypto: "yellow",
   ppf: "pink",
   rd: "green",
+  fd: "purple",
 };
 
 // A history line's amount is negative for a release.
@@ -474,7 +477,7 @@ export default function GoalScreen() {
             body={
               goal.archived
                 ? "Restore this goal to put money toward it again."
-                : "Use Set aside to label money in a bank, cash or wallet account for this goal, or Add holding for a fund, stock, coin, PPF or RD you own."
+                : "Use Set aside to label money in a bank, cash or wallet account for this goal, or Add holding for a fund, stock, coin, PPF, RD or FD you own."
             }
           />
         ) : null}

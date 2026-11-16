@@ -19,6 +19,7 @@ test("accountEmoji covers every account type", () => {
   assert.equal(accountEmoji("wallet"), "👛");
   assert.equal(accountEmoji("ppf"), "🐷");
   assert.equal(accountEmoji("rd"), "🪙");
+  assert.equal(accountEmoji("fd"), "🔒");
   assert.equal(accountEmoji("loan"), "🧾");
 });
 

@@ -13,7 +13,7 @@ import {
   investmentsIn,
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
-import { accountSections, ppfInterestText, rdDueText } from "@/lib/deposits";
+import { accountSections, fdMaturedText, ppfInterestText, rdDueText } from "@/lib/deposits";
 import { whole } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
 import { BRAND, INPUT_RADIUS, SHADOW_OFFSET_SM } from "@/lib/theme";
@@ -81,10 +81,11 @@ export default function AccountsScreen() {
     router.push({ pathname: "/transaction-form", params });
   }, []);
 
-  const closeRd = useCallback((rd: Account) => {
+  // Close an RD or FD, or renew a matured FD, each on its own screen.
+  const openDeposit = useCallback((pathname: "/close-deposit-form" | "/renew-fd-form", deposit: Account) => {
     if (navigating.current) return;
     navigating.current = true;
-    router.push({ pathname: "/close-rd-form", params: { id: String(rd.id) } });
+    router.push({ pathname, params: { id: String(deposit.id) } });
   }, []);
 
   const dueCards = useMemo(() => {
@@ -94,6 +95,16 @@ export default function AccountsScreen() {
       if (rd) cards.push({ key: `rd-${account.id}`, text: rd, params: { rd: String(account.id) } });
       const ppf = ppfInterestText(account);
       if (ppf) cards.push({ key: `ppf-${account.id}`, text: ppf, params: { interest: String(account.id) } });
+    }
+    return cards;
+  }, [list]);
+
+  // A matured FD still open has two ways forward, so its card carries both buttons.
+  const maturedCards = useMemo(() => {
+    const cards: { account: Account; text: string }[] = [];
+    for (const account of list?.accounts ?? []) {
+      const text = fdMaturedText(account);
+      if (text) cards.push({ account, text });
     }
     return cards;
   }, [list]);
@@ -169,6 +180,31 @@ export default function AccountsScreen() {
                     </ChunkyBox>
                   )}
                 </Pressable>
+              ))}
+              {maturedCards.map((card) => (
+                <ChunkyBox key={`fd-${card.account.id}`} radius={INPUT_RADIUS} offset={SHADOW_OFFSET_SM} style={styles.due}>
+                  <Text variant="bodyMedium" style={styles.dueText}>
+                    {card.text}
+                  </Text>
+                  <View style={styles.dueActions}>
+                    <ChunkyButton
+                      compact
+                      variant="alt"
+                      icon="close-circle-outline"
+                      label="Close"
+                      accessibilityLabel={`Close ${card.account.name}`}
+                      onPress={() => openDeposit("/close-deposit-form", card.account)}
+                    />
+                    <ChunkyButton
+                      compact
+                      variant="alt"
+                      icon="autorenew"
+                      label="Renew"
+                      accessibilityLabel={`Renew ${card.account.name}`}
+                      onPress={() => openDeposit("/renew-fd-form", card.account)}
+                    />
+                  </View>
+                </ChunkyBox>
               ))}
               <Tile tone="yellow" label="Total balance" value={whole(list.total_have)} size="huge">
                 {investments !== null ? (
@@ -251,7 +287,28 @@ export default function AccountsScreen() {
                       icon="close-circle-outline"
                       label="Close RD"
                       accessibilityLabel={`Close ${item.name}`}
-                      onPress={() => closeRd(item)}
+                      onPress={() => openDeposit("/close-deposit-form", item)}
+                    />
+                  </>
+                ) : item.type === "fd" ? (
+                  <>
+                    {item.deposit?.kind === "fd" && item.deposit.matured ? (
+                      <ChunkyButton
+                        compact
+                        variant="alt"
+                        icon="autorenew"
+                        label="Renew FD"
+                        accessibilityLabel={`Renew ${item.name}`}
+                        onPress={() => openDeposit("/renew-fd-form", item)}
+                      />
+                    ) : null}
+                    <ChunkyButton
+                      compact
+                      variant="alt"
+                      icon="close-circle-outline"
+                      label="Close FD"
+                      accessibilityLabel={`Close ${item.name}`}
+                      onPress={() => openDeposit("/close-deposit-form", item)}
                     />
                   </>
                 ) : undefined
@@ -283,6 +340,7 @@ const styles = StyleSheet.create({
   addText: { color: "#FFFFFF", fontSize: 13, lineHeight: 18, letterSpacing: 0.6 },
   due: { backgroundColor: BRAND.due, padding: 14 },
   dueText: { color: BRAND.ink },
+  dueActions: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 8, paddingTop: 10 },
   note: { color: BRAND.ink, marginTop: 2 },
   owe: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginTop: 8 },
   oweAmount: { flexShrink: 1, color: BRAND.ink, textAlign: "right", fontVariant: ["tabular-nums"] },

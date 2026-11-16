@@ -129,7 +129,7 @@ export type Totals = {
 export type DepositRow = {
   account_id: number;
   name: string;
-  type: "ppf" | "rd";
+  type: "ppf" | "rd" | "fd";
   balance: string;
   maturity_date: string;
   interest_estimate: string;

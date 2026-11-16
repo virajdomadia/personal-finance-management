@@ -55,7 +55,7 @@ const STEPS: Record<StepKey, { title: string; hint: string; href: string; emoji:
   },
   investments: {
     title: "Investments",
-    hint: "Stocks, funds, coins, PPF and RD, all in one place.",
+    hint: "Stocks, funds, coins, PPF, RD and FD, all in one place.",
     href: "/investments",
     emoji: "📈",
   },

@@ -68,7 +68,7 @@ def linked_owed(accounts: Iterable[Account], flows: dict[int, Decimal]) -> dict[
 def load_deposit_moves(
     db: Session, user_id: int, accounts: Iterable[Account]
 ) -> dict[int, list[DepositMove]]:
-    ids = [a.id for a in accounts if a.type in ("ppf", "rd")]
+    ids = [a.id for a in accounts if a.type in ("ppf", "rd", "fd")]
     moves: dict[int, list[DepositMove]] = {i: [] for i in ids}
     if not ids:
         return moves

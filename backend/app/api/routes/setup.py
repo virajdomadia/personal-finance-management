@@ -49,7 +49,7 @@ def get_setup(user: CurrentUser, db: DbSession) -> SetupResponse:
         "loans": accounts("loan"),
         "recurring": count(RecurringTemplate, RecurringTemplate.active.is_(True))
         + count(Sip, Sip.active.is_(True)),
-        "investments": count(Instrument) + accounts("ppf", "rd"),
+        "investments": count(Instrument) + accounts("ppf", "rd", "fd"),
     }
     return SetupResponse(
         user_id=user.id,

@@ -9,7 +9,7 @@ import { CoinGeckoCredit } from "@/components/coingecko-credit";
 import { LinkPrompt } from "@/components/link-prompt";
 import { GainPill, TileLine, WorthTile } from "@/components/investment-parts";
 import { Signed, signedLabel } from "@/components/signed";
-import { type GoalTag, errorMessage, formatRupees } from "@/lib/accounts";
+import { DEPOSIT_SHORT, type GoalTag, errorMessage, formatRupees } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { type CoinTotal, type CryptoTradeMode, formatCoinAverage, formatCoinPrice, formatCoinQty } from "@/lib/crypto";
 import { type FundTotal, type FundTradeMode, type Sip, dueText, formatNav, formatUnits } from "@/lib/funds";
@@ -248,9 +248,9 @@ export default function InvestmentsScreen() {
         renderItem={({ item }) => <DepositCard row={item} onPress={() => openAccounts()} />}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text variant="titleMedium">No PPF or RD yet</Text>
+            <Text variant="titleMedium">No deposits yet</Text>
             <Text variant="bodyMedium" style={styles.emptyText}>
-              Your PPF and recurring deposits show here with their balance and the interest earned so far. Add one
+              Your PPF, recurring and fixed deposits show here with their balance and the interest earned so far. Add one
               from Accounts.
             </Text>
             <ChunkyButton variant="alt" label="Go to Accounts" onPress={() => openAccounts()} />
@@ -487,9 +487,9 @@ function DepositsSummary({ deposits }: { deposits: DepositsPortfolio }) {
   );
 }
 
-// One PPF or RD. The whole card opens the Accounts tab, where its actions are.
+// One PPF, RD or FD. The whole card opens the Accounts tab, where its actions are.
 function DepositCard({ row, onPress }: { row: DepositRow; onPress: () => void }) {
-  const kindLabel = row.type === "ppf" ? "PPF" : "RD";
+  const kindLabel = DEPOSIT_SHORT[row.type];
   const maturity = row.maturity_date ? `Matures ${formatDate(row.maturity_date)}` : null;
   return (
     <View style={styles.rowWrap}>
