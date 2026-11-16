@@ -105,9 +105,16 @@ def test_debit_with_known_merchant_records_expense(headers: Headers, db_session:
     b = bank(headers)
     body = entry(amount="250.00", payee="swiggy@icici", ref="631529109575")
     result = send(headers, body).json()["results"][0]
-    assert result == {"hash": body["hash"], "status": "recorded", "reason": None}
 
     [tx] = transactions(db_session)
+    [saved] = db_session.scalars(select(SmsEntry)).all()
+    assert result == {
+        "hash": body["hash"],
+        "status": "recorded",
+        "reason": None,
+        "entry_id": saved.id,
+        "transaction_id": tx.id,
+    }
     assert (tx.type, tx.category, tx.account_id, str(tx.amount)) == (
         "expense",
         "Food and dining",
@@ -129,6 +136,9 @@ def test_new_payee_records_uncategorised_and_asks(headers: Headers, db_session: 
     assert (result["status"], result["reason"]) == ("review", "category")
 
     [tx] = transactions(db_session)
+    # Recorded and asking: the phone gets both, to open the review item.
+    assert result["entry_id"] == stored(db_session, body["hash"]).id
+    assert result["transaction_id"] == tx.id
     assert tx.type == "expense"
     assert tx.category is None
     saved = stored(db_session, body["hash"])
@@ -256,7 +266,15 @@ def test_concurrent_hash_conflict_is_duplicate(
 
     monkeypatch.setattr(ingest_module, "_find_by_hash", racing)
     results = send(headers, body).json()["results"]
-    assert results == [{"hash": body["hash"], "status": "duplicate", "reason": None}]
+    assert results == [
+        {
+            "hash": body["hash"],
+            "status": "duplicate",
+            "reason": None,
+            "entry_id": None,
+            "transaction_id": None,
+        }
+    ]
     assert transactions(db_session) == []
     count = select(func.count()).select_from(SmsEntry).where(SmsEntry.user_id == user_id)
     assert db_session.scalar(count) == 1

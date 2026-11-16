@@ -28,7 +28,8 @@
       "permissions": [
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
-        "android.permission.READ_SMS"
+        "android.permission.READ_SMS",
+        "android.permission.RECEIVE_SMS"
       ]
     },
     "plugins": [

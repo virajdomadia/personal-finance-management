@@ -4,8 +4,7 @@ import { createContext, use, useCallback, useMemo, useState, type ReactNode } fr
 import { apiFetch } from "@/lib/api";
 import { clearExports } from "@/lib/export-share";
 import { getGoogleIdToken, signOutOfGoogle } from "@/lib/google";
-
-const TOKEN_KEY = "pfm_token";
+import { TOKEN_KEY, readStoredToken } from "@/lib/stored-token";
 
 type Session = {
   token: string | null;
@@ -14,16 +13,6 @@ type Session = {
 };
 
 const SessionContext = createContext<Session | null>(null);
-
-function readStoredToken(): string | null {
-  try {
-    return SecureStore.getItem(TOKEN_KEY);
-  } catch {
-    // Android can invalidate stored keys, for example after a restore. Signing in again is the
-    // right recovery.
-    return null;
-  }
-}
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState(readStoredToken);
