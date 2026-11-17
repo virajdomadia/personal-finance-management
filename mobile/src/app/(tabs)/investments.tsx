@@ -1,7 +1,7 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
-import { FAB, Icon, Text, useTheme } from "react-native-paper";
+import { Icon, Text, useTheme } from "react-native-paper";
 
 import { ChunkyBox, ChunkyButton, Chip, HeaderAction, Row, ScreenHeader, Segmented } from "@/components/chunky";
 import { GoalTagLine } from "@/components/goal-tag";
@@ -429,15 +429,17 @@ export default function InvestmentsScreen() {
 
       {/* The one way to add an investment, whichever segment is showing. Buying more, selling and SIPs
           are on each holding's screen. */}
-      <FAB
-        icon="plus"
-        label="Add investment"
-        visible={focused && portfolio !== null}
-        accessibilityLabel="Add investment"
-        style={styles.addFab}
-        color={BRAND.ink}
-        onPress={() => go({ pathname: "/add-investment" })}
-      />
+      {focused && portfolio !== null ? (
+        <View style={styles.addFab}>
+          <ChunkyButton
+            variant="green"
+            icon="plus"
+            label="Add"
+            accessibilityLabel="Add investment"
+            onPress={() => go({ pathname: "/add-investment" })}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -705,14 +707,6 @@ const styles = StyleSheet.create({
   footerHead: { alignItems: "flex-start", paddingHorizontal: 16, paddingBottom: 8 },
   empty: { alignItems: "center", gap: 12, padding: 32 },
   emptyText: { color: BRAND.zinc600, textAlign: "center" },
-  addFab: {
-    position: "absolute",
-    right: 16,
-    bottom: 16,
-    backgroundColor: BRAND.yellow,
-    borderWidth: 2.5,
-    borderColor: BRAND.ink,
-    borderRadius: 16,
-  },
+  addFab: { position: "absolute", right: 16, bottom: 16 },
 });
 
