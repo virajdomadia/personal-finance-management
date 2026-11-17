@@ -3,7 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import { ScrollView } from "react-native";
 import { Button, Dialog, Portal, Text } from "react-native-paper";
 
-import { ProfileView } from "@/components/profile-view";
+import { type NotificationSwitch, ProfileView } from "@/components/profile-view";
 import { type Streak } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { EXPORTS, ExportError, type ExportKind, exportError } from "@/lib/data-export";
@@ -11,12 +11,43 @@ import { type Family, possessive, viewingLabel } from "@/lib/family";
 import { shareExport } from "@/lib/export-share";
 import { NEEDS_UPDATE } from "@/lib/native";
 import { useProfile } from "@/lib/profile";
+import { type ReminderKind, disableReminder, enableReminder, readReminderPref } from "@/lib/reminder-schedule";
 import { useSession } from "@/lib/session";
 import { disableWeeklySummary, enableWeeklySummary, readSummaryPref } from "@/lib/weekly-summary";
 
-const DENIED = "Notifications weren't allowed, so the summary stays off.";
+const DENIED = "Notifications weren't allowed, so this stays off.";
 const BLOCKED = "Notifications are off for Gullak. Allow them in your phone's settings, then turn this on again.";
 const FAILED = "Couldn't set the reminder. Try again.";
+const OFFLINE_REMINDERS = "Couldn't reach the server to set these up. Check your connection and try again.";
+
+type SwitchState = { on: boolean; busy: boolean; note: string | null };
+
+// A due-reminder or budget-alert switch: asks for permission when turned on, and fetches what to
+// remind about there and then.
+function useReminderSwitch(kind: ReminderKind, token: string | null) {
+  const [state, setState] = useState<SwitchState>(() => ({ on: readReminderPref(kind), busy: false, note: null }));
+  const onChange = async (on: boolean) => {
+    setState((s) => ({ ...s, busy: true, note: null }));
+    try {
+      if (on) {
+        if (token === null) {
+          setState({ on: false, busy: false, note: FAILED });
+          return;
+        }
+        const result = await enableReminder(kind, token);
+        const note = result === "denied" ? DENIED : result === "blocked" ? BLOCKED : result === "needs-update" ? NEEDS_UPDATE : null;
+        setState({ on: result === "on", busy: false, note });
+      } else {
+        await disableReminder(kind);
+        setState({ on: false, busy: false, note: null });
+      }
+    } catch {
+      // Turned on but the first fetch failed: it stays on and catches up on the next app open.
+      setState({ on: readReminderPref(kind), busy: false, note: on ? OFFLINE_REMINDERS : FAILED });
+    }
+  };
+  return { ...state, onChange: (on: boolean) => void onChange(on) };
+}
 
 export default function ProfileScreen() {
   const { token, logOut } = useSession();
@@ -28,6 +59,8 @@ export default function ProfileScreen() {
   const [summaryOn, setSummaryOn] = useState(readSummaryPref);
   const [summaryBusy, setSummaryBusy] = useState(false);
   const [summaryNote, setSummaryNote] = useState<string | null>(null);
+  const dueSwitch = useReminderSwitch("due", token);
+  const budgetSwitch = useReminderSwitch("budget", token);
 
   // Asked only when the user turns it on; off cancels the schedule.
   const onSummary = async (on: boolean) => {
@@ -73,6 +106,33 @@ export default function ProfileScreen() {
     );
   };
   const busy = exporting !== null && exporting !== "choose";
+
+  const notifications: NotificationSwitch[] = [
+    {
+      key: "due",
+      title: "📅 Bills and dues",
+      label: "Bills and dues",
+      text: "At 9 am the day before and on the day: card bills, EMIs, SIPs, RDs, FDs and recurring payments. Premiums a week ahead too.",
+      ...dueSwitch,
+    },
+    {
+      key: "budget",
+      title: "💰 Budget alerts",
+      label: "Budget alerts",
+      text: "When a budget reaches 80% and again when it goes over, once each a month.",
+      ...budgetSwitch,
+    },
+    {
+      key: "summary",
+      title: "🗞️ Weekly summary",
+      label: "Weekly summary",
+      text: "Sunday at 7 pm (phone time): what you spent, budgets at risk and what's due next.",
+      on: summaryOn,
+      busy: summaryBusy,
+      note: summaryNote,
+      onChange: (on) => void onSummary(on),
+    },
+  ];
 
   const loadFamily = useCallback(() => {
     setFamilyFailed(false);
@@ -120,10 +180,7 @@ export default function ProfileScreen() {
         }}
         onManageFamily={() => router.push("/family-members")}
         streak={streak}
-        summaryOn={summaryOn}
-        summaryBusy={summaryBusy}
-        summaryNote={summaryNote}
-        onSummary={(on) => void onSummary(on)}
+        notifications={notifications}
         onGoals={() => router.push("/goals")}
         onRecurring={() => router.push("/recurring")}
         onInsurance={() => router.push("/insurance")}

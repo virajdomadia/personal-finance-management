@@ -110,3 +110,7 @@ test("an FD's maturity and interest have their own labels", () => {
     "FD maturity · 10 Nov · overdue",
   );
 });
+
+// The reminder planner runs with these: it is built on the upcoming items. (Listed here, not in the
+// test script, because package.json scripts are part of the build fingerprint.)
+import "./reminders.test.mjs";

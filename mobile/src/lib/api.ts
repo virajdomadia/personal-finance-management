@@ -62,12 +62,14 @@ type Options = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   token?: string;
   body?: unknown;
+  // Always for the signed-in owner, whoever is being viewed: background work like reminders.
+  asOwner?: boolean;
 };
 
-export async function apiFetch<T>(path: string, { method, token, body }: Options = {}): Promise<T> {
+export async function apiFetch<T>(path: string, { method, token, body, asOwner }: Options = {}): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  const profile = requestProfile(path);
+  const profile = asOwner ? { headers: {}, sent: null } : requestProfile(path);
   try {
     const response = await fetch(`${API_URL}/api${path}`, {
       method,

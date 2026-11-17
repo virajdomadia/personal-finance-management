@@ -5,10 +5,11 @@
 
 import { apiFetch } from "@/lib/api";
 import { loadCrypto } from "@/lib/native";
+import { refreshReminders } from "@/lib/reminder-schedule";
 import { readInbox } from "../../../modules/sms-inbox";
 
 import { postNotices } from "./notifications";
-import { planNotices } from "./notify";
+import { planNotices, wasRecorded } from "./notify";
 import { loadSmsSettings, updateSmsSettings } from "./settings";
 import { type SmsEntry, type SyncResult, syncSms } from "./sync";
 
@@ -51,6 +52,8 @@ export function runSync(token: string): Promise<SyncResult | null> {
       });
       // Read again: the switch may have changed while the sync ran.
       if ((await loadSmsSettings()).notify) await postNotices(planNotices(result.outcomes, Date.now()));
+      // A recorded payment may settle a due reminder or push a budget past a line.
+      if (result.outcomes.some(wasRecorded)) await refreshReminders(token);
       return result;
     } finally {
       inFlight = null;

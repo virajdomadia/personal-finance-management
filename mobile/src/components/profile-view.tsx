@@ -5,16 +5,25 @@ import { ChunkyBox, Row, ScreenHeader, Tile } from "@/components/chunky";
 import { streakLabel } from "@/lib/fun";
 import { BRAND, INPUT_RADIUS, SHADOW_OFFSET_SM } from "@/lib/theme";
 
+// One switch in the Notifications card.
+export type NotificationSwitch = {
+  key: string;
+  title: string; // "🗞️ Weekly summary"
+  label: string; // the title without the emoji, for screen readers
+  text: string;
+  on: boolean;
+  busy: boolean;
+  note: string | null; // why it was turned back off
+  onChange: (on: boolean) => void;
+};
+
 type Props = {
   viewing: string; // "Viewing: Me"
   viewingMember: boolean;
   onViewing: () => void;
   onManageFamily: () => void;
   streak: number | null;
-  summaryOn: boolean;
-  summaryBusy: boolean;
-  summaryNote: string | null; // why it was turned back off
-  onSummary: (on: boolean) => void;
+  notifications: NotificationSwitch[];
   onGoals: () => void;
   onRecurring: () => void;
   onInsurance: () => void;
@@ -43,7 +52,7 @@ function StreakPill({ days }: { days: number | null }) {
 }
 
 // The profile tab's content, without the session or fetching.
-export function ProfileView({ viewing, viewingMember, onViewing, onManageFamily, streak, summaryOn, summaryBusy, summaryNote, onSummary, onGoals, onRecurring, onInsurance, onArchived, onSms, onPayeeRules, onCategories, onBudgets, onExport, onLogOut }: Props) {
+export function ProfileView({ viewing, viewingMember, onViewing, onManageFamily, streak, notifications, onGoals, onRecurring, onInsurance, onArchived, onSms, onPayeeRules, onCategories, onBudgets, onExport, onLogOut }: Props) {
   return (
     <View>
       <ScreenHeader title="You" right={<StreakPill days={streak} />} />
@@ -69,28 +78,35 @@ export function ProfileView({ viewing, viewingMember, onViewing, onManageFamily,
           </Text>
         </Tile>
         <ChunkyBox radius={INPUT_RADIUS} offset={SHADOW_OFFSET_SM} style={styles.summary}>
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryText}>
-              <Text variant="titleSmall" style={styles.ink}>
-                🗞️ Weekly summary
-              </Text>
-              <Text variant="bodySmall" style={styles.muted}>
-                A reminder on Sunday at 7 pm (phone time) to see what you spent, budgets at risk and what&apos;s due next. Logging out turns it off.
-              </Text>
+          <Text variant="labelLarge" style={styles.muted} accessibilityRole="header">
+            🔔 Notifications · logging out turns them off
+          </Text>
+          {notifications.map((s, i) => (
+            <View key={s.key} style={[styles.switchBlock, i > 0 && styles.divided]}>
+              <View style={styles.summaryRow}>
+                <View style={styles.summaryText}>
+                  <Text variant="titleSmall" style={styles.ink}>
+                    {s.title}
+                  </Text>
+                  <Text variant="bodySmall" style={styles.muted}>
+                    {s.text}
+                  </Text>
+                </View>
+                <Switch
+                  value={s.on}
+                  disabled={s.busy}
+                  onValueChange={s.onChange}
+                  color={BRAND.greenStrong}
+                  accessibilityLabel={s.label}
+                />
+              </View>
+              {s.note ? (
+                <Text variant="bodySmall" accessibilityRole="alert" style={styles.note}>
+                  {s.note}
+                </Text>
+              ) : null}
             </View>
-            <Switch
-              value={summaryOn}
-              disabled={summaryBusy}
-              onValueChange={onSummary}
-              color={BRAND.greenStrong}
-              accessibilityLabel="Weekly summary"
-            />
-          </View>
-          {summaryNote ? (
-            <Text variant="bodySmall" accessibilityRole="alert" style={styles.note}>
-              {summaryNote}
-            </Text>
-          ) : null}
+          ))}
         </ChunkyBox>
         <View style={styles.menu}>
           <Row emoji="🎯" tone="purple" title="Goals" meta="Money set aside for what you're saving for" amount="›" onPress={onGoals} accessibilityLabel="Goals" accessibilityHint="Opens Goals" />
@@ -113,7 +129,9 @@ const styles = StyleSheet.create({
   body: { paddingHorizontal: 16, gap: 12 },
   streak: { color: BRAND.ink, marginTop: 2 },
   menu: { gap: 10 },
-  summary: { padding: 14, gap: 6 },
+  summary: { padding: 14, gap: 10 },
+  switchBlock: { gap: 6 },
+  divided: { borderTopWidth: 1, borderTopColor: BRAND.zinc200, paddingTop: 10 },
   summaryRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   summaryText: { flex: 1, gap: 2 },
   ink: { color: BRAND.ink },
