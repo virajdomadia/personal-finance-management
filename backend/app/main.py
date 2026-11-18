@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+from collections.abc import Awaitable, Callable
+
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
@@ -14,6 +16,27 @@ app = FastAPI(
 )
 
 app.middleware("http")(require_token)
+
+# Every response is personal (money data, a session token) or an error: never stored by a shared
+# cache, never framed, never content-sniffed. Registered after require_token so it also wraps
+# that middleware's 401s.
+_RESPONSE_HEADERS = {
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+@app.middleware("http")
+async def response_headers(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    response = await call_next(request)
+    for key, value in _RESPONSE_HEADERS.items():
+        response.headers.setdefault(key, value)
+    return response
+
 
 # Added last so it runs first: CORS preflights carry no token and must not be rejected.
 app.add_middleware(

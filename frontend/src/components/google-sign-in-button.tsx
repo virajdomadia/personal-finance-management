@@ -5,6 +5,7 @@ import Script from "next/script";
 import { useRef, useState } from "react";
 
 import { loginWithGoogle } from "@/app/login/actions";
+import { afterLoginPath } from "@/lib/login-redirect";
 
 type GoogleAccounts = {
   initialize: (config: {
@@ -39,7 +40,7 @@ export function GoogleSignInButton({ clientId }: { clientId: string }) {
         try {
           const result = await loginWithGoogle(credential);
           if (result.error) setError(result.error);
-          else router.replace("/");
+          else router.replace(afterLoginPath(window.location.search));
         } catch {
           setError(UNAVAILABLE);
         }
