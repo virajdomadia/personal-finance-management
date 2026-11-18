@@ -1,7 +1,9 @@
 # Build on GitHub's runner and upload the finished output to Vercel, so Vercel spends no build minutes.
-# Both vercel.json files set ignoreCommand, which stops Vercel's own Git builds; this workflow is the only deploy.
+# Both projects are connected to this repo with Root Directory set (backend, frontend); the ignoreCommand in
+# each folder's vercel.json skips Vercel's own Git builds, so this workflow is the only deploy.
 # Order: after Backend CI passes on main, the API goes live first, so a new web build never calls an API that
 # is not deployed yet.
+# The Vercel CLI runs from the repo root: with Root Directory set on the project, it finds the app folder itself.
 # Needs repo secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID_API, VERCEL_PROJECT_ID_WEB.
 name: vercel
 on:
@@ -16,13 +18,14 @@ permissions: { contents: read }
 env:
   SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  # retries any failure, incl. a brief 404 while the domain switches to the new deployment
+  SMOKE: curl --fail --silent --show-error --max-time 20 --retry 6 --retry-delay 5 --retry-all-errors -o /dev/null
 
 jobs:
   api:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults: { run: { working-directory: backend } }
     env:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_API }}
     steps:
@@ -38,13 +41,12 @@ jobs:
       - run: vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
       - run: vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
       - name: Smoke test
-        run: curl --fail --silent --show-error --max-time 20 --retry 3 --retry-delay 5 https://finance-api.virajdomadia.com/api/health
+        run: $SMOKE https://finance-api.virajdomadia.com/api/health
 
   web:
     needs: api
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults: { run: { working-directory: frontend } }
     env:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_WEB }}
     steps:
@@ -52,11 +54,11 @@ jobs:
         with: { ref: "${{ env.SHA }}" }
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm, cache-dependency-path: frontend/package-lock.json }
-      - run: npm ci
-      - run: npm run lint && npm test
+      - run: npm ci && npm run lint && npm test
+        working-directory: frontend
       - run: npm install --global vercel@52.2.1
       - run: vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
       - run: vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
       - run: vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
       - name: Smoke test
-        run: curl --fail --silent --show-error --max-time 20 --retry 3 --retry-delay 5 -o /dev/null https://finance.virajdomadia.com/login
+        run: $SMOKE https://finance.virajdomadia.com/login
