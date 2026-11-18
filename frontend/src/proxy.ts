@@ -45,9 +45,17 @@ export function proxy(request: NextRequest) {
     });
   }
 
-  return loggedIn ? NextResponse.next() : NextResponse.redirect(new URL("/login", request.url));
+  if (loggedIn) return NextResponse.next();
+  // Keep where the visitor was going, so signing in lands them there and not on "/".
+  const login = new URL("/login", request.url);
+  if (pathname !== "/") login.searchParams.set("next", `${pathname}${search}`);
+  return NextResponse.redirect(login);
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Public files (icons, robots.txt, manifest) must load for logged-out visitors: the login page
+  // links its icons, and crawlers read robots.txt. Everything else is checked.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|robots.txt|manifest.webmanifest).*)",
+  ],
 };

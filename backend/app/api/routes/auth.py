@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -17,7 +17,8 @@ router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(get_sign
 
 
 class GoogleLoginRequest(BaseModel):
-    id_token: str
+    # A Google ID token is ~1-2 KB; anything far bigger is rejected (422) before it reaches Google.
+    id_token: str = Field(min_length=1, max_length=8192)
 
 
 class LoginResponse(BaseModel):
