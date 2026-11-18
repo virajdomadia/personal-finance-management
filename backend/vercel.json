@@ -1,1 +1,1 @@
-{"crons": [{"path": "/api/cron/prices", "schedule": "0 18 * * *"}], "regions": ["sin1"]}
+{"crons": [{"path": "/api/cron/prices", "schedule": "0 18 * * *"}], "regions": ["sin1"], "ignoreCommand": "exit 0"}
