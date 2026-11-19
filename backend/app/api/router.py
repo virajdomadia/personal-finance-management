@@ -7,6 +7,7 @@ from app.api.routes import (
     cash_flow,
     categories,
     coins,
+    corporate_actions,
     cron,
     crypto_trades,
     dashboard,
@@ -63,6 +64,7 @@ api_router.include_router(recurring.router)
 api_router.include_router(policies.router)
 api_router.include_router(goals.router)
 api_router.include_router(stocks.router)
+api_router.include_router(corporate_actions.router)
 api_router.include_router(coins.router)
 api_router.include_router(market.router)
 api_router.include_router(crypto_trades.router)

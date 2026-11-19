@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends
@@ -10,15 +11,19 @@ from app.api.deps import CurrentUser, get_current_user
 from app.api.goals import GoalTags, load_goal_tags
 from app.api.loans import load_book
 from app.api.portfolio import (
+    ActionRow,
+    Replay,
     fmt_coin,
     fmt_nav,
     fmt_price,
     fmt_units,
     holding_value,
     latest_prices,
+    load_action_rows,
+    load_trade_rows,
+    replay,
     summarise,
     unrealised_percent,
-    user_replay,
 )
 from app.api.routes.accounts import GoalTag, fmt, goal_tag, list_sort_key
 from app.api.routes.coins import CRYPTO
@@ -48,6 +53,7 @@ class Figures(BaseModel):
     at_cost: bool
     unrealised: str
     unrealised_percent: str
+    dividends: str  # gross of every applied dividend, all time
 
 
 class Holding(Figures):
@@ -75,6 +81,11 @@ class Totals(BaseModel):
     unrealised: str
     unrealised_percent: str
     realised: str
+    # Gross of applied dividends (stocks only), all time and this Indian financial year
+    # (1 Apr-31 Mar, by ex-date). Never in the ledger or net worth.
+    dividends: str
+    dividends_fy: str
+    total_return: str  # unrealised + realised + dividends
 
 
 class FundFigures(BaseModel):
@@ -190,7 +201,9 @@ def _percent(unrealised: Decimal, invested: Decimal) -> str:
     return fmt(unrealised_percent(unrealised, invested))
 
 
-def _figures(stock: Instrument, shares: int, invested: Decimal, current: tuple | None) -> dict:
+def _figures(
+    stock: Instrument, shares: int, invested: Decimal, current: tuple | None, dividends: Decimal
+) -> dict:
     price = None if current is None else current[1]
     value = holding_value(shares, invested, price)
     unrealised = value - invested
@@ -207,6 +220,7 @@ def _figures(stock: Instrument, shares: int, invested: Decimal, current: tuple |
         "at_cost": price is None,
         "unrealised": fmt(unrealised),
         "unrealised_percent": _percent(unrealised, invested),
+        "dividends": fmt(dividends),
     }
 
 
@@ -254,13 +268,38 @@ def _coin_figures(
     }
 
 
-def _totals(summary) -> Totals:
+class DividendTotals:
+    """Applied dividends' gross, by (stock, account), all time and this financial year."""
+
+    def __init__(self, result: Replay, actions: list[ActionRow], today: date) -> None:
+        start = date(today.year if today.month >= 4 else today.year - 1, 4, 1)
+        end = date(start.year + 1, 3, 31)
+        by_id = {a.id: a for a in actions}
+        self.by_position: dict[tuple[int, int], Decimal] = {}
+        self.all = self.fy = ZERO
+        for (action_id, account_id), gross in result.dividends.items():
+            action = by_id[action_id]
+            key = (action.instrument_id, account_id)
+            self.by_position[key] = self.by_position.get(key, ZERO) + gross
+            self.all += gross
+            if start <= action.ex_date <= end:
+                self.fy += gross
+
+
+NO_DIVIDENDS = (ZERO, ZERO)
+
+
+def _totals(summary, dividends: tuple[Decimal, Decimal] = NO_DIVIDENDS) -> Totals:
+    all_time, fy = dividends
     return Totals(
         invested=fmt(summary.invested),
         value=fmt(summary.value),
         unrealised=fmt(summary.unrealised),
         unrealised_percent=_percent(summary.unrealised, summary.invested),
         realised=fmt(summary.realised),
+        dividends=fmt(all_time),
+        dividends_fy=fmt(fy),
+        total_return=fmt(summary.unrealised + summary.realised + all_time),
     )
 
 
@@ -377,7 +416,8 @@ def _crypto_portfolio(
 
 @router.get("/portfolio")
 def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
-    result = user_replay(db, user.id)
+    actions = load_action_rows(db, user.id)
+    result = replay(load_trade_rows(db, user.id), actions)
     prices = latest_prices(db, user.id)
     # Only stocks here; other kinds of instrument have their own screens.
     stocks = {
@@ -390,19 +430,23 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
     names = {a.id: a.name for a in accounts}
     active = sorted((a for a in accounts if a.archived_at is None), key=list_sort_key)
     book = load_book(db, user.id, accounts)
-    deposits = deposit_rows(active, book, today_india())
+    today = today_india()
+    deposits = deposit_rows(active, book, today)
     tags = load_goal_tags(db, user.id)
+    dividends = DividendTotals(result, actions, today)
+    stock_dividends = (dividends.all, dividends.fy)
 
     holdings: list[Holding] = []
     closed: list[Closed] = []
-    combined: dict[int, list] = {}  # stock_id -> [shares, invested]
+    combined: dict[int, list] = {}  # stock_id -> [shares, invested, dividends]
     for (stock_id, account_id), pos in result.positions.items():
         stock = stocks.get(stock_id)
         if stock is None:
             continue
         shares = int(pos.quantity)
+        paid = dividends.by_position.get((stock_id, account_id), ZERO)
         if shares > 0:
-            figures = _figures(stock, shares, pos.invested, prices.get(stock_id))
+            figures = _figures(stock, shares, pos.invested, prices.get(stock_id), paid)
             holdings.append(
                 Holding(
                     **figures,
@@ -411,9 +455,10 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
                     in_goal=goal_tag(tags, ("instrument", stock_id)),
                 )
             )
-            total = combined.setdefault(stock_id, [0, ZERO])
+            total = combined.setdefault(stock_id, [0, ZERO, ZERO])
             total[0] += shares
             total[1] += pos.invested
+            total[2] += paid
         elif pos.sold_any:
             closed.append(
                 Closed(
@@ -428,8 +473,8 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
     holdings.sort(key=lambda h: (h.symbol, h.account_name))
     closed.sort(key=lambda c: (c.symbol, c.account_name))
     by_stock = [
-        StockTotal(**_figures(stocks[stock_id], shares, invested, prices.get(stock_id)))
-        for stock_id, (shares, invested) in combined.items()
+        StockTotal(**_figures(stocks[stock_id], shares, invested, prices.get(stock_id), paid))
+        for stock_id, (shares, invested, paid) in combined.items()
     ]
     by_stock.sort(key=lambda s: s.symbol)
 
@@ -437,10 +482,10 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
         holdings=holdings,
         by_stock=by_stock,
         closed=closed,
-        totals=_totals(summarise(result, prices, only=set(stocks))),
+        totals=_totals(summarise(result, prices, only=set(stocks)), stock_dividends),
         funds=_fund_portfolio(db, user.id, result, prices, names, tags),
         crypto=_crypto_portfolio(db, user.id, result, prices, names, tags),
-        overall=_totals(with_deposits(summarise(result, prices), deposits)),
+        overall=_totals(with_deposits(summarise(result, prices), deposits), stock_dividends),
         deposits=Deposits(
             value=fmt(sum((d.balance for d in deposits), ZERO)),
             interest_estimate=fmt(sum((d.interest_estimate for d in deposits), ZERO)),
