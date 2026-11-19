@@ -91,7 +91,7 @@ Because mergers/demergers move lots across instruments, replay can no longer pro
 
 ### Opening shares ("Add existing shares")
 
-Brokers show holdings already adjusted for past splits/bonuses, so an opening buy is entered at today's basis even though its date is in the past. A new column `investment_trades.basis_date` (India date) records the day a trade's quantity and price were last entered: set on create and whenever quantity or price is edited; backfilled from `updated_at` by the migration. **An action is applied to a lot only if the lot's `basis_date` is before the action's ex-date** — for a normal trade entered on its own date this is the same as "trades before the ex-date". This also covers an owner who already fixed a split by hand by editing the quantity.
+Brokers show holdings already adjusted for past splits/bonuses, so an opening buy is entered at today's basis even though its date is in the past. A new column `investment_trades.basis_date` (India date) records the day a trade's quantity and price were last entered: set on create and whenever quantity or price is edited; backfilled from `updated_at` by the migration. **For opening lots, an action is applied only if the lot's `basis_date` is before the action's ex-date.** This also covers an owner who already fixed a split by hand by editing the quantity. **Normal (non-opening) trades use their trade date**: a real past buy entered later from a contract note carries the price actually paid, so later actions always apply to it. (In code: the replay's effective basis is `basis_date` for opening trades and `date` otherwise.)
 
 Every review card shows the before → after share count and average cost, so a double adjustment is visible before it's confirmed and can be dismissed.
 
