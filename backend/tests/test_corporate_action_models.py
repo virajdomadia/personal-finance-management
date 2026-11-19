@@ -102,3 +102,28 @@ def test_interim_and_special_dividend_same_day_are_two_rows(db_session: Session)
 
 def test_normalise_purpose() -> None:
     assert normalise_purpose("  Interim  Dividend - Rs. 10/- ") == "interim dividend rs 10"
+
+
+def test_basis_date_restamped_when_trade_becomes_opening(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _freeze(monkeypatch, date(2026, 11, 19))
+    trade = _trade(db_session)
+    trade.opening = False
+    db_session.flush()
+    trade.basis_date = date(2026, 1, 1)
+    db_session.flush()
+    _freeze(monkeypatch, date(2026, 12, 1))
+
+    trade.note = "just a note"
+    db_session.flush()
+    assert trade.basis_date == date(2026, 1, 1)
+
+    trade.opening = True
+    db_session.flush()
+    assert trade.basis_date == date(2026, 12, 1)
+
+    _freeze(monkeypatch, date(2026, 12, 9))
+    trade.opening = False
+    db_session.flush()
+    assert trade.basis_date == date(2026, 12, 1)

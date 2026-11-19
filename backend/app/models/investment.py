@@ -135,8 +135,20 @@ def _stamp_basis_on_insert(mapper, connection, target: InvestmentTrade) -> None:
         target.basis_date = _today()
 
 
+def _was_false(state) -> bool:  # noqa: ANN001
+    deleted = state.attrs.opening.history.deleted
+    return bool(deleted) and not deleted[0]
+
+
 @event.listens_for(InvestmentTrade, "before_update")
 def _stamp_basis_on_update(mapper, connection, target: InvestmentTrade) -> None:  # noqa: ANN001
     state = inspect(target)
-    if state.attrs.quantity.history.has_changes() or state.attrs.price.history.has_changes():
+    became_opening = (
+        target.opening and state.attrs.opening.history.has_changes() and _was_false(state)
+    )
+    if (
+        state.attrs.quantity.history.has_changes()
+        or state.attrs.price.history.has_changes()
+        or became_opening
+    ):
         target.basis_date = _today()

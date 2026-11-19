@@ -258,7 +258,8 @@ def _stock_and_account(
 
 def _basis_date(db: Session, existing_id: int | None, values: dict[str, Any]) -> date:
     """The basis date replay will see for the trade once saved: a normal trade's own date; for
-    existing shares, today when created or when quantity or price change, else the stored one."""
+    existing shares, today when created, newly marked opening, or when quantity or price change,
+    else the stored one. Mirrors the before_update listener in models/investment.py."""
     if not values["opening"]:
         return values["date"]
     old = db.get(InvestmentTrade, existing_id) if existing_id is not None else None

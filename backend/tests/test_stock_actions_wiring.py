@@ -13,7 +13,7 @@ from app.api.routes import accounts, dashboard, goals, net_worth, transactions
 from app.main import app
 from app.models.corporate_action import StockAction
 from app.models.goal import GoalHolding
-from app.models.investment import Instrument
+from app.models.investment import Instrument, InvestmentTrade
 from app.models.user import User
 from tests.test_accounts import Headers, auth
 from tests.test_portfolio import portfolio, price
@@ -199,3 +199,24 @@ def test_editing_opening_trade_checks_with_its_new_basis_date(
     assert edit.status_code == 200, edit.json()
     assert portfolio(headers)["holdings"][0]["shares"] == 41
     assert trade(headers, **sell, quantity=41).status_code == 201
+
+
+def test_normal_trade_toggled_to_opening_is_checked_and_replayed_alike(
+    headers: Headers, db_session: Session
+) -> None:
+    account, infy = broker(headers), stock(headers)
+    normal = made(headers, stock_id=infy, account_id=account, quantity=40, price="100.00")
+    row = db_session.get(InvestmentTrade, normal["id"])
+    row.basis_date = date(2026, 1, 1)  # created before the ex-date
+    db_session.commit()
+    split(db_session, infy)
+    assert portfolio(headers)["holdings"][0]["shares"] == 200
+    sell = dict(stock_id=infy, account_id=account, side="sell", date="2026-04-01")
+    # Marking it opening counts the shares as entered today: the split no longer touches them.
+    # (The API can't change `opening`, so toggle it on the row, as a future edit path would.)
+    row.opening = True
+    db_session.commit()
+    assert row.basis_date > EX
+    assert portfolio(headers)["holdings"][0]["shares"] == 40
+    assert trade(headers, **sell, quantity=41).status_code == 422
+    assert trade(headers, **sell, quantity=40).status_code == 201
