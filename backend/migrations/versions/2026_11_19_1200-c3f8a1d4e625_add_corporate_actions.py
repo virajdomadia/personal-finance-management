@@ -33,7 +33,12 @@ def upgrade() -> None:
     op.execute(
         "UPDATE investment_trades SET basis_date = (updated_at AT TIME ZONE 'Asia/Kolkata')::date"
     )
-    op.alter_column("investment_trades", "basis_date", nullable=False)
+    op.alter_column(
+        "investment_trades",
+        "basis_date",
+        nullable=False,
+        server_default=sa.text("(now() AT TIME ZONE 'Asia/Kolkata')::date"),
+    )
     op.add_column(
         "instruments", sa.Column("actions_backfilled_at", sa.DateTime(timezone=True), nullable=True)
     )
@@ -60,7 +65,7 @@ def upgrade() -> None:
             "kind",
             "ex_date",
             "purpose_key",
-            name=op.f("uq_corporate_actions_symbol_kind_ex_date_purpose_key"),
+            name=op.f("uq_corporate_actions_symbol"),
         ),
     )
     op.create_table(
@@ -103,7 +108,7 @@ def upgrade() -> None:
             "user_id",
             "instrument_id",
             "corporate_action_id",
-            name=op.f("uq_stock_actions_user_id_instrument_id_corporate_action_id"),
+            name=op.f("uq_stock_actions_user_id"),
         ),
     )
     op.create_index(op.f("ix_stock_actions_user_id"), "stock_actions", ["user_id"])
@@ -137,7 +142,7 @@ def upgrade() -> None:
         sa.UniqueConstraint(
             "stock_action_id",
             "transaction_id",
-            name=op.f("uq_dividend_links_stock_action_id_transaction_id"),
+            name=op.f("uq_dividend_links_stock_action_id"),
         ),
     )
     op.create_index(op.f("ix_dividend_links_user_id"), "dividend_links", ["user_id"])

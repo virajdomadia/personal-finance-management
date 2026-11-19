@@ -23,9 +23,28 @@ from sqlalchemy import (
     inspect,
     true,
 )
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.expression import FunctionElement
 
 from app.db.base import Base
+
+
+class _IndiaToday(FunctionElement):
+    """Today's India date as a column default, so raw inserts get a sensible basis_date."""
+
+    type = Date()
+    inherit_cache = True
+
+
+@compiles(_IndiaToday)
+def _india_today_default(element, compiler, **kw) -> str:  # noqa: ANN001, ANN003
+    return "(now() AT TIME ZONE 'Asia/Kolkata')::date"
+
+
+@compiles(_IndiaToday, "sqlite")
+def _india_today_sqlite(element, compiler, **kw) -> str:  # noqa: ANN001, ANN003
+    return "(date('now', '+5 hours', '+30 minutes'))"
 
 
 class Instrument(Base):
@@ -98,7 +117,7 @@ class InvestmentTrade(Base):
     # The India-time day quantity and price were last entered. Corporate actions with an
     # ex-date after the trade's date but before this day are already in what was typed.
     # Kept by the listeners below, never by callers.
-    basis_date: Mapped[dt.date] = mapped_column(Date)
+    basis_date: Mapped[dt.date] = mapped_column(Date, server_default=_IndiaToday())
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
