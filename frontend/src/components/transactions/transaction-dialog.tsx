@@ -9,12 +9,14 @@ import { FOCUS, buttonClass } from "@/components/ui/chunky";
 import { ComboBox, Select } from "@/components/ui/select";
 import {
   type CategoryList,
+  type CategorySuggestion,
   TRANSACTION_TYPES,
   type Transaction,
   type FieldKey,
   type TransactionForm,
   type TransactionType,
   applyDepositRules,
+  applySuggestion,
   changedPayload,
   formFromTransaction,
   fromOptions,
@@ -23,6 +25,7 @@ import {
   newTransactionForm,
   renderedFields,
   subtractMoney,
+  suggestPath,
   toOptions,
   toPayload,
   todayIndia,
@@ -78,6 +81,14 @@ export function TransactionDialog({
       : (initialForm ?? newTransactionForm(todayIndia(), defaultAccountId, accounts)),
   );
   const [categories, setCategories] = useState<CategoryList>({ income: [], expense: [] });
+  // Whether the owner chose the category themselves; until then the note's suggestion fills it.
+  // An existing or pre-filled category counts as chosen. The ref lets a late answer check it.
+  const [categoryTouched, setCategoryTouched] = useState(() => form.category !== "");
+  const touchedRef = useRef(categoryTouched);
+  const touchCategory = (touched: boolean) => {
+    touchedRef.current = touched;
+    setCategoryTouched(touched);
+  };
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -115,6 +126,7 @@ export function TransactionDialog({
   // Keeps what the types share and resets what only some of them have.
   const changeType = (type: TransactionType) => {
     setErrors({});
+    touchCategory(false);
     setForm((f) => applyDepositRules({ ...f, type, category: "", to_account_id: "", interest: "" }, accounts));
   };
 
@@ -174,6 +186,30 @@ export function TransactionDialog({
   }
 
   const type = form.type;
+  // Income into a PPF, RD or FD can only be interest, so there is nothing to choose.
+  const depositIncome = type === "income" && isDeposit(accounts.find((a) => String(a.id) === form.account_id));
+
+  // Typing a note picks the category for it, a moment after the typing stops.
+  useEffect(() => {
+    if (categoryTouched || depositIncome) return;
+    const path = suggestPath(type, form.note);
+    if (path === null) {
+      setForm((f) => applySuggestion(f, touchedRef.current, null));
+      return;
+    }
+    let stale = false;
+    const timer = setTimeout(() => {
+      apiFetch<CategorySuggestion>(path)
+        .then((s) => {
+          if (!stale) setForm((f) => applySuggestion(f, touchedRef.current, s.category));
+        })
+        .catch(() => {});
+    }, 300);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [form.note, type, categoryTouched, depositIncome]);
   const field = (key: FieldKey, label: string, input: React.ReactNode) => (
     <div>
       <label htmlFor={`t-${key}`} className={LABEL}>
@@ -205,6 +241,7 @@ export function TransactionDialog({
     describedBy: errors[key] ? `te-${key}` : undefined,
     onChange: (value: string) => set(key, value),
   });
+  const noteField = field("note", "Note (optional)", <input {...props("note")} type="text" autoComplete="off" maxLength={200} />);
   const loans = accounts.filter((a) => a.type === "loan");
   const types = TRANSACTION_TYPES.filter((t) => t.value !== "emi" || loans.length > 0);
   const option = (a: Account) => ({ value: String(a.id), label: a.name });
@@ -323,6 +360,9 @@ export function TransactionDialog({
             </>
           )}
 
+          {/* Expenses and income take the note first, so what was bought can pick the category. */}
+          {type === "expense" || type === "income" ? noteField : null}
+
           {type === "emi"
             ? null
             : type === "transfer"
@@ -331,9 +371,8 @@ export function TransactionDialog({
                 "To account",
                 <Select {...pickerProps("to_account_id")} placeholder="Choose an account" options={toOptions(accounts, form).map(option)} />,
               )
-            : type === "income" && isDeposit(accounts.find((a) => String(a.id) === form.account_id))
+            : depositIncome
             ? (
-                // Income into a PPF, RD or FD can only be interest, so there is nothing to choose.
                 <p className="text-sm font-black">
                   Category: <span className="font-extrabold">Interest</span>
                 </p>
@@ -341,14 +380,25 @@ export function TransactionDialog({
             : field(
                 "category",
                 "Category",
-                <ComboBox
-                  {...pickerProps("category")}
-                  maxLength={40}
-                  options={(type === "income" ? incomeCategories(accounts, form, categories.income) : categories[type]).map((name) => ({ value: name, label: name }))}
-                />,
+                <>
+                  <ComboBox
+                    {...pickerProps("category")}
+                    onChange={(value: string) => {
+                      touchCategory(true);
+                      set("category", value);
+                    }}
+                    maxLength={40}
+                    options={(type === "income" ? incomeCategories(accounts, form, categories.income) : categories[type]).map((name) => ({ value: name, label: name }))}
+                  />
+                  {!categoryTouched && form.category !== "" ? (
+                    <p className={HINT} aria-live="polite">
+                      Auto-picked
+                    </p>
+                  ) : null}
+                </>,
               )}
 
-          {field("note", "Note (optional)", <input {...props("note")} type="text" autoComplete="off" maxLength={200} />)}
+          {type === "expense" || type === "income" ? null : noteField}
 
           {formError ? (
             <p role="alert" className="text-sm font-extrabold text-loss">
