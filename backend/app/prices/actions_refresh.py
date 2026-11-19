@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.api import dates
 from app.api.portfolio import ActionRow, TradeRow, load_action_rows, load_trade_rows, replay
 from app.models.corporate_action import CorporateAction, StockAction, normalise_purpose
-from app.models.investment import Instrument, InvestmentTrade
+from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade
 from app.models.market import MarketCode
 from app.prices.actions_parse import ParsedAction, parse_bse_actions, parse_nse_actions
 from app.prices.fetch import Fetcher, SourceError, SourceTimeout
@@ -354,3 +354,123 @@ def refresh_actions(
     report.updated["actions"] = created
     if notes:
         report.failed["actions"] = "; ".join(notes)
+
+
+# Renames and the safety net for actions the feeds missed.
+def follow_renames(db: Session, listed: set[str] | None = None) -> int:
+    """Point linked stocks at their new NSE symbol after a rename; return how many moved.
+
+    market_codes rows are never deleted, so an old symbol lingers after a rename. `listed` is
+    tonight's equity-list code set: OLDSYM is "gone" when it is not in it (without `listed`,
+    when it has no market_codes row). The ISIN comes from OLDSYM's market_codes row, else its
+    stored corporate action. It moves only if exactly one other listed code carries that ISIN.
+    `Instrument.symbol` is never touched.
+    """
+    codes = {
+        c: isin
+        for c, isin in db.execute(
+            select(MarketCode.code, MarketCode.isin).where(MarketCode.kind == "stock")
+        )
+    }
+    by_isin: dict[str, list[str]] = defaultdict(list)
+    for code, isin in codes.items():
+        if isin and (listed is None or code in listed):
+            by_isin[isin].append(code)
+    moved = 0
+    insts = db.scalars(
+        select(Instrument).where(Instrument.kind == "stock", Instrument.source_code.is_not(None))
+    ).all()
+    for inst in insts:
+        old = inst.source_code
+        if old is None:
+            continue
+        gone = old not in listed if listed is not None else old not in codes
+        if not gone:
+            continue
+        isin = codes.get(old) or db.scalar(
+            select(CorporateAction.isin)
+            .where(CorporateAction.symbol == old, CorporateAction.isin.is_not(None))
+            .limit(1)
+        )
+        if not isin:
+            continue
+        new = [c for c in by_isin.get(isin, ()) if c != old]
+        if len(new) == 1:
+            inst.source_code = new[0]
+            moved += 1
+    db.flush()
+    return moved
+
+
+DROP_THRESHOLD = Decimal("0.35")  # a close more than 35% below the previous one
+DROP_WINDOW = timedelta(days=3)
+RECENT_DROP = timedelta(days=5)  # only a fresh drop is news; an old one was seen or dismissed
+KNOWN_KINDS = ("split", "consolidation", "bonus", "merger", "demerger")
+
+
+def _known_action_near(db: Session, inst_id: int, day: date) -> bool:
+    return (
+        db.scalar(
+            select(StockAction.id)
+            .where(
+                StockAction.instrument_id == inst_id,
+                StockAction.kind.in_(KNOWN_KINDS),
+                StockAction.status != "dismissed",
+                StockAction.ex_date >= day - DROP_WINDOW,
+                StockAction.ex_date <= day + DROP_WINDOW,
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def flag_suspect_drops(db: Session, today: date) -> int:
+    """Flag held stocks whose latest close fell over 35% with no known action within 3 days.
+
+    Day-on-day is the instrument's two most recent price dates. Sets `suspect_drop_on`; returns
+    how many were newly flagged. Flags that now have a known action nearby are cleared.
+    Flushes; the caller commits.
+    """
+    for inst in db.scalars(
+        select(Instrument).where(
+            Instrument.kind == "stock", Instrument.suspect_drop_on.is_not(None)
+        )
+    ):
+        if inst.suspect_drop_on and _known_action_near(db, inst.id, inst.suspect_drop_on):
+            inst.suspect_drop_on = None
+    flagged = 0
+    for user_id in db.scalars(
+        select(Instrument.user_id).where(Instrument.kind == "stock").distinct()
+    ):
+        state = _UserState(db, user_id)
+        for inst in db.scalars(
+            select(Instrument).where(
+                Instrument.user_id == user_id,
+                Instrument.kind == "stock",
+                Instrument.suspect_drop_on.is_(None),
+            )
+        ):
+            if not state.holds_now(inst.id):
+                continue
+            rows = db.execute(
+                select(InstrumentPrice.date, InstrumentPrice.price)
+                .where(InstrumentPrice.instrument_id == inst.id)
+                .order_by(InstrumentPrice.date.desc(), InstrumentPrice.id.desc())
+            ).all()
+            latest: dict[date, Decimal] = {}
+            for day, price in rows:
+                latest.setdefault(day, price)
+                if len(latest) == 2:
+                    break
+            if len(latest) < 2:
+                continue
+            (day, close), (_, prev) = latest.items()
+            if day < today - RECENT_DROP or prev <= 0 or close >= prev * (1 - DROP_THRESHOLD):
+                continue
+            if _known_action_near(db, inst.id, day):
+                continue
+            inst.suspect_drop_on = day
+            flagged += 1
+    db.flush()
+    return flagged

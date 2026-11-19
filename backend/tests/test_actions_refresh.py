@@ -15,7 +15,7 @@ from app.models.corporate_action import CorporateAction, StockAction
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade
 from app.models.market import MarketCode
 from app.models.user import User
-from app.prices.actions_refresh import refresh_actions
+from app.prices.actions_refresh import flag_suspect_drops, follow_renames, refresh_actions
 from app.prices.fetch import SourceTimeout
 from app.prices.refresh import RefreshReport, refresh_market, run_nightly
 from tests.price_fakes import STOCK_CLOSE, STOCK_CODE, FakeFetcher
@@ -499,3 +499,122 @@ def test_restored_dividend_with_another_amount_lets_the_new_one_in(db_session: S
     assert old.id == restored.id
     assert (new.amount_per_share, new.corporate_action_id is not None) == (Decimal("2.5"), True)
     assert report.updated["actions"] == 1
+
+
+# Renames and suspect drops.
+def listing(db: Session, code: str, isin: str | None = INFY_ISIN) -> None:
+    db.add(MarketCode(kind="stock", code=code, name=code, isin=isin))
+    db.commit()
+
+
+def test_rename_follows_isin_to_new_symbol(db_session: Session) -> None:
+    h = Holder(db_session, code="OLDSYM")
+    listing(db_session, "OLDSYM")
+    listing(db_session, "NEWSYM")
+    # Old rows linger after a rename: only tonight's list says OLDSYM is gone.
+    assert follow_renames(db_session, {"NEWSYM"}) == 1
+    db_session.refresh(h.stock)
+    assert (h.stock.source_code, h.stock.symbol) == ("NEWSYM", "OLDSYM")
+
+
+def test_rename_without_listing_info_needs_old_code_gone(db_session: Session) -> None:
+    h = Holder(db_session, code="OLDSYM")
+    listing(db_session, "NEWSYM")
+    h.db.add(
+        CorporateAction(
+            symbol="OLDSYM",
+            isin=INFY_ISIN,
+            kind="split",
+            ex_date=TODAY,
+            purpose="x",
+            purpose_key="x",
+            source="nse",
+        )
+    )
+    h.db.commit()
+    assert follow_renames(db_session) == 1
+    db_session.refresh(h.stock)
+    assert h.stock.source_code == "NEWSYM"
+
+
+def test_no_rename_while_old_symbol_is_listed_or_isin_unknown(db_session: Session) -> None:
+    h = Holder(db_session, code="OLDSYM")
+    listing(db_session, "OLDSYM")
+    listing(db_session, "NEWSYM")
+    assert follow_renames(db_session, {"OLDSYM", "NEWSYM"}) == 0
+    assert follow_renames(db_session) == 0
+    db_session.refresh(h.stock)
+    assert h.stock.source_code == "OLDSYM"
+
+
+def priced(h: Holder, prev: str, last: str, day: date = TODAY) -> None:
+    for d, p in ((date(2026, 11, 17), prev), (day, last)):
+        h.db.add(
+            InstrumentPrice(
+                user_id=h.user_id, instrument_id=h.stock.id, date=d, price=Decimal(p), source="auto"
+            )
+        )
+    h.db.commit()
+
+
+def test_forty_percent_drop_on_held_stock_is_flagged(db_session: Session) -> None:
+    h = Holder(db_session)
+    h.trade(date(2026, 1, 5))
+    priced(h, "1000", "600")
+    assert flag_suspect_drops(db_session, TODAY) == 1
+    db_session.refresh(h.stock)
+    assert h.stock.suspect_drop_on == TODAY
+
+
+def test_thirty_percent_drop_is_not_flagged(db_session: Session) -> None:
+    h = Holder(db_session)
+    h.trade(date(2026, 1, 5))
+    priced(h, "1000", "700")
+    assert flag_suspect_drops(db_session, TODAY) == 0
+
+
+def test_drop_of_a_stock_no_longer_held_is_not_flagged(db_session: Session) -> None:
+    h = Holder(db_session)
+    h.trade(date(2026, 1, 5))
+    h.trade(date(2026, 11, 10), side="sell")
+    priced(h, "1000", "600")
+    assert flag_suspect_drops(db_session, TODAY) == 0
+
+
+def test_drop_with_known_split_nearby_is_not_flagged_and_flag_clears(db_session: Session) -> None:
+    h = Holder(db_session)
+    h.trade(date(2026, 1, 5))
+    priced(h, "1000", "600")
+    h.db.add(
+        StockAction(
+            user_id=h.user_id,
+            instrument_id=h.stock.id,
+            kind="split",
+            ex_date=date(2026, 11, 17),
+            status="pending",
+        )
+    )
+    h.db.commit()
+    assert flag_suspect_drops(db_session, TODAY) == 0
+    h.stock.suspect_drop_on = TODAY
+    h.db.commit()
+    flag_suspect_drops(db_session, TODAY)
+    db_session.refresh(h.stock)
+    assert h.stock.suspect_drop_on is None
+
+
+def test_dismissed_action_does_not_count_as_known(db_session: Session) -> None:
+    h = Holder(db_session)
+    h.trade(date(2026, 1, 5))
+    priced(h, "1000", "600")
+    h.db.add(
+        StockAction(
+            user_id=h.user_id,
+            instrument_id=h.stock.id,
+            kind="split",
+            ex_date=TODAY,
+            status="dismissed",
+        )
+    )
+    h.db.commit()
+    assert flag_suspect_drops(db_session, TODAY) == 1

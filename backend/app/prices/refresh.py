@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.models.investment import Instrument, InstrumentPrice
 from app.models.market import MarketCode
-from app.prices.actions_refresh import refresh_actions
+from app.prices.actions_refresh import flag_suspect_drops, follow_renames, refresh_actions
 from app.prices.fetch import Fetcher, SourceError, SourceTimeout
 from app.prices.parse import (
     IST,
@@ -50,6 +50,8 @@ class RefreshReport:
     # Per kind: how many market_codes got a price this run, and why a source failed.
     updated: dict[str, int] = field(default_factory=dict)
     failed: dict[str, str] = field(default_factory=dict)
+    # Codes on tonight's NSE equity list (None if it was not read); renames compare against it.
+    listed_stocks: set[str] | None = None
 
 
 class _Known(NamedTuple):
@@ -244,6 +246,7 @@ def _refresh_stocks(
         if not listed:
             raise SourceError("NSE equity list format not recognised")
         _upsert_quotes(db, "stock", listed)
+        report.listed_stocks = {q.code for q in listed}
     except SourceError as exc:
         errors.append(str(exc))
     lookback: list[str] = []  # why no price file was used; only worth saying in some cases
@@ -414,19 +417,34 @@ def run_nightly(
         refresh_market(db, fetcher, today, {kind}, report=report, clock=clock)
         written += apply_to_users(db, only_kind=kind)
         db.commit()
-    # Corporate actions last, after stock prices, in their own budget and commit; they never
-    # raise out of here, so prices and the snapshots after them are never held up.
+
+    # Corporate actions last, after stock prices, each step in its own savepoint; none raise out
+    # of here, so prices and the snapshots after them are never held up.
+    def guarded(step: Callable[[], object], pop_updated: bool = False) -> None:
+        try:
+            with db.begin_nested():
+                step()
+        except SourceError as exc:
+            if pop_updated:
+                report.updated.pop("actions", None)  # rolled back with the savepoint
+            report.failed["actions"] = str(exc)
+        except Exception as exc:
+            log.exception("corporate actions step crashed")
+            if pop_updated:
+                report.updated.pop("actions", None)
+            report.failed["actions"] = f"unexpected {exc.__class__.__name__}"
+
+    if report.listed_stocks:
+        guarded(lambda: follow_renames(db, report.listed_stocks))
+    guarded(lambda: refresh_actions(db, fetcher, today, report, clock), pop_updated=True)
+    guarded(lambda: flag_suspect_drops(db, today))
     try:
-        with db.begin_nested():
-            refresh_actions(db, fetcher, today, report, clock)
-    except SourceError as exc:
-        report.updated.pop("actions", None)  # rolled back with the savepoint
-        report.failed["actions"] = str(exc)
+        db.commit()
     except Exception as exc:
-        log.exception("corporate actions step crashed")
+        log.exception("committing the corporate actions step failed")
+        db.rollback()
         report.updated.pop("actions", None)
         report.failed["actions"] = f"unexpected {exc.__class__.__name__}"
-    db.commit()
     for kind, message in report.failed.items():
         log.warning("price source %s failed: %s", kind, message)
     log.info("nightly prices: updated=%s written=%d", report.updated, written)
