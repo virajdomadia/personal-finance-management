@@ -38,6 +38,26 @@ jobs:
         with: { node-version: 24 }
       - run: npm install --global vercel@52.2.1
       - run: vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+      # Migrations are run on Neon by hand (README, "Production database commands"). Refuse to deploy code
+      # whose newest migration isn't on the database yet: it would 500 on any query touching the new schema.
+      # Read-only: `alembic current` only selects from alembic_version.
+      - name: Check the production database is migrated
+        run: |
+          vercel env pull "$RUNNER_TEMP/prod.env" --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}" > /dev/null
+          DATABASE_URL=$(grep '^DATABASE_URL=' "$RUNNER_TEMP/prod.env" | cut -d= -f2- | sed 's/^"//; s/"$//')
+          rm -f "$RUNNER_TEMP/prod.env"
+          if [ -z "$DATABASE_URL" ]; then echo "::error::DATABASE_URL is empty in Vercel production env"; exit 1; fi
+          echo "::add-mask::$DATABASE_URL"
+          export DATABASE_URL
+          cd backend
+          heads=$(uv run alembic heads | awk '{print $1}' | sort)
+          current=$(uv run alembic current | awk '{print $1}' | sort)
+          echo "code head(s): $heads"
+          echo "database at:  ${current:-<none>}"
+          if [ "$heads" != "$current" ]; then
+            echo "::error::Production database is at '${current:-none}' but the code needs '$heads'. From backend/, run 'uv run alembic upgrade head' against Neon (README, Production database commands), then re-run this workflow."
+            exit 1
+          fi
       - run: vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
       - run: vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}"
       - name: Smoke test

@@ -72,6 +72,8 @@ $env:DATABASE_URL = "<Neon direct connection string>"   # PowerShell
 uv run alembic upgrade head
 ```
 
+Run the upgrade before merging a PR that adds a migration. The `vercel` deploy workflow checks that the production database is at the code's newest migration and refuses to deploy (API and website) until it is; after migrating, re-run the workflow from the Actions tab.
+
 Then run any of these (emails are lowercased):
 
 - `uv run python -m app.cli create-user you@gmail.com` adds a user who may sign in.
