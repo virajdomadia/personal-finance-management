@@ -19,6 +19,13 @@ Rules:
   every account's lots of their instrument whose basis date is before the ex-date. A
   split or consolidation multiplies each lot's quantity by new/old, keeping its cost. A
   bonus adds one zero-cost lot, dated the ex-date, of floor(eligible position * new/old).
+  A merger moves each eligible lot to the target instrument in the same account, quantity
+  * new/old, cost and basis date kept. A demerger gives each eligible lot a child lot in the
+  target of quantity * new/old costing round_paise(lot cost * pct / 100), taken off the
+  parent lot. For both, the position total is floored by taking the fraction off the
+  newest lots, and moved lots keep their original FIFO order in the target.
+- A dividend pays round_paise(eligible shares at the eve of the ex-date * amount) per
+  account holding any; it changes no lot.
 """
 
 from collections import defaultdict, deque
@@ -122,12 +129,34 @@ class Replay(NamedTuple):
     touched: set[int]
 
 
-Lot = list  # [quantity, cost, basis_date]
+# [quantity, cost, basis_date, order]. `order` is the sort key of the event that created
+# the lot; a lot moved by a merger or split off by a demerger keeps its parent's, so FIFO
+# in the target instrument stays in original lot order.
+Lot = list
 
 
 def _eligible(lots: Iterable[Lot], ex_date: date) -> list[Lot]:
     """The lots an action on `ex_date` applies to: those entered at a basis before it."""
     return [lot for lot in lots if lot[0] > 0 and lot[2] < ex_date]
+
+
+def _floor_position(lots: list[Lot]) -> None:
+    """Floor a position's total quantity, taking the fraction from the newest lots.
+
+    `lots` run oldest first. Each lot's cost is kept; a lot trimmed to nothing hands its
+    cost to the newest lot that still has shares, so no paisa is lost. If the whole
+    position floors to zero, one zero-quantity lot is left carrying all the cost.
+    """
+    total = sum((lot[0] for lot in lots), Decimal("0"))
+    excess = total - Decimal(int(total))  # floor, as total >= 0
+    for lot in reversed(lots):
+        if excess <= 0:
+            break
+        take = min(excess, lot[0])
+        lot[0] -= take
+        excess -= take
+    while len(lots) > 1 and lots[-1][0] <= 0:
+        lots[-2][1] += lots.pop()[1]
 
 
 def _apply_split(lots: deque[Lot], action: ActionRow) -> bool:
@@ -151,8 +180,51 @@ def _apply_bonus(lots: deque[Lot], action: ActionRow) -> bool:
     extra = Decimal(int(held * action.ratio_new / action.ratio_old))  # floor, as held >= 0
     if extra <= 0:
         return False
-    lots.append([extra, Decimal("0"), action.ex_date])
+    lots.append([extra, Decimal("0"), action.ex_date, _action_order(action)])
     return True
+
+
+def _action_order(action: ActionRow) -> tuple[date, int, int]:
+    return (action.ex_date, 0, action.id)
+
+
+def _split_off(lots: deque[Lot], action: ActionRow) -> tuple[list[Lot], Decimal] | None:
+    """A merger or demerger's new lots in the target from one position's eligible lots.
+
+    Each eligible lot gives a lot of quantity x new/old with its basis date and order, the
+    position total floored by `_floor_position`. A merger moves the whole lot (it leaves
+    `lots`, cost and all); a demerger leaves the parent lot in place, its cost reduced by
+    the child's round_paise(cost x pct / 100). Returns the new lots and the cost they
+    carry, or None if the action can't apply or would create nothing.
+    """
+    merger = action.kind == "merger"
+    if not action.ratio_new or not action.ratio_old:
+        return None
+    if not merger and action.cost_share_pct is None:
+        return None
+    eligible = _eligible(lots, action.ex_date)
+    if not eligible:
+        return None
+    ratio = action.ratio_new / action.ratio_old
+    if merger:
+        costs = [lot[1] for lot in eligible]
+    else:
+        costs = [round_paise(lot[1] * action.cost_share_pct / 100) for lot in eligible]
+    new = [
+        [lot[0] * ratio, cost, lot[2], lot[3]] for lot, cost in zip(eligible, costs, strict=True)
+    ]
+    _floor_position(new)
+    if not merger and new[-1][0] <= 0:
+        return None  # a demerger giving no whole share: the parent keeps everything
+    if merger:
+        moved = {id(lot) for lot in eligible}
+        kept = [lot for lot in lots if id(lot) not in moved]
+        lots.clear()
+        lots.extend(kept)
+    else:
+        for lot, cost in zip(eligible, costs, strict=True):
+            lot[1] -= cost
+    return new, sum(costs, Decimal("0"))
 
 
 _ACTION_HANDLERS = {
@@ -184,29 +256,67 @@ def replay(trades: Iterable[TradeRow], actions: Iterable[ActionRow] = ()) -> Rep
     touched: set[int] = set()
     shortfall: TradeRow | None = None
 
-    for _, event in events:
-        if isinstance(event, ActionRow):
-            handler = _ACTION_HANDLERS.get(event.kind)
-            if handler is None:
-                continue  # merger, demerger, dividend and other: not handled yet
-            for key in keys_by_instrument.get(event.instrument_id, ()):
-                lots = lots_by_key[key]
-                if handler(lots, event):
-                    touched.add(event.id)
-                    positions[key].quantity = sum((lot[0] for lot in lots), Decimal("0"))
-            continue
-
-        t = event
-        key = (t.instrument_id, t.account_id)
+    def position(instrument_id: int, account_id: int) -> Position:
+        key = (instrument_id, account_id)
         pos = positions.get(key)
         if pos is None:
             pos = positions[key] = Position(*key)
             lots_by_key[key] = deque()
-            keys_by_instrument[t.instrument_id].append(key)
+            keys_by_instrument[instrument_id].append(key)
+        return pos
+
+    def recount(key: tuple[int, int]) -> None:
+        positions[key].quantity = sum((lot[0] for lot in lots_by_key[key]), Decimal("0"))
+
+    for order, event in events:
+        if isinstance(event, ActionRow):
+            keys = list(keys_by_instrument.get(event.instrument_id, ()))
+            if event.kind == "dividend":
+                if event.amount_per_share is None:
+                    continue
+                for key in keys:
+                    held = sum(
+                        (lot[0] for lot in _eligible(lots_by_key[key], event.ex_date)), Decimal("0")
+                    )
+                    if held > 0:
+                        dividends[(event.id, key[1])] = round_paise(held * event.amount_per_share)
+                continue
+            if event.kind in ("merger", "demerger"):
+                target = event.target_instrument_id
+                if target is None or target == event.instrument_id:
+                    continue
+                for key in keys:
+                    split = _split_off(lots_by_key[key], event)
+                    if split is None:
+                        continue
+                    new_lots, cost = split
+                    touched.add(event.id)
+                    dst = position(target, key[1])
+                    dst_key = (target, key[1])
+                    lots_by_key[dst_key] = deque(
+                        sorted([*lots_by_key[dst_key], *new_lots], key=lambda lot: lot[3])
+                    )
+                    positions[key].invested -= cost
+                    dst.invested += cost
+                    recount(key)
+                    recount(dst_key)
+                continue
+            handler = _ACTION_HANDLERS.get(event.kind)
+            if handler is None:
+                continue  # "other": recorded for history only
+            for key in keys:
+                if handler(lots_by_key[key], event):
+                    touched.add(event.id)
+                    recount(key)
+            continue
+
+        t = event
+        key = (t.instrument_id, t.account_id)
+        pos = position(*key)
         lots = lots_by_key[key]
         if t.side == "buy":
             cost = t.amount
-            lots.append([t.quantity, cost, t.basis_date or t.date])
+            lots.append([t.quantity, cost, t.basis_date or t.date, order])
             pos.quantity += t.quantity
             pos.invested += cost
             continue

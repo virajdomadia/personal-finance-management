@@ -142,18 +142,174 @@ def test_action_after_position_closed_touches_nothing():
     assert r.positions[(1, 1)].quantity == 0 and r.touched == set()
 
 
-def test_unhandled_kinds_are_skipped():
+def test_unhandled_kinds_and_incomplete_actions_are_skipped():
     r = replay(
         [t(1, "buy", D1, 10, 100)],
         [
-            a(5, "dividend", D2, amt="2.5"),
-            a(6, "merger", D2, new=1, old=1, target=2),
-            a(7, "demerger", D2, new=1, old=1, target=2, pct=20),
+            a(5, "dividend", D2),
+            a(6, "merger", D2, new=1, old=1),
+            a(7, "demerger", D2, new=1, old=1, target=2),
+            a(4, "demerger", D2, new=1, old=1, pct=20),
             a(8, "other", D2),
         ],
     )
     assert r.positions[(1, 1)].quantity == 10 and r.touched == set()
+    assert r.dividends == {} and set(r.positions) == {(1, 1)}
+
+
+def test_merger_moves_lots_to_target_keeping_cost_and_dates():
+    # 10 @100 (D1) + 5 @120 (D2) of stock 1, merger 7:5 into stock 2 on D3
+    r = replay(
+        [t(1, "buy", D1, 10, 100), t(2, "buy", D2, 5, 120)],
+        [a(9, "merger", D3, new=7, old=5, target=2)],
+    )
+    src, dst = r.positions[(1, 1)], r.positions[(2, 1)]
+    assert src.quantity == 0 and src.invested == D("0.00")
+    assert dst.quantity == 21 and dst.invested == D("1600.00")  # floor(15 * 7 / 5) = 21
+    assert r.touched == {9}
+
+
+def test_merger_fifo_on_target_follows_original_lot_order():
+    # Target already holds a lot bought on D2; moved lots from D1 sell first, D3's after.
+    d4, d5 = date(2026, 1, 4), date(2026, 1, 5)
+    r = replay(
+        [
+            t(1, "buy", D1, 10, 100),
+            t(2, "buy", D2, 10, 500, stock=2),
+            t(3, "buy", D3, 10, 120),
+            t(4, "sell", d5, 15, 200, stock=2),
+        ],
+        [a(9, "merger", d4, new=1, old=1, target=2)],
+    )
+    # Sell 15: whole moved lot D1 (cost 1000) + 5 of the target's lot D2 (5000 * 5/10 = 2500)
+    assert r.realised_by_sell[4] == D("3000.00") - D("1000.00") - D("2500.00")
+    dst = r.positions[(2, 1)]
+    assert dst.quantity == 15 and dst.invested == D("2500.00") + D("1200.00")
+
+
+def test_merger_fraction_removed_from_newest_lot():
+    # 3 + 3 at 1:2 -> 1.5 + 1.5 = 3 exactly: nothing lost
+    r = replay(
+        [t(1, "buy", D1, 3, 100), t(2, "buy", D1, 3, 100)],
+        [a(9, "merger", D2, new=1, old=2, target=2)],
+    )
+    assert r.positions[(2, 1)].quantity == 3 and r.positions[(2, 1)].invested == D("600.00")
+    # 3 + 2 at 1:2 -> 1.5 + 1 = 2.5 -> 2; newest lot loses 0.5, cost unchanged
+    sell = t(3, "sell", D3, D("1.5"), 100, stock=2)
+    r = replay(
+        [t(1, "buy", D1, 3, 100), t(2, "buy", D1, 2, 100), sell],
+        [a(9, "merger", D2, new=1, old=2, target=2)],
+    )
+    dst = r.positions[(2, 1)]
+    # Oldest lot (1.5 shares, 300) sells whole, so the newest lot was the one trimmed to 0.5.
+    assert r.realised_by_sell[3] == D("150.00") - D("300.00")
+    assert dst.quantity == D("0.5") and dst.invested == D("200.00")
+
+
+def test_merger_per_account_and_lots_after_ex_date_stay():
+    opening = t(3, "buy", D1, 7, 10, opening=True, account=1)._replace(basis_date=D3)
+    r = replay(
+        [t(1, "buy", D1, 10, 100, account=1), t(2, "buy", D1, 3, 100, account=2), opening],
+        [a(9, "merger", D2, new=1, old=2, target=2)],
+    )
+    assert r.positions[(2, 1)].quantity == 5 and r.positions[(2, 2)].quantity == 1
+    assert r.positions[(1, 1)].quantity == 7 and r.positions[(1, 1)].invested == D("70.00")
+    assert r.positions[(1, 2)].quantity == 0 and r.positions[(1, 2)].invested == D("0.00")
+
+
+def test_merger_fraction_larger_than_newest_lot_trims_older_and_keeps_cost():
+    # Split 3:2 gives a lot of 1.5; with a 0.4 lot, 1:1 merger total 1.9 -> 1.
+    r = replay(
+        [t(1, "buy", D1, 1, 100), t(2, "buy", D2, D("0.4"), 100)],
+        [a(8, "split", D2, new=3, old=2), a(9, "merger", D3, new=1, old=1, target=2)],
+    )
+    dst = r.positions[(2, 1)]
+    assert dst.quantity == 1 and dst.invested == D("140.00")
+
+
+def test_merger_flooring_to_nothing_keeps_cost_on_target():
+    r = replay([t(1, "buy", D1, 1, 100)], [a(9, "merger", D2, new=1, old=2, target=2)])
+    assert r.positions[(1, 1)].quantity == 0 and r.positions[(1, 1)].invested == D("0.00")
+    assert r.positions[(2, 1)].quantity == 0 and r.positions[(2, 1)].invested == D("100.00")
+    assert r.touched == {9}
+
+
+def test_demerger_giving_no_whole_share_changes_nothing():
+    r = replay([t(1, "buy", D1, 1, 100)], [a(9, "demerger", D2, new=1, old=2, target=2, pct=10)])
+    assert r.positions[(1, 1)].invested == D("100.00") and (2, 1) not in r.positions
+    assert r.touched == set()
+
+
+def test_demerger_splits_cost_by_pct():
+    r = replay(
+        [t(1, "buy", D1, 10, 100)], [a(9, "demerger", D2, new=1, old=1, target=2, pct="6.5")]
+    )
+    parent, child = r.positions[(1, 1)], r.positions[(2, 1)]
+    assert parent.quantity == 10 and parent.invested == D("935.00")
+    assert child.quantity == 10 and child.invested == D("65.00")
+    assert r.touched == {9}
+
+
+def test_demerger_cost_rounding_never_loses_paise():
+    r = replay(
+        [t(1, "buy", D1, 3, 100, "0.01"), t(2, "buy", D1, 7, D("33.33"), "0.02")],
+        [a(9, "demerger", D2, new=1, old=3, target=2, pct="33.33")],
+    )
+    parent, child = r.positions[(1, 1)], r.positions[(2, 1)]
+    total = D("300.01") + D("233.33")
+    # Each lot: round_paise(cost * 33.33%): 300.01 -> 99.99, 233.33 -> 77.77
+    assert child.invested == D("99.99") + D("77.77")
+    assert parent.invested + child.invested == total
+    assert child.quantity == 3  # 1 + 7/3 = 3.333.. -> 3
+    assert parent.quantity == 10
+
+
+def test_demerger_child_sells_from_original_lot():
+    r = replay(
+        [t(1, "buy", D1, 10, 100), t(2, "sell", D3, 10, 20, stock=2)],
+        [a(9, "demerger", D2, new=1, old=1, target=2, pct=10)],
+    )
+    assert r.realised_by_sell[2] == D("200.00") - D("100.00")
+    assert r.positions[(2, 1)].quantity == 0
+
+
+def test_dividend_entitlement_is_eve_of_ex_date_per_account():
+    amt = D("2.5")
+    r = replay(
+        [
+            t(1, "buy", D1, 10, 100, account=1),
+            t(2, "buy", D1, 5, 100, account=2),
+            t(3, "buy", D2, 5, 100, account=1),
+        ],
+        [a(9, "dividend", D2, amt=amt)],
+    )
+    assert r.dividends == {(9, 1): 10 * amt, (9, 2): 5 * amt}
+
+
+def test_dividend_rounds_to_paise_and_skips_empty_accounts():
+    r = replay(
+        [
+            t(1, "buy", D1, 3, 100, account=1),
+            t(2, "buy", D1, 3, 100, account=2),
+            t(3, "sell", D1, 3, 100, account=2),
+        ],
+        [a(9, "dividend", D2, amt="0.335")],
+    )
+    assert r.dividends == {(9, 1): D("1.01")}  # 1.005 rounds half up
+
+
+def test_dividend_ignores_lots_with_basis_on_or_after_ex_date():
+    opening = t(1, "buy", D1, 100, 10, opening=True)._replace(basis_date=D2)
+    r = replay([opening, t(2, "buy", D1, 4, 10)], [a(9, "dividend", D2, amt=1)])
+    assert r.dividends == {(9, 1): D("4.00")}
+    r = replay([opening], [a(9, "dividend", D2, amt=1)])
     assert r.dividends == {}
+
+
+def test_dividend_not_in_touched():
+    r = replay([t(1, "buy", D1, 10, 100)], [a(9, "dividend", D2, amt=1)])
+    assert r.dividends == {(9, 1): D("10.00")} and r.touched == set()
+    assert r.positions[(1, 1)].quantity == 10 and r.positions[(1, 1)].invested == D("1000.00")
 
 
 def test_existing_behaviour_without_actions_unchanged():
