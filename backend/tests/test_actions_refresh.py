@@ -475,6 +475,28 @@ def test_two_same_day_dividends_are_two_rows(db_session: Session) -> None:
     assert report.updated["actions"] == 2
 
 
+def test_two_dividends_in_one_notice_are_two_events(db_session: Session) -> None:
+    h = Holder(db_session)
+    h.trade(date(2026, 1, 5))
+    done(h)
+    both = "Interim Dividend - Rs 2 Per Share / Special Dividend - Rs 3 Per Share"
+    rows = [nse_row(both, "14-Nov-2026")]
+
+    report = run(db_session, fake(nse=rows))
+    again = run(db_session, fake(nse=rows))
+
+    stored = db_session.scalars(select(CorporateAction).order_by(CorporateAction.id)).all()
+    assert [(c.kind, c.amount_per_share, c.purpose) for c in stored] == [
+        ("dividend", Decimal("2"), both),
+        ("dividend", Decimal("3"), both),
+    ]
+    assert sorted((r.amount_per_share, r.status) for r in h.rows()) == [
+        (Decimal("2"), "applied"),
+        (Decimal("3"), "applied"),
+    ]
+    assert report.updated["actions"] == 2 and again.updated["actions"] == 0
+
+
 def test_restored_dividend_with_the_same_amount_is_not_duplicated(db_session: Session) -> None:
     h = Holder(db_session)
     h.trade(date(2026, 1, 5))

@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -94,10 +95,19 @@ def test_same_event_twice_is_one_row(db_session: Session) -> None:
 
 def test_interim_and_special_dividend_same_day_are_two_rows(db_session: Session) -> None:
     special = "Special Dividend - Rs 5"
+    key = normalise_purpose(special)
     db_session.add_all(
-        [_action(), _action(purpose=special, purpose_key=normalise_purpose(special))]
+        [
+            _action(amount_per_share=Decimal("10")),
+            _action(purpose=special, purpose_key=key, amount_per_share=Decimal("5")),
+        ]
     )
     db_session.flush()
+    rows = db_session.scalars(select(CorporateAction).order_by(CorporateAction.id)).all()
+    assert [(r.purpose, r.amount_per_share) for r in rows] == [
+        ("Interim Dividend - Rs 10", Decimal("10")),
+        (special, Decimal("5")),
+    ]
 
 
 def test_normalise_purpose() -> None:

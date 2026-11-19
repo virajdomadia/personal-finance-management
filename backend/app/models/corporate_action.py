@@ -35,8 +35,9 @@ class CorporateAction(Base):
     ratio_old: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
     amount_per_share: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     purpose: Mapped[str] = mapped_column(String(300))
-    # normalise_purpose(purpose), set by the code that inserts the row; it tells two same-day
-    # dividends (interim and special) apart.
+    # normalise_purpose() of the part of `purpose` this action came from (one notice can hold
+    # several), set by the code that inserts the row; it tells two same-day dividends (interim
+    # and special) apart.
     purpose_key: Mapped[str] = mapped_column(String(300))
     source: Mapped[str] = mapped_column(String(4))
     created_at: Mapped[dt.datetime] = mapped_column(

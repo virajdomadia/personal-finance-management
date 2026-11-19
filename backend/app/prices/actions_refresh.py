@@ -56,7 +56,8 @@ def _isin_to_symbol(db: Session) -> dict[str, str]:
 def store_actions(db: Session, parsed: Iterable[ParsedAction]) -> list[CorporateAction]:
     """Insert the events not stored yet; return the stored row of every parsed event, once each.
 
-    An event is already stored if a row has the same symbol, kind, ex-date and purpose. NSE and
+    An event is already stored if a row has the same symbol, kind, ex-date and purpose key (the
+    normalised segment of the notice the action came from). NSE and
     BSE word the same event differently, so a row from the other source with the same symbol,
     kind and ex-date (and, for a dividend, the same amount) is the same event too. Flushes.
     """
@@ -84,7 +85,8 @@ def store_actions(db: Session, parsed: Iterable[ParsedAction]) -> list[Corporate
     seen: set[int] = set()  # id() of rows already in `result`
     for p in items:
         purpose = p.purpose[:PURPOSE_MAX]
-        key = normalise_purpose(purpose)[:PURPOSE_MAX]
+        # Keyed by the action's own part of the notice, so two dividends in one notice are two.
+        key = normalise_purpose(p.segment or p.purpose)[:PURPOSE_MAX]
         row = by_key.get((p.symbol, p.kind, p.ex_date, key))
         if row is None:
             row = next(
