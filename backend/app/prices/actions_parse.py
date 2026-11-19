@@ -32,7 +32,8 @@ _MONEY = r"\b(?:rs|re)\b\.?\s*-?\s*(\d+(?:\.\d+)?)"
 _BONUS = re.compile(r"\bbonus\b[^\d]*(\d+)\s*:\s*(\d+)")
 _IGNORED = re.compile(
     r"annual general meeting|extra[- ]ordinary general meeting|\bagm\b|\begm\b|"
-    r"postal ballot|book closure|\bboard meeting\b"
+    r"postal ballot|book closure|\bboard meeting\b|"
+    r"buy[- ]?back|open offer|delisting"
 )
 _OTHER_HINT = re.compile(r"\b(?:rs|re)\b|\d+\s*:\s*\d+|\bratio\b")
 
