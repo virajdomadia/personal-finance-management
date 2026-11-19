@@ -258,10 +258,10 @@ def test_uneven_consolidation_totals_exactly():
     assert r.positions[(1, 1)].invested == D("0.00") and r.realised_by_sell[4] == D("0.00")
 
 
-def test_merger_flooring_to_nothing_keeps_cost_on_target():
+def test_merger_flooring_to_nothing_books_the_cost_as_a_loss():
     r = replay([t(1, "buy", D1, 1, 100)], [a(9, "merger", D2, new=1, old=2, target=2)])
     assert r.positions[(1, 1)].quantity == 0 and r.positions[(1, 1)].invested == D("0.00")
-    assert r.positions[(2, 1)].quantity == 0 and r.positions[(2, 1)].invested == D("100.00")
+    assert r.positions[(1, 1)].realised == D("-100.00") and (2, 1) not in r.positions
     assert r.touched == {9}
 
 
@@ -348,3 +348,56 @@ def test_existing_behaviour_without_actions_unchanged():
     p = r.positions[(1, 1)]
     assert p.quantity == 6 and p.invested == D("600.00") and p.realised == D("40.00")
     assert r.dividends == {} and r.touched == set()
+
+
+# Ruling L: split and consolidation are floored per position, like a merger.
+
+
+def test_consolidation_floors_the_position_and_keeps_cost() -> None:
+    r = replay([t(1, "buy", D1, 15, 100)], [a(9, "consolidation", D2, new=1, old=10)])
+    p = r.positions[(1, 1)]
+    assert p.quantity == 1 and p.invested == D("1500.00")
+    sell = t(2, "sell", D3, 1, 2000)
+    r = replay([t(1, "buy", D1, 15, 100), sell], [a(9, "consolidation", D2, new=1, old=10)])
+    p = r.positions[(1, 1)]
+    assert r.shortfall is None
+    assert p.quantity == 0 and p.invested == D("0.00")
+    assert r.realised_by_sell[2] == D("500.00")
+
+
+def test_uneven_split_floors_the_position() -> None:
+    r = replay([t(1, "buy", D1, 3, 100)], [a(9, "split", D2, new=5, old=2)])
+    p = r.positions[(1, 1)]
+    assert p.quantity == 7 and p.invested == D("300.00")
+
+
+def test_split_fraction_comes_off_the_newest_lot() -> None:
+    # 3 + 3 at 5:2 -> 7.5 + 7.5 = 15 exactly; 3 + 1 at 5:2 -> 7.5 + 2.5 = 10 exactly;
+    # 3 + 2 at 5:2 -> 7.5 + 5 = 12.5 -> 12, the newest lot keeps its cost with 4.5.
+    sell = t(3, "sell", D3, D("7.5"), 100)
+    r = replay(
+        [t(1, "buy", D1, 3, 100), t(2, "buy", D1, 2, 100), sell], [a(9, "split", D2, new=5, old=2)]
+    )
+    p = r.positions[(1, 1)]
+    assert r.realised_by_sell[3] == D("750.00") - D("300.00")  # the oldest lot, whole
+    assert p.quantity == D("4.5") and p.invested == D("200.00")
+
+
+def test_consolidation_to_less_than_a_share_books_a_loss() -> None:
+    r = replay([t(1, "buy", D1, 5, 100)], [a(9, "consolidation", D2, new=1, old=10)])
+    p = r.positions[(1, 1)]
+    assert p.quantity == 0 and p.invested == D("0.00") and p.realised == D("-500.00")
+    assert r.touched == {9}
+
+
+# Ruling M: a merger whose position floors to 0 whole shares books its cost as a loss.
+
+
+def test_merger_to_no_whole_share_books_a_loss_on_the_source() -> None:
+    r = replay([t(1, "buy", D1, 15, 100)], [a(9, "merger", D2, new=1, old=30, target=2)])
+    src = r.positions[(1, 1)]
+    assert src.quantity == 0 and src.invested == D("0.00")
+    assert src.realised == D("-1500.00") and src.sold_any
+    dst = r.positions.get((2, 1))
+    assert dst is None or (dst.quantity == 0 and dst.invested == D("0.00"))
+    assert r.touched == {9}

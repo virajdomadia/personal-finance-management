@@ -22,8 +22,10 @@ Rules:
   A merger moves each eligible lot to the target instrument in the same account, quantity
   * new/old, cost and basis date kept. A demerger gives each eligible lot a child lot in the
   target of quantity * new/old costing round_paise(lot cost * pct / 100), taken off the
-  parent lot. For both, the position total is floored by taking the fraction off the
-  newest lots, and moved lots keep their original FIFO order in the target.
+  parent lot. For splits, consolidations, mergers and demergers the position total is floored
+  by taking the fraction off the newest lots (cost kept), and moved lots keep their original
+  FIFO order in the target. A split, consolidation or merger leaving less than one whole share
+  books the position's cost as a realised loss instead (a demerger then changes nothing).
 - A dividend pays round_paise(eligible shares at the eve of the ex-date * amount) per
   account holding any; it changes no lot.
 """
@@ -181,21 +183,41 @@ def _settle(lots: list[Lot], total: Decimal) -> None:
     lots[-1][0] = total - sum((lot[0] for lot in lots[:-1]), Decimal("0"))
 
 
-def _apply_split(lots: deque[Lot], action: ActionRow) -> bool:
-    """Split or consolidation: each eligible lot's quantity x new/old, cost and date kept."""
+def _replace(lots: deque[Lot], old: list[Lot], new: list[Lot]) -> None:
+    """Put `new` in place of the lots `old` (a subset of `lots`), keeping FIFO order."""
+    gone = {id(lot) for lot in old}
+    kept = [lot for lot in lots if id(lot) not in gone]
+    lots.clear()
+    lots.extend(sorted([*kept, *new], key=lambda lot: lot[3]))
+
+
+def _apply_split(lots: deque[Lot], action: ActionRow) -> Decimal | None:
+    """Split or consolidation: each eligible lot's quantity x new/old, cost and date kept.
+
+    The position total is floored like a merger's: the fraction comes off the newest lots and
+    `_settle` keeps every paisa. Returns None if no lot changed, else the cost written off,
+    which is all of it when the position floors to no whole share (the lots are removed) and
+    0 otherwise.
+    """
     if not action.ratio_new or not action.ratio_old:
-        return False
+        return None
     eligible = _eligible(lots, action.ex_date)
     if not eligible:
-        return False
+        return None
     quantities, total = _scaled(eligible, action.ratio_new, action.ratio_old)
-    quantities[-1] = _qty(total) - sum(quantities[:-1], Decimal("0"))  # last lot absorbs rounding
-    changed = False
-    for lot, quantity in zip(eligible, quantities, strict=True):
-        if quantity != lot[0]:
-            lot[0] = quantity
-            changed = True
-    return changed
+    whole = Decimal(int(total))  # floor per position, as total >= 0
+    if whole <= 0:
+        _replace(lots, eligible, [])
+        return sum((lot[1] for lot in eligible), Decimal("0"))
+    new = [
+        [quantity, lot[1], lot[2], lot[3]]
+        for lot, quantity in zip(eligible, quantities, strict=True)
+    ]
+    _settle(new, whole)
+    if [lot[0] for lot in new] == [lot[0] for lot in eligible]:
+        return None
+    _replace(lots, eligible, new)
+    return Decimal("0")
 
 
 def _apply_bonus(lots: deque[Lot], action: ActionRow) -> bool:
@@ -221,7 +243,8 @@ def _split_off(lots: deque[Lot], action: ActionRow) -> tuple[list[Lot], Decimal]
     position total floored once and settled by `_settle`. A merger moves the whole lot (it leaves
     `lots`, cost and all); a demerger leaves the parent lot in place, its cost reduced by
     the child's round_paise(cost x pct / 100). Returns the new lots and the cost they
-    carry, or None if the action can't apply or would create nothing.
+    carry, or None if the action can't apply or would create nothing. A merger giving no
+    whole share still takes the lots away, and returns no new lots with their cost.
     """
     merger = action.kind == "merger"
     if not action.ratio_new or not action.ratio_old:
@@ -235,6 +258,9 @@ def _split_off(lots: deque[Lot], action: ActionRow) -> tuple[list[Lot], Decimal]
     whole = Decimal(int(total))  # floor per position, as total >= 0
     if not merger and whole <= 0:
         return None  # a demerger giving no whole share: the parent keeps everything
+    if merger and whole <= 0:
+        _replace(lots, eligible, [])
+        return [], sum((lot[1] for lot in eligible), Decimal("0"))
     if merger:
         costs = [lot[1] for lot in eligible]
     else:
@@ -245,21 +271,18 @@ def _split_off(lots: deque[Lot], action: ActionRow) -> tuple[list[Lot], Decimal]
     ]
     _settle(new, whole)
     if merger:
-        moved = {id(lot) for lot in eligible}
-        kept = [lot for lot in lots if id(lot) not in moved]
-        lots.clear()
-        lots.extend(kept)
+        _replace(lots, eligible, [])
     else:
         for lot, cost in zip(eligible, costs, strict=True):
             lot[1] -= cost
     return new, sum(costs, Decimal("0"))
 
 
-_ACTION_HANDLERS = {
-    "split": _apply_split,
-    "consolidation": _apply_split,
-    "bonus": _apply_bonus,
-}
+def _write_off(pos: Position, cost: Decimal) -> None:
+    """Shares that became less than one whole share: their cost is a realised loss."""
+    pos.invested -= cost
+    pos.realised -= cost
+    pos.sold_any = True
 
 
 def replay(trades: Iterable[TradeRow], actions: Iterable[ActionRow] = ()) -> Replay:
@@ -319,6 +342,10 @@ def replay(trades: Iterable[TradeRow], actions: Iterable[ActionRow] = ()) -> Rep
                         continue
                     new_lots, cost = split
                     touched.add(event.id)
+                    if not new_lots:  # a merger leaving no whole share
+                        _write_off(positions[key], cost)
+                        recount(key)
+                        continue
                     dst = position(target, key[1])
                     dst_key = (target, key[1])
                     lots_by_key[dst_key] = deque(
@@ -329,14 +356,21 @@ def replay(trades: Iterable[TradeRow], actions: Iterable[ActionRow] = ()) -> Rep
                     recount(key)
                     recount(dst_key)
                 continue
-            handler = _ACTION_HANDLERS.get(event.kind)
-            if handler is None:
-                continue  # "other": recorded for history only
-            for key in keys:
-                if handler(lots_by_key[key], event):
+            if event.kind in ("split", "consolidation"):
+                for key in keys:
+                    lost = _apply_split(lots_by_key[key], event)
+                    if lost is None:
+                        continue
                     touched.add(event.id)
+                    if lost:
+                        _write_off(positions[key], lost)
                     recount(key)
-            continue
+            elif event.kind == "bonus":
+                for key in keys:
+                    if _apply_bonus(lots_by_key[key], event):
+                        touched.add(event.id)
+                        recount(key)
+            continue  # "other": recorded for history only
 
         t = event
         key = (t.instrument_id, t.account_id)
