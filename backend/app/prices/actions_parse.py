@@ -28,7 +28,7 @@ class ParsedAction(NamedTuple):
 
 PurposeItem = tuple[str, Decimal | None, Decimal | None, Decimal | None]
 
-_MONEY = r"\b(?:rs|re)\b\.?\s*(\d+(?:\.\d+)?)"
+_MONEY = r"\b(?:rs|re)\b\.?\s*-?\s*(\d+(?:\.\d+)?)"
 _BONUS = re.compile(r"\bbonus\b[^\d]*(\d+)\s*:\s*(\d+)")
 _IGNORED = re.compile(
     r"annual general meeting|extra[- ]ordinary general meeting|\bagm\b|\begm\b|"
@@ -55,19 +55,22 @@ def _parse_segment(segment: str) -> PurposeItem | None:
             kind = "consolidation" if "consolidation" in text else "split"
             return (kind, amounts[0], amounts[1], None)
         return ("other", None, None, None)
-    if bonus := _BONUS.search(text):
-        new, old = _positive(bonus.group(1)), _positive(bonus.group(2))
-        if new and old:
-            return ("bonus", new, old, None)
+    if "bonus" in text:
+        if bonus := _BONUS.search(text):
+            new, old = _positive(bonus.group(1)), _positive(bonus.group(2))
+            if new and old:
+                return ("bonus", new, old, None)
         return ("other", None, None, None)
     if "dividend" in text:
         if amounts and amounts[0]:
             return ("dividend", None, None, amounts[0])
-        return None
-    if "scheme of arrangement" in text or "demerger" in text:
+        return ("other", None, None, None)
+    if "demerger" in text or "arrangement" in text:
         return ("demerger", None, None, None)
-    if "amalgamation" in text:
+    if "merger" in text or "amalgamation" in text:
         return ("merger", None, None, None)
+    if "capital reduction" in text or "reduction of capital" in text:
+        return ("other", None, None, None)
     if _OTHER_HINT.search(text):
         return ("other", None, None, None)
     return None
