@@ -140,15 +140,35 @@ def _eligible(lots: Iterable[Lot], ex_date: date) -> list[Lot]:
     return [lot for lot in lots if lot[0] > 0 and lot[2] < ex_date]
 
 
-def _floor_position(lots: list[Lot]) -> None:
-    """Floor a position's total quantity, taking the fraction from the newest lots.
+QTY = Decimal("0.00000001")
 
-    `lots` run oldest first. Each lot's cost is kept; a lot trimmed to nothing hands its
-    cost to the newest lot that still has shares, so no paisa is lost. If the whole
-    position floors to zero, one zero-quantity lot is left carrying all the cost.
+
+def _qty(value: Decimal) -> Decimal:
+    """A ratio-adjusted quantity: exact when it fits 8 decimals, else rounded to 8."""
+    if value.as_tuple().exponent >= -8:
+        return value
+    return value.quantize(QTY, rounding=ROUND_HALF_UP)
+
+
+def _scaled(lots: list[Lot], new: Decimal, old: Decimal) -> tuple[list[Decimal], Decimal]:
+    """Each lot's quantity x new/old (via `_qty`) and the position's unrounded total.
+
+    The total is computed once from the exact sum, multiplying before dividing, so a
+    position of 3 x 10 shares at 1:3 is exactly 10, not 3 x 3.333... summed.
     """
-    total = sum((lot[0] for lot in lots), Decimal("0"))
-    excess = total - Decimal(int(total))  # floor, as total >= 0
+    held = sum((lot[0] for lot in lots), Decimal("0"))
+    return [_qty(lot[0] * new / old) for lot in lots], held * new / old
+
+
+def _settle(lots: list[Lot], total: Decimal) -> None:
+    """Make `lots` (oldest first) add up to exactly `total`.
+
+    Any excess is taken off the newest lots. A lot trimmed to nothing hands its cost to
+    the newest lot that still has shares, so no paisa is lost; if every lot is trimmed
+    away, one zero-quantity lot is left carrying all the cost. The last lot then absorbs
+    the per-lot rounding, so the lots sum to `total` exactly.
+    """
+    excess = sum((lot[0] for lot in lots), Decimal("0")) - total
     for lot in reversed(lots):
         if excess <= 0:
             break
@@ -157,15 +177,20 @@ def _floor_position(lots: list[Lot]) -> None:
         excess -= take
     while len(lots) > 1 and lots[-1][0] <= 0:
         lots[-2][1] += lots.pop()[1]
+    lots[-1][0] = total - sum((lot[0] for lot in lots[:-1]), Decimal("0"))
 
 
 def _apply_split(lots: deque[Lot], action: ActionRow) -> bool:
     """Split or consolidation: each eligible lot's quantity x new/old, cost and date kept."""
     if not action.ratio_new or not action.ratio_old:
         return False
+    eligible = _eligible(lots, action.ex_date)
+    if not eligible:
+        return False
+    quantities, total = _scaled(eligible, action.ratio_new, action.ratio_old)
+    quantities[-1] = _qty(total) - sum(quantities[:-1], Decimal("0"))  # last lot absorbs rounding
     changed = False
-    for lot in _eligible(lots, action.ex_date):
-        quantity = lot[0] * action.ratio_new / action.ratio_old
+    for lot, quantity in zip(eligible, quantities, strict=True):
         if quantity != lot[0]:
             lot[0] = quantity
             changed = True
@@ -192,7 +217,7 @@ def _split_off(lots: deque[Lot], action: ActionRow) -> tuple[list[Lot], Decimal]
     """A merger or demerger's new lots in the target from one position's eligible lots.
 
     Each eligible lot gives a lot of quantity x new/old with its basis date and order, the
-    position total floored by `_floor_position`. A merger moves the whole lot (it leaves
+    position total floored once and settled by `_settle`. A merger moves the whole lot (it leaves
     `lots`, cost and all); a demerger leaves the parent lot in place, its cost reduced by
     the child's round_paise(cost x pct / 100). Returns the new lots and the cost they
     carry, or None if the action can't apply or would create nothing.
@@ -205,17 +230,19 @@ def _split_off(lots: deque[Lot], action: ActionRow) -> tuple[list[Lot], Decimal]
     eligible = _eligible(lots, action.ex_date)
     if not eligible:
         return None
-    ratio = action.ratio_new / action.ratio_old
+    quantities, total = _scaled(eligible, action.ratio_new, action.ratio_old)
+    whole = Decimal(int(total))  # floor per position, as total >= 0
+    if not merger and whole <= 0:
+        return None  # a demerger giving no whole share: the parent keeps everything
     if merger:
         costs = [lot[1] for lot in eligible]
     else:
         costs = [round_paise(lot[1] * action.cost_share_pct / 100) for lot in eligible]
     new = [
-        [lot[0] * ratio, cost, lot[2], lot[3]] for lot, cost in zip(eligible, costs, strict=True)
+        [quantity, cost, lot[2], lot[3]]
+        for lot, quantity, cost in zip(eligible, quantities, costs, strict=True)
     ]
-    _floor_position(new)
-    if not merger and new[-1][0] <= 0:
-        return None  # a demerger giving no whole share: the parent keeps everything
+    _settle(new, whole)
     if merger:
         moved = {id(lot) for lot in eligible}
         kept = [lot for lot in lots if id(lot) not in moved]

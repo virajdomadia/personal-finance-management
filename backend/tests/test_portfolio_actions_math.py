@@ -227,6 +227,37 @@ def test_merger_fraction_larger_than_newest_lot_trims_older_and_keeps_cost():
     assert dst.quantity == 1 and dst.invested == D("140.00")
 
 
+THREE_TENS = [t(1, "buy", D1, 10, 100), t(2, "buy", D1, 10, 100), t(3, "buy", D1, 10, 100)]
+
+
+def _exact(q):
+    return q.as_tuple().exponent >= -8
+
+
+def test_merger_uneven_ratio_keeps_every_whole_share():
+    r = replay(THREE_TENS, [a(9, "merger", D2, new=1, old=3, target=2)])
+    q = r.positions[(2, 1)].quantity
+    assert q == 10 and _exact(q)
+    assert r.positions[(2, 1)].invested == D("3000.00")
+
+
+def test_demerger_uneven_ratio_keeps_every_whole_share():
+    r = replay(THREE_TENS, [a(9, "demerger", D2, new=1, old=3, target=2, pct=10)])
+    q = r.positions[(2, 1)].quantity
+    assert q == 10 and _exact(q)
+    assert r.positions[(1, 1)].quantity == 30
+
+
+def test_uneven_consolidation_totals_exactly():
+    sell = t(4, "sell", D3, 10, 300)
+    r = replay(THREE_TENS, [a(9, "consolidation", D2, new=1, old=3)])
+    q = r.positions[(1, 1)].quantity
+    assert q == 10 and _exact(q)
+    r = replay([*THREE_TENS, sell], [a(9, "consolidation", D2, new=1, old=3)])
+    assert r.shortfall is None and r.positions[(1, 1)].quantity == 0
+    assert r.positions[(1, 1)].invested == D("0.00") and r.realised_by_sell[4] == D("0.00")
+
+
 def test_merger_flooring_to_nothing_keeps_cost_on_target():
     r = replay([t(1, "buy", D1, 1, 100)], [a(9, "merger", D2, new=1, old=2, target=2)])
     assert r.positions[(1, 1)].quantity == 0 and r.positions[(1, 1)].invested == D("0.00")
