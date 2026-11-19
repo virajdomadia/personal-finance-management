@@ -72,7 +72,7 @@ $env:DATABASE_URL = "<Neon direct connection string>"   # PowerShell
 uv run alembic upgrade head
 ```
 
-Run the upgrade before merging a PR that adds a migration. The `vercel` deploy workflow checks that the production database is at the code's newest migration and refuses to deploy (API and website) until it is; after migrating, re-run the workflow from the Actions tab.
+Run the upgrade before merging a PR that adds a migration. The `vercel` deploy workflow checks that the production database is at the code's newest migration and refuses to deploy (API and website) until it is; after migrating, re-run the workflow from the Actions tab. The check reads the Neon connection string from the GitHub Actions secret `DATABASE_URL` (`gh secret set DATABASE_URL`); update it there too if you rotate the database password.
 
 Then run any of these (emails are lowercased):
 
