@@ -190,3 +190,95 @@ def test_coindcx_ticker_rejects_an_unexpected_shape():
     fetcher, _ = make_fetcher(lambda r: httpx.Response(200, text='{"error": "nope"}'))
     with pytest.raises(SourceError):
         fetcher.coindcx_ticker()
+
+
+def nse_handler(api_response: httpx.Response):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/":
+            return httpx.Response(200, headers={"set-cookie": "nsit=abc; Path=/"}, text="<html>")
+        return api_response
+
+    return handler
+
+
+def test_nse_actions_fetches_the_cookie_page_before_the_api():
+    rows = [{"symbol": "TCS", "subject": "Bonus 1:1", "exDate": "28-Oct-2026"}]
+    fetcher, seen = make_fetcher(nse_handler(httpx.Response(200, json=rows)))
+    assert fetcher.nse_actions(date(2026, 10, 1), date(2026, 11, 19)) == rows
+    assert [r.url.path for r in seen] == ["/", "/api/corporates-corporateActions"]
+    assert seen[1].url.params["index"] == "equities"
+    assert seen[1].url.params["from_date"] == "01-10-2026"
+    assert seen[1].url.params["to_date"] == "19-11-2026"
+    assert "symbol" not in seen[1].url.params
+    assert "nsit=abc" in seen[1].headers["cookie"]
+    assert seen[1].headers["referer"] == "https://www.nseindia.com/"
+
+
+def test_nse_actions_passes_the_symbol_and_ignores_a_refused_cookie_page():
+    def handler(request):
+        if request.url.path == "/":
+            return httpx.Response(403)
+        return httpx.Response(200, json=[])
+
+    fetcher, seen = make_fetcher(handler)
+    assert fetcher.nse_actions(date(2026, 10, 1), date(2026, 11, 19), "TCS") == []
+    assert seen[1].url.params["symbol"] == "TCS"
+
+
+def test_nse_actions_html_body_is_a_source_error():
+    fetcher, _ = make_fetcher(nse_handler(httpx.Response(200, text="<html>Access Denied</html>")))
+    with pytest.raises(SourceError):
+        fetcher.nse_actions(date(2026, 10, 1), date(2026, 11, 19))
+
+
+def test_nse_actions_403_is_a_source_error():
+    fetcher, _ = make_fetcher(nse_handler(httpx.Response(403)))
+    with pytest.raises(SourceError):
+        fetcher.nse_actions(date(2026, 10, 1), date(2026, 11, 19))
+
+
+def test_nse_actions_non_list_is_a_source_error():
+    fetcher, _ = make_fetcher(nse_handler(httpx.Response(200, json={"error": "x"})))
+    with pytest.raises(SourceError):
+        fetcher.nse_actions(date(2026, 10, 1), date(2026, 11, 19))
+
+
+def test_nse_actions_use_the_nse_timeout():
+    fetcher, seen = make_fetcher(nse_handler(httpx.Response(200, json=[])))
+    fetcher.client.timeout = httpx.Timeout(20)
+    fetcher.nse_actions(date(2026, 10, 1), date(2026, 11, 19))
+    for request in seen:
+        assert request.extensions["timeout"] == {"connect": 5, "read": 8, "write": 8, "pool": 8}
+
+
+def test_nse_actions_timeout_is_a_source_timeout():
+    def slow(request):
+        raise httpx.ReadTimeout("slow", request=request)
+
+    fetcher, _ = make_fetcher(slow)
+    with pytest.raises(SourceTimeout):
+        fetcher.nse_actions(date(2026, 10, 1), date(2026, 11, 19))
+
+
+def test_bse_actions_sends_dates_and_referer():
+    rows = [{"scrip_code": 500325, "ex_date": "28 Oct 2026", "Purpose": "Bonus 1:1"}]
+    fetcher, seen = make_fetcher(lambda r: httpx.Response(200, json=rows))
+    assert fetcher.bse_actions(date(2026, 10, 1), date(2026, 11, 19)) == rows
+    request = seen[0]
+    assert request.url.host == "api.bseindia.com"
+    assert request.url.params["Fdate"] == "20261001"
+    assert request.url.params["TDate"] == "20261119"
+    assert request.headers["referer"] == "https://www.bseindia.com/"
+
+
+def test_bse_actions_unwraps_a_table_object():
+    rows = [{"scrip_code": 1}]
+    fetcher, _ = make_fetcher(lambda r: httpx.Response(200, json={"Table": rows}))
+    assert fetcher.bse_actions(date(2026, 10, 1), date(2026, 11, 19)) == rows
+
+
+def test_bse_actions_html_and_403_are_source_errors():
+    for response in (httpx.Response(200, text="<HTML>Access Denied"), httpx.Response(403)):
+        fetcher, _ = make_fetcher(lambda r, response=response: response)
+        with pytest.raises(SourceError):
+            fetcher.bse_actions(date(2026, 10, 1), date(2026, 11, 19))

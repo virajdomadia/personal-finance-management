@@ -71,57 +71,32 @@ def test_parse_purpose(text, expected) -> None:
 
 
 def test_nse_actions_fixture() -> None:
+    """The fixture is a trimmed real NSE response (20 rows, Oct-Nov 2026)."""
     rows = parse_nse_actions(load("nse_actions.json"))
-    assert rows == [
+    by_kind: dict[str, list[ParsedAction]] = {}
+    for row in rows:
+        by_kind.setdefault(row.kind, []).append(row)
+    assert {k: len(v) for k, v in by_kind.items()} == {"dividend": 13, "split": 3, "bonus": 2}
+    assert (
         ParsedAction(
-            "RELIANCE",
-            "INE002A01018",
-            "bonus",
-            date(2026, 10, 28),
-            date(2026, 10, 29),
-            D(1),
-            D(1),
-            None,
-            "Bonus 1:1",
-            "nse",
-        ),
-        ParsedAction(
-            "TCS",
-            "INE467B01029",
-            "dividend",
-            date(2026, 3, 12),
-            None,
-            None,
-            None,
-            D(10),
-            "Final Dividend - Rs 10 Per Share / Special Dividend - Rs 5 Per Share",
-            "nse",
-        ),
-        ParsedAction(
-            "TCS",
-            "INE467B01029",
-            "dividend",
-            date(2026, 3, 12),
-            None,
-            None,
-            None,
-            D(5),
-            "Final Dividend - Rs 10 Per Share / Special Dividend - Rs 5 Per Share",
-            "nse",
-        ),
-        ParsedAction(
-            "INFY",
-            "INE009A01021",
+            "JSWDULUX",
+            "INE133A01011",
             "split",
-            date(2026, 1, 5),
-            date(2026, 1, 6),
+            date(2026, 10, 22),
+            date(2026, 10, 22),
             D(10),
             D(1),
             None,
             "Face Value Split (Sub-Division) - From Rs 10/- Per Share To Re 1/- Per Share",
             "nse",
-        ),
+        )
+        in rows
+    )
+    assert [(r.symbol, r.ratio_new, r.ratio_old) for r in by_kind["bonus"]] == [
+        ("CONCORDBIO", D(1), D(1)),
+        ("PASHUPATI", D(3), D(2)),
     ]
+    assert next(r for r in rows if r.symbol == "ICICIAMC").amount_per_share == D(30)
 
 
 def test_nse_non_list_payload_gives_nothing() -> None:

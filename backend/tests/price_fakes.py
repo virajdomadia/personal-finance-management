@@ -79,3 +79,11 @@ class FakeFetcher(Fetcher):
     def yahoo_chart(self, symbol: str) -> dict:
         self._hit("yahoo_chart")
         return json.loads(read("yahoo_chart.json"), parse_float=Decimal)
+
+    def nse_actions(self, start: date, end: date, symbol: str | None = None) -> list:
+        self._hit("nse_actions")
+        return json.loads(self._read("nse_actions.json"), parse_float=Decimal)
+
+    def bse_actions(self, start: date, end: date) -> list:
+        self._hit("bse_actions")
+        return json.loads(self._read("bse_actions.json"), parse_float=Decimal)
