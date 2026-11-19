@@ -495,6 +495,7 @@ function Content({
 // Funds and crypto totals have no dividends, so those figures are optional here.
 type SummaryTotals = Omit<Totals, "dividends" | "dividends_fy" | "total_return"> & Partial<Pick<Totals, "dividends" | "dividends_fy" | "total_return">>;
 
+// Stocks always show their total return; the dividends tile only once there are some.
 function Summary({ totals, showDividends = false }: { totals: SummaryTotals; showDividends?: boolean }) {
   const hasDividends = showDividends && Number(totals.dividends ?? 0) !== 0;
   return (
@@ -515,17 +516,17 @@ function Summary({ totals, showDividends = false }: { totals: SummaryTotals; sho
         </span>
       </Tile>
       {hasDividends && (
-        <>
-          <Tile label="Dividends received" value={formatRupees(totals.dividends ?? "0.00")}>
-            <span className="mt-0.5 block text-xs font-bold text-zinc-600">{formatRupees(totals.dividends_fy ?? "0.00")} this financial year</span>
-          </Tile>
-          <Tile label="Total return">
-            <span className="mt-0.5 block text-[22px] leading-tight font-black tabular-nums break-words">
-              <Signed value={totals.total_return ?? "0.00"} />
-            </span>
-            <span className="block text-xs font-bold text-zinc-600">Gains, sales and dividends</span>
-          </Tile>
-        </>
+        <Tile label="Dividends received" value={formatRupees(totals.dividends ?? "0.00")}>
+          <span className="mt-0.5 block text-xs font-bold text-zinc-600">{formatRupees(totals.dividends_fy ?? "0.00")} this financial year</span>
+        </Tile>
+      )}
+      {showDividends && (
+        <Tile label="Total return">
+          <span className="mt-0.5 block text-[22px] leading-tight font-black tabular-nums break-words">
+            <Signed value={totals.total_return ?? "0.00"} />
+          </span>
+          <span className="block text-xs font-bold text-zinc-600">Gains, sales and dividends</span>
+        </Tile>
       )}
     </div>
   );

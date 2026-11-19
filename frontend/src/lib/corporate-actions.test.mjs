@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { describeAction, describePreview, dividendLabel, isUpcoming } from "./corporate-actions.ts";
+import { canConfirm, describeAction, describePreview, dividendLabel, isUpcoming, ratioProblem } from "./corporate-actions.ts";
 
 const base = {
   id: 1, stock_id: 7, symbol: "INFY", ex_date: "2026-03-12", status: "pending", purpose: null,
@@ -44,4 +44,19 @@ test("dividendLabel names a zero dividend, an expected one and a received one", 
 test("isUpcoming is true only for an ex-date after today", () => {
   assert.equal(isUpcoming({ ex_date: "2026-03-13" }, "2026-03-12"), true);
   assert.equal(isUpcoming({ ex_date: "2026-03-12" }, "2026-03-12"), false);
+});
+
+test("ratioProblem wants two numbers above 0", () => {
+  assert.equal(ratioProblem("1", "2"), null);
+  assert.equal(ratioProblem("0.5", "3"), null);
+  assert.equal(ratioProblem("", "2"), "Enter how many new shares you get for how many you hold, like 1 for 2.");
+  assert.equal(ratioProblem("1", ""), "Enter how many new shares you get for how many you hold, like 1 for 2.");
+  assert.equal(ratioProblem("0", "2"), "Enter how many new shares you get for how many you hold, like 1 for 2.");
+  assert.equal(ratioProblem("1", "0.0"), "Enter how many new shares you get for how many you hold, like 1 for 2.");
+  assert.equal(ratioProblem("1.2.3", "2"), "Enter how many new shares you get for how many you hold, like 1 for 2.");
+});
+
+test("canConfirm is false only for an action of no known kind", () => {
+  assert.equal(canConfirm({ kind: "other" }), false);
+  for (const kind of ["split", "consolidation", "bonus", "merger", "demerger", "dividend"]) assert.equal(canConfirm({ kind }), true);
 });

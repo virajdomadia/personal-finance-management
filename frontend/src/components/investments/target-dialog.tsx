@@ -5,17 +5,26 @@ import { useEffect, useRef, useState } from "react";
 import { Select } from "@/components/ui/select";
 import { errorMessage, splitErrors } from "@/lib/accounts";
 import { ApiError } from "@/lib/api";
-import { type CorporateAction, cleanPercent, describeAction } from "@/lib/corporate-actions";
+import { type CorporateAction, cleanPercent, describeAction, ratioProblem } from "@/lib/corporate-actions";
 import type { Stock } from "@/lib/investments";
 
 import { DIALOG, INPUT, PRIMARY, QUIET, isUnauthorized } from "./shared";
 import { logout } from "@/app/login/actions";
 
-// A merger or demerger can only be confirmed once it says which stock the shares move into (and,
-// for a demerger, what share of the cost goes there).
+// A merger or demerger can only be confirmed once it says which stock the shares move into, how
+// many new shares come for how many held (the exchange's notice never says), and, for a demerger,
+// what share of the cost goes there.
 export function needsTarget(a: Pick<CorporateAction, "kind">): boolean {
   return a.kind === "merger" || a.kind === "demerger";
 }
+
+// What the dialog adds to the PATCH that confirms the action.
+export type TargetFields = {
+  target_stock_id: number;
+  ratio_new: string;
+  ratio_old: string;
+  cost_share_pct?: string;
+};
 
 export function TargetDialog({
   action,
@@ -27,13 +36,15 @@ export function TargetDialog({
   stocks: Stock[];
   onClose: () => void;
   // Resolves to an error message (shown here) or null when it worked.
-  onConfirm: (target: number, costPct: string | null) => Promise<string | null>;
+  onConfirm: (fields: TargetFields) => Promise<string | null>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const savingRef = useRef(false);
   const demerger = action.kind === "demerger";
   const [target, setTarget] = useState(action.target_stock_id !== null ? String(action.target_stock_id) : "");
   const [pct, setPct] = useState(action.cost_share_pct ?? "");
+  const [ratioNew, setRatioNew] = useState(action.ratio_new ?? "");
+  const [ratioOld, setRatioOld] = useState(action.ratio_old ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const options = stocks.filter((s) => s.id !== action.stock_id).map((s) => ({ value: String(s.id), label: `${s.symbol} · ${s.name}` }));
@@ -50,6 +61,11 @@ export function TargetDialog({
       setError("Pick the stock the shares move into.");
       return;
     }
+    const badRatio = ratioProblem(ratioNew, ratioOld);
+    if (badRatio !== null) {
+      setError(badRatio);
+      return;
+    }
     if (demerger && (pct === "" || Number(pct) <= 0 || Number(pct) >= 100)) {
       setError("Enter the share of cost that moves, above 0 and below 100.");
       return;
@@ -57,7 +73,12 @@ export function TargetDialog({
     savingRef.current = true;
     setSaving(true);
     setError(null);
-    const message = await onConfirm(Number(target), demerger ? pct : null);
+    const message = await onConfirm({
+      target_stock_id: Number(target),
+      ratio_new: ratioNew,
+      ratio_old: ratioOld,
+      ...(demerger ? { cost_share_pct: pct } : {}),
+    });
     savingRef.current = false;
     setSaving(false);
     if (message !== null) setError(message);
@@ -85,6 +106,38 @@ export function TargetDialog({
             </span>
             <Select ariaLabel={demerger ? "New company's stock" : "Merged into"} value={target} options={options} onChange={setTarget} disabled={saving} />
             {options.length === 0 && <p className="mt-1 text-xs font-bold text-zinc-600">Add the other stock first, then come back.</p>}
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="target-new" className="mb-1 block text-xs font-black tracking-wide uppercase">
+                New shares
+              </label>
+              <input
+                id="target-new"
+                className={INPUT}
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                disabled={saving}
+                value={ratioNew}
+                onChange={(e) => setRatioNew(cleanPercent(e.target.value))}
+              />
+            </div>
+            <div>
+              <label htmlFor="target-old" className="mb-1 block text-xs font-black tracking-wide uppercase">
+                For shares held
+              </label>
+              <input
+                id="target-old"
+                className={INPUT}
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                disabled={saving}
+                value={ratioOld}
+                onChange={(e) => setRatioOld(cleanPercent(e.target.value))}
+              />
+            </div>
           </div>
           {demerger && (
             <div>

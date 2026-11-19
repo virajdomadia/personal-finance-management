@@ -139,3 +139,16 @@ export function dividendLabel(a: CorporateAction, today: string): string {
 export function cleanPercent(value: string): string {
   return value.replace(/[^\d.]/g, "");
 }
+
+const RATIO_RULE = "Enter how many new shares you get for how many you hold, like 1 for 2.";
+
+// A merger's or demerger's "new shares : shares held", as typed: null when both are numbers above 0.
+export function ratioProblem(newShares: string, held: string): string | null {
+  const positive = (v: string) => /^\d+(\.\d+)?$/.test(v.trim()) && Number(v) > 0;
+  return positive(newShares) && positive(held) ? null : RATIO_RULE;
+}
+
+// An action of no known kind ("other") is kept for history only; the server never confirms one.
+export function canConfirm(a: Pick<CorporateAction, "kind">): boolean {
+  return a.kind !== "other";
+}

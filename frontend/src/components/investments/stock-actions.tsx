@@ -11,6 +11,7 @@ import {
   type CorporateAction,
   type LinkSuggestions,
   type StockActions,
+  canConfirm,
   cleanPercent,
   createAction,
   describeAction,
@@ -20,6 +21,7 @@ import {
   isUpcoming,
   link,
   linkSuggestions,
+  ratioProblem,
   stockActions,
   unlink,
   updateAction,
@@ -199,10 +201,8 @@ export function StockActionsSection({ stock, stocks, onChanged }: { stock: Stock
           action={dialog.action}
           stocks={stocks}
           onClose={close}
-          onConfirm={async (stockId, pct) => {
-            const message = await run(() =>
-              updateAction(dialog.action.id, { status: "applied", target_stock_id: stockId, ...(pct !== null ? { cost_share_pct: pct } : {}) }),
-            );
+          onConfirm={async (fields) => {
+            const message = await run(() => updateAction(dialog.action.id, { status: "applied", ...fields }));
             if (message === null) close();
             return message;
           }}
@@ -261,10 +261,23 @@ function ActionRow({
             <button type="button" className={ROW_ACTION} disabled={busy} onClick={() => onRun(() => updateAction(a.id, { status: "dismissed" }))}>
               Dismiss
             </button>
-            <button type="button" className={`${PRIMARY} !px-2.5 !py-1`} disabled={busy} onClick={() => onConfirm(a)}>
-              Confirm
-            </button>
+            {canConfirm(a) && (
+              <button type="button" className={`${PRIMARY} !px-2.5 !py-1`} disabled={busy} onClick={() => onConfirm(a)}>
+                Confirm
+              </button>
+            )}
           </>
+        )}
+        {a.status === "applied" && a.kind === "dividend" && (
+          <button
+            type="button"
+            className={ROW_ACTION}
+            disabled={busy}
+            aria-label={`Dismiss ${describeAction(a)}`}
+            onClick={() => onRun(() => updateAction(a.id, { status: "dismissed" }))}
+          >
+            Dismiss
+          </button>
         )}
         {a.status === "applied" && (
           <button
@@ -317,7 +330,8 @@ function AddDialog({
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const ratio = kind === "split" || kind === "bonus" || kind === "consolidation";
+  const ratio = kind !== "dividend";
+  const moves = kind === "merger" || kind === "demerger";
 
   useEffect(() => {
     const dialog = ref.current;
@@ -331,6 +345,15 @@ function AddDialog({
     setSaving(true);
     setError(null);
     const body: ActionBody = { kind, ex_date: date };
+    if (moves) {
+      const problem = ratioProblem(newQty, oldQty);
+      if (problem !== null) {
+        savingRef.current = false;
+        setSaving(false);
+        setError(problem);
+        return;
+      }
+    }
     if (ratio) {
       body.ratio_old = oldQty || null;
       body.ratio_new = newQty || null;
@@ -384,7 +407,7 @@ function AddDialog({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="add-old" className={FIELD_LABEL}>
-                  {kind === "bonus" ? "Shares held" : "Old shares"}
+                  {kind === "bonus" || moves ? "Shares held" : "Old shares"}
                 </label>
                 {numeric(oldQty, setOldQty, "add-old")}
               </div>
@@ -404,8 +427,8 @@ function AddDialog({
               {numeric(amount, setAmount, "add-amount")}
             </div>
           )}
-          {(kind === "merger" || kind === "demerger") && (
-            <p className="text-sm font-bold text-zinc-600">You will pick the other stock when you confirm it.</p>
+          {moves && (
+            <p className="text-sm font-bold text-zinc-600">New shares you get for the shares held. You will pick the other stock when you confirm it.</p>
           )}
           {error ? (
             <p role="alert" className="text-sm font-extrabold text-loss">

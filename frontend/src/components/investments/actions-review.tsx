@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { type CorporateAction, describeAction, describePreview, listActions, updateAction } from "@/lib/corporate-actions";
+import { type CorporateAction, canConfirm, describeAction, describePreview, listActions, updateAction } from "@/lib/corporate-actions";
 import { type Stock } from "@/lib/investments";
 import { apiFetch } from "@/lib/api";
 
@@ -102,15 +102,17 @@ export function ActionsReview({ onChanged }: { onChanged: () => void }) {
                 <button type="button" className={ROW_ACTION} disabled={busy !== null} aria-label={`Dismiss ${a.symbol}: ${describeAction(a)}`} onClick={() => void dismiss(a)}>
                   Dismiss
                 </button>
-                <button
-                  type="button"
-                  className={`${PRIMARY} !px-2.5 !py-1`}
-                  disabled={busy !== null}
-                  aria-label={`Confirm ${a.symbol}: ${describeAction(a)}`}
-                  onClick={() => void confirm(a)}
-                >
-                  Confirm
-                </button>
+                {canConfirm(a) && (
+                  <button
+                    type="button"
+                    className={`${PRIMARY} !px-2.5 !py-1`}
+                    disabled={busy !== null}
+                    aria-label={`Confirm ${a.symbol}: ${describeAction(a)}`}
+                    onClick={() => void confirm(a)}
+                  >
+                    Confirm
+                  </button>
+                )}
               </div>
             </li>
           );
@@ -121,12 +123,8 @@ export function ActionsReview({ onChanged }: { onChanged: () => void }) {
           action={target.action}
           stocks={target.stocks}
           onClose={() => setTarget(null)}
-          onConfirm={async (stockId, pct) => {
-            const message = await change(target.action, {
-              status: "applied",
-              target_stock_id: stockId,
-              ...(pct !== null ? { cost_share_pct: pct } : {}),
-            });
+          onConfirm={async (fields) => {
+            const message = await change(target.action, { status: "applied", ...fields });
             if (message === null) setTarget(null);
             return message;
           }}
