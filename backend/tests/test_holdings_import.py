@@ -17,12 +17,19 @@ from app.export.holdings_import import COLUMNS
 from app.main import app
 from app.models.investment import Instrument, InvestmentTrade
 from app.models.market import MarketCode
+from tests.clock import pin_india_today
 from tests.test_accounts import Headers, auth, make
 
 client = TestClient(app)
 TODAY = today_india()
 YESTERDAY = TODAY - timedelta(days=1)
 DAY = TODAY - timedelta(days=30)
+
+
+@pytest.fixture(autouse=True)
+def _pinned_today(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The app's "today" stays TODAY even if the run crosses midnight in India.
+    pin_india_today(monkeypatch, TODAY)
 
 
 @pytest.fixture
