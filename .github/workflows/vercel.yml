@@ -4,7 +4,7 @@
 # Order: after Backend CI passes on main, the API goes live first, so a new web build never calls an API that
 # is not deployed yet.
 # The Vercel CLI runs from the repo root: with Root Directory set on the project, it finds the app folder itself.
-# Needs repo secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID_API, VERCEL_PROJECT_ID_WEB.
+# Needs repo secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID_API, VERCEL_PROJECT_ID_WEB, DATABASE_URL.
 name: vercel
 on:
   workflow_run:
@@ -41,15 +41,13 @@ jobs:
       # Migrations are run on Neon by hand (README, "Production database commands"). Refuse to deploy code
       # whose newest migration isn't on the database yet: it would 500 on any query touching the new schema.
       # Read-only: `alembic current` only selects from alembic_version.
+      # DATABASE_URL is a GitHub Actions secret (Neon connection string): Vercel won't return its copy to the CLI.
       - name: Check the production database is migrated
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          vercel env pull "$RUNNER_TEMP/prod.env" --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}" > /dev/null
-          DATABASE_URL=$(grep '^DATABASE_URL=' "$RUNNER_TEMP/prod.env" | cut -d= -f2- | sed 's/^"//; s/"$//')
-          rm -f "$RUNNER_TEMP/prod.env"
-          if [ -z "$DATABASE_URL" ]; then echo "::error::DATABASE_URL is empty in Vercel production env"; exit 1; fi
-          echo "::add-mask::$DATABASE_URL"
-          export DATABASE_URL
-          cd backend
+          if [ -z "$DATABASE_URL" ]; then echo "::error::Repo secret DATABASE_URL is not set (gh secret set DATABASE_URL)"; exit 1; fi
           heads=$(uv run alembic heads | awk '{print $1}' | sort)
           current=$(uv run alembic current | awk '{print $1}' | sort)
           echo "code head(s): $heads"
