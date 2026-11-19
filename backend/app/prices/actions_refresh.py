@@ -179,10 +179,9 @@ class _UserState:
         self.applied = load_action_rows(db, user_id)
         self._current: dict[int, Decimal] | None = None
         self.linked: set[tuple[int, int]] = set()  # (instrument, corporate action)
-        # (instrument, kind, ex-date) -> [(corporate action id, amount)]
-        self.events: dict[tuple[int, str, date], list[tuple[int | None, Decimal | None]]] = (
-            defaultdict(list)
-        )
+        # Rows with no corporate action (restored from a backup, or entered by hand):
+        # (instrument, kind, ex-date) -> their amounts per share.
+        self.unlinked: dict[tuple[int, str, date], list[Decimal | None]] = defaultdict(list)
         rows = db.execute(
             select(
                 StockAction.instrument_id,
@@ -198,17 +197,19 @@ class _UserState:
     def add(self, inst: int, cid: int | None, kind: str, ex: date, amount: Decimal | None) -> None:
         if cid is not None:
             self.linked.add((inst, cid))
-        self.events[(inst, kind, ex)].append((cid, amount))
+        else:
+            self.unlinked[(inst, kind, ex)].append(amount)
 
     def has(self, inst: int, action: CorporateAction) -> bool:
-        """A row exists for this event: linked to it, or (as a restored backup leaves them,
-        or as entered by hand) unlinked with the same kind and ex-date. Never re-create a
-        dismissed one."""
+        """A row exists for this event: linked to it, or unlinked (as a restored backup or a
+        hand entry leaves it) with the same kind and ex-date, and for a dividend the same
+        amount. A row linked to another event never counts, so an interim and a special
+        dividend on one day are two rows. Never re-create a dismissed one."""
         if (inst, action.id) in self.linked:
             return True
         return any(
-            action.kind != "dividend" or cid is None or amount == action.amount_per_share
-            for cid, amount in self.events[(inst, action.kind, action.ex_date)]
+            action.kind != "dividend" or amount == action.amount_per_share
+            for amount in self.unlinked[(inst, action.kind, action.ex_date)]
         )
 
     def holds_now(self, inst: int) -> bool:

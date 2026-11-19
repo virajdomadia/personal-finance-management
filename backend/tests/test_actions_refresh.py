@@ -437,3 +437,65 @@ def test_linking_a_stock_queues_backfill(db_session: Session, headers: Headers) 
 
     moved = client.patch(f"{url}/{stock_id}", json={"source_code": "TCS"}, headers=headers)
     assert moved.status_code == 200 and backfilled_at() is None
+
+
+INTERIM = "Interim Dividend - Rs 2.50 Per Share"
+SPECIAL = "Special Dividend - Rs 2.50 Per Share"  # same amount, a different event
+
+
+def restored_dividend(h: Holder, amount: str) -> StockAction:
+    row = StockAction(
+        user_id=h.user_id,
+        instrument_id=h.stock.id,
+        corporate_action_id=None,
+        kind="dividend",
+        ex_date=date(2026, 11, 14),
+        amount_per_share=Decimal(amount),
+        status="applied",
+    )
+    h.db.add(row)
+    h.db.commit()
+    return row
+
+
+def test_two_same_day_dividends_are_two_rows(db_session: Session) -> None:
+    h = Holder(db_session)
+    h.trade(date(2026, 1, 5))
+    done(h)
+    rows = [nse_row(INTERIM, "14-Nov-2026"), nse_row(SPECIAL, "14-Nov-2026")]
+
+    report = run(db_session, fake(nse=rows))
+    run(db_session, fake(nse=rows))
+
+    first, second = h.rows()
+    assert first.corporate_action_id != second.corporate_action_id
+    assert {(r.kind, r.amount_per_share, r.status) for r in h.rows()} == {
+        ("dividend", Decimal("2.5"), "applied")
+    }
+    assert report.updated["actions"] == 2
+
+
+def test_restored_dividend_with_the_same_amount_is_not_duplicated(db_session: Session) -> None:
+    h = Holder(db_session)
+    h.trade(date(2026, 1, 5))
+    done(h)
+    restored = restored_dividend(h, "2.50")
+
+    report = run(db_session, fake(nse=[nse_row(INTERIM, "14-Nov-2026")]))
+
+    assert [r.id for r in h.rows()] == [restored.id]
+    assert report.updated["actions"] == 0
+
+
+def test_restored_dividend_with_another_amount_lets_the_new_one_in(db_session: Session) -> None:
+    h = Holder(db_session)
+    h.trade(date(2026, 1, 5))
+    done(h)
+    restored = restored_dividend(h, "9.00")
+
+    report = run(db_session, fake(nse=[nse_row(INTERIM, "14-Nov-2026")]))
+
+    [old, new] = h.rows()
+    assert old.id == restored.id
+    assert (new.amount_per_share, new.corporate_action_id is not None) == (Decimal("2.5"), True)
+    assert report.updated["actions"] == 1
