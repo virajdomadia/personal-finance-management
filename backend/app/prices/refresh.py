@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.models.investment import Instrument, InstrumentPrice
 from app.models.market import MarketCode
+from app.prices.actions_refresh import refresh_actions
 from app.prices.fetch import Fetcher, SourceError, SourceTimeout
 from app.prices.parse import (
     IST,
@@ -405,13 +406,27 @@ def apply_to_users(db: Session, only_kind: str | None = None, user_id: int | Non
 def run_nightly(
     db: Session, fetcher: Fetcher, today: date, clock: Clock = time.monotonic
 ) -> RefreshReport:
-    """Refresh and apply one kind at a time, committing each, in the order of KINDS."""
+    """Refresh and apply one kind at a time, committing each, in the order of KINDS; then
+    corporate actions."""
     report = RefreshReport()
     written = 0
     for kind in KINDS:
         refresh_market(db, fetcher, today, {kind}, report=report, clock=clock)
         written += apply_to_users(db, only_kind=kind)
         db.commit()
+    # Corporate actions last, after stock prices, in their own budget and commit; they never
+    # raise out of here, so prices and the snapshots after them are never held up.
+    try:
+        with db.begin_nested():
+            refresh_actions(db, fetcher, today, report, clock)
+    except SourceError as exc:
+        report.updated.pop("actions", None)  # rolled back with the savepoint
+        report.failed["actions"] = str(exc)
+    except Exception as exc:
+        log.exception("corporate actions step crashed")
+        report.updated.pop("actions", None)
+        report.failed["actions"] = f"unexpected {exc.__class__.__name__}"
+    db.commit()
     for kind, message in report.failed.items():
         log.warning("price source %s failed: %s", kind, message)
     log.info("nightly prices: updated=%s written=%d", report.updated, written)

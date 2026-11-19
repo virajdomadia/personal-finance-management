@@ -59,13 +59,16 @@ def check_source_code(db: DbSession, kind: str, code: str | None) -> list[dict[s
 
 def set_link(db: DbSession, inst: Instrument, code: str | None) -> None:
     """Point a holding at `code`. Moving it to a different code drops the old code's auto
-    prices, so the two never mix; unlinking (None) keeps them. Manual prices always stay."""
+    prices, so the two never mix; unlinking (None) keeps them. Manual prices always stay.
+    Any change of code queues a fetch of the stock's past corporate actions."""
     if code is not None and inst.source_code is not None and code != inst.source_code:
         db.execute(
             delete(InstrumentPrice).where(
                 InstrumentPrice.instrument_id == inst.id, InstrumentPrice.source == "auto"
             )
         )
+    if code != inst.source_code:
+        inst.actions_backfilled_at = None  # the nightly job fetches the new code's history
     inst.source_code = code
 
 
