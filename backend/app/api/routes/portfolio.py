@@ -269,7 +269,8 @@ def _coin_figures(
 
 
 class DividendTotals:
-    """Applied dividends' gross, by (stock, account), all time and this financial year."""
+    """Applied dividends' gross, by (stock, account), all time and this financial year. Only
+    those whose ex-date has come count as received; an upcoming one isn't yet."""
 
     def __init__(self, result: Replay, actions: list[ActionRow], today: date) -> None:
         start = date(today.year if today.month >= 4 else today.year - 1, 4, 1)
@@ -279,6 +280,8 @@ class DividendTotals:
         self.all = self.fy = ZERO
         for (action_id, account_id), gross in result.dividends.items():
             action = by_id[action_id]
+            if action.ex_date > today:
+                continue
             key = (action.instrument_id, account_id)
             self.by_position[key] = self.by_position.get(key, ZERO) + gross
             self.all += gross

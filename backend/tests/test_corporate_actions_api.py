@@ -8,14 +8,15 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from httpx import Response
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.api.routes import corporate_actions, portfolio
 from app.main import app
-from app.models.corporate_action import CorporateAction, StockAction
+from app.models.corporate_action import CorporateAction, DividendLink, StockAction
 from app.models.investment import Instrument
 from app.models.user import User
+from tests.conftest import ON_POSTGRES
 from tests.test_accounts import Headers, auth
 from tests.test_trades import bank, broker, made, stock
 
@@ -497,3 +498,92 @@ def test_portfolio_dividends_and_total_return(
     # No money was recorded for the dividends.
     after = client.get("/api/dashboard", headers=headers).json()["net_worth"]
     assert Decimal(after) == Decimal(before) + 100  # just the sale's profit
+
+
+def test_upcoming_dividend_counts_once_its_ex_date_comes(
+    headers: Headers, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, infy = holding(headers, price="100.00")  # 40 shares
+    dividend(db_session, infy, amount="5", ex=date(2026, 6, 10))  # 200.00
+    monkeypatch.setattr(portfolio, "today_india", lambda: date(2026, 6, 9))
+    body = portfolio_body(headers)
+    assert body["holdings"][0]["dividends"] == "0.00"
+    assert body["by_stock"][0]["dividends"] == "0.00"
+    totals = body["totals"]
+    assert (totals["dividends"], totals["dividends_fy"], totals["total_return"]) == (
+        "0.00", "0.00", "0.00",
+    )  # fmt: skip
+    assert body["overall"]["dividends"] == "0.00"
+    # The action itself still shows what it will pay.
+    (row,) = client.get(ACTIONS, params={"status": "applied"}, headers=headers).json()["actions"]
+    assert row["dividend"]["gross"] == "200.00"
+
+    monkeypatch.setattr(portfolio, "today_india", lambda: date(2026, 6, 10))
+    totals = portfolio_body(headers)["totals"]
+    assert (totals["dividends"], totals["dividends_fy"], totals["total_return"]) == (
+        "200.00", "200.00", "200.00",
+    )  # fmt: skip
+
+
+# Deleting a stock
+
+
+@pytest.fixture
+def foreign_keys(db_session: Session) -> None:
+    """SQLite checks foreign keys only when asked, so an orphan left behind fails the test."""
+    if ON_POSTGRES:
+        return
+    db_session.commit()
+    db_session.execute(text("PRAGMA foreign_keys=ON"))
+    db_session.commit()
+    assert db_session.execute(text("PRAGMA foreign_keys")).scalar() == 1
+
+
+def delete_stock(headers: Headers, stock_id: int) -> Response:
+    return client.delete(f"/api/investments/stocks/{stock_id}", headers=headers)
+
+
+def test_deleting_a_stock_removes_its_actions_and_links(
+    headers: Headers, db_session: Session, foreign_keys: None
+) -> None:
+    infy = stock(headers)
+    split = created(headers, infy)
+    paid = dividend(db_session, infy)
+    tx = income(headers, bank(headers), "900.00", EX + timedelta(days=3))
+    db_session.add(DividendLink(user_id=me(db_session), stock_action_id=paid, transaction_id=tx))
+    db_session.commit()
+    response = delete_stock(headers, infy)
+    assert response.status_code == 200, response.json()
+    assert db_session.get(StockAction, split["id"]) is None
+    assert db_session.get(StockAction, paid) is None
+    assert db_session.scalars(select(DividendLink)).all() == []
+
+
+def test_target_of_an_applied_merger_cant_be_deleted(
+    headers: Headers, db_session: Session, foreign_keys: None
+) -> None:
+    _, infy = holding(headers)
+    target = stock(headers, "TARGET")
+    action = created(headers, infy, kind="merger", ratio_new="1", ratio_old="1",
+                     target_stock_id=target)  # fmt: skip
+    patched(headers, action["id"], status="applied")
+    response = delete_stock(headers, target)
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "TARGET is the target of an applied merger of INFY. Undo it first."
+    )
+    assert db_session.get(Instrument, target) is not None
+
+
+def test_target_of_a_pending_merger_is_let_go(
+    headers: Headers, db_session: Session, foreign_keys: None
+) -> None:
+    _, infy = holding(headers)
+    target = stock(headers, "TARGET")
+    action = created(headers, infy, kind="demerger", ratio_new="1", ratio_old="1",
+                     target_stock_id=target, cost_share_pct="30")  # fmt: skip
+    assert delete_stock(headers, target).status_code == 200
+    row = db_session.get(StockAction, action["id"])
+    assert row is not None
+    db_session.refresh(row)
+    assert (row.target_instrument_id, row.cost_share_pct) == (None, Decimal("30"))

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.api.dates import today_india
@@ -17,6 +17,7 @@ from app.api.routes.accounts import MAX_ID, Money, clean_text, field_error, fmt
 from app.api.routes.market import SourceCode, apply_link, check_source_code, set_link
 from app.api.routes.transactions import Day
 from app.db.session import DbSession
+from app.models.corporate_action import DividendLink, StockAction
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade
 
 router = APIRouter(
@@ -232,6 +233,44 @@ def update_stock(id: int, body: StockUpdate, user: CurrentUser, db: DbSession) -
     return _response(stock, latest_prices(db, user.id))
 
 
+def _clear_actions(db: DbSession, user_id: int, stock: Instrument) -> None:
+    """Removes the stock's own corporate actions (and their dividend links) and lets go of
+    other stocks' pending or dismissed actions that point at it. An applied merger or demerger
+    into it has put shares there, so it must be undone first."""
+    applied = db.execute(
+        select(StockAction.kind, Instrument.symbol)
+        .join(Instrument, Instrument.id == StockAction.instrument_id)
+        .where(
+            StockAction.user_id == user_id,
+            StockAction.target_instrument_id == stock.id,
+            StockAction.instrument_id != stock.id,
+            StockAction.status == "applied",
+        )
+        .order_by(StockAction.ex_date, StockAction.id)
+        .limit(1)
+    ).first()
+    if applied is not None:
+        kind, source = applied
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{stock.symbol} is the target of an applied {kind} of {source}. Undo it first.",
+        )
+    db.execute(
+        update(StockAction)
+        .where(StockAction.user_id == user_id, StockAction.target_instrument_id == stock.id)
+        .values(target_instrument_id=None)
+    )
+    own = select(StockAction.id).where(
+        StockAction.user_id == user_id, StockAction.instrument_id == stock.id
+    )
+    db.execute(delete(DividendLink).where(DividendLink.stock_action_id.in_(own)))
+    db.execute(
+        delete(StockAction).where(
+            StockAction.user_id == user_id, StockAction.instrument_id == stock.id
+        )
+    )
+
+
 @router.delete("/stocks/{id}")
 def delete_stock(id: int, user: CurrentUser, db: DbSession) -> Deleted:
     stock = get_owned_stock(db, user.id, id)
@@ -245,6 +284,7 @@ def delete_stock(id: int, user: CurrentUser, db: DbSession) -> Deleted:
     )
     if has_price is not None or has_trade is not None:
         raise _in_use()
+    _clear_actions(db, user.id, stock)
     # Automatic prices are the market's, not the user's: they go with the stock.
     db.execute(
         delete(InstrumentPrice).where(
