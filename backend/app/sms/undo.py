@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.models.corporate_action import delete_links_for_transactions
 from app.models.insurance import PolicyPeriod
 from app.models.sms import SmsEntry
 from app.models.transaction import Transaction
@@ -148,10 +149,11 @@ def apply(
     lines = describe(undo)
     entry_ids = [e.id for e in undo.entries]
     tx_ids = [tx.id for tx in undo.remove]
-    # Messages first: they point at the transactions.
+    # Messages and dividend links first: they point at the transactions.
     if entry_ids:
         db.execute(delete(SmsEntry).where(SmsEntry.id.in_(entry_ids)))
     if tx_ids:
+        delete_links_for_transactions(db, user_id, tx_ids)
         db.execute(delete(Transaction).where(Transaction.id.in_(tx_ids)))
     db.commit()
     return lines

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -39,7 +39,7 @@ from app.api.routes.accounts import (
 )
 from app.db.session import DbSession
 from app.models.account import Account
-from app.models.corporate_action import DividendLink
+from app.models.corporate_action import delete_links_for_transactions
 from app.models.insurance import InsurancePolicy
 from app.models.recurring import RecurringTemplate
 from app.models.sms import SmsEntry
@@ -700,11 +700,7 @@ def delete_transaction(id: int, user: CurrentUser, db: DbSession) -> dict[str, i
         .values(status="ignored", transaction_id=None)
     )
     # A dividend it was linked to just loses the link (links are notes, not money).
-    db.execute(
-        delete(DividendLink).where(
-            DividendLink.user_id == user.id, DividendLink.transaction_id == tx.id
-        )
-    )
+    delete_links_for_transactions(db, user.id, [tx.id])
     db.delete(tx)
     db.commit()
     return {"id": id}

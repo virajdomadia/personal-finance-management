@@ -7,10 +7,20 @@ dividend transactions that paid for it.
 
 import datetime as dt
 import re
+from collections.abc import Iterable
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, UniqueConstraint, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import (
+    Date,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    UniqueConstraint,
+    delete,
+    func,
+)
+from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.db.base import Base
 
@@ -81,3 +91,18 @@ class DividendLink(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     stock_action_id: Mapped[int] = mapped_column(ForeignKey("stock_actions.id"), index=True)
     transaction_id: Mapped[int] = mapped_column(ForeignKey("transactions.id"), index=True)
+
+
+def delete_links_for_transactions(db: Session, user_id: int, tx_ids: Iterable[int]) -> None:
+    """Drops the dividend links of transactions about to be deleted (or to stop being income).
+
+    A link is a note, not money, so the dividend just loses it. The foreign key has no ON
+    DELETE, so every path that deletes a transaction calls this first.
+    """
+    ids = list(tx_ids)
+    if ids:
+        db.execute(
+            delete(DividendLink).where(
+                DividendLink.user_id == user_id, DividendLink.transaction_id.in_(ids)
+            )
+        )
