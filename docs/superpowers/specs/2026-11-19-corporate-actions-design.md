@@ -80,7 +80,7 @@ Dividends don't change holdings, so they're recorded `applied` automatically for
 |---|---|
 | Split / consolidation `n:o` | quantity × n/o; cost unchanged; lot date unchanged |
 | Bonus `n:o` | New lot of floor(held × n/o) shares, cost ₹0, dated the ex-date. Fractional entitlements are dropped (companies settle them in cash) |
-| Merger `n:o` into target | Each lot moves to the target instrument, same account: quantity floor-adjusted × n/o, cost and lot date kept. Source position ends at 0 |
+| Merger `n:o` into target | Each eligible lot (basis before ex-date) moves to the target instrument, same account: quantity floor-adjusted × n/o, cost and lot date kept. Source keeps only lots entered on/after the ex-date (normally none, so it ends at 0) |
 | Demerger `n:o`, `cost_share_pct` p | Each lot: child lot in target instrument with quantity × n/o (floored), cost = round_paise(lot cost × p/100), original lot date kept; parent lot keeps the remaining cost |
 
 Fraction rounding (settled): flooring is **per position** (one instrument in one account), never per lot, so counts match the broker. Bonus: one new lot of floor(position × n/o). Merger/demerger: each lot gets its exact quantity × n/o, then the fractional remainder of the position total is removed from the newest lot (its cost unchanged). Split/consolidation keep exact Decimal quantities. Cash paid for fractions is ignored; the owner can record it as a sell if they want. Paise rounding as today, with the remainder staying on the parent lot so costs always add up.
