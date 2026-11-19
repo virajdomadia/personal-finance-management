@@ -240,6 +240,21 @@ export function toOptions(accounts: Account[], form: TransactionForm): Account[]
 }
 
 // Income into a PPF, RD or FD can only be interest, so that is the one category offered.
+export type CategorySuggestion = { category: string | null; source: "history" | "keywords" | null };
+
+// Where to ask for the category a note suggests; null when there's nothing worth asking about.
+export function suggestPath(type: TransactionType, note: string): string | null {
+  const trimmed = note.trim();
+  if ((type !== "expense" && type !== "income") || trimmed.length < 2) return null;
+  return `/transactions/suggest-category?${new URLSearchParams({ type, note: trimmed })}`;
+}
+
+// A suggestion fills (or, with none, clears) the category until the owner picks one themselves.
+export function applySuggestion(form: TransactionForm, touched: boolean, category: string | null): TransactionForm {
+  if (touched) return form;
+  return { ...form, category: category ?? "" };
+}
+
 export function incomeCategories(accounts: Account[], form: TransactionForm, categories: string[]): string[] {
   return isDeposit(byId(accounts, form.account_id)) ? ["Interest"] : categories;
 }
