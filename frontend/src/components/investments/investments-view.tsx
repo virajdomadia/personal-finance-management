@@ -67,6 +67,7 @@ import {
 } from "./shared";
 import { FundTradeDialog } from "./fund-trade-dialog";
 import { DueSips } from "./fund-view";
+import { ActionsReview } from "./actions-review";
 import { LinkPrompt } from "./link-prompt";
 import { type AddStart, AddInvestmentDialog } from "./add-investment-dialog";
 import { TradeDialog, type TradeKind } from "./trade-dialog";
@@ -263,6 +264,7 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
 
       {data && (
         <div className="flex flex-col gap-10">
+          <ActionsReview onChanged={reload} />
           {data.unlinked.status === "ready" && <LinkPrompt unlinked={data.unlinked.data} />}
           {fundsExtra && <DueSips sips={data.portfolio.funds.due_sips} onRecord={recordSip} />}
           <Content
@@ -454,7 +456,7 @@ function Content({
         </div>
       ) : (
         <>
-          <Summary totals={portfolio.totals} />
+          <Summary totals={portfolio.totals} showDividends />
           <Holdings rows={portfolio.by_stock} goals={goalsByInstrument(portfolio.holdings, (h) => h.stock_id)} />
           {portfolio.closed.length > 0 && (
             <details className="group">
@@ -490,7 +492,11 @@ function Content({
   );
 }
 
-function Summary({ totals }: { totals: Totals }) {
+// Funds and crypto totals have no dividends, so those figures are optional here.
+type SummaryTotals = Omit<Totals, "dividends" | "dividends_fy" | "total_return"> & Partial<Pick<Totals, "dividends" | "dividends_fy" | "total_return">>;
+
+function Summary({ totals, showDividends = false }: { totals: SummaryTotals; showDividends?: boolean }) {
+  const hasDividends = showDividends && Number(totals.dividends ?? 0) !== 0;
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <Tile label="Invested" value={formatRupees(totals.invested)} />
@@ -508,6 +514,19 @@ function Summary({ totals }: { totals: Totals }) {
           <Signed value={totals.realised} />
         </span>
       </Tile>
+      {hasDividends && (
+        <>
+          <Tile label="Dividends received" value={formatRupees(totals.dividends ?? "0.00")}>
+            <span className="mt-0.5 block text-xs font-bold text-zinc-600">{formatRupees(totals.dividends_fy ?? "0.00")} this financial year</span>
+          </Tile>
+          <Tile label="Total return">
+            <span className="mt-0.5 block text-[22px] leading-tight font-black tabular-nums break-words">
+              <Signed value={totals.total_return ?? "0.00"} />
+            </span>
+            <span className="block text-xs font-bold text-zinc-600">Gains, sales and dividends</span>
+          </Tile>
+        </>
+      )}
     </div>
   );
 }
@@ -648,6 +667,9 @@ function Overall({ portfolio }: { portfolio: Portfolio }) {
         <span className="mt-0.5 block text-[22px] leading-tight font-black tabular-nums break-words">
           <Signed value={overall.realised} />
         </span>
+        {Number(overall.dividends) !== 0 && (
+          <span className="block text-xs font-bold text-zinc-600">+ {formatRupees(overall.dividends)} dividends</span>
+        )}
       </Tile>
       <div className="sm:col-span-2 lg:col-span-4">
         <Tile label="Split (stocks, funds, crypto)">
