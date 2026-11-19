@@ -38,6 +38,7 @@ from typing import NamedTuple
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.corporate_action import StockAction
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade
 
 PAISE = Decimal("0.01")
@@ -422,9 +423,45 @@ def load_trade_rows(db: Session, user_id: int) -> list[TradeRow]:
             InvestmentTrade.charges,
             InvestmentTrade.opening,
             InvestmentTrade.amount,
+            InvestmentTrade.basis_date,
         ).where(InvestmentTrade.user_id == user_id)
     )
-    return [TradeRow(*row) for row in rows]
+    # Only existing (opening) shares are held back from an action by the day they were entered;
+    # a real past buy is adjusted from its trade date.
+    result = []
+    for row in rows:
+        t = TradeRow(*row)
+        result.append(t._replace(basis_date=t.basis_date if t.opening else t.date))
+    return result
+
+
+def load_action_rows(db: Session, user_id: int) -> list[ActionRow]:
+    """The user's applied corporate actions, the ones `replay` acts on."""
+    rows = db.execute(
+        select(
+            StockAction.id,
+            StockAction.instrument_id,
+            StockAction.kind,
+            StockAction.ex_date,
+            StockAction.ratio_new,
+            StockAction.ratio_old,
+            StockAction.amount_per_share,
+            StockAction.target_instrument_id,
+            StockAction.cost_share_pct,
+        ).where(StockAction.user_id == user_id, StockAction.status == "applied")
+    )
+    return [ActionRow(*row) for row in rows]
+
+
+def user_replay(db: Session, user_id: int, account_id: int | None = None) -> Replay:
+    """Replay of the user's trades and applied actions, or of one account's trades.
+
+    Actions are per instrument, so an account's replay still sees all of them.
+    """
+    trades = load_trade_rows(db, user_id)
+    if account_id is not None:
+        trades = [t for t in trades if t.account_id == account_id]
+    return replay(trades, load_action_rows(db, user_id))
 
 
 def load_kinds(db: Session, user_id: int) -> dict[int, str]:
@@ -457,13 +494,13 @@ def investments_totals(db: Session, user_id: int, kind: str | None = None) -> Po
     only = None
     if kind is not None:
         only = {id_ for id_, k in load_kinds(db, user_id).items() if k == kind}
-    return summarise(replay(load_trade_rows(db, user_id)), latest_prices(db, user_id), only)
+    return summarise(user_replay(db, user_id), latest_prices(db, user_id), only)
 
 
 def holds_units(db: Session, user_id: int, account_id: int, kind: str) -> bool:
     """Whether the account holds any instrument of `kind` ("stock", "mutual_fund" or "crypto")."""
     kinds = load_kinds(db, user_id)
-    result = replay(r for r in load_trade_rows(db, user_id) if r.account_id == account_id)
+    result = user_replay(db, user_id, account_id)
     return any(
         pos.quantity > 0 and kinds.get(pos.instrument_id) == kind
         for pos in result.positions.values()

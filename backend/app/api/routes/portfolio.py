@@ -16,10 +16,9 @@ from app.api.portfolio import (
     fmt_units,
     holding_value,
     latest_prices,
-    load_trade_rows,
-    replay,
     summarise,
     unrealised_percent,
+    user_replay,
 )
 from app.api.routes.accounts import GoalTag, fmt, goal_tag, list_sort_key
 from app.api.routes.coins import CRYPTO
@@ -378,7 +377,7 @@ def _crypto_portfolio(
 
 @router.get("/portfolio")
 def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
-    result = replay(load_trade_rows(db, user.id))
+    result = user_replay(db, user.id)
     prices = latest_prices(db, user.id)
     # Only stocks here; other kinds of instrument have their own screens.
     stocks = {

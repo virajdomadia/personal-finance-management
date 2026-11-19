@@ -15,10 +15,9 @@ from app.api.dates import clamped_date
 from app.api.portfolio import (
     latest_prices,
     load_kinds,
-    load_trade_rows,
-    replay,
     round_paise,
     summarise,
+    user_replay,
 )
 from app.api.routes.accounts import fmt, rupees
 from app.models.account import Account
@@ -292,7 +291,7 @@ def load_goal_book(db: Session, user_id: int, today: date) -> GoalBook:
         i.id: i for i in db.scalars(select(Instrument).where(Instrument.user_id == user_id))
     }
     flows = load_flows(db, user_id)
-    result = replay(load_trade_rows(db, user_id))
+    result = user_replay(db, user_id)
     prices = latest_prices(db, user_id)
     kinds = load_kinds(db, user_id)
     held_units = {pos.instrument_id for pos in result.positions.values() if pos.quantity > 0}

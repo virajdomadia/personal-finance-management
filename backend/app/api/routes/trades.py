@@ -4,6 +4,7 @@ Every save (create, edit, delete) replays the user's stock trades with the chang
 is refused if any sell would then sell more shares than were held on its date (`trade_checks`).
 """
 
+from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any
 
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
-from app.api.portfolio import TradeRow, load_trade_rows, replay, stock_amount
+from app.api.portfolio import TradeRow, stock_amount, user_replay
 from app.api.routes.accounts import MAX_ID, MAX_MONEY, Flag, Money, field_error, fmt
 from app.api.routes.stocks import (
     STOCK,
@@ -201,7 +202,7 @@ def _response(
 def _saved_response(
     db: Session, user_id: int, t: InvestmentTrade, account: Account
 ) -> TradeResponse:
-    realised = replay(load_trade_rows(db, user_id)).realised_by_sell
+    realised = user_replay(db, user_id).realised_by_sell
     stock = db.get(Instrument, t.instrument_id)
     assert stock is not None
     return _response(t, stock, account, realised)
@@ -255,6 +256,22 @@ def _stock_and_account(
     return stock, account
 
 
+def _basis_date(db: Session, existing_id: int | None, values: dict[str, Any]) -> date:
+    """The basis date replay will see for the trade once saved: a normal trade's own date; for
+    existing shares, today when created or when quantity or price change, else the stored one."""
+    if not values["opening"]:
+        return values["date"]
+    old = db.get(InvestmentTrade, existing_id) if existing_id is not None else None
+    if (
+        old is not None
+        and old.opening
+        and old.quantity == values["quantity"]
+        and old.price == values["price"]
+    ):
+        return old.basis_date
+    return today_india()
+
+
 def stock_save_checks(
     db: Session,
     user_id: int,
@@ -286,6 +303,7 @@ def stock_save_checks(
         values["charges"],
         values["opening"],
         stock_amount(values["side"], values["quantity"], values["price"], values["charges"]),
+        _basis_date(db, existing_id, values),
     )
     check_cash_and_holdings(db, user_id, accounts, row, existing_id, "price", STOCK_SHORT)
     return stock, account
@@ -309,7 +327,7 @@ def list_trades(
         query = query.where(InvestmentTrade.account_id == account_id)
     found = db.scalars(query.order_by(InvestmentTrade.date.desc(), InvestmentTrade.id.desc())).all()
     # Realised P&L depends on every earlier trade of the holding, so replay them all.
-    realised = replay(load_trade_rows(db, user.id)).realised_by_sell
+    realised = user_replay(db, user.id).realised_by_sell
     stocks = {
         s.id: s
         for s in db.scalars(

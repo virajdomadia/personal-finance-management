@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api.dates import iso_date, today_india
 from app.api.deps import CurrentUser, get_current_user
 from app.api.goals import GoalResponse, load_goal_book
-from app.api.portfolio import load_trade_rows, replay
+from app.api.portfolio import user_replay
 from app.api.routes.accounts import MAX_ID, Money, Ref, clean_text, field_error, fmt, rupees
 from app.api.routes.stocks import Deleted
 from app.api.routes.transactions import lock_accounts
@@ -475,7 +475,7 @@ def add_holding(id: int, body: HoldingCreate, user: CurrentUser, db: DbSession) 
     if holder is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, f"{name} is already in {holder}.")
     if body.instrument_id is not None:
-        result = replay(load_trade_rows(db, user.id))
+        result = user_replay(db, user.id)
         held = any(
             pos.instrument_id == body.instrument_id and pos.quantity > 0
             for pos in result.positions.values()
