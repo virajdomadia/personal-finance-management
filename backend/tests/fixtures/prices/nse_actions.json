@@ -1,0 +1,10 @@
+[
+  {"symbol": "RELIANCE", "series": "EQ", "isin": "INE002A01018", "comp": "Reliance Industries Limited", "subject": "Bonus 1:1", "faceVal": "10", "exDate": "28-Oct-2026", "recDate": "29-Oct-2026"},
+  {"symbol": "TCS", "series": "EQ", "isin": "INE467B01029", "comp": "Tata Consultancy Services Limited", "subject": "Final Dividend - Rs 10 Per Share / Special Dividend - Rs 5 Per Share", "faceVal": "1", "exDate": "12-Mar-2026", "recDate": "-"},
+  {"symbol": "INFY", "series": "EQ", "isin": "INE009A01021", "comp": "Infosys Limited", "subject": "Face Value Split (Sub-Division) - From Rs 10/- Per Share To Re 1/- Per Share", "faceVal": "1", "exDate": "05-Jan-2026", "recDate": "06-Jan-2026"},
+  {"symbol": "ABC", "series": "EQ", "isin": "-", "comp": "Abc Limited", "subject": "Annual General Meeting", "faceVal": "10", "exDate": "01-Feb-2026", "recDate": "-"},
+  {"symbol": "XYZ", "series": "EQ", "isin": "INE000X01010", "comp": "Xyz Limited", "subject": "Rights 1:5 @ Premium Rs 100/-", "faceVal": "10", "exDate": "01-Feb-2026", "recDate": "-"},
+  {"symbol": "BADDATE", "series": "EQ", "isin": "INE000B01010", "comp": "Bad Date Limited", "subject": "Bonus 1:1", "faceVal": "10", "exDate": "-", "recDate": "-"},
+  {"symbol": "", "series": "EQ", "isin": "INE000C01010", "comp": "No Symbol Limited", "subject": "Bonus 1:1", "faceVal": "10", "exDate": "01-Feb-2026", "recDate": "-"},
+  "not a row"
+]
