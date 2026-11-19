@@ -37,6 +37,7 @@ from app.api.routes.accounts import (
     field_error,
     fmt,
 )
+from app.api.suggest import suggest_category
 from app.db.session import DbSession
 from app.models.account import Account
 from app.models.insurance import InsurancePolicy
@@ -156,6 +157,11 @@ class TransactionList(BaseModel):
 class CategoryList(BaseModel):
     income: list[str]
     expense: list[str]
+
+
+class CategorySuggestion(BaseModel):
+    category: str | None
+    source: Literal["history", "keywords"] | None
 
 
 def _to_response(tx: Transaction, accounts: dict[int, Account]) -> TransactionResponse:
@@ -521,6 +527,19 @@ def list_categories(user: CurrentUser, db: DbSession) -> CategoryList:
     )
     db.commit()  # a first read seeds the defaults
     return result
+
+
+@router.get("/suggest-category")
+def suggest_category_route(
+    user: CurrentUser,
+    db: DbSession,
+    type: Literal["expense", "income"],
+    note: Annotated[str, Query(max_length=200)] = "",
+) -> CategorySuggestion:
+    """The category a note most likely belongs to: the owner's history, then everyday words."""
+    category, source = suggest_category(db, user.id, type, note)
+    db.commit()  # a first read seeds the defaults
+    return CategorySuggestion(category=category, source=source)
 
 
 @router.get("")
