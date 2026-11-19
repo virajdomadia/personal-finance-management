@@ -157,5 +157,40 @@ def test_bad_type_is_rejected(headers: Headers) -> None:
     assert response.status_code == 422
 
 
-def test_needs_sign_in() -> None:
+def test_needs_sign_in(headers: Headers) -> None:
+    # `headers` sets up the test database and a production-mode token secret, as elsewhere.
     assert client.get(URL, params={"type": "expense", "note": "rent"}).status_code == 401
+
+
+@pytest.mark.parametrize(
+    "note",
+    ["auto debit", "of course", "engine oil", "visa card bill", "watch"],
+)
+def test_common_words_do_not_misfire(headers: Headers, note: str) -> None:
+    assert suggest(headers, note)["category"] is None
+
+
+@pytest.mark.parametrize(
+    ("note", "category"),
+    [
+        ("auto rickshaw", "Transport"),
+        ("watch movie", "Entertainment"),
+        ("uber eats", "Food and dining"),
+        ("amazon fresh", "Groceries"),
+        ("cooking oil", "Groceries"),
+    ],
+)
+def test_more_specific_phrases(headers: Headers, note: str, category: str) -> None:
+    assert suggest(headers, note)["category"] == category
+
+
+@pytest.mark.parametrize(
+    ("note", "category"),
+    [
+        ("McDonald's", "Food and dining"),
+        ("ice-cream", "Food and dining"),
+        ("Domino’s", "Food and dining"),
+    ],
+)
+def test_apostrophes_and_hyphens(headers: Headers, note: str, category: str) -> None:
+    assert suggest(headers, note)["category"] == category

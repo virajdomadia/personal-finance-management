@@ -58,6 +58,7 @@ _EXPENSE: dict[str, list[str]] = {
         "cafe",
         "canteen",
         "dhaba",
+        "uber eats",
         "tiffin",
         "swiggy",
         "zomato",
@@ -91,7 +92,7 @@ _EXPENSE: dict[str, list[str]] = {
         "rice",
         "atta",
         "dal",
-        "oil",
+        "cooking oil",
         "sugar",
         "salt",
         "masala",
@@ -103,13 +104,15 @@ _EXPENSE: dict[str, list[str]] = {
         "zepto",
         "instamart",
         "jiomart",
+        "amazon fresh",
         "supermarket",
     ],
     "Transport": [
         "uber",
         "ola",
         "rapido",
-        "auto",
+        "auto rickshaw",
+        "auto fare",
         "rickshaw",
         "taxi",
         "cab",
@@ -168,7 +171,8 @@ _EXPENSE: dict[str, list[str]] = {
         "shoes",
         "chappal",
         "slippers",
-        "watch",
+        "wrist watch",
+        "smartwatch",
         "bag",
         "electronics",
         "headphones",
@@ -208,6 +212,7 @@ _EXPENSE: dict[str, list[str]] = {
         "spotify",
         "youtube premium",
         "movie",
+        "watch movie",
         "movies",
         "cinema",
         "pvr",
@@ -225,7 +230,7 @@ _EXPENSE: dict[str, list[str]] = {
         "college fees",
         "tuition",
         "coaching",
-        "course",
+        "online course",
         "books",
         "exam fee",
         "udemy",
@@ -246,7 +251,7 @@ _EXPENSE: dict[str, list[str]] = {
         "airbnb",
         "oyo",
         "resort",
-        "visa",
+        "visa fee",
     ],
     "Gifts and donations": [
         "gift",
@@ -295,12 +300,17 @@ def normalise(note: str) -> str:
     return " ".join(note.casefold().split())
 
 
+def _keyword_text(note: str) -> str:
+    """The note as keywords see it: "McDonald's" as "mcdonalds", "ice-cream" as "ice cream"."""
+    return normalise(re.sub(r"[-‐–—]", " ", re.sub(r"['’`]", "", note)))
+
+
 def keyword_category(note: str, kind: str) -> str | None:
     """The default category of the longest known phrase in the note, or None."""
     pattern = _PATTERNS.get(kind)
     if pattern is None:
         return None
-    text = normalise(note)
+    text = _keyword_text(note)
     matches = [m.group(1) for m in pattern.finditer(text)]
     if not matches:
         return None
