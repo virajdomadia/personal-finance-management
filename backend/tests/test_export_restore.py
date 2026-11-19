@@ -4,7 +4,7 @@ figure the app shows comes out the same."""
 import json
 import random
 from contextlib import nullcontext
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -479,6 +479,8 @@ def test_restoring_a_backup_without_basis_date(me: Headers, db_session: Session)
     for row in document["tables"]["investment_trades"]:
         del row["basis_date"]
         moment = datetime.fromisoformat(row["updated_at"])
+        if moment.tzinfo is None:  # stored as UTC (SQLite drops the zone), as restore assumes
+            moment = moment.replace(tzinfo=UTC)
         expected.append((date.fromisoformat(row["date"]), moment.astimezone(INDIA).date()))
     _restore_into(db_session, "copy@example.com", document)
     assert _trade_dates(db_session, "copy@example.com") == sorted(expected)

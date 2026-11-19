@@ -14,11 +14,19 @@ from app.models.sms import AccountIdentifier, PayeeRule, SmsEntry
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.sms import ingest as ingest_module
+from tests.clock import pin_india_today
 from tests.test_accounts import Headers, auth, make
 
 client = TestClient(app)
+TODAY = today_india()
 
 URL = "/api/sms/entries"
+
+
+@pytest.fixture(autouse=True)
+def _pinned_today(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The app's "today" stays TODAY even if the run crosses midnight in India.
+    pin_india_today(monkeypatch, TODAY)
 
 
 @pytest.fixture
@@ -520,7 +528,7 @@ def test_each_entry_stands_alone(headers: Headers, db_session: Session) -> None:
         {"amount": None},
         {"amount": "0.00"},
         {"last4": "12a4"},
-        {"date": (today_india() + timedelta(days=1)).isoformat()},
+        {"date": (TODAY + timedelta(days=1)).isoformat()},
         {"kind": "refund"},
         {"sender": "x" * 21},
         {"text": "Debited Rs 243"},
