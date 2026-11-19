@@ -347,6 +347,23 @@ def test_status_transitions(headers: Headers) -> None:
     assert patch(headers, action["id"], status="maybe").status_code == 422
 
 
+def test_owner_dismiss_and_restore_clear_auto_dismissed(
+    headers: Headers, db_session: Session
+) -> None:
+    _, infy = holding(headers)
+    action = created(headers, infy)
+    row = db_session.get(StockAction, action["id"])
+    assert row is not None and row.auto_dismissed is False
+    row.status, row.auto_dismissed = "dismissed", True  # as the nightly matcher leaves it
+    db_session.commit()
+    patched(headers, action["id"], status="pending")
+    db_session.refresh(row)
+    assert (row.status, row.auto_dismissed) == ("pending", False)
+    patched(headers, action["id"], status="dismissed")
+    db_session.refresh(row)
+    assert (row.status, row.auto_dismissed) == ("dismissed", False)
+
+
 def test_fields_edit_only_while_pending(headers: Headers) -> None:
     _, infy = holding(headers)
     action = created(headers, infy)

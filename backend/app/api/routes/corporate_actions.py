@@ -598,6 +598,8 @@ def update_action(id: int, body: ActionUpdate, user: CurrentUser, db: DbSession)
         for field, column in _EDITABLE:
             if field in changes:
                 setattr(action, column, changes[field])
+    if new_status != old_status:
+        action.auto_dismissed = False  # the owner decided: never re-opened on their behalf
     action.status = new_status
 
     # Dismissing or undoing needs nothing more; an edit or a confirmation must make sense.

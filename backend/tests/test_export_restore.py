@@ -28,6 +28,7 @@ from app.export.backup import (
 from app.main import app
 from app.models.account import Account
 from app.models.category import Category
+from app.models.corporate_action import StockAction
 from app.models.investment import InvestmentTrade
 from app.models.market import MarketCode
 from app.models.transaction import Transaction
@@ -491,3 +492,28 @@ def test_basis_date_falls_back_to_the_trade_date() -> None:
     # 20:00 UTC is already the next day in India.
     [row] = _fill_basis_date([{"date": "2024-05-06", "updated_at": "2026-11-18T20:00:00+00:00"}])
     assert row["basis_date"] == "2026-11-19"
+
+
+def _auto_dismissed(db: Session, email: str) -> list[tuple[str, str, bool]]:
+    user = db.scalars(select(User).where(User.email == email)).one()
+    rows = db.scalars(select(StockAction).where(StockAction.user_id == user.id)).all()
+    return sorted((r.kind, r.status, r.auto_dismissed) for r in rows)
+
+
+def test_restore_keeps_which_actions_were_dismissed_automatically(
+    me: Headers, db_session: Session
+) -> None:
+    user = db_session.scalars(select(User).where(User.email == "me@example.com")).one()
+    db_session.execute(
+        update(StockAction)
+        .where(StockAction.user_id == user.id, StockAction.kind == "split")
+        .values(status="dismissed", auto_dismissed=True)
+    )
+    db_session.commit()
+    before = _auto_dismissed(db_session, "me@example.com")
+    assert ("split", "dismissed", True) in before
+
+    document = _backup(me)
+    assert {r["auto_dismissed"] for r in document["tables"]["stock_actions"]} == {True, False}
+    _restore_into(db_session, "copy@example.com", document)
+    assert _auto_dismissed(db_session, "copy@example.com") == before

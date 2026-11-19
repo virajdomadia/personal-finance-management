@@ -75,6 +75,7 @@ def upgrade() -> None:
         sa.Column("ratio_old", sa.Numeric(14, 6), nullable=True),
         sa.Column("amount_per_share", sa.Numeric(14, 4), nullable=True),
         sa.Column("status", sa.String(10), nullable=False),
+        sa.Column("auto_dismissed", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.Column("target_instrument_id", sa.Integer(), nullable=True),
         sa.Column("cost_share_pct", sa.Numeric(7, 4), nullable=True),
         _stamp("created_at"),

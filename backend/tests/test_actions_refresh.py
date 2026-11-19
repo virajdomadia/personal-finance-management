@@ -1,7 +1,7 @@
 """The nightly corporate-actions step: fetch, store once, match to holders, backfill history."""
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -20,6 +20,7 @@ from app.prices.fetch import SourceTimeout
 from app.prices.refresh import RefreshReport, refresh_market, run_nightly
 from tests.price_fakes import STOCK_CLOSE, STOCK_CODE, FakeFetcher
 from tests.test_accounts import Headers, auth
+from tests.test_trades import broker, stock
 
 client = TestClient(app)
 TODAY = date(2026, 11, 19)
@@ -119,6 +120,7 @@ def test_split_for_held_stock_creates_pending_row(db_session: Session) -> None:
 
     [row] = h.rows()
     assert (row.kind, row.status, row.ex_date) == ("split", "pending", date(2026, 11, 15))
+    assert row.auto_dismissed is False
     assert (row.ratio_new, row.ratio_old) == (Decimal("10"), Decimal("1"))
     assert row.user_id == h.user_id and row.corporate_action_id is not None
     assert report.updated["actions"] == 1 and "actions" not in report.failed
@@ -135,7 +137,7 @@ def test_split_for_opening_lot_entered_after_ex_date_is_silently_dismissed(
     run(db_session, fake(nse=[nse_row(SPLIT, "15-Nov-2026")]))
 
     [row] = h.rows()
-    assert (row.kind, row.status) == ("split", "dismissed")
+    assert (row.kind, row.status, row.auto_dismissed) == ("split", "dismissed", True)
 
 
 def test_dividend_for_held_stock_is_applied(db_session: Session) -> None:
@@ -640,3 +642,146 @@ def test_dismissed_action_does_not_count_as_known(db_session: Session) -> None:
     )
     h.db.commit()
     assert flag_suspect_drops(db_session, TODAY) == 1
+
+
+# Re-evaluating when a stock trade is saved dated before an action (spec, "Opening shares").
+EX_PAST = date.today() - timedelta(days=30)
+TRADES = "/api/investments/trades"
+
+
+class ApiHolder:
+    """A user with a broker and a stock linked to INFY, made through the API."""
+
+    def __init__(self, db: Session, headers: Headers) -> None:
+        self.db, self.headers = db, headers
+        self.broker_id = broker(headers, balance="1000000.00")
+        self.stock_id = stock(headers)
+        inst = self.instrument()
+        inst.source_code = "INFY"
+        db.commit()
+
+    def instrument(self) -> Instrument:
+        self.db.expire_all()
+        inst = self.db.get(Instrument, self.stock_id)
+        assert inst is not None
+        return inst
+
+    def trade(self, day: date, **fields: object) -> dict:
+        body = {"stock_id": self.stock_id, "account_id": self.broker_id, "side": "buy",
+                "date": day.isoformat(), "quantity": 10, "price": "100.00", **fields}  # fmt: skip
+        response = client.post(TRADES, json=body, headers=self.headers)
+        assert response.status_code == 201, response.json()
+        return response.json()
+
+    def feed(self, ex: date = EX_PAST, purpose: str = SPLIT) -> CorporateAction:
+        row = CorporateAction(
+            symbol="INFY", kind="split", ex_date=ex, ratio_new=Decimal(10), ratio_old=Decimal(1),
+            purpose=purpose, purpose_key=purpose.lower(), source="nse",
+        )  # fmt: skip
+        self.db.add(row)
+        self.db.commit()
+        return row
+
+    def dismissed(self, auto: bool) -> StockAction:
+        feed = self.feed()
+        user_id = self.instrument().user_id
+        row = StockAction(
+            user_id=user_id, instrument_id=self.stock_id, corporate_action_id=feed.id,
+            kind="split", ex_date=feed.ex_date, ratio_new=feed.ratio_new,
+            ratio_old=feed.ratio_old, status="dismissed", auto_dismissed=auto,
+        )  # fmt: skip
+        self.db.add(row)
+        self.db.commit()
+        return row
+
+    def rows(self) -> list[StockAction]:
+        self.db.expire_all()
+        return list(
+            self.db.scalars(
+                select(StockAction)
+                .where(StockAction.instrument_id == self.stock_id)
+                .order_by(StockAction.id)
+            )
+        )
+
+
+def test_buy_before_an_auto_dismissed_split_reopens_it(
+    db_session: Session, headers: Headers
+) -> None:
+    h = ApiHolder(db_session, headers)
+    h.trade(date(2020, 1, 1), opening=True)  # copied from the broker app today
+    row = h.dismissed(auto=True)
+
+    h.trade(EX_PAST + timedelta(days=1))  # after the split: nothing to adjust
+    [after] = h.rows()
+    assert (after.status, after.auto_dismissed) == ("dismissed", True)
+
+    h.trade(EX_PAST - timedelta(days=10))  # a real buy before the split
+    [after] = h.rows()
+    assert (after.id, after.status, after.auto_dismissed) == (row.id, "pending", False)
+
+
+def test_editing_a_trade_to_before_an_auto_dismissed_split_reopens_it(
+    db_session: Session, headers: Headers
+) -> None:
+    h = ApiHolder(db_session, headers)
+    h.trade(date(2020, 1, 1), opening=True)
+    h.dismissed(auto=True)
+    buy = h.trade(EX_PAST + timedelta(days=1))
+    moved = client.patch(
+        f"{TRADES}/{buy['id']}",
+        json={"date": (EX_PAST - timedelta(days=1)).isoformat()},
+        headers=headers,
+    )
+    assert moved.status_code == 200, moved.json()
+    assert [r.status for r in h.rows()] == ["pending"]
+
+
+def test_a_split_the_owner_dismissed_is_never_reopened(
+    db_session: Session, headers: Headers
+) -> None:
+    h = ApiHolder(db_session, headers)
+    h.trade(date(2020, 1, 1), opening=True)
+    h.dismissed(auto=False)
+
+    h.trade(EX_PAST - timedelta(days=10))
+
+    assert [(r.status, r.auto_dismissed) for r in h.rows()] == [("dismissed", False)]
+
+
+def test_a_trade_before_the_first_one_queues_the_backfill_again(
+    db_session: Session, headers: Headers
+) -> None:
+    h = ApiHolder(db_session, headers)
+    first = EX_PAST - timedelta(days=20)
+    h.trade(first)
+
+    def mark() -> None:
+        h.instrument().actions_backfilled_at = datetime(2026, 11, 1, tzinfo=UTC)
+        db_session.commit()
+
+    mark()
+    h.trade(first + timedelta(days=1))
+    assert h.instrument().actions_backfilled_at is not None  # inside the fetched history
+    h.trade(first)
+    assert h.instrument().actions_backfilled_at is not None
+    h.trade(first - timedelta(days=1))
+    assert h.instrument().actions_backfilled_at is None  # before it: fetch again
+
+
+def test_a_stored_action_with_no_row_is_matched_on_a_backdated_save(
+    db_session: Session, headers: Headers
+) -> None:
+    h = ApiHolder(db_session, headers)
+    h.trade(date(2020, 1, 1), opening=True)
+    feed = h.feed()  # stored, but the opening shares made nothing to review
+    assert h.rows() == []
+
+    h.trade(EX_PAST + timedelta(days=1))
+    assert h.rows() == []  # dated after it: still nothing to adjust
+
+    h.trade(EX_PAST - timedelta(days=10))
+
+    [row] = h.rows()
+    assert (row.corporate_action_id, row.kind, row.status) == (feed.id, "split", "pending")
+    assert row.auto_dismissed is False

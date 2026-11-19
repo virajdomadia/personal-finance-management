@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
-from app.api.portfolio import TradeRow, stock_amount, user_replay
+from app.api.portfolio import TradeRow, load_trade_rows, stock_amount, user_replay
 from app.api.routes.accounts import MAX_ID, MAX_MONEY, Flag, Money, field_error, fmt
 from app.api.routes.stocks import (
     STOCK,
@@ -41,6 +41,7 @@ from app.db.session import DbSession
 from app.models.account import Account
 from app.models.investment import Instrument, InvestmentTrade
 from app.models.sms import SmsEntry
+from app.prices.actions_refresh import reevaluate_for_trade
 
 router = APIRouter(
     prefix="/investments", tags=["investments"], dependencies=[Depends(get_current_user)]
@@ -280,7 +281,10 @@ def stock_save_checks(
     values: dict[str, Any],
     existing_id: int | None,
 ) -> tuple[Instrument, Account]:
-    """Checks for a create or an edit, in order. `values` is the whole trade after the change."""
+    """Checks for a create or an edit, in order. `values` is the whole trade after the change.
+
+    Once they pass, the stock's corporate actions are re-evaluated with the trade in place
+    (`reevaluate_for_trade`); the caller saves the trade and commits both together."""
     _validate_fields(values)
     stock, account = _stock_and_account(db, user_id, values, accounts)
     if values["side"] == "sell" and values["opening"]:
@@ -307,6 +311,10 @@ def stock_save_checks(
         _basis_date(db, existing_id, values),
     )
     check_cash_and_holdings(db, user_id, accounts, row, existing_id, "price", STOCK_SHORT)
+    # Every stock trade save comes through here (the form, holdings import, SMS), so corporate
+    # actions dated after this trade are looked at again with it in place.
+    trades = [*(r for r in load_trade_rows(db, user_id) if r.id != existing_id), row]
+    reevaluate_for_trade(db, user_id, stock, values["date"], trades)
     return stock, account
 
 

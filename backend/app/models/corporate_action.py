@@ -11,6 +11,7 @@ from collections.abc import Iterable
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -18,6 +19,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     delete,
+    false,
     func,
 )
 from sqlalchemy.orm import Mapped, Session, mapped_column
@@ -71,6 +73,9 @@ class StockAction(Base):
     ratio_old: Mapped[Decimal | None] = mapped_column(Numeric(14, 6))
     amount_per_share: Mapped[Decimal | None] = mapped_column(Numeric(14, 4))
     status: Mapped[str] = mapped_column(String(10))
+    # Dismissed by the nightly matcher because it changed no lot, not by the owner. Such a row
+    # is re-evaluated when a stock trade dated before its ex-date is saved.
+    auto_dismissed: Mapped[bool] = mapped_column(Boolean, server_default=false(), default=False)
     target_instrument_id: Mapped[int | None] = mapped_column(
         ForeignKey("instruments.id"), index=True
     )

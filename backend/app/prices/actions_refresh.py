@@ -128,7 +128,7 @@ def _status(
     trades: list[TradeRow],
     applied: list[ActionRow],
     instrument_id: int,
-    action: CorporateAction,
+    action: CorporateAction | StockAction,
 ) -> str | None:
     """The new row's status for this holding, or None if it was not held on the ex-date eve.
 
@@ -248,30 +248,88 @@ def match_to_users(db: Session, actions: list[CorporateAction], today: date | No
             state = users.get(user_id)
             if state is None:
                 state = users[user_id] = _UserState(db, user_id)
-            if state.has(inst_id, action):
-                continue
-            if action.ex_date > today and not state.holds_now(inst_id):
-                continue
-            status = _status(state.trades, state.applied, inst_id, action)
-            if status is None:
-                continue
-            db.add(
-                StockAction(
-                    user_id=user_id,
-                    instrument_id=inst_id,
-                    corporate_action_id=action.id,
-                    kind=action.kind,
-                    ex_date=action.ex_date,
-                    ratio_new=action.ratio_new,
-                    ratio_old=action.ratio_old,
-                    amount_per_share=action.amount_per_share,
-                    status=status,
-                )
-            )
-            state.add(inst_id, action.id, action.kind, action.ex_date, action.amount_per_share)
-            created += 1
+            created += _match(db, state, user_id, inst_id, action, today)
     db.flush()
     return created
+
+
+def _match(
+    db: Session, state: _UserState, user_id: int, inst_id: int, action: CorporateAction, today: date
+) -> bool:
+    """Adds the user's row for this action on this holding if they need one; True if added."""
+    if state.has(inst_id, action):
+        return False
+    if action.ex_date > today and not state.holds_now(inst_id):
+        return False
+    status = _status(state.trades, state.applied, inst_id, action)
+    if status is None:
+        return False
+    db.add(
+        StockAction(
+            user_id=user_id,
+            instrument_id=inst_id,
+            corporate_action_id=action.id,
+            kind=action.kind,
+            ex_date=action.ex_date,
+            ratio_new=action.ratio_new,
+            ratio_old=action.ratio_old,
+            amount_per_share=action.amount_per_share,
+            status=status,
+            # Changed no lot, so nobody was asked: a backdated trade may re-open it.
+            auto_dismissed=status == "dismissed",
+        )
+    )
+    state.add(inst_id, action.id, action.kind, action.ex_date, action.amount_per_share)
+    return True
+
+
+def reevaluate_for_trade(
+    db: Session, user_id: int, instrument: Instrument, day: date, trades: list[TradeRow]
+) -> None:
+    """After a stock trade dated `day` is saved (`trades` are the user's trades with it).
+
+    Rows the matcher dismissed itself with a later ex-date are probed again as the matcher
+    would, and re-open as pending if the event now changes a lot; rows the owner dismissed stay
+    as they are. A trade before the stock's earliest one queues its history to be fetched
+    again. Stored events after `day` that this user has no row for are matched now, from the
+    database only. Flushes; the caller commits.
+    """
+    applied = load_action_rows(db, user_id)
+    rows = db.scalars(
+        select(StockAction).where(
+            StockAction.user_id == user_id,
+            StockAction.instrument_id == instrument.id,
+            StockAction.status == "dismissed",
+            StockAction.auto_dismissed.is_(True),
+            StockAction.ex_date > day,
+        )
+    ).all()
+    for row in rows:
+        if _status(trades, applied, instrument.id, row) == "pending":
+            row.status, row.auto_dismissed = "pending", False
+
+    earliest = db.scalar(
+        select(func.min(InvestmentTrade.date)).where(
+            InvestmentTrade.user_id == user_id, InvestmentTrade.instrument_id == instrument.id
+        )
+    )
+    if instrument.actions_backfilled_at is not None and (earliest is None or day < earliest):
+        instrument.actions_backfilled_at = None
+
+    if instrument.source_code is not None:
+        stored = db.scalars(
+            select(CorporateAction)
+            .where(CorporateAction.symbol == instrument.source_code, CorporateAction.ex_date > day)
+            .order_by(CorporateAction.ex_date, CorporateAction.id)
+        ).all()
+        if stored:
+            db.flush()  # rows re-opened above count as existing
+            state = _UserState(db, user_id)
+            state.trades = trades
+            today = dates.today_india()
+            for action in stored:
+                _match(db, state, user_id, instrument.id, action, today)
+    db.flush()
 
 
 # The step itself.
