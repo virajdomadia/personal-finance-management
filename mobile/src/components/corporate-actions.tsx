@@ -13,23 +13,27 @@ import {
   type CorporateAction,
   type Stock,
   type StockActions,
+  canConfirm,
   cleanPercent,
   describeAction,
   describePreview,
   dividendLabel,
   isUpcoming,
   needsTarget,
+  ratioProblem,
 } from "@/lib/investments";
 import { useSession } from "@/lib/session";
 import { BRAND } from "@/lib/theme";
 import { formatDate, todayIndia } from "@/lib/transactions";
 
-type Change = { status?: "pending" | "applied" | "dismissed"; target_stock_id?: number; cost_share_pct?: string };
+// What the target dialog adds to the PATCH that confirms a merger or demerger.
+type TargetFields = { target_stock_id: number; ratio_new: string; ratio_old: string; cost_share_pct?: string };
+type Change = { status?: "pending" | "applied" | "dismissed" } & Partial<TargetFields>;
 
 // What to show for a failed request: a 409 or 422 carries the server's own words.
 function failureText(err: unknown): string {
   if (err instanceof ApiError && err.status === 422) {
-    const { fields, general } = splitErrors(err.detail, ["target_stock_id", "cost_share_pct"]);
+    const { fields, general } = splitErrors(err.detail, ["target_stock_id", "cost_share_pct", "ratio_new", "ratio_old"]);
     const all = [...Object.values(fields), ...general];
     if (all.length > 0) return all.join(" ");
   }
@@ -56,7 +60,8 @@ function useUpdateAction() {
   );
 }
 
-// Picks the stock a merger or demerger moves into (and, for a demerger, the share of cost that goes).
+// Picks the stock a merger or demerger moves into, how many new shares come for how many held (the
+// exchange's notice never says) and, for a demerger, the share of cost that goes.
 function TargetDialog({
   action,
   onClose,
@@ -64,13 +69,15 @@ function TargetDialog({
 }: {
   action: CorporateAction;
   onClose: () => void;
-  onConfirm: (target: number, costPct: string | null) => Promise<string | null>;
+  onConfirm: (fields: TargetFields) => Promise<string | null>;
 }) {
   const { token } = useSession();
   const demerger = action.kind === "demerger";
   const [stocks, setStocks] = useState<Stock[] | null>(null);
   const [target, setTarget] = useState<number | null>(action.target_stock_id);
   const [pct, setPct] = useState(action.cost_share_pct ?? "");
+  const [ratioNew, setRatioNew] = useState(action.ratio_new ?? "");
+  const [ratioOld, setRatioOld] = useState(action.ratio_old ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -90,6 +97,11 @@ function TargetDialog({
       setError("Pick the stock the shares move into.");
       return;
     }
+    const badRatio = ratioProblem(ratioNew, ratioOld);
+    if (badRatio !== null) {
+      setError(badRatio);
+      return;
+    }
     if (demerger && (pct === "" || Number(pct) <= 0 || Number(pct) >= 100)) {
       setError("Enter the share of cost that moves, above 0 and below 100.");
       return;
@@ -97,7 +109,12 @@ function TargetDialog({
     savingRef.current = true;
     setSaving(true);
     setError(null);
-    const message = await onConfirm(target, demerger ? pct : null);
+    const message = await onConfirm({
+      target_stock_id: target,
+      ratio_new: ratioNew,
+      ratio_old: ratioOld,
+      ...(demerger ? { cost_share_pct: pct } : {}),
+    });
     savingRef.current = false;
     setSaving(false);
     if (message) setError(message);
@@ -135,6 +152,26 @@ function TargetDialog({
             ))}
           </ScrollView>
         )}
+        <View style={styles.ratio}>
+          <TextInput
+            mode="outlined"
+            label="New shares"
+            keyboardType="decimal-pad"
+            value={ratioNew}
+            disabled={saving}
+            onChangeText={(v) => setRatioNew(cleanPercent(v))}
+            style={styles.ratioField}
+          />
+          <TextInput
+            mode="outlined"
+            label="For shares held"
+            keyboardType="decimal-pad"
+            value={ratioOld}
+            disabled={saving}
+            onChangeText={(v) => setRatioOld(cleanPercent(v))}
+            style={styles.ratioField}
+          />
+        </View>
         {demerger ? (
           <TextInput
             mode="outlined"
@@ -254,14 +291,16 @@ export function ActionsReview({ reloadKey, onChanged }: { reloadKey: unknown; on
                 disabled={busy !== null}
                 onPress={() => void dismiss(a)}
               />
-              <ChunkyButton
-                compact
-                label="Confirm"
-                accessibilityLabel={`Confirm ${a.symbol}: ${describeAction(a)}`}
-                loading={busy === a.id}
-                disabled={busy !== null}
-                onPress={() => void confirm(a)}
-              />
+              {canConfirm(a) ? (
+                <ChunkyButton
+                  compact
+                  label="Confirm"
+                  accessibilityLabel={`Confirm ${a.symbol}: ${describeAction(a)}`}
+                  loading={busy === a.id}
+                  disabled={busy !== null}
+                  onPress={() => void confirm(a)}
+                />
+              ) : null}
             </View>
           </View>
         );
@@ -271,12 +310,8 @@ export function ActionsReview({ reloadKey, onChanged }: { reloadKey: unknown; on
           <TargetDialog
             action={targeting}
             onClose={() => setTargeting(null)}
-            onConfirm={async (stockId, pct) => {
-              const message = await change(targeting, {
-                status: "applied",
-                target_stock_id: stockId,
-                ...(pct !== null ? { cost_share_pct: pct } : {}),
-              });
+            onConfirm={async (fields) => {
+              const message = await change(targeting, { status: "applied", ...fields });
               if (message === null) setTargeting(null);
               return message;
             }}
@@ -433,8 +468,18 @@ export function StockActionsSection({ stock, onChanged }: { stock: { id: number;
                   {a.status === "pending" ? (
                     <>
                       <ChunkyButton compact variant="alt" label="Dismiss" disabled={busy} onPress={() => void run(a.id, { status: "dismissed" })} />
-                      <ChunkyButton compact label="Confirm" disabled={busy} onPress={() => confirm(a)} />
+                      {canConfirm(a) ? <ChunkyButton compact label="Confirm" disabled={busy} onPress={() => confirm(a)} /> : null}
                     </>
+                  ) : null}
+                  {a.status === "applied" && a.kind === "dividend" ? (
+                    <ChunkyButton
+                      compact
+                      variant="alt"
+                      label="Dismiss"
+                      accessibilityLabel={`Dismiss ${describeAction(a)}`}
+                      disabled={busy}
+                      onPress={() => void run(a.id, { status: "dismissed" })}
+                    />
                   ) : null}
                   {a.status === "applied" ? (
                     <ChunkyButton
@@ -460,12 +505,8 @@ export function StockActionsSection({ stock, onChanged }: { stock: { id: number;
           <TargetDialog
             action={targeting}
             onClose={() => setTargeting(null)}
-            onConfirm={async (stockId, pct) => {
-              const message = await run(targeting.id, {
-                status: "applied",
-                target_stock_id: stockId,
-                ...(pct !== null ? { cost_share_pct: pct } : {}),
-              });
+            onConfirm={async (fields) => {
+              const message = await run(targeting.id, { status: "applied", ...fields });
               if (message === null) setTargeting(null);
               return message;
             }}
@@ -488,4 +529,6 @@ const styles = StyleSheet.create({
   stockList: { maxHeight: 180, marginTop: 6 },
   stockChips: { gap: 8, paddingVertical: 4 },
   pct: { marginTop: 12 },
+  ratio: { flexDirection: "row", gap: 8, marginTop: 12 },
+  ratioField: { flex: 1 },
 });

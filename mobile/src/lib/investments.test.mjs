@@ -19,6 +19,8 @@ import {
   isUpcoming,
   needsTarget,
   cleanPercent,
+  canConfirm,
+  ratioProblem,
   formatPercent,
   formatSigned,
   tone,
@@ -367,4 +369,20 @@ test("needsTarget is true for a merger or demerger; cleanPercent keeps digits an
   assert.equal(needsTarget({ kind: "demerger" }), true);
   assert.equal(needsTarget({ kind: "split" }), false);
   assert.equal(cleanPercent("2a5.5%"), "25.5");
+});
+
+test("ratioProblem wants two numbers above 0", () => {
+  const rule = "Enter how many new shares you get for how many you hold, like 1 for 2.";
+  assert.equal(ratioProblem("1", "2"), null);
+  assert.equal(ratioProblem("0.5", "3"), null);
+  assert.equal(ratioProblem("", "2"), rule);
+  assert.equal(ratioProblem("1", ""), rule);
+  assert.equal(ratioProblem("0", "2"), rule);
+  assert.equal(ratioProblem("1", "0.0"), rule);
+  assert.equal(ratioProblem("1.2.3", "2"), rule);
+});
+
+test("canConfirm is false only for an action of no known kind", () => {
+  assert.equal(canConfirm({ kind: "other" }), false);
+  for (const kind of ["split", "consolidation", "bonus", "merger", "demerger", "dividend"]) assert.equal(canConfirm({ kind }), true);
 });
