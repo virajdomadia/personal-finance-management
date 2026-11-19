@@ -183,7 +183,8 @@ class Fetcher:
         }
         data = self._any_json(BSE_ACTIONS_URL, params, headers)
         if isinstance(data, dict):
-            data = data.get("Table") or data.get("data")
+            # An empty table is a quiet day, not a failure: test for the key, not its truth.
+            data = data["Table"] if "Table" in data else data.get("data")
         if not isinstance(data, list):
             raise SourceError("unexpected JSON shape")
         return data

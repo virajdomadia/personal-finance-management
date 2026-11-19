@@ -172,7 +172,7 @@ def parse_bse_actions(payload: Any, isin_to_symbol: dict[str, str]) -> list[Pars
     matched case-insensitively among a few candidates because BSE's names are not stable.
     """
     if isinstance(payload, dict):
-        payload = payload.get("Table") or payload.get("data") or []
+        payload = payload["Table"] if "Table" in payload else payload.get("data")
     if not isinstance(payload, list):
         return []
     actions: list[ParsedAction] = []

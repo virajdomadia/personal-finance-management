@@ -277,6 +277,15 @@ def test_bse_actions_unwraps_a_table_object():
     assert fetcher.bse_actions(date(2026, 10, 1), date(2026, 11, 19)) == rows
 
 
+def test_bse_actions_empty_table_is_no_actions_not_an_error():
+    for body in ({"Table": []}, {"data": []}):
+        fetcher, _ = make_fetcher(lambda r, body=body: httpx.Response(200, json=body))
+        assert fetcher.bse_actions(date(2026, 10, 1), date(2026, 11, 19)) == []
+    fetcher, _ = make_fetcher(lambda r: httpx.Response(200, json={"other": []}))
+    with pytest.raises(SourceError):
+        fetcher.bse_actions(date(2026, 10, 1), date(2026, 11, 19))
+
+
 def test_bse_actions_html_and_403_are_source_errors():
     for response in (httpx.Response(200, text="<HTML>Access Denied"), httpx.Response(403)):
         fetcher, _ = make_fetcher(lambda r, response=response: response)
