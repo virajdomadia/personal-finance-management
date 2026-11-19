@@ -64,6 +64,21 @@ def load(name: str):
         ("Reduction Of Capital", [("other", None, None, None)]),
         ("", []),
         ("   ", []),
+        # Segments joined by a bare "/", but never the "/-" after an amount.
+        ("Annual General Meeting/Dividend - Rs 21 Per Share", [("dividend", None, None, D(21))]),
+        ("AGM/DIVIDEND - RS 4 PER SHARE", [("dividend", None, None, D(4))]),
+        (
+            "Dividend - Rs 5 Per Share/Bonus 1:1",
+            [("dividend", None, None, D(5)), ("bonus", D(1), D(1), None)],
+        ),
+        (
+            "Face Value Split - From Rs 10/- Per Share To Re 1/- Per Share/Bonus 1:1",
+            [("split", D(10), D(1), None), ("bonus", D(1), D(1), None)],
+        ),
+        # Thousands commas.
+        ("Dividend - Rs 1,250 Per Share", [("dividend", None, None, D(1250))]),
+        ("Special Dividend - Rs 1,250.50 Per Share", [("dividend", None, None, D("1250.50"))]),
+        ("Dividend - Rs 1,25,000 Per Share", [("dividend", None, None, D(125000))]),
     ],
 )
 def test_parse_purpose(text, expected) -> None:
@@ -89,6 +104,7 @@ def test_nse_actions_fixture() -> None:
             None,
             "Face Value Split (Sub-Division) - From Rs 10/- Per Share To Re 1/- Per Share",
             "nse",
+            "Face Value Split (Sub-Division) - From Rs 10/- Per Share To Re 1/- Per Share",
         )
         in rows
     )

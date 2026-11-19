@@ -24,11 +24,16 @@ class ParsedAction(NamedTuple):
     amount_per_share: Decimal | None
     purpose: str
     source: str
+    # The part of `purpose` this action came from; one notice can hold several actions.
+    segment: str = ""
 
 
 PurposeItem = tuple[str, Decimal | None, Decimal | None, Decimal | None]
 
-_MONEY = r"\b(?:rs|re)\b\.?\s*-?\s*(\d+(?:\.\d+)?)"
+# An amount after Rs/Re, thousands commas allowed (Indian or Western grouping): "Rs 1,25,000.50".
+_MONEY = r"\b(?:rs|re)\b\.?\s*-?\s*(\d+(?:,\d{2,3})*(?:\.\d+)?)"
+# Several actions in one notice are joined by "/", spaced or not; the "/-" in "Rs 10/-" is not.
+_SEGMENTS = re.compile(r"\s*/(?!-)\s*")
 _BONUS = re.compile(r"\bbonus\b[^\d]*(\d+)\s*:\s*(\d+)")
 _IGNORED = re.compile(
     r"annual general meeting|extra[- ]ordinary general meeting|\bagm\b|\begm\b|"
@@ -50,7 +55,7 @@ def _parse_segment(segment: str) -> PurposeItem | None:
     text = segment.lower()
     if re.search(r"\brights?\b", text) or _IGNORED.search(text):
         return None
-    amounts = [_positive(m) for m in re.findall(_MONEY, text)]
+    amounts = [_positive(m.replace(",", "")) for m in re.findall(_MONEY, text)]
     if "consolidation" in text or re.search(r"split|sub[- ]?division", text):
         if len(amounts) >= 2 and amounts[0] and amounts[1]:
             kind = "consolidation" if "consolidation" in text else "split"
@@ -77,14 +82,19 @@ def _parse_segment(segment: str) -> PurposeItem | None:
     return None
 
 
-def parse_purpose(text: str) -> list[PurposeItem]:
-    """Every action a purpose string describes; several are separated by " / "."""
-    items: list[PurposeItem] = []
-    for segment in re.split(r"\s+/\s+", text or ""):
+def _parse_items(text: str) -> list[tuple[PurposeItem, str]]:
+    """Each action a purpose string describes, with the segment of it that said so."""
+    items: list[tuple[PurposeItem, str]] = []
+    for segment in _SEGMENTS.split(text or ""):
         item = _parse_segment(segment.strip())
         if item is not None:
-            items.append(item)
+            items.append((item, segment.strip()))
     return items
+
+
+def parse_purpose(text: str) -> list[PurposeItem]:
+    """Every action a purpose string describes; several are separated by "/"."""
+    return [item for item, _ in _parse_items(text)]
 
 
 _DATE_FORMATS = ("%d-%b-%Y", "%d %b %Y", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y")
@@ -112,8 +122,8 @@ def _actions(
     symbol: str, isin: str | None, ex: date, rec: date | None, purpose: str, source: str
 ) -> list[ParsedAction]:
     return [
-        ParsedAction(symbol, isin, kind, ex, rec, new, old, amount, purpose, source)
-        for kind, new, old, amount in parse_purpose(purpose)
+        ParsedAction(symbol, isin, kind, ex, rec, new, old, amount, purpose, source, segment)
+        for (kind, new, old, amount), segment in _parse_items(purpose)
     ]
 
 
