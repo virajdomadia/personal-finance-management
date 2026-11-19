@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.api.categories import category_family
@@ -60,6 +60,8 @@ TRANSITIONS = {
     ("applied", "pending"),
     ("dismissed", "pending"),
 }
+# A dividend is applied as soon as it's fetched, so the owner may dismiss one straight away.
+DIVIDEND_TRANSITIONS = {*TRANSITIONS, ("applied", "dismissed")}
 # A dividend's link suggestions: a Dividends credit this many days after the ex-date at most,
 # for between 85% and 100% of the account's gross (tax may have been deducted).
 LINK_DAYS = 45
@@ -571,7 +573,8 @@ def update_action(id: int, body: ActionUpdate, user: CurrentUser, db: DbSession)
         _lock_holders(db, user.id, [action.instrument_id, action.target_instrument_id, target])
         action = _get_owned(db, user.id, id, lock=True)  # re-read under the locks
     old_status = action.status
-    if new_status != old_status and (old_status, new_status) not in TRANSITIONS:
+    allowed = DIVIDEND_TRANSITIONS if action.kind == "dividend" else TRANSITIONS
+    if new_status != old_status and (old_status, new_status) not in allowed:
         raise HTTPException(status.HTTP_409_CONFLICT, "Move it back to pending first.")
 
     if changes:
@@ -617,6 +620,9 @@ def update_action(id: int, body: ActionUpdate, user: CurrentUser, db: DbSession)
         except HTTPException:
             db.rollback()
             raise
+    if old_status == "applied" and new_status != "applied":
+        # Links belong to an applied dividend; the credits they held are free to link again.
+        db.execute(delete(DividendLink).where(DividendLink.stock_action_id == action.id))
     db.commit()
     return _one(db, user.id, action)
 

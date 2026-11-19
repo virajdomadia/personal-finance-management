@@ -41,7 +41,11 @@ def holding(headers: Headers, qty: int = 40, price: str = "1500.00") -> tuple[in
 
 
 def create(headers: Headers, stock_id: int, **fields: Any) -> Response:
-    body = {"kind": "split", "ex_date": EX.isoformat(), "ratio_new": "5", "ratio_old": "1"}
+    """A split 5:1 on EX unless `fields` say otherwise. A merger or demerger gets no default
+    ratio: its ratio must be given, as the exchange's feed never gives one."""
+    body: dict[str, Any] = {"kind": "split", "ex_date": EX.isoformat()}
+    if fields.get("kind") not in ("merger", "demerger"):
+        body |= {"ratio_new": "5", "ratio_old": "1"}
     return client.post(
         f"/api/investments/stocks/{stock_id}/actions", json={**body, **fields}, headers=headers
     )
@@ -151,7 +155,56 @@ def test_create_checks_fields(headers: Headers) -> None:
 
 def test_merger_without_target_has_no_preview(headers: Headers) -> None:
     _, infy = holding(headers)
-    assert created(headers, infy, kind="merger")["preview"] is None
+    assert created(headers, infy, kind="merger", ratio_new="1", ratio_old="1")["preview"] is None
+
+
+def test_merger_or_demerger_entered_by_hand_needs_a_ratio(headers: Headers) -> None:
+    _, infy = holding(headers)
+    target = stock(headers, "TARGET")
+    for kind in ("merger", "demerger"):
+        response = create(headers, infy, kind=kind, target_stock_id=target)
+        assert response.status_code == 422
+        assert [e["loc"] for e in response.json()["detail"]] == [
+            ["body", "ratio_new"],
+            ["body", "ratio_old"],
+        ]
+
+
+def fetched_merger(db: Session, stock_id: int) -> int:
+    """A merger as the nightly feed stores it: no ratio and no target."""
+    feed = CorporateAction(
+        symbol="INFY", kind="merger", ex_date=EX, purpose="Scheme Of Merger",
+        purpose_key="scheme of merger", source="nse",
+    )  # fmt: skip
+    db.add(feed)
+    db.flush()
+    row = StockAction(
+        user_id=me(db), instrument_id=stock_id, corporate_action_id=feed.id, kind="merger",
+        ex_date=EX, status="pending",
+    )  # fmt: skip
+    db.add(row)
+    db.commit()
+    return row.id
+
+
+def test_fetched_merger_is_applied_with_its_ratio_and_target(
+    headers: Headers, db_session: Session
+) -> None:
+    _, infy = holding(headers)
+    target = stock(headers, "TARGET")
+    id_ = fetched_merger(db_session, infy)
+    response = patch(headers, id_, status="applied", target_stock_id=target)
+    assert response.status_code == 422
+    assert [e["loc"] for e in response.json()["detail"]] == [
+        ["body", "ratio_new"],
+        ["body", "ratio_old"],
+    ]
+    body = patched(
+        headers, id_, status="applied", target_stock_id=target, ratio_new="1", ratio_old="2"
+    )
+    assert (body["status"], body["ratio_new"], body["ratio_old"]) == ("applied", "1", "2")
+    by_stock = {s["symbol"]: s["shares"] for s in portfolio_body(headers)["by_stock"]}
+    assert by_stock == {"TARGET": 20}
 
 
 def test_demerger_preview_moves_cost(headers: Headers) -> None:
@@ -438,6 +491,36 @@ def test_link_suggestions_and_links(headers: Headers, db_session: Session) -> No
     assert unlinked.status_code == 200
     assert unlinked.json()["dividend"]["by_account"][0]["links"] == []
     assert client.delete(f"{ACTIONS}/{id_}/links/{good}", headers=headers).status_code == 404
+
+
+def test_a_dividend_leaving_applied_loses_its_links(headers: Headers, db_session: Session) -> None:
+    _, infy = holding(headers)
+    id_ = dividend(db_session, infy)
+    paid = income(headers, bank(headers), "900.00", EX + timedelta(days=3))
+    url = f"{ACTIONS}/{id_}/link-suggestions"
+    for leave in ("pending", "dismissed"):
+        assert client.post(f"{ACTIONS}/{id_}/links/{paid}", headers=headers).status_code == 200
+        assert client.get(url, headers=headers).json()["accounts"][0]["suggestions"] == []
+        body = patched(headers, id_, status=leave)
+        assert body["dividend"]["by_account"][0]["links"] == []
+        assert db_session.scalars(select(DividendLink)).all() == []
+        # The credit is free again, for this dividend or another.
+        suggested = client.get(url, headers=headers).json()["accounts"][0]["suggestions"]
+        assert [c["id"] for c in suggested] == [paid]
+        if leave == "dismissed":
+            patched(headers, id_, status="pending")
+        patched(headers, id_, status="applied")
+
+
+def test_only_a_dividend_can_be_dismissed_once_applied(
+    headers: Headers, db_session: Session
+) -> None:
+    _, infy = holding(headers)
+    id_ = dividend(db_session, infy)
+    assert patched(headers, id_, status="dismissed")["status"] == "dismissed"
+    split = created(headers, infy)
+    patched(headers, split["id"], status="applied")
+    assert patch(headers, split["id"], status="dismissed").status_code == 409
 
 
 def test_link_needs_your_own_credit_and_a_confirmed_dividend(
