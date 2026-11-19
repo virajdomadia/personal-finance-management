@@ -123,6 +123,9 @@ export type Totals = {
   unrealised: string;
   unrealised_percent: string;
   realised: string;
+  dividends: string; // all time, applied dividends whose ex-date has come
+  dividends_fy: string; // this Indian financial year
+  total_return: string; // unrealised + realised + dividends
 };
 
 // One active PPF, RD or FD. The estimate comes from the server; the app never works out interest.
@@ -366,4 +369,104 @@ export function applyPick(
     fields: { name: auto("name") ? fill.name : current.name, symbol: auto("symbol") ? fill.symbol : current.symbol },
     filled: fill,
   };
+}
+
+// These mirror the response models in backend/app/api/routes/corporate_actions.py.
+export type ActionKind = "split" | "consolidation" | "bonus" | "merger" | "demerger" | "dividend" | "other";
+export type ActionStatus = "pending" | "applied" | "dismissed";
+
+export type Preview = { shares_before: number; shares_after: number; average_before: string; average_after: string };
+export type DividendAccount = { account_id: number; account_name: string; gross: string; links: number[] };
+export type DividendFigures = { gross: string; by_account: DividendAccount[] };
+
+export type CorporateAction = {
+  id: number;
+  stock_id: number;
+  symbol: string;
+  kind: ActionKind;
+  ex_date: string;
+  ratio_new: string | null;
+  ratio_old: string | null;
+  amount_per_share: string | null;
+  status: ActionStatus;
+  purpose: string | null;
+  target_stock_id: number | null;
+  cost_share_pct: string | null;
+  preview: Preview | null;
+  dividend: DividendFigures | null;
+};
+
+export type ActionList = { actions: CorporateAction[]; pending_count: number };
+export type StockActions = { actions: CorporateAction[]; suspect_drop_on: string | null; backfilled: boolean };
+
+// A per-share amount with at least two decimals: "2.5" -> "₹2.50".
+function perShare(amount: string): string {
+  const [whole, fraction = ""] = amount.split(".");
+  return formatRupees(`${whole}.${fraction.padEnd(2, "0")}`);
+}
+
+const KIND_LABEL: Record<ActionKind, string> = {
+  split: "Split",
+  consolidation: "Consolidation",
+  bonus: "Bonus",
+  merger: "Merger",
+  demerger: "Demerger",
+  dividend: "Dividend",
+  other: "Other action",
+};
+
+// "Split 1:5 on 12 Mar 2026". A 1:5 split turns one share into five. Same wording as the web app.
+export function describeAction(a: CorporateAction): string {
+  const date = formatDate(a.ex_date);
+  if (a.kind === "dividend") {
+    return `Dividend ${a.amount_per_share !== null ? `${perShare(a.amount_per_share)}/share` : ""} on ${date}`.replace("Dividend  on", "Dividend on");
+  }
+  if (a.kind === "other") return `${a.purpose ?? KIND_LABEL.other} on ${date}`;
+  // A bonus is quoted as new:old ("2:1" is two free shares per one held); a split as old:new.
+  const pair = a.kind === "bonus" ? [a.ratio_new, a.ratio_old] : [a.ratio_old, a.ratio_new];
+  const ratio = a.ratio_old !== null && a.ratio_new !== null ? ` ${pair[0]}:${pair[1]}` : "";
+  return `${KIND_LABEL[a.kind]}${ratio} on ${date}`;
+}
+
+// "40 → 200 shares · avg ₹1,500.00 → ₹300.00"; empty when there is nothing to preview.
+export function describePreview(p: Preview | null): string {
+  if (p === null) return "";
+  return `${p.shares_before} → ${p.shares_after} shares · avg ${formatRupees(p.average_before)} → ${formatRupees(p.average_after)}`;
+}
+
+export function isUpcoming(a: { ex_date: string }, today: string): boolean {
+  return a.ex_date > today;
+}
+
+// What a dividend paid (or will pay). Empty for any other kind.
+export function dividendLabel(a: CorporateAction, today: string): string {
+  if (a.kind !== "dividend" || a.dividend === null) return "";
+  const { gross, by_account } = a.dividend;
+  if (a.status === "applied" && by_account.length === 0 && Number(gross) === 0) return "Not held on record date";
+  const money = formatRupees(gross);
+  if (a.status !== "applied") return `Would pay ${money}`;
+  return isUpcoming(a, today) ? `Expected ${money}` : `Received ${money}`;
+}
+
+// A merger or demerger can only be confirmed once it names the stock the shares move into.
+export function needsTarget(a: Pick<CorporateAction, "kind">): boolean {
+  return a.kind === "merger" || a.kind === "demerger";
+}
+
+// Cost-share percent as typed: digits and one dot, or empty.
+export function cleanPercent(value: string): string {
+  return value.replace(/[^\d.]/g, "");
+}
+
+const RATIO_RULE = "Enter how many new shares you get for how many you hold, like 1 for 2.";
+
+// A merger's or demerger's "new shares : shares held", as typed: null when both are numbers above 0.
+export function ratioProblem(newShares: string, held: string): string | null {
+  const positive = (v: string) => /^\d+(\.\d+)?$/.test(v.trim()) && Number(v) > 0;
+  return positive(newShares) && positive(held) ? null : RATIO_RULE;
+}
+
+// An action of no known kind ("other") is kept for history only; the server never confirms one.
+export function canConfirm(a: Pick<CorporateAction, "kind">): boolean {
+  return a.kind !== "other";
 }

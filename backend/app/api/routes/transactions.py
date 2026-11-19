@@ -39,6 +39,7 @@ from app.api.routes.accounts import (
 )
 from app.db.session import DbSession
 from app.models.account import Account
+from app.models.corporate_action import delete_links_for_transactions
 from app.models.insurance import InsurancePolicy
 from app.models.recurring import RecurringTemplate
 from app.models.sms import SmsEntry
@@ -698,6 +699,8 @@ def delete_transaction(id: int, user: CurrentUser, db: DbSession) -> dict[str, i
         .where(SmsEntry.user_id == user.id, SmsEntry.transaction_id == tx.id)
         .values(status="ignored", transaction_id=None)
     )
+    # A dividend it was linked to just loses the link (links are notes, not money).
+    delete_links_for_transactions(db, user.id, [tx.id])
     db.delete(tx)
     db.commit()
     return {"id": id}

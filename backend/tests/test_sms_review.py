@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dates import today_india
+from app.models.corporate_action import DividendLink
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade
 from app.models.market import MarketCode
 from app.models.sms import AccountIdentifier, PayeeRule
@@ -31,6 +32,7 @@ from tests.test_sms_ingest import (
     transactions,
 )
 from tests.test_sms_transfers import add_rule, card_payment, days_ago
+from tests.test_sms_undo import _foreign_keys_on, link_dividend
 
 URL = "/api/sms/review"
 
@@ -383,6 +385,21 @@ def test_transfer_merges_the_two_sides(headers: Headers, db_session: Session) ->
         assert (saved.status, saved.reason, saved.transaction_id) == ("recorded", None, tx.id)
     assert (balance(headers, a), balance(headers, b)) == ("9500.00", "10500.00")
     assert items(headers) == []
+
+
+def test_transfer_drops_the_dividend_link_of_the_credit_it_removes(
+    headers: Headers, db_session: Session
+) -> None:
+    _, _, _, refund = _maybe_transfer(headers, db_session)
+    expense, income = transactions(db_session)
+    link_dividend(db_session, user_id(db_session), income)
+    _foreign_keys_on(db_session)
+    id_ = stored(db_session, refund["hash"]).id
+
+    assert answered(headers, id_, action="transfer", transaction_id=expense.id) is None
+
+    assert [tx.id for tx in transactions(db_session)] == [expense.id]
+    assert db_session.scalars(select(DividendLink)).all() == []
 
 
 def test_transfer_candidate_gone_is_409(headers: Headers, db_session: Session) -> None:

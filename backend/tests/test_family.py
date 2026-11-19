@@ -1,6 +1,8 @@
 """Family members: profiles under the owner's login, kept apart from the owner's figures, and
 the family portfolio that brings their investments together."""
 
+from datetime import date
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -9,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dates import today_india
 from app.main import app
+from app.models.corporate_action import StockAction
 from app.models.user import User
 from tests.test_accounts import Headers, auth
 
@@ -213,4 +216,36 @@ def test_an_empty_family_portfolio(headers: Headers) -> None:
         "value": "0.00",
         "unrealised": "0.00",
         "unrealised_percent": "0.00",
+        "dividends": "0.00",
     }
+
+
+def test_a_members_dividends_are_added_up(headers: Headers, db_session: Session) -> None:
+    papa = add(headers, "Papa")
+    dad = as_(headers, papa)
+    account = client.post(
+        "/api/accounts",
+        json={"type": "broker", "name": "Zerodha", "balance": "100000.00"},
+        headers=dad,
+    ).json()["id"]
+    body = {"stock": {"symbol": "TCS", "name": "TCS Ltd"},
+            "trade": {"account_id": account, "date": "2026-01-15", "quantity": 10,
+                      "price": "3000.00"}}  # fmt: skip
+    created = client.post("/api/investments/stocks/with-trade", json=body, headers=dad)
+    assert created.status_code == 201, created.text
+    db_session.add(
+        StockAction(
+            user_id=papa, instrument_id=created.json()["stock"]["id"], kind="dividend",
+            ex_date=date(2026, 3, 1), amount_per_share=Decimal("12.5"), status="applied",
+        )
+    )  # fmt: skip
+    db_session.commit()
+
+    family = client.get("/api/family/portfolio", headers=headers).json()
+
+    me, member = family["people"]
+    assert me["by_type"]["stocks"]["dividends"] == "0.00"
+    assert member["by_type"]["stocks"]["dividends"] == "125.00"
+    assert member["overall"]["dividends"] == "125.00"
+    assert family["by_type"]["stocks"]["dividends"] == "125.00"
+    assert family["overall"]["dividends"] == "125.00"

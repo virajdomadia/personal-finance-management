@@ -55,6 +55,9 @@ ALL_TABLES = {
     "net_worth_snapshots",
     "categories",
     "budgets",
+    "corporate_actions",
+    "stock_actions",
+    "dividend_links",
 }
 
 
@@ -250,7 +253,9 @@ CATEGORIES_REVISION = "2d46fef3dab4"
 NET_WORTH_REVISION = "4f9a2c7e1b30"
 BUDGETS_REVISION = "7e5d2fc1e167"
 FD_REVISION = "a1c3e5f7b902"
-HEAD_REVISION = "b7d2e4f6a813"
+HEAD_REVISION = "c3f8a1d4e625"
+PRE_ACTIONS_REVISION = "b7d2e4f6a813"
+ACTION_TABLES = {"corporate_actions", "stock_actions", "dividend_links"}
 SMS_TABLES = {"account_identifiers", "sms_entries", "payee_rules", "sms_samples"}
 GOAL_TABLES = {"goals", "goal_earmarks", "goal_holdings"}
 RECURRING_TABLES = {
@@ -380,7 +385,9 @@ def test_recurring_migration_round_trip(migrations_db: str) -> None:
     assert rows(migrations_db, "SELECT recurring_template_id FROM transactions") == [(None,)]
 
     command.downgrade(config, NEW_REVISION)
-    assert tables(migrations_db) == ALL_TABLES - RECURRING_TABLES - GOAL_TABLES - SMS_TABLES - {
+    assert tables(
+        migrations_db
+    ) == ALL_TABLES - ACTION_TABLES - RECURRING_TABLES - GOAL_TABLES - SMS_TABLES - {
         "categories",
         "budgets",
         "market_codes",
@@ -435,7 +442,7 @@ def test_goals_migration_round_trip(migrations_db: str) -> None:
     assert GOAL_TABLES <= tables(migrations_db)
 
     command.downgrade(config, RECURRING_REVISION)
-    assert tables(migrations_db) == ALL_TABLES - GOAL_TABLES - SMS_TABLES - {
+    assert tables(migrations_db) == ALL_TABLES - ACTION_TABLES - GOAL_TABLES - SMS_TABLES - {
         "market_codes",
         "net_worth_snapshots",
         "categories",
@@ -740,3 +747,38 @@ def test_family_migration_round_trips_and_guards_members(migrations_db: str) -> 
 
     command.upgrade(config, "head")
     assert tables(migrations_db) == ALL_TABLES
+
+
+def test_corporate_actions_migration_round_trip(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, PRE_ACTIONS_REVISION)
+    seed_investments(migrations_db, "5")
+    # 2026-10-01 20:00 UTC is already 2 October in India.
+    run_sql(
+        migrations_db,
+        "UPDATE investment_trades SET updated_at = '2026-10-01 20:00:00+00'",
+    )
+
+    command.upgrade(config, "head")
+    assert rows(migrations_db, "SELECT basis_date FROM investment_trades") == [(date(2026, 10, 2),)]
+    # A raw insert that omits basis_date gets today's India date.
+    run_sql(
+        migrations_db,
+        "INSERT INTO investment_trades (id, user_id, instrument_id, account_id, side, date,"
+        " quantity, price, charges, amount, opening, note, created_at, updated_at)"
+        " VALUES (2, 1, 1, 1, 'buy', '2026-10-01', 1, 10, 0, 10, false, 'n', :s, :s)",
+    )
+    assert rows(migrations_db, "SELECT basis_date IS NOT NULL FROM investment_trades WHERE id = 2")[
+        0
+    ] == (True,)
+
+    command.downgrade(config, PRE_ACTIONS_REVISION)
+    assert tables(migrations_db) == ALL_TABLES - ACTION_TABLES
+    inspector = inspect(create_engine(migrations_db))
+    assert "basis_date" not in {c["name"] for c in inspector.get_columns("investment_trades")}
+    assert not {"actions_backfilled_at", "suspect_drop_on"} & {
+        c["name"] for c in inspector.get_columns("instruments")
+    }
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [
+        (PRE_ACTIONS_REVISION,)
+    ]

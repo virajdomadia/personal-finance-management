@@ -17,9 +17,8 @@ from app.api.portfolio import (
     Replay,
     latest_prices,
     load_kinds,
-    load_trade_rows,
-    replay,
     summarise,
+    user_replay,
 )
 from app.api.routes.accounts import totals
 from app.models.account import Account
@@ -48,7 +47,7 @@ def worth_of(db: Session, user_id: int, active: list[Account], today: date) -> W
     """The figures over `active`, the user's accounts that aren't archived."""
     book = load_book(db, user_id, active)
     have, owe = totals(active, book.flows)
-    result = replay(load_trade_rows(db, user_id))
+    result = user_replay(db, user_id)
     prices = latest_prices(db, user_id)
     market = summarise(result, prices)
     have += market.value  # deposits are already in `have` as accounts

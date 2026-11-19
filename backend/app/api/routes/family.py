@@ -141,6 +141,7 @@ class Figures(BaseModel):
     value: str
     unrealised: str
     unrealised_percent: str
+    dividends: str  # gross of applied dividends, all time, as on the Investments page
 
 
 class TypeFigures(BaseModel):
@@ -178,18 +179,19 @@ class FamilyPortfolio(BaseModel):
 ZERO = Decimal(0)
 
 
-def _figures(invested: Decimal, value: Decimal) -> Figures:
+def _figures(invested: Decimal, value: Decimal, dividends: Decimal) -> Figures:
     unrealised = value - invested
     return Figures(
         invested=fmt(invested),
         value=fmt(value),
         unrealised=fmt(unrealised),
         unrealised_percent=fmt(unrealised_percent(unrealised, invested)),
+        dividends=fmt(dividends),
     )
 
 
-def _pair(totals: Any) -> tuple[Decimal, Decimal]:
-    return Decimal(totals.invested), Decimal(totals.value)
+def _pair(totals: Any) -> tuple[Decimal, Decimal, Decimal]:
+    return Decimal(totals.invested), Decimal(totals.value), Decimal(totals.dividends)
 
 
 def _person(user: User, name: str, is_me: bool, p: Portfolio) -> tuple[PersonPortfolio, dict]:
@@ -198,7 +200,7 @@ def _person(user: User, name: str, is_me: bool, p: Portfolio) -> tuple[PersonPor
         "stocks": _pair(p.totals),
         "funds": _pair(p.funds.totals),
         "crypto": _pair(p.crypto.totals),
-        "deposits": (deposits, deposits),  # at their balance, as on the Investments page
+        "deposits": (deposits, deposits, ZERO),  # at their balance, as on the Investments page
     }
     holdings = [
         *(
@@ -222,14 +224,13 @@ def _person(user: User, name: str, is_me: bool, p: Portfolio) -> tuple[PersonPor
             for d in p.deposits.accounts
         ),
     ]  # fmt: skip
-    invested = sum((i for i, _ in pairs.values()), ZERO)
-    value = sum((v for _, v in pairs.values()), ZERO)
+    invested, value, dividends = (sum(column, ZERO) for column in zip(*pairs.values(), strict=True))
     return (
         PersonPortfolio(
             id=user.id,
             name=name,
             is_me=is_me,
-            overall=_figures(invested, value),
+            overall=_figures(invested, value, dividends),
             by_type=TypeFigures(**{k: _figures(*v) for k, v in pairs.items()}),
             holdings=holdings,
         ),
@@ -243,20 +244,20 @@ def family_portfolio(user: SignedInUser, db: DbSession) -> FamilyPortfolio:
     family's totals. Bank accounts, cards and loans are not part of it."""
     people = []
     totals: dict[str, list[Decimal]] = {
-        k: [ZERO, ZERO] for k in ("stocks", "funds", "crypto", "deposits")
+        k: [ZERO, ZERO, ZERO] for k in ("stocks", "funds", "crypto", "deposits")
     }
     for person, name, is_me in [(user, ME, True)] + [
         (m, m.name or "", False) for m in _members(db, user.id)
     ]:
         row, pairs = _person(person, name, is_me, get_portfolio(person, db))
         people.append(row)
-        for kind, (invested, value) in pairs.items():
-            totals[kind][0] += invested
-            totals[kind][1] += value
-    invested = sum((t[0] for t in totals.values()), ZERO)
-    value = sum((t[1] for t in totals.values()), ZERO)
+        for kind, figures in pairs.items():
+            for i, amount in enumerate(figures):
+                totals[kind][i] += amount
+    columns = zip(*totals.values(), strict=True)
+    invested, value, dividends = (sum(column, ZERO) for column in columns)
     return FamilyPortfolio(
         people=people,
-        overall=_figures(invested, value),
+        overall=_figures(invested, value, dividends),
         by_type=TypeFigures(**{k: _figures(*v) for k, v in totals.items()}),
     )

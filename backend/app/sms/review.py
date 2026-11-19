@@ -24,6 +24,7 @@ from app.api.routes.trades import MAX_QUANTITY, stock_columns, stock_save_checks
 from app.api.routes.transactions import lock_accounts, save_checks
 from app.api.trade_checks import lock_trade, require_active
 from app.models.account import Account
+from app.models.corporate_action import delete_links_for_transactions
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade, Sip
 from app.models.market import MarketCode
 from app.models.recurring import RecurringTemplate
@@ -498,6 +499,8 @@ def merge_transfer(db: Session, user_id: int, entry: SmsEntry, transaction_id: i
         select(SmsEntry).where(SmsEntry.user_id == user_id, SmsEntry.transaction_id == own.id)
     ):
         linked.transaction_id = other.id
+    # Neither stays income, so a dividend linked to either loses that link.
+    delete_links_for_transactions(db, user_id, [own.id, other.id])
     db.flush()
     db.delete(own)
     db.flush()

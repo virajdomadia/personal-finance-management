@@ -13,6 +13,14 @@ import {
   syncStatusText,
   shouldShowLinkPrompt,
   changedTrade,
+  describeAction,
+  describePreview,
+  dividendLabel,
+  isUpcoming,
+  needsTarget,
+  cleanPercent,
+  canConfirm,
+  ratioProblem,
   formatPercent,
   formatSigned,
   tone,
@@ -310,4 +318,71 @@ test("applyPick replaces what an earlier pick filled in, and keeps what was type
     name: "Gilt Fund",
     symbol: "BANK",
   });
+});
+
+const action = {
+  id: 1, stock_id: 7, symbol: "INFY", ex_date: "2026-03-12", status: "pending", purpose: null,
+  ratio_new: null, ratio_old: null, amount_per_share: null, target_stock_id: null, cost_share_pct: null,
+  preview: null, dividend: null,
+};
+
+test("describeAction words a split, bonus and dividend", () => {
+  assert.equal(describeAction({ ...action, kind: "split", ratio_new: "5", ratio_old: "1" }), "Split 1:5 on 12 Mar 2026");
+  assert.equal(describeAction({ ...action, kind: "bonus", ratio_new: "1", ratio_old: "1" }), "Bonus 1:1 on 12 Mar 2026");
+  assert.equal(describeAction({ ...action, kind: "bonus", ratio_new: "2", ratio_old: "1" }), "Bonus 2:1 on 12 Mar 2026");
+  assert.equal(describeAction({ ...action, kind: "dividend", amount_per_share: "2.5" }), "Dividend ₹2.50/share on 12 Mar 2026");
+  assert.equal(describeAction({ ...action, kind: "dividend", amount_per_share: "1250.125" }), "Dividend ₹1,250.125/share on 12 Mar 2026");
+});
+
+test("describeAction handles the other kinds", () => {
+  assert.equal(describeAction({ ...action, kind: "consolidation", ratio_new: "1", ratio_old: "10" }), "Consolidation 10:1 on 12 Mar 2026");
+  assert.equal(describeAction({ ...action, kind: "merger" }), "Merger on 12 Mar 2026");
+  assert.equal(describeAction({ ...action, kind: "demerger" }), "Demerger on 12 Mar 2026");
+  assert.equal(describeAction({ ...action, kind: "other", purpose: "Rights issue" }), "Rights issue on 12 Mar 2026");
+  assert.equal(describeAction({ ...action, kind: "other" }), "Other action on 12 Mar 2026");
+});
+
+test("describePreview shows shares and average cost before and after", () => {
+  assert.equal(
+    describePreview({ shares_before: 40, shares_after: 200, average_before: "1500.00", average_after: "300.00" }),
+    "40 → 200 shares · avg ₹1,500.00 → ₹300.00",
+  );
+  assert.equal(describePreview(null), "");
+});
+
+test("dividendLabel names a zero dividend, an expected one and a received one", () => {
+  const div = (status, gross, by_account = []) => ({ ...action, kind: "dividend", status, dividend: { gross, by_account } });
+  assert.equal(dividendLabel(div("applied", "0.00"), "2026-03-01"), "Not held on record date");
+  assert.equal(dividendLabel(div("applied", "200.00"), "2026-03-01"), "Expected ₹200.00");
+  assert.equal(dividendLabel(div("applied", "1000.00"), "2026-03-12"), "Received ₹1,000.00");
+  assert.equal(dividendLabel(div("pending", "1000.00"), "2026-03-12"), "Would pay ₹1,000.00");
+  assert.equal(dividendLabel({ ...action, kind: "split" }, "2026-03-12"), "");
+});
+
+test("isUpcoming is true only for an ex-date after today", () => {
+  assert.equal(isUpcoming({ ex_date: "2026-03-13" }, "2026-03-12"), true);
+  assert.equal(isUpcoming({ ex_date: "2026-03-12" }, "2026-03-12"), false);
+});
+
+test("needsTarget is true for a merger or demerger; cleanPercent keeps digits and a dot", () => {
+  assert.equal(needsTarget({ kind: "merger" }), true);
+  assert.equal(needsTarget({ kind: "demerger" }), true);
+  assert.equal(needsTarget({ kind: "split" }), false);
+  assert.equal(cleanPercent("2a5.5%"), "25.5");
+});
+
+test("ratioProblem wants two numbers above 0", () => {
+  const rule = "Enter how many new shares you get for how many you hold, like 1 for 2.";
+  assert.equal(ratioProblem("1", "2"), null);
+  assert.equal(ratioProblem("0.5", "3"), null);
+  assert.equal(ratioProblem("", "2"), rule);
+  assert.equal(ratioProblem("1", ""), rule);
+  assert.equal(ratioProblem("0", "2"), rule);
+  assert.equal(ratioProblem("1", "0.0"), rule);
+  assert.equal(ratioProblem("1.2.3", "2"), rule);
+});
+
+test("canConfirm is false only for an action of no known kind", () => {
+  assert.equal(canConfirm({ kind: "other" }), false);
+  for (const kind of ["split", "consolidation", "bonus", "merger", "demerger", "dividend"]) assert.equal(canConfirm({ kind }), true);
 });

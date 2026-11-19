@@ -4,6 +4,7 @@ import { ActivityIndicator, AppState, RefreshControl, ScrollView, StyleSheet, Vi
 import { Button, Dialog, Portal, Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { StockActionsSection } from "@/components/corporate-actions";
 import { GoalTagChip } from "@/components/goal-tag";
 import { ChunkyButton, Chip, HeaderAction, ScreenHeader } from "@/components/chunky";
 import { Banner } from "@/components/form-parts";
@@ -335,6 +336,8 @@ go({ pathname: "/holding-form", params: { kind: "stock", id: stockId, focus: "li
             ))}
           </>
         ) : null}
+
+        <StockActionsSection stock={stock} onChanged={() => void reload()} />
 
         <SectionTitle label="Trades" />
         {brokers.length > 1 ? (

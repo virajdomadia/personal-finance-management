@@ -15,6 +15,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app import cli
+from app.api.dates import INDIA
 from app.core.security import create_token
 from app.export.backup import (
     RestoreError,
@@ -27,6 +28,8 @@ from app.export.backup import (
 from app.main import app
 from app.models.account import Account
 from app.models.category import Category
+from app.models.corporate_action import StockAction
+from app.models.investment import InvestmentTrade
 from app.models.market import MarketCode
 from app.models.transaction import Transaction
 from app.models.user import User
@@ -443,3 +446,74 @@ def test_a_large_backup_stays_well_under_vercels_limit() -> None:
     print(f"15,000 rows: {raw} bytes of JSON, {len(gz)} gzipped")
     assert len(gz) < 1_500_000  # a third of the 4.5 MB limit
     assert raw > 3 * len(gz)
+
+
+def _trade_dates(db: Session, email: str) -> list[tuple[date, date]]:
+    user = db.scalars(select(User).where(User.email == email)).one()
+    rows = db.scalars(select(InvestmentTrade).where(InvestmentTrade.user_id == user.id)).all()
+    return sorted((t.date, t.basis_date) for t in rows)
+
+
+def test_restore_keeps_basis_date(me: Headers, db_session: Session) -> None:
+    user = db_session.scalars(select(User).where(User.email == "me@example.com")).one()
+    trade = db_session.scalars(
+        select(InvestmentTrade).where(InvestmentTrade.user_id == user.id)
+    ).first()
+    assert trade is not None
+    db_session.execute(
+        update(InvestmentTrade)
+        .where(InvestmentTrade.id == trade.id)
+        .values(basis_date=date(2021, 3, 4))
+    )
+    db_session.commit()
+    before = _trade_dates(db_session, "me@example.com")
+    assert date(2021, 3, 4) in [b for _, b in before]
+
+    _restore_into(db_session, "copy@example.com", _backup(me))
+    assert _trade_dates(db_session, "copy@example.com") == before
+
+
+def test_restoring_a_backup_without_basis_date(me: Headers, db_session: Session) -> None:
+    document = _backup(me)
+    expected = []
+    for row in document["tables"]["investment_trades"]:
+        del row["basis_date"]
+        moment = datetime.fromisoformat(row["updated_at"])
+        expected.append((date.fromisoformat(row["date"]), moment.astimezone(INDIA).date()))
+    _restore_into(db_session, "copy@example.com", document)
+    assert _trade_dates(db_session, "copy@example.com") == sorted(expected)
+
+
+def test_basis_date_falls_back_to_the_trade_date() -> None:
+    from app.export.backup import _fill_basis_date
+
+    [row] = _fill_basis_date([{"date": "2024-05-06", "updated_at": None}])
+    assert row["basis_date"] == "2024-05-06"
+    # 20:00 UTC is already the next day in India.
+    [row] = _fill_basis_date([{"date": "2024-05-06", "updated_at": "2026-11-18T20:00:00+00:00"}])
+    assert row["basis_date"] == "2026-11-19"
+
+
+def _auto_dismissed(db: Session, email: str) -> list[tuple[str, str, bool]]:
+    user = db.scalars(select(User).where(User.email == email)).one()
+    rows = db.scalars(select(StockAction).where(StockAction.user_id == user.id)).all()
+    return sorted((r.kind, r.status, r.auto_dismissed) for r in rows)
+
+
+def test_restore_keeps_which_actions_were_dismissed_automatically(
+    me: Headers, db_session: Session
+) -> None:
+    user = db_session.scalars(select(User).where(User.email == "me@example.com")).one()
+    db_session.execute(
+        update(StockAction)
+        .where(StockAction.user_id == user.id, StockAction.kind == "split")
+        .values(status="dismissed", auto_dismissed=True)
+    )
+    db_session.commit()
+    before = _auto_dismissed(db_session, "me@example.com")
+    assert ("split", "dismissed", True) in before
+
+    document = _backup(me)
+    assert {r["auto_dismissed"] for r in document["tables"]["stock_actions"]} == {True, False}
+    _restore_into(db_session, "copy@example.com", document)
+    assert _auto_dismissed(db_session, "copy@example.com") == before

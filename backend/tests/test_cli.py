@@ -41,7 +41,7 @@ def test_refresh_prices_runs_the_job_and_closes_the_fetcher(db_session, monkeypa
     monkeypatch.setattr(cli, "default_fetcher", lambda: fetcher)
     assert cli.main(["refresh-prices"]) == 0
     out = capsys.readouterr().out
-    assert out == "Updated: {'crypto': 0, 'mutual_fund': 2, 'stock': 2}\nFailed: {}\n"
+    assert out == "Updated: {'crypto': 0, 'mutual_fund': 2, 'stock': 2, 'actions': 0}\nFailed: {}\n"
     assert fetcher.client.is_closed
 
 

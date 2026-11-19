@@ -104,6 +104,7 @@ type Figures = {
   at_cost: boolean;
   unrealised: string;
   unrealised_percent: string;
+  dividends: string; // received, all time
 };
 
 export type Holding = Figures & { account_id: number; account_name: string; in_goal: GoalTag | null };
@@ -124,6 +125,9 @@ export type Totals = {
   unrealised: string;
   unrealised_percent: string;
   realised: string;
+  dividends: string; // received, all time
+  dividends_fy: string; // received this financial year
+  total_return: string; // unrealised + realised + dividends
 };
 
 export type DepositRow = {

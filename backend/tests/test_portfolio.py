@@ -70,6 +70,7 @@ def test_holding_figures(headers: Headers) -> None:
             "at_cost": False,
             "unrealised": "580.00",
             "unrealised_percent": "28.71",
+            "dividends": "0.00",
             "in_goal": None,
         }
     ]
@@ -79,6 +80,9 @@ def test_holding_figures(headers: Headers) -> None:
         "unrealised": "580.00",
         "unrealised_percent": "28.71",
         "realised": "0.00",
+        "dividends": "0.00",
+        "dividends_fy": "0.00",
+        "total_return": "580.00",
     }
 
 
@@ -177,6 +181,9 @@ def test_empty_portfolio(headers: Headers) -> None:
         "unrealised": "0.00",
         "unrealised_percent": "0.00",
         "realised": "0.00",
+        "dividends": "0.00",
+        "dividends_fy": "0.00",
+        "total_return": "0.00",
     }
     assert portfolio(headers) == {
         "funds": {"holdings": [], "by_fund": [], "closed": [], "totals": empty, "due_sips": []},
@@ -192,6 +199,9 @@ def test_empty_portfolio(headers: Headers) -> None:
             "unrealised": "0.00",
             "unrealised_percent": "0.00",
             "realised": "0.00",
+            "dividends": "0.00",
+            "dividends_fy": "0.00",
+            "total_return": "0.00",
         },
     }
 
@@ -327,6 +337,9 @@ def test_overall_adds_stocks_and_funds(headers: Headers) -> None:
         "unrealised": "1386.95",
         "unrealised_percent": "5.33",
         "realised": "0.00",
+        "dividends": "0.00",
+        "dividends_fy": "0.00",
+        "total_return": "1386.95",
     }
     assert both["funds"]["totals"]["invested"] == "21000.00"
 
@@ -485,6 +498,9 @@ def test_overall_and_dashboard_count_deposits_at_their_balance(
         "unrealised": "1000.00",
         "unrealised_percent": "0.87",
         "realised": "0.00",
+        "dividends": "0.00",
+        "dividends_fy": "0.00",
+        "total_return": "1000.00",
     }
     dash = _dashboard(headers)
     assert dash["investments"] == {
@@ -565,6 +581,9 @@ def test_crypto_figures(headers: Headers) -> None:
         "unrealised": "102.22",
         "unrealised_percent": "5.14",
         "realised": "0.00",
+        "dividends": "0.00",
+        "dividends_fy": "0.00",
+        "total_return": "102.22",
     }
 
 
@@ -600,6 +619,9 @@ def test_overall_adds_crypto(headers: Headers) -> None:
         "unrealised": "1102.22",
         "unrealised_percent": "15.77",
         "realised": "0.00",
+        "dividends": "0.00",
+        "dividends_fy": "0.00",
+        "total_return": "1102.22",
     }
 
 

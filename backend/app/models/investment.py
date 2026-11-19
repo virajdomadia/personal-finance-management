@@ -17,13 +17,34 @@ from sqlalchemy import (
     Numeric,
     String,
     UniqueConstraint,
+    event,
     false,
     func,
+    inspect,
     true,
 )
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.expression import FunctionElement
 
 from app.db.base import Base
+
+
+class _IndiaToday(FunctionElement):
+    """Today's India date as a column default, so raw inserts get a sensible basis_date."""
+
+    type = Date()
+    inherit_cache = True
+
+
+@compiles(_IndiaToday)
+def _india_today_default(element, compiler, **kw) -> str:  # noqa: ANN001, ANN003
+    return "(now() AT TIME ZONE 'Asia/Kolkata')::date"
+
+
+@compiles(_IndiaToday, "sqlite")
+def _india_today_sqlite(element, compiler, **kw) -> str:  # noqa: ANN001, ANN003
+    return "(date('now', '+5 hours', '+30 minutes'))"
 
 
 class Instrument(Base):
@@ -38,6 +59,10 @@ class Instrument(Base):
     # What the nightly job looks the price up by: an AMFI scheme code for a fund, an NSE symbol
     # for a stock, a CoinGecko id for a coin. None while the holding isn't linked.
     source_code: Mapped[str | None] = mapped_column(String(40))
+    # When corporate actions were last fetched for this stock; None until the first time.
+    actions_backfilled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # The date of a one-day price drop that looks like an unrecorded split, until dealt with.
+    suspect_drop_on: Mapped[dt.date | None] = mapped_column(Date)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -89,6 +114,10 @@ class InvestmentTrade(Base):
     estimated: Mapped[bool] = mapped_column(Boolean, server_default=false())
     note: Mapped[str | None] = mapped_column(String(200))
     sip_id: Mapped[int | None] = mapped_column(ForeignKey("sips.id"), index=True)
+    # The India-time day quantity and price were last entered. Corporate actions with an
+    # ex-date after the trade's date but before this day are already in what was typed.
+    # Kept by the listeners below, never by callers.
+    basis_date: Mapped[dt.date] = mapped_column(Date, server_default=_IndiaToday())
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -111,3 +140,34 @@ class InstrumentPrice(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+def _today() -> dt.date:
+    from app.api import dates  # looked up late: the models load before the api package
+
+    return dates.today_india()
+
+
+@event.listens_for(InvestmentTrade, "before_insert")
+def _stamp_basis_on_insert(mapper, connection, target: InvestmentTrade) -> None:  # noqa: ANN001
+    if target.basis_date is None:
+        target.basis_date = _today()
+
+
+def _was_false(state) -> bool:  # noqa: ANN001
+    deleted = state.attrs.opening.history.deleted
+    return bool(deleted) and not deleted[0]
+
+
+@event.listens_for(InvestmentTrade, "before_update")
+def _stamp_basis_on_update(mapper, connection, target: InvestmentTrade) -> None:  # noqa: ANN001
+    state = inspect(target)
+    became_opening = (
+        target.opening and state.attrs.opening.history.has_changes() and _was_false(state)
+    )
+    if (
+        state.attrs.quantity.history.has_changes()
+        or state.attrs.price.history.has_changes()
+        or became_opening
+    ):
+        target.basis_date = _today()

@@ -2,7 +2,7 @@
 apart from the database-aware functions at the bottom.
 
 Rules:
-- Trades are grouped per (instrument_id, account_id), i.e. per broker or bank, and
+- Positions are per (instrument_id, account_id), i.e. per broker or bank. Trades are
   replayed in the order (date, buys before sells, id).
 - A buy adds a lot of `quantity` shares, units or coins costing its `amount`. For a stock,
   `amount` is quantity * price + charges (see `stock_amount`). For a fund or a coin it is
@@ -15,6 +15,19 @@ Rules:
 - A sell for more than is held is a shortfall: the first one in order is
   reported, and the sell takes whatever is held.
 - Quantities are exact Decimals. Money is rounded to paise with ROUND_HALF_UP.
+- Corporate actions run in the same date-ordered stream, before that day's trades, on
+  every account's lots of their instrument whose basis date is before the ex-date. A
+  split or consolidation multiplies each lot's quantity by new/old, keeping its cost. A
+  bonus adds one zero-cost lot, dated the ex-date, of floor(eligible position * new/old).
+  A merger moves each eligible lot to the target instrument in the same account, quantity
+  * new/old, cost and basis date kept. A demerger gives each eligible lot a child lot in the
+  target of quantity * new/old costing round_paise(lot cost * pct / 100), taken off the
+  parent lot. For splits, consolidations, mergers and demergers the position total is floored
+  by taking the fraction off the newest lots (cost kept), and moved lots keep their original
+  FIFO order in the target. A split, consolidation or merger leaving less than one whole share
+  books the position's cost as a realised loss instead (a demerger then changes nothing).
+- A dividend pays round_paise(eligible shares at the eve of the ex-date * amount) per
+  account holding any; it changes no lot.
 """
 
 from collections import defaultdict, deque
@@ -27,6 +40,7 @@ from typing import NamedTuple
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.corporate_action import StockAction
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade
 
 PAISE = Decimal("0.01")
@@ -66,6 +80,8 @@ class TradeRow(NamedTuple):
     charges: Decimal
     opening: bool
     amount: Decimal
+    # India date the quantity and price were last entered; None means the trade's `date`.
+    basis_date: date | None = None
 
 
 def stock_amount(side: str, quantity: Decimal | int, price: Decimal, charges: Decimal) -> Decimal:
@@ -94,63 +110,306 @@ class Position:
     sold_any: bool = False
 
 
+class ActionRow(NamedTuple):
+    id: int
+    instrument_id: int
+    kind: str
+    ex_date: date
+    ratio_new: Decimal | None
+    ratio_old: Decimal | None
+    amount_per_share: Decimal | None
+    target_instrument_id: int | None
+    cost_share_pct: Decimal | None
+
+
 class Replay(NamedTuple):
     positions: dict[tuple[int, int], Position]
     realised_by_sell: dict[int, Decimal]
     shortfall: TradeRow | None
+    # Gross dividend in rupees by (action id, account id).
+    dividends: dict[tuple[int, int], Decimal]
+    # Ids of the actions that changed at least one lot.
+    touched: set[int]
 
 
-def replay(trades: Iterable[TradeRow]) -> Replay:
-    groups: dict[tuple[int, int], list[TradeRow]] = defaultdict(list)
+# [quantity, cost, basis_date, order]. `order` is the sort key of the event that created
+# the lot; a lot moved by a merger or split off by a demerger keeps its parent's, so FIFO
+# in the target instrument stays in original lot order.
+Lot = list
+
+
+def _eligible(lots: Iterable[Lot], ex_date: date) -> list[Lot]:
+    """The lots an action on `ex_date` applies to: those entered at a basis before it."""
+    return [lot for lot in lots if lot[0] > 0 and lot[2] < ex_date]
+
+
+QTY = Decimal("0.00000001")
+
+
+def _qty(value: Decimal) -> Decimal:
+    """A ratio-adjusted quantity: exact when it fits 8 decimals, else rounded to 8."""
+    if value.as_tuple().exponent >= -8:
+        return value
+    return value.quantize(QTY, rounding=ROUND_HALF_UP)
+
+
+def _scaled(lots: list[Lot], new: Decimal, old: Decimal) -> tuple[list[Decimal], Decimal]:
+    """Each lot's quantity x new/old (via `_qty`) and the position's unrounded total.
+
+    The total is computed once from the exact sum, multiplying before dividing, so a
+    position of 3 x 10 shares at 1:3 is exactly 10, not 3 x 3.333... summed.
+    """
+    held = sum((lot[0] for lot in lots), Decimal("0"))
+    return [_qty(lot[0] * new / old) for lot in lots], held * new / old
+
+
+def _settle(lots: list[Lot], total: Decimal) -> None:
+    """Make `lots` (oldest first) add up to exactly `total`.
+
+    Any excess is taken off the newest lots. A lot trimmed to nothing hands its cost to
+    the newest lot that still has shares, so no paisa is lost; if every lot is trimmed
+    away, one zero-quantity lot is left carrying all the cost. The last lot then absorbs
+    the per-lot rounding, so the lots sum to `total` exactly.
+    """
+    excess = sum((lot[0] for lot in lots), Decimal("0")) - total
+    for lot in reversed(lots):
+        if excess <= 0:
+            break
+        take = min(excess, lot[0])
+        lot[0] -= take
+        excess -= take
+    while len(lots) > 1 and lots[-1][0] <= 0:
+        lots[-2][1] += lots.pop()[1]
+    lots[-1][0] = total - sum((lot[0] for lot in lots[:-1]), Decimal("0"))
+
+
+def _replace(lots: deque[Lot], old: list[Lot], new: list[Lot]) -> None:
+    """Put `new` in place of the lots `old` (a subset of `lots`), keeping FIFO order."""
+    gone = {id(lot) for lot in old}
+    kept = [lot for lot in lots if id(lot) not in gone]
+    lots.clear()
+    lots.extend(sorted([*kept, *new], key=lambda lot: lot[3]))
+
+
+def _apply_split(lots: deque[Lot], action: ActionRow) -> Decimal | None:
+    """Split or consolidation: each eligible lot's quantity x new/old, cost and date kept.
+
+    The position total is floored like a merger's: the fraction comes off the newest lots and
+    `_settle` keeps every paisa. Returns None if no lot changed, else the cost written off,
+    which is all of it when the position floors to no whole share (the lots are removed) and
+    0 otherwise.
+    """
+    if not action.ratio_new or not action.ratio_old:
+        return None
+    eligible = _eligible(lots, action.ex_date)
+    if not eligible:
+        return None
+    quantities, total = _scaled(eligible, action.ratio_new, action.ratio_old)
+    whole = Decimal(int(total))  # floor per position, as total >= 0
+    if whole <= 0:
+        _replace(lots, eligible, [])
+        return sum((lot[1] for lot in eligible), Decimal("0"))
+    new = [
+        [quantity, lot[1], lot[2], lot[3]]
+        for lot, quantity in zip(eligible, quantities, strict=True)
+    ]
+    _settle(new, whole)
+    if [lot[0] for lot in new] == [lot[0] for lot in eligible]:
+        return None
+    _replace(lots, eligible, new)
+    return Decimal("0")
+
+
+def _apply_bonus(lots: deque[Lot], action: ActionRow) -> bool:
+    """Bonus: one new zero-cost lot of floor(eligible position x new/old), dated the ex-date."""
+    if not action.ratio_new or not action.ratio_old:
+        return False
+    held = sum((lot[0] for lot in _eligible(lots, action.ex_date)), Decimal("0"))
+    extra = Decimal(int(held * action.ratio_new / action.ratio_old))  # floor, as held >= 0
+    if extra <= 0:
+        return False
+    lots.append([extra, Decimal("0"), action.ex_date, _action_order(action)])
+    return True
+
+
+def _action_order(action: ActionRow) -> tuple[date, int, int]:
+    return (action.ex_date, 0, action.id)
+
+
+def _split_off(lots: deque[Lot], action: ActionRow) -> tuple[list[Lot], Decimal] | None:
+    """A merger or demerger's new lots in the target from one position's eligible lots.
+
+    Each eligible lot gives a lot of quantity x new/old with its basis date and order, the
+    position total floored once and settled by `_settle`. A merger moves the whole lot (it leaves
+    `lots`, cost and all); a demerger leaves the parent lot in place, its cost reduced by
+    the child's round_paise(cost x pct / 100). Returns the new lots and the cost they
+    carry, or None if the action can't apply or would create nothing. A merger giving no
+    whole share still takes the lots away, and returns no new lots with their cost.
+    """
+    merger = action.kind == "merger"
+    if not action.ratio_new or not action.ratio_old:
+        return None
+    if not merger and action.cost_share_pct is None:
+        return None
+    eligible = _eligible(lots, action.ex_date)
+    if not eligible:
+        return None
+    quantities, total = _scaled(eligible, action.ratio_new, action.ratio_old)
+    whole = Decimal(int(total))  # floor per position, as total >= 0
+    if not merger and whole <= 0:
+        return None  # a demerger giving no whole share: the parent keeps everything
+    if merger and whole <= 0:
+        _replace(lots, eligible, [])
+        return [], sum((lot[1] for lot in eligible), Decimal("0"))
+    if merger:
+        costs = [lot[1] for lot in eligible]
+    else:
+        costs = [round_paise(lot[1] * action.cost_share_pct / 100) for lot in eligible]
+    new = [
+        [quantity, cost, lot[2], lot[3]]
+        for lot, quantity, cost in zip(eligible, quantities, costs, strict=True)
+    ]
+    _settle(new, whole)
+    if merger:
+        _replace(lots, eligible, [])
+    else:
+        for lot, cost in zip(eligible, costs, strict=True):
+            lot[1] -= cost
+    return new, sum(costs, Decimal("0"))
+
+
+def _write_off(pos: Position, cost: Decimal) -> None:
+    """Shares that became less than one whole share: their cost is a realised loss."""
+    pos.invested -= cost
+    pos.realised -= cost
+    pos.sold_any = True
+
+
+def replay(trades: Iterable[TradeRow], actions: Iterable[ActionRow] = ()) -> Replay:
+    """Replay every trade and corporate action in one date-ordered stream.
+
+    Events sort by (date, actions before buys before sells, id), so an action on its ex-date
+    runs before that day's trades. An action applies to every account's lots of its
+    instrument, but only to lots whose basis date is before the ex-date.
+    """
+    events: list[tuple[tuple[date, int, int], TradeRow | ActionRow]] = []
     for t in trades:
-        groups[(t.instrument_id, t.account_id)].append(t)
+        events.append(((t.date, 1 if t.side == "buy" else 2, t.id), t))
+    for act in actions:
+        events.append(((act.ex_date, 0, act.id), act))
+    events.sort(key=lambda e: e[0])
 
     positions: dict[tuple[int, int], Position] = {}
+    lots_by_key: dict[tuple[int, int], deque[Lot]] = {}
+    keys_by_instrument: dict[int, list[tuple[int, int]]] = defaultdict(list)
     realised_by_sell: dict[int, Decimal] = {}
+    dividends: dict[tuple[int, int], Decimal] = {}
+    touched: set[int] = set()
     shortfall: TradeRow | None = None
-    shortfall_key: tuple[date, int, int] | None = None
 
-    for key, rows in groups.items():
-        pos = Position(*key)
-        positions[key] = pos
-        lots: deque[list] = deque()  # [quantity, cost]
-        for t in sorted(rows, key=lambda r: (r.date, 0 if r.side == "buy" else 1, r.id)):
-            if t.side == "buy":
-                cost = t.amount
-                lots.append([t.quantity, cost])
-                pos.quantity += t.quantity
-                pos.invested += cost
+    def position(instrument_id: int, account_id: int) -> Position:
+        key = (instrument_id, account_id)
+        pos = positions.get(key)
+        if pos is None:
+            pos = positions[key] = Position(*key)
+            lots_by_key[key] = deque()
+            keys_by_instrument[instrument_id].append(key)
+        return pos
+
+    def recount(key: tuple[int, int]) -> None:
+        positions[key].quantity = sum((lot[0] for lot in lots_by_key[key]), Decimal("0"))
+
+    for order, event in events:
+        if isinstance(event, ActionRow):
+            keys = list(keys_by_instrument.get(event.instrument_id, ()))
+            if event.kind == "dividend":
+                if event.amount_per_share is None:
+                    continue
+                for key in keys:
+                    held = sum(
+                        (lot[0] for lot in _eligible(lots_by_key[key], event.ex_date)), Decimal("0")
+                    )
+                    if held > 0:
+                        dividends[(event.id, key[1])] = round_paise(held * event.amount_per_share)
                 continue
-            need = t.quantity
-            if need > pos.quantity:
-                order = (t.date, 1, t.id)
-                if shortfall_key is None or order < shortfall_key:
-                    shortfall, shortfall_key = t, order
-            cost_taken = Decimal("0")
-            while need > 0 and lots:
-                lot = lots[0]
-                if lot[0] <= need:
-                    cost_taken += lot[1]
-                    need -= lot[0]
-                    lots.popleft()
-                else:
-                    part = round_paise(lot[1] * need / lot[0])
-                    cost_taken += part
-                    lot[0] -= need
-                    lot[1] -= part
-                    need = 0
-            taken = t.quantity - need
-            realised = round_paise(t.amount - cost_taken)
-            realised_by_sell[t.id] = realised
-            pos.quantity -= taken
-            pos.invested -= cost_taken
-            pos.realised += realised
-            pos.sold_any = True
+            if event.kind in ("merger", "demerger"):
+                target = event.target_instrument_id
+                if target is None or target == event.instrument_id:
+                    continue
+                for key in keys:
+                    split = _split_off(lots_by_key[key], event)
+                    if split is None:
+                        continue
+                    new_lots, cost = split
+                    touched.add(event.id)
+                    if not new_lots:  # a merger leaving no whole share
+                        _write_off(positions[key], cost)
+                        recount(key)
+                        continue
+                    dst = position(target, key[1])
+                    dst_key = (target, key[1])
+                    lots_by_key[dst_key] = deque(
+                        sorted([*lots_by_key[dst_key], *new_lots], key=lambda lot: lot[3])
+                    )
+                    positions[key].invested -= cost
+                    dst.invested += cost
+                    recount(key)
+                    recount(dst_key)
+                continue
+            if event.kind in ("split", "consolidation"):
+                for key in keys:
+                    lost = _apply_split(lots_by_key[key], event)
+                    if lost is None:
+                        continue
+                    touched.add(event.id)
+                    if lost:
+                        _write_off(positions[key], lost)
+                    recount(key)
+            elif event.kind == "bonus":
+                for key in keys:
+                    if _apply_bonus(lots_by_key[key], event):
+                        touched.add(event.id)
+                        recount(key)
+            continue  # "other": recorded for history only
+
+        t = event
+        key = (t.instrument_id, t.account_id)
+        pos = position(*key)
+        lots = lots_by_key[key]
+        if t.side == "buy":
+            cost = t.amount
+            lots.append([t.quantity, cost, t.basis_date or t.date, order])
+            pos.quantity += t.quantity
+            pos.invested += cost
+            continue
+        need = t.quantity
+        if need > pos.quantity and shortfall is None:
+            shortfall = t  # events run in order, so the first one seen is the first in order
+        cost_taken = Decimal("0")
+        while need > 0 and lots:
+            lot = lots[0]
+            if lot[0] <= need:
+                cost_taken += lot[1]
+                need -= lot[0]
+                lots.popleft()
+            else:
+                part = round_paise(lot[1] * need / lot[0])
+                cost_taken += part
+                lot[0] -= need
+                lot[1] -= part
+                need = 0
+        taken = t.quantity - need
+        realised = round_paise(t.amount - cost_taken)
+        realised_by_sell[t.id] = realised
+        pos.quantity -= taken
+        pos.invested -= cost_taken
+        pos.realised += realised
+        pos.sold_any = True
 
     for pos in positions.values():
         pos.invested = round_paise(pos.invested)
         pos.realised = round_paise(pos.realised)
-    return Replay(positions, realised_by_sell, shortfall)
+    return Replay(positions, realised_by_sell, shortfall, dividends, touched)
 
 
 class PortfolioTotals(NamedTuple):
@@ -198,9 +457,45 @@ def load_trade_rows(db: Session, user_id: int) -> list[TradeRow]:
             InvestmentTrade.charges,
             InvestmentTrade.opening,
             InvestmentTrade.amount,
+            InvestmentTrade.basis_date,
         ).where(InvestmentTrade.user_id == user_id)
     )
-    return [TradeRow(*row) for row in rows]
+    # Only existing (opening) shares are held back from an action by the day they were entered;
+    # a real past buy is adjusted from its trade date.
+    result = []
+    for row in rows:
+        t = TradeRow(*row)
+        result.append(t._replace(basis_date=t.basis_date if t.opening else t.date))
+    return result
+
+
+def load_action_rows(db: Session, user_id: int) -> list[ActionRow]:
+    """The user's applied corporate actions, the ones `replay` acts on."""
+    rows = db.execute(
+        select(
+            StockAction.id,
+            StockAction.instrument_id,
+            StockAction.kind,
+            StockAction.ex_date,
+            StockAction.ratio_new,
+            StockAction.ratio_old,
+            StockAction.amount_per_share,
+            StockAction.target_instrument_id,
+            StockAction.cost_share_pct,
+        ).where(StockAction.user_id == user_id, StockAction.status == "applied")
+    )
+    return [ActionRow(*row) for row in rows]
+
+
+def user_replay(db: Session, user_id: int, account_id: int | None = None) -> Replay:
+    """Replay of the user's trades and applied actions, or of one account's trades.
+
+    Actions are per instrument, so an account's replay still sees all of them.
+    """
+    trades = load_trade_rows(db, user_id)
+    if account_id is not None:
+        trades = [t for t in trades if t.account_id == account_id]
+    return replay(trades, load_action_rows(db, user_id))
 
 
 def load_kinds(db: Session, user_id: int) -> dict[int, str]:
@@ -233,13 +528,13 @@ def investments_totals(db: Session, user_id: int, kind: str | None = None) -> Po
     only = None
     if kind is not None:
         only = {id_ for id_, k in load_kinds(db, user_id).items() if k == kind}
-    return summarise(replay(load_trade_rows(db, user_id)), latest_prices(db, user_id), only)
+    return summarise(user_replay(db, user_id), latest_prices(db, user_id), only)
 
 
 def holds_units(db: Session, user_id: int, account_id: int, kind: str) -> bool:
     """Whether the account holds any instrument of `kind` ("stock", "mutual_fund" or "crypto")."""
     kinds = load_kinds(db, user_id)
-    result = replay(r for r in load_trade_rows(db, user_id) if r.account_id == account_id)
+    result = user_replay(db, user_id, account_id)
     return any(
         pos.quantity > 0 and kinds.get(pos.instrument_id) == kind
         for pos in result.positions.values()

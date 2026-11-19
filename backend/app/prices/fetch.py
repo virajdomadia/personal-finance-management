@@ -21,6 +21,21 @@ COINGECKO_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price"
 COINGECKO_SEARCH_URL = "https://api.coingecko.com/api/v3/search"
 # CoinDCX's public ticker: every market's last traded price, no key needed.
 COINDCX_TICKER_URL = "https://api.coindcx.com/exchange/ticker"
+# Corporate actions. Verified once from a home machine on 2026-11-19:
+#  NSE: GET https://www.nseindia.com (cookie page; answered 403 yet the API call after it
+#       worked, so its status is ignored), then GET
+#       https://www.nseindia.com/api/corporates-corporateActions
+#       ?index=equities&from_date=DD-MM-YYYY&to_date=DD-MM-YYYY[&symbol=X]
+#       with headers User-Agent (generic), Accept: application/json,
+#       Referer: https://www.nseindia.com/  -> 200 JSON list of objects.
+#  BSE: GET https://api.bseindia.com/BseIndiaAPI/api/DefaultData/w with params
+#       Fdate=YYYYMMDD, TDate=YYYYMMDD, Purposecode=, ddlcategorys=E, ddlindustrys=,
+#       scripcode=, segment=0, strSearch=S and headers Referer: https://www.bseindia.com/,
+#       Origin: https://www.bseindia.com, Accept: application/json. This returned an Akamai
+#       "Access Denied" 403 from that machine, so the shape is the documented one, unverified.
+NSE_HOME_URL = "https://www.nseindia.com"
+NSE_ACTIONS_URL = "https://www.nseindia.com/api/corporates-corporateActions"
+BSE_ACTIONS_URL = "https://api.bseindia.com/BseIndiaAPI/api/DefaultData/w"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -78,12 +93,16 @@ class Fetcher:
     def _text(self, url: str, timeout: httpx.Timeout | None = None) -> str:
         return self._ok(url, timeout=timeout).content.decode("utf-8-sig", errors="replace")
 
-    def _any_json(self, url: str, params=None, headers=None):
-        body = self._ok(url, params, headers).content.decode("utf-8-sig", errors="replace")
+    @staticmethod
+    def _decode_json(content: bytes):
+        body = content.decode("utf-8-sig", errors="replace")
         try:
             return json.loads(body, parse_float=Decimal)
         except ValueError as exc:
             raise SourceError("response was not valid JSON") from exc
+
+    def _any_json(self, url: str, params=None, headers=None):
+        return self._decode_json(self._ok(url, params, headers).content)
 
     def _json(self, url: str, params=None, headers=None) -> dict:
         data = self._any_json(url, params, headers)
@@ -128,6 +147,47 @@ class Fetcher:
 
     def coin_search(self, query: str) -> dict:
         return self._json(COINGECKO_SEARCH_URL, {"query": query}, self._coingecko_headers())
+
+    def nse_actions(self, start: date, end: date, symbol: str | None = None) -> list:
+        # NSE refuses API calls without the cookies its home page sets; the client keeps them.
+        self._get(NSE_HOME_URL, headers={"Accept": "text/html"}, timeout=NSE_TIMEOUT)
+        params = {
+            "index": "equities",
+            "from_date": start.strftime("%d-%m-%Y"),
+            "to_date": end.strftime("%d-%m-%Y"),
+        }
+        if symbol:
+            params["symbol"] = symbol
+        headers = {"Accept": "application/json", "Referer": NSE_HOME_URL + "/"}
+        body = self._ok(NSE_ACTIONS_URL, params, headers, NSE_TIMEOUT).content
+        data = self._decode_json(body)
+        if not isinstance(data, list):
+            raise SourceError("unexpected JSON shape")
+        return data
+
+    def bse_actions(self, start: date, end: date) -> list:
+        params = {
+            "Fdate": start.strftime("%Y%m%d"),
+            "TDate": end.strftime("%Y%m%d"),
+            "Purposecode": "",
+            "ddlcategorys": "E",
+            "ddlindustrys": "",
+            "scripcode": "",
+            "segment": "0",
+            "strSearch": "S",
+        }
+        headers = {
+            "Accept": "application/json",
+            "Referer": "https://www.bseindia.com/",
+            "Origin": "https://www.bseindia.com",
+        }
+        data = self._any_json(BSE_ACTIONS_URL, params, headers)
+        if isinstance(data, dict):
+            # An empty table is a quiet day, not a failure: test for the key, not its truth.
+            data = data["Table"] if "Table" in data else data.get("data")
+        if not isinstance(data, list):
+            raise SourceError("unexpected JSON shape")
+        return data
 
     def yahoo_chart(self, symbol: str) -> dict:
         return self._json(YAHOO_URL.format(symbol=symbol))

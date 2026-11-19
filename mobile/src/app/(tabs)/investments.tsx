@@ -4,6 +4,7 @@ import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Vie
 import { Icon, Text, useTheme } from "react-native-paper";
 
 import { ChunkyBox, ChunkyButton, Chip, HeaderAction, Row, ScreenHeader, Segmented } from "@/components/chunky";
+import { ActionsReview } from "@/components/corporate-actions";
 import { GoalTagLine } from "@/components/goal-tag";
 import { CoinGeckoCredit } from "@/components/coingecko-credit";
 import { LinkPrompt } from "@/components/link-prompt";
@@ -188,6 +189,7 @@ export default function InvestmentsScreen() {
           <View style={styles.header}>
             {errorLine}
             {dueCards}
+            <ActionsReview reloadKey={portfolio} onChanged={() => void load()} />
             <LinkPrompt
               items={(unlinked?.stocks ?? []).map((x) => ({ id: x.id, text: x.symbol }))}
               onOpen={(item) => go({ pathname: "/stock", params: { id: String(item.id), symbol: item.text } })}
@@ -468,7 +470,14 @@ function DueCard({ sip, onPress }: { sip: Sip; onPress: () => void }) {
 }
 
 // The worth of the segment: a blue tile with the sticker, the gain on a pill, and invested and realised.
-function SummaryTile({ totals, kind }: { totals: Totals; kind: "stock" | "mutual_fund" | "crypto" }) {
+function SummaryTile({
+  totals,
+  kind,
+}: {
+  totals: Omit<Totals, "dividends" | "dividends_fy" | "total_return"> & Partial<Pick<Totals, "dividends" | "dividends_fy" | "total_return">>;
+  kind: "stock" | "mutual_fund" | "crypto";
+}) {
+  const paid = totals.dividends !== undefined && (Number(totals.dividends) !== 0 || Number(totals.dividends_fy) !== 0);
   return (
     <WorthTile
       label={`${investmentEmoji(kind)} Current value`}
@@ -482,6 +491,19 @@ function SummaryTile({ totals, kind }: { totals: Totals; kind: "stock" | "mutual
         value={formatSigned(totals.realised)}
         accessibilityLabel={`Realised P&L ${signedLabel(totals.realised)}`}
       />
+      {paid ? (
+        <>
+          <TileLine label="Dividends received (this FY)" value={formatRupees(totals.dividends_fy ?? "0.00")} />
+          <TileLine label="Dividends received (all time)" value={formatRupees(totals.dividends ?? "0.00")} />
+        </>
+      ) : null}
+      {totals.total_return !== undefined ? (
+        <TileLine
+          label="Total return"
+          value={formatSigned(totals.total_return)}
+          accessibilityLabel={`Total return ${signedLabel(totals.total_return)}`}
+        />
+      ) : null}
     </WorthTile>
   );
 }

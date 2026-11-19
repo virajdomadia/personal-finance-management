@@ -2,15 +2,18 @@ from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app import cli
 from app.cli import create_user
 from app.models.account import Account
+from app.models.corporate_action import DividendLink, StockAction
+from app.models.investment import Instrument
 from app.models.sms import SmsEntry
 from app.models.transaction import Transaction
 from app.sms import undo
+from tests.conftest import ON_POSTGRES
 
 BEFORE = datetime(2026, 11, 13, 10, 0, tzinfo=UTC)  # an earlier, wanted read
 READ = datetime(2026, 11, 13, 12, 30, tzinfo=UTC)  # the mistaken one: 18:00 in India
@@ -136,3 +139,44 @@ def test_cli_lists_reads_and_only_removes_with_apply(db_session: Session, monkey
 
     assert cli.main(["undo-sms-read", "me@gmail.com", "yesterday"]) == 1
     assert "Not a date and time" in capsys.readouterr().err
+
+
+def _foreign_keys_on(db: Session) -> None:
+    """SQLite checks foreign keys only when asked, as PostgreSQL always does."""
+    if ON_POSTGRES:
+        return
+    db.commit()
+    db.execute(text("PRAGMA foreign_keys=ON"))
+    db.commit()
+    assert db.execute(text("PRAGMA foreign_keys")).scalar() == 1
+
+
+def link_dividend(db: Session, user: int, tx: Transaction) -> int:
+    """Links `tx` to an applied dividend of a new stock; returns the link's id."""
+    infy = Instrument(user_id=user, kind="stock", symbol="INFY", name="Infosys")
+    db.add(infy)
+    db.flush()
+    paid = StockAction(
+        user_id=user, instrument_id=infy.id, kind="dividend", ex_date=date(2026, 8, 20),
+        amount_per_share=Decimal("10"), status="applied",
+    )  # fmt: skip
+    db.add(paid)
+    db.flush()
+    link = DividendLink(user_id=user, stock_action_id=paid.id, transaction_id=tx.id)
+    db.add(link)
+    db.commit()
+    return link.id
+
+
+def test_undo_removes_a_credit_linked_to_a_dividend(db_session: Session):
+    user, acct = _setup(db_session)
+    credit = _tx(db_session, user, acct, READ, type="income")
+    _sms(db_session, user, READ, credit)
+    link_dividend(db_session, user, credit)
+    _foreign_keys_on(db_session)
+
+    undo.apply(db_session, user, READ)
+
+    assert db_session.scalars(select(Transaction)).all() == []
+    assert db_session.scalars(select(DividendLink)).all() == []
+    assert len(db_session.scalars(select(StockAction)).all()) == 1  # the dividend stays

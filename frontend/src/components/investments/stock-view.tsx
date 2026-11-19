@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/select";
 
 import { LinkDialog } from "./link-dialog";
 import { PriceDialog } from "./price-dialog";
+import { StockActionsSection } from "./stock-actions";
 import { Tile } from "@/components/ui/chunky";
 import { investmentSticker } from "@/lib/fun";
 import {
@@ -188,6 +189,7 @@ export function StockView({ stockId }: { stockId: number }) {
         <div className="flex flex-col gap-8">
           <StockSummary data={data} />
           <BrokerHoldings holdings={holdings} onSell={(h) => openTrade("sell", h.account_id)} />
+          <StockActionsSection stock={data.stock} stocks={data.stocks} onChanged={reload} />
           <Trades
             data={data}
             filter={brokerFilter}
@@ -287,6 +289,9 @@ function StockSummary({ data }: { data: Data }) {
                 <PlainSigned value={total.unrealised} percent={total.unrealised_percent} />
                 {total.at_cost ? " · at cost" : ""}
               </span>
+            ) : null}
+            {total && Number(total.dividends) !== 0 ? (
+              <span className="mt-0.5 block text-xs font-extrabold break-words">Dividends received {formatRupees(total.dividends)}</span>
             ) : null}
           </Tile>
         </div>

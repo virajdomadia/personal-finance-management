@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
-from app.api.portfolio import TradeRow, fmt_coin, fmt_price, load_trade_rows, replay
+from app.api.portfolio import TradeRow, fmt_coin, fmt_price, user_replay
 from app.api.routes.accounts import MAX_ID, MAX_MONEY, Flag, Money, field_error, fmt
 from app.api.routes.coins import (
     CRYPTO,
@@ -204,7 +204,7 @@ def _response(
 
 
 def _saved_response(db: Session, user_id: int, t: InvestmentTrade, account: Account) -> CryptoTrade:
-    realised = replay(load_trade_rows(db, user_id)).realised_by_sell
+    realised = user_replay(db, user_id).realised_by_sell
     coin = db.get(Instrument, t.instrument_id)
     assert coin is not None
     return _response(t, coin, account, realised)
@@ -342,7 +342,7 @@ def list_crypto_trades(
         query = query.where(InvestmentTrade.account_id == account_id)
     found = db.scalars(query.order_by(InvestmentTrade.date.desc(), InvestmentTrade.id.desc())).all()
     # Realised P&L depends on every earlier trade of the holding, so replay them all.
-    realised = replay(load_trade_rows(db, user.id)).realised_by_sell
+    realised = user_replay(db, user.id).realised_by_sell
     coins = {
         c.id: c
         for c in db.scalars(

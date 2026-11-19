@@ -14,7 +14,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.balances import Movement, load_movements
-from app.api.portfolio import TradeRow, load_kinds, load_trade_rows, replay, trade_cash
+from app.api.portfolio import (
+    ActionRow,
+    TradeRow,
+    load_action_rows,
+    load_kinds,
+    load_trade_rows,
+    replay,
+    trade_cash,
+)
 from app.api.routes.accounts import MAX_ID, field_error
 from app.api.routes.transactions import balance_problem, lock_accounts
 from app.models.account import Account
@@ -128,14 +136,22 @@ def shortfall_check(
     rows: list[TradeRow],
     saving_id: int | None,
     messages: ShortMessages,
+    *,
+    actions: list[ActionRow] | None = None,
 ) -> None:
     """Refuse the change if, with it applied (`rows`), any sell of this kind sells more than held.
+
+    `actions` are the corporate actions to replay with; None loads the user's applied ones.
 
     Other kinds are left out: this change can't have made them short, and their shortfall would
     be worded for the wrong kind.
     """
     kinds = load_kinds(db, user_id)
-    short = replay(r for r in rows if kinds.get(r.instrument_id) == messages.kind).shortfall
+    if actions is None:
+        actions = load_action_rows(db, user_id)
+    short = replay(
+        (r for r in rows if kinds.get(r.instrument_id) == messages.kind), actions
+    ).shortfall
     if short is None:
         return
     symbol = db.scalar(select(Instrument.symbol).where(Instrument.id == short.instrument_id))
