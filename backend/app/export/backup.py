@@ -35,6 +35,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session
 
+from app.api.dates import INDIA
 from app.db.base import Base
 from app.export.tables import UNLINKED_COLUMNS, Plan, json_columns, plan, user_columns
 from app.models.market import MarketCode
@@ -374,6 +375,28 @@ def _mapped(
     return new
 
 
+def _fill_basis_date(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A backup from before `basis_date` existed lacks it. Give those trades the migration's
+    value: the India day of `updated_at`, or failing that the trade's own date."""
+    out = []
+    for row in rows:
+        if row.get("basis_date") is None:
+            row = dict(row)
+            stamp = row.get("updated_at")
+            try:
+                if stamp is not None:
+                    moment = dt.datetime.fromisoformat(stamp)
+                    if moment.tzinfo is None:
+                        moment = moment.replace(tzinfo=dt.UTC)
+                    row["basis_date"] = moment.astimezone(INDIA).date().isoformat()
+            except (TypeError, ValueError):
+                pass  # the bad updated_at is reported when it's inserted
+            if row.get("basis_date") is None:
+                row["basis_date"] = row.get("date")
+        out.append(row)
+    return out
+
+
 def _insert_table(
     db: Session,
     table: Table,
@@ -383,6 +406,8 @@ def _insert_table(
 ) -> int:
     if not rows:
         return 0
+    if table.name == "investment_trades":
+        rows = _fill_basis_date(rows)
     now, later = self_refs(table)
     names = sorted({k for r in rows for k in r} - {"id"})
     unknown = set(names) - set(table.columns.keys())
