@@ -23,6 +23,8 @@ import {
   toPayload,
   todayIndia,
   expenseFormFromRelease,
+  suggestPath,
+  applySuggestion,
 } from "./transactions.ts";
 
 test("expenseFormFromRelease is an expense of the same amount from the same account, dated today", () => {
@@ -319,4 +321,20 @@ test("showsActivity only for one account with no type filter", () => {
   assert.equal(showsActivity({ accountId: null, type: null }), false);
   assert.equal(showsActivity({ accountId: 3, type: "expense" }), false);
   assert.equal(showsActivity({ accountId: 3, type: "transfer" }), false);
+});
+
+test("suggestPath asks only for expense and income notes of two or more characters", () => {
+  assert.equal(suggestPath("expense", " ice cream "), "/transactions/suggest-category?type=expense&note=ice+cream");
+  assert.equal(suggestPath("income", "salary"), "/transactions/suggest-category?type=income&note=salary");
+  assert.equal(suggestPath("expense", " a "), null);
+  assert.equal(suggestPath("transfer", "rent"), null);
+  assert.equal(suggestPath("emi", "loan"), null);
+});
+
+test("applySuggestion fills or clears an untouched category and never overrides a picked one", () => {
+  const form = blankForm("expense", "2026-11-19", 1);
+  assert.equal(applySuggestion(form, false, "Food and dining").category, "Food and dining");
+  assert.equal(applySuggestion({ ...form, category: "Food and dining" }, false, null).category, "");
+  const picked = { ...form, category: "Shopping" };
+  assert.equal(applySuggestion(picked, true, "Food and dining"), picked);
 });

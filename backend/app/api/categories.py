@@ -290,6 +290,16 @@ def exists(db: Session, user_id: int, kind: str, name: str) -> bool:
     return _find(db, user_id, kind, name_key(name)) is not None
 
 
+def current_name(db: Session, user_id: int, kind: str, name: str) -> str | None:
+    """The live name a category name now goes by, following merges and renames; None when no
+    category has the name or it is archived. Unlike `resolve`, it never creates one."""
+    ensure_seeded(db, user_id)
+    found = _find(db, user_id, kind, name_key(name))
+    if found is None or found.archived_at is not None:
+        return None
+    return found.name
+
+
 def usable(db: Session, user_id: int, kind: str, name: str) -> str | None:
     """`resolve` for automatic categorising (SMS): None when the category is archived."""
     try:
