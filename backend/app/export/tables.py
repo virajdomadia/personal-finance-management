@@ -15,9 +15,16 @@ from sqlalchemy import JSON, Column, ForeignKeyConstraint, MetaData, Table
 EXCLUDED: dict[str, str] = {
     "users": "login identity (email, Google id, session version); restore targets a user by email",
     "market_codes": "shared public market data, the same for every user and refreshed nightly",
+    "corporate_actions": "shared public market data from the exchange, the same for every user",
 }
 
 USERS = "users"
+
+# A foreign key into an excluded table. Its ids differ between databases, so a backup can't carry
+# it: restore leaves it empty. The row is then treated as entered by hand.
+UNLINKED_COLUMNS: dict[tuple[str, str], str] = {
+    ("stock_actions", "corporate_action_id"): "points at the shared corporate_actions feed",
+}
 
 # A foreign key column that points at something other than a primary key is copied as it is, not
 # remapped. That's right only for these: composite keys that repeat the owner and a fixed kind
@@ -102,6 +109,8 @@ def _remap_problems(table: Table, owned: set[str]) -> list[str]:
                     f"{table.name}.{column.name} points at {target}.{element.column.name}, "
                     "not a primary key; restore would copy it unmapped"
                 )
+            if (table.name, column.name) in UNLINKED_COLUMNS:
+                continue
             if target != USERS and target not in owned:
                 problems.append(
                     f"{table.name}.{column.name} points at {target}, which isn't exported; "

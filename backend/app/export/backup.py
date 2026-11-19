@@ -36,7 +36,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
-from app.export.tables import Plan, json_columns, plan, user_columns
+from app.export.tables import UNLINKED_COLUMNS, Plan, json_columns, plan, user_columns
 from app.models.market import MarketCode
 from app.models.user import User
 
@@ -391,6 +391,7 @@ def _insert_table(
     user = {c.name for c in user_columns(table)}
     names += sorted(user - set(names))
     blank = set(json_columns(table)) | set(later)  # filled in once every row exists
+    blank |= {c for (t, c) in UNLINKED_COLUMNS if t == table.name}  # left empty on restore
     targets = _foreign_targets(table)
 
     def values(row: dict[str, Any]) -> dict[str, Any]:

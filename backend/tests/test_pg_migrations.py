@@ -55,6 +55,9 @@ ALL_TABLES = {
     "net_worth_snapshots",
     "categories",
     "budgets",
+    "corporate_actions",
+    "stock_actions",
+    "dividend_links",
 }
 
 

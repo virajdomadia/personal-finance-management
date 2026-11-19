@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.main import app
 from app.models.account import Account
 from app.models.budget import Budget
+from app.models.corporate_action import DividendLink, StockAction
 from app.models.goal import Goal, GoalEarmark, GoalHolding
 from app.models.insurance import InsurancePolicy, PolicyPeriod
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade, Sip
@@ -142,6 +143,11 @@ def build(db: Session, headers: Headers, user_id: int, today: date) -> None:
     add(GoalHolding(user_id=u, goal_id=trip.id, instrument_id=fund.id))
     add(GoalHolding(user_id=u, goal_id=trip.id, instrument_id=tcs.id, active=False))
 
+    add(StockAction(user_id=u, instrument_id=infy.id, kind="split", ex_date=date(2025, 6, 1), ratio_new=D("2"), ratio_old=D("1"), status="applied"))
+    dividend = add(StockAction(user_id=u, instrument_id=tcs.id, kind="dividend", ex_date=date(2025, 7, 1), amount_per_share=D("10.0000"), status="applied"))
+    add(StockAction(user_id=u, instrument_id=tcs.id, kind="demerger", ex_date=date(2025, 8, 1), status="pending", target_instrument_id=infy.id, cost_share_pct=D("12.5000")))
+    div_tx = tx(date(2025, 7, 10), "income", hdfc, "100.00", category="Dividend")
+    add(DividendLink(user_id=u, stock_action_id=dividend.id, transaction_id=div_tx.id))
     market = db.query(MarketCode).filter_by(kind="stock", code="INFY").one_or_none() or add(MarketCode(kind="stock", code="INFY", name="Infosys Ltd", price=D("1720.0000")))
     add(AccountIdentifier(user_id=u, account_id=card.id, last4="4321"))
     add(PayeeRule(user_id=u, payee_key="swiggy", display="Swiggy", category="Food and dining"))
