@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import NamedTuple
 
 from app.api.dates import clamped_date
@@ -87,6 +88,72 @@ def open_occurrences(t: TemplateRow, paid: list[date], skips: set[date], upto: d
                 )
             )
     return [o for o in occs if o not in settled and o not in skips]
+
+
+MONEY_OUT = frozenset({"expense", "transfer", "emi"})
+
+
+class Money(NamedTuple):
+    """What a reminder asks for, or what a transaction did, as far as matching goes."""
+
+    type: str
+    account_id: int
+    to_account_id: int | None
+    amount: Decimal
+    category: str | None
+
+
+def pays_for(reminder: Money, payment: Money) -> bool:
+    """Whether a payment recorded without the reminder is the payment the reminder asks for.
+
+    Same paying account, same amount, and money moving the same way: a bill is settled by money
+    leaving the account however it was recorded (an RD instalment set up as an expense but
+    recorded as a transfer), income only by income. A transfer reminder needs a transfer to its
+    own target. When both are the same type and both have a category, the categories must match.
+    """
+    if payment.account_id != reminder.account_id or payment.amount != reminder.amount:
+        return False
+    if reminder.type == "income":
+        if payment.type != "income":
+            return False
+    elif payment.type not in MONEY_OUT:
+        return False
+    if reminder.to_account_id is not None and (
+        payment.type != "transfer" or payment.to_account_id != reminder.to_account_id
+    ):
+        return False
+    return not (
+        reminder.type == payment.type
+        and reminder.category is not None
+        and payment.category is not None
+        and reminder.category != payment.category
+    )
+
+
+def settle_unlinked(
+    reminders: list[tuple[TemplateRow, Money]],
+    linked: dict[int, list[date]],
+    skips: dict[int, set[date]],
+    payments: list[tuple[date, Money]],
+) -> dict[int, list[date]]:
+    """Payment dates per reminder: those linked to it, plus unlinked payments that match it.
+
+    Payments are taken oldest first. Each goes to the first reminder (by id) that it pays for
+    and that still has an open occurrence in the payment's window, so one payment settles one
+    occurrence of one reminder, and never one that a linked payment already settled.
+    """
+    paid = {row.id: sorted(linked.get(row.id, [])) for row, _ in reminders}
+    ordered = sorted(reminders, key=lambda r: r[0].id)
+    for day, payment in sorted(payments, key=lambda p: p[0]):
+        for row, wants in ordered:
+            if not pays_for(wants, payment):
+                continue
+            reach = day + timedelta(days=max(row.remind_days, YEARLY_WINDOW_DAYS, 31))
+            open_ = open_occurrences(row, paid[row.id], skips.get(row.id, set()), reach)
+            if any(_in_window(row, o, day) for o in open_):
+                paid[row.id].append(day)
+                break
+    return paid
 
 
 def card_bill_due(charge: date, statement_day: int, due_day: int) -> date:

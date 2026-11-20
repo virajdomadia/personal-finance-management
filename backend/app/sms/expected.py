@@ -4,7 +4,6 @@ reminder (rent, say). Such a debit ticks its plan off instead of being asked abo
 `expected_candidates` finds the plans a debit could be; `apply_expected` records the debit as one.
 """
 
-from collections import defaultdict
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal, NotRequired, TypedDict
@@ -15,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.api.loans import load_book, next_emi
 from app.api.recurring import TemplateRow, is_recorded, status
+from app.api.reminder_payments import load_reminder_payments
 from app.api.routes.fund_trades import fund_columns, fund_save_checks, sync_trade_nav
 from app.api.routes.transactions import lock_accounts
 from app.api.sips import DEBIT_SLACK, load_due
@@ -22,7 +22,7 @@ from app.models.account import Account
 from app.models.insurance import InsurancePolicy
 from app.models.investment import Instrument, InstrumentPrice, InvestmentTrade, Sip
 from app.models.market import MarketCode
-from app.models.recurring import RecurringSkip, RecurringTemplate
+from app.models.recurring import RecurringTemplate
 from app.models.sms import PayeeRule, SmsEntry
 from app.models.transaction import Transaction
 from app.sms.recording import record, review
@@ -172,21 +172,7 @@ def _templates(
     ]
     if not near:
         return []
-    ids = [t.id for t in near]
-    paid: dict[int, list[date]] = defaultdict(list)
-    for template_id, paid_on in db.execute(
-        select(Transaction.recurring_template_id, Transaction.date).where(
-            Transaction.user_id == user_id, Transaction.recurring_template_id.in_(ids)
-        )
-    ):
-        paid[template_id].append(paid_on)
-    skips: dict[int, set[date]] = defaultdict(set)
-    for template_id, occurrence in db.execute(
-        select(RecurringSkip.template_id, RecurringSkip.occurrence).where(
-            RecurringSkip.user_id == user_id, RecurringSkip.template_id.in_(ids)
-        )
-    ):
-        skips[template_id].add(occurrence)
+    paid, _, skips = load_reminder_payments(db, user_id)
     found: list[Candidate] = []
     for t in near:
         if t.to_account_id is not None and _active(db, user_id, t.to_account_id) is None:
