@@ -5,7 +5,6 @@ skipped (`app.api.recurring`). Recording an occurrence is an ordinary transactio
 template's id; the client pre-fills it from the template.
 """
 
-from collections import defaultdict
 from datetime import date
 from typing import Annotated, Any, Literal
 
@@ -23,6 +22,7 @@ from app.api.deps import CurrentUser, get_current_user
 from app.api.goals import GoalDue, goals_due, load_goal_book
 from app.api.recurring import TemplateRow
 from app.api.recurring import status as occurrence_status
+from app.api.reminder_payments import load_reminder_payments
 from app.api.routes.accounts import MAX_ID, Flag, Money, clean_text, field_error, fmt
 from app.api.routes.stocks import Deleted
 from app.api.routes.transactions import (
@@ -206,20 +206,7 @@ def template_responses(
         query = query.where(RecurringTemplate.id.in_(ids))
     rows = sorted(db.execute(query).all(), key=lambda r: (r[0].name.casefold(), r[0].id))
 
-    paid: dict[int, list[date]] = defaultdict(list)
-    for template_id, day in db.execute(
-        select(Transaction.recurring_template_id, Transaction.date).where(
-            Transaction.user_id == user_id, Transaction.recurring_template_id.is_not(None)
-        )
-    ):
-        paid[template_id].append(day)
-    skips: dict[int, set[date]] = defaultdict(set)
-    for template_id, occurrence in db.execute(
-        select(RecurringSkip.template_id, RecurringSkip.occurrence).where(
-            RecurringSkip.user_id == user_id
-        )
-    ):
-        skips[template_id].add(occurrence)
+    paid, linked, skips = load_reminder_payments(db, user_id)
     policies = dict(
         db.execute(
             select(InsurancePolicy.template_id, InsurancePolicy.id).where(
@@ -261,7 +248,7 @@ def template_responses(
                 coming_up=None
                 if closed or found.coming_up is None
                 else found.coming_up.isoformat(),
-                recorded=len(paid[t.id]),
+                recorded=len(linked[t.id]),
                 skipped=[d.isoformat() for d in sorted(skips[t.id])],
             )
         )
@@ -490,21 +477,9 @@ def skip_occurrence(id: int, body: SkipBody, user: CurrentUser, db: DbSession) -
             [field_error("occurrence", "Renew or lapse the policy instead.")]
         )
     today = today_india()
-    paid = list(
-        db.scalars(
-            select(Transaction.date).where(
-                Transaction.user_id == user.id, Transaction.recurring_template_id == id
-            )
-        )
-    )
-    skipped = set(
-        db.scalars(
-            select(RecurringSkip.occurrence).where(
-                RecurringSkip.user_id == user.id, RecurringSkip.template_id == id
-            )
-        )
-    )
-    found = occurrence_status(_row(template), paid, skipped, today)
+    payments = load_reminder_payments(db, user.id)
+    skipped = payments.skips[id]
+    found = occurrence_status(_row(template), payments.paid[id], skipped, today)
     # What is shown can be skipped; an already skipped date stays accepted (idempotent).
     open_ = {*found.due, *([found.coming_up] if found.coming_up else []), *skipped}
     if body.occurrence is None or body.occurrence not in open_:

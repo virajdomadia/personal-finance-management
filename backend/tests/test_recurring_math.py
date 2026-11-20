@@ -109,3 +109,56 @@ def test_card_bill_due():
     assert card_bill_due(date(2027, 4, 6), 15, 5) == date(2027, 5, 5)
     assert card_bill_due(date(2027, 4, 6), 1, 25) == date(2027, 5, 25)
     assert card_bill_due(date(2027, 4, 15), 15, 5) == date(2027, 5, 5)
+
+
+# Matching a payment recorded without its reminder (`pays_for`, `settle_unlinked`)
+
+from decimal import Decimal  # noqa: E402
+
+from app.api.recurring import Money, pays_for, settle_unlinked  # noqa: E402
+
+
+def money(type_="expense", account=1, to=None, amount="1500.00", category="Insurance"):
+    return Money(type_, account, to, Decimal(amount), category)
+
+
+def test_a_coincidence_gives_way_to_the_linked_payment():
+    t = tpl(day=5, start=date(2027, 1, 1), remind=3)
+    # The real instalment is linked on 5 Jan; an unrelated identical expense on 20 Jan
+    # finds January already settled and February outside its window, so it settles nothing.
+    paid = settle_unlinked(
+        [(t, money())], {1: [date(2027, 1, 5)]}, {}, [(date(2027, 1, 20), money())]
+    )
+    assert paid[1] == [date(2027, 1, 5)]
+
+
+def test_a_skipped_occurrence_takes_no_match():
+    t = tpl(day=5, start=date(2027, 1, 1), remind=3)
+    paid = settle_unlinked(
+        [(t, money())], {}, {1: {date(2027, 1, 5)}}, [(date(2027, 1, 5), money())]
+    )
+    assert paid[1] == []
+
+
+def test_a_stopped_reminder_takes_no_match():
+    t = tpl(day=5, start=date(2027, 1, 1), active=False)
+    assert settle_unlinked([(t, money())], {}, {}, [(date(2027, 1, 5), money())])[1] == []
+
+
+def test_pays_for_rules():
+    bill = money()
+    assert pays_for(bill, money("transfer", to=9, category=None))
+    assert pays_for(bill, money("emi", to=9, category=None))
+    assert pays_for(bill, money(category=None))
+    assert not pays_for(bill, money(category="Shopping"))
+    assert not pays_for(bill, money("income", category=None))
+    assert not pays_for(bill, money(account=2))
+    assert not pays_for(bill, money(amount="1500.01"))
+    to_rd = money("transfer", to=9, category=None)
+    assert pays_for(to_rd, money("transfer", to=9, category=None))
+    assert not pays_for(to_rd, money("transfer", to=8, category=None))
+    assert not pays_for(to_rd, money())  # an expense never reaches the RD
+    salary = money("income", category="Salary", amount="80000.00")
+    assert pays_for(salary, money("income", category="Salary", amount="80000.00"))
+    assert not pays_for(salary, money("income", category="Refund", amount="80000.00"))
+    assert not pays_for(salary, money("transfer", to=9, category=None, amount="80000.00"))

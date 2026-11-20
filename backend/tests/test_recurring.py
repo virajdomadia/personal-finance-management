@@ -401,8 +401,10 @@ def test_link_must_be_the_owners_template_of_the_same_type(
 def test_edit_can_link_and_unlink(headers: Headers) -> None:
     account_id = bank(headers)
     template_id = made(headers, account_id)["id"]
-    tx = record(headers, account_id, "2026-10-01").json()
+    # Another amount, so only the link (never a match) settles the occurrence.
+    tx = record(headers, account_id, "2026-10-01", amount="19000.00").json()
     assert tx["recurring_template_id"] is None
+    assert listed(headers)[0]["due"] == ["2026-10-01", "2026-11-01"]
     linked = client.patch(
         f"{TX}/{tx['id']}", json={"recurring_template_id": template_id}, headers=headers
     )
@@ -556,3 +558,134 @@ def test_skipped_occurrences_are_listed_oldest_first(headers: Headers) -> None:
     assert listed(headers)[0]["skipped"] == ["2026-10-01", "2026-11-01"]
     undone = client.delete(f"{URL}/{template_id}/skip/2026-10-01", headers=headers)
     assert undone.json()["skipped"] == ["2026-11-01"]
+
+
+# A reminder's occurrence is also settled by a matching payment recorded some other way: the
+# same paying account, the same direction of money and the same amount, in the occurrence's
+# window. One payment settles one occurrence of one reminder.
+
+
+def instalment(headers: Headers, account_id: int, **fields: Any) -> dict[str, Any]:
+    """An "RD" reminder set up by hand as an expense, as owners do."""
+    defaults = {
+        "name": "RD",
+        "amount": "1500.00",
+        "category": "Insurance",
+        "day": 5,
+        "remind_days": 3,
+    }
+    return made(headers, account_id, **{**defaults, **fields})
+
+
+def test_a_transfer_recorded_from_the_account_settles_the_reminder(headers: Headers) -> None:
+    pay = bank(headers)
+    rd_account = bank(headers, name="RD")
+    instalment(headers, pay)
+    response = record(
+        headers,
+        pay,
+        "2026-11-05",
+        type="transfer",
+        amount="1500.00",
+        to_account_id=rd_account,
+        category=None,
+    )
+    assert response.status_code == 201, response.json()
+    [row] = listed(headers)
+    assert row["due"] == ["2026-10-05"]
+    assert row["recorded"] == 0  # nothing is linked to it
+    assert [i["occurrence"] for i in due_items(headers)] == ["2026-10-05"]
+
+
+def test_an_expense_in_the_reminders_category_settles_it(headers: Headers) -> None:
+    pay = bank(headers)
+    instalment(headers, pay)
+    record(headers, pay, "2026-10-07", amount="1500.00", category="Insurance")
+    assert listed(headers)[0]["due"] == ["2026-11-05"]
+
+
+def test_an_expense_in_another_category_does_not(headers: Headers) -> None:
+    pay = bank(headers)
+    instalment(headers, pay)
+    record(headers, pay, "2026-11-05", amount="1500.00", category="Shopping")
+    assert listed(headers)[0]["due"] == ["2026-10-05", "2026-11-05"]
+
+
+def test_another_amount_does_not_settle_it(headers: Headers) -> None:
+    pay = bank(headers)
+    instalment(headers, pay)
+    record(headers, pay, "2026-11-05", amount="1499.00", category="Insurance")
+    assert listed(headers)[0]["due"] == ["2026-10-05", "2026-11-05"]
+
+
+def test_a_payment_from_another_account_does_not_settle_it(headers: Headers) -> None:
+    pay = bank(headers)
+    other_bank = bank(headers, name="HDFC")
+    instalment(headers, pay)
+    record(headers, other_bank, "2026-11-05", amount="1500.00", category="Insurance")
+    assert listed(headers)[0]["due"] == ["2026-10-05", "2026-11-05"]
+
+
+def test_money_coming_in_does_not_settle_a_bill(headers: Headers) -> None:
+    pay = bank(headers)
+    instalment(headers, pay)
+    record(headers, pay, "2026-11-05", type="income", amount="1500.00", category="Salary")
+    assert listed(headers)[0]["due"] == ["2026-10-05", "2026-11-05"]
+
+
+def test_a_transfer_elsewhere_does_not_settle_a_transfer_reminder(headers: Headers) -> None:
+    pay = bank(headers)
+    rd_account = bank(headers, name="RD")
+    savings = bank(headers, name="HDFC")
+    instalment(headers, pay, type="transfer", to_account_id=rd_account, category=None)
+    record(
+        headers,
+        pay,
+        "2026-11-05",
+        type="transfer",
+        amount="1500.00",
+        to_account_id=savings,
+        category=None,
+    )
+    assert listed(headers)[0]["due"] == ["2026-10-05", "2026-11-05"]
+
+
+def test_one_payment_settles_only_one_reminder(headers: Headers) -> None:
+    pay = bank(headers)
+    instalment(headers, pay, name="RD")
+    instalment(headers, pay, name="Gym")
+    record(headers, pay, "2026-11-05", amount="1500.00", category="Insurance")
+    due = {r["name"]: r["due"] for r in listed(headers)}
+    assert sorted(due.values()) == [["2026-10-05"], ["2026-10-05", "2026-11-05"]]
+
+
+def test_a_linked_payment_is_not_counted_twice(headers: Headers) -> None:
+    pay = bank(headers)
+    template_id = instalment(headers, pay)["id"]
+    record(
+        headers,
+        pay,
+        "2026-11-05",
+        amount="1500.00",
+        category="Insurance",
+        recurring_template_id=template_id,
+    )
+    [row] = listed(headers)
+    assert row["due"] == ["2026-10-05"]
+    assert row["recorded"] == 1
+
+
+def test_an_income_reminder_is_settled_by_a_matching_credit(headers: Headers) -> None:
+    pay = bank(headers)
+    made(
+        headers,
+        pay,
+        name="Salary",
+        type="income",
+        amount="80000.00",
+        category="Salary",
+        day=1,
+        remind_days=3,
+    )
+    record(headers, pay, "2026-11-01", type="income", amount="80000.00", category="Salary")
+    assert listed(headers)[0]["due"] == ["2026-10-01"]

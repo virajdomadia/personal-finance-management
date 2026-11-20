@@ -22,6 +22,7 @@ from app.api.deposits import add_months, deposit_figures, rd_due_months
 from app.api.goals import GoalBook, reminder_due
 from app.api.loans import Book, next_emi
 from app.api.recurring import TemplateRow, card_bill_due, open_occurrences
+from app.api.reminder_payments import load_reminder_payments
 from app.api.routes.dashboard import card_bills, next_due_date
 from app.api.sips import load_due
 from app.models.account import Account
@@ -29,9 +30,8 @@ from app.models.category import Category
 from app.models.goal import Goal, GoalEarmark
 from app.models.insurance import InsurancePolicy
 from app.models.investment import Instrument, Sip
-from app.models.recurring import RecurringSkip, RecurringTemplate
+from app.models.recurring import RecurringTemplate
 from app.models.sms import SmsEntry
-from app.models.transaction import Transaction
 from app.sms.expected import emis_paid
 
 ZERO = Decimal(0)
@@ -153,20 +153,7 @@ class Template:
 def load_templates(db: Session, user_id: int, ctx: Context) -> list[Template]:
     """Active reminders that can still be recorded: none on an archived account, except a
     policy's (only lapsing the policy stops it)."""
-    paid: dict[int, list[date]] = defaultdict(list)
-    for template_id, day in db.execute(
-        select(Transaction.recurring_template_id, Transaction.date).where(
-            Transaction.user_id == user_id, Transaction.recurring_template_id.is_not(None)
-        )
-    ):
-        paid[template_id].append(day)
-    skips: dict[int, set[date]] = defaultdict(set)
-    for template_id, occurrence in db.execute(
-        select(RecurringSkip.template_id, RecurringSkip.occurrence).where(
-            RecurringSkip.user_id == user_id
-        )
-    ):
-        skips[template_id].add(occurrence)
+    paid, _, skips = load_reminder_payments(db, user_id)
     policies = set(
         db.scalars(select(InsurancePolicy.template_id).where(InsurancePolicy.user_id == user_id))
     )
