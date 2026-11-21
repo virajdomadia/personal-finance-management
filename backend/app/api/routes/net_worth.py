@@ -4,6 +4,7 @@ The rules are in docs/architecture/financial-calculations.md, "Net worth over ti
 """
 
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -12,6 +13,7 @@ from sqlalchemy import select
 
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
+from app.api.portfolio import investments_totals
 from app.api.routes.accounts import fmt
 from app.api.snapshots import (
     NEAREST_AFTER,
@@ -89,12 +91,14 @@ def _figures(row: NetWorthSnapshot) -> Figures:
     )
 
 
-def _change(now: Figures, row: NetWorthSnapshot | None, target: date | None) -> Change | None:
-    """Today against `row`. An estimate has no investments, so today's investments are left
-    out as well, to compare like with like."""
+def _change(
+    now: Figures, at_cost: Decimal, row: NetWorthSnapshot | None, target: date | None
+) -> Change | None:
+    """Today against `row`. An estimate holds investments at what they cost, so today is taken
+    at cost too (`at_cost`), to compare like with like."""
     if row is None:
         return None
-    today = now.without_investments() if row.estimated else now.net_worth
+    today = at_cost if row.estimated else now.net_worth
     return Change(
         amount=fmt(today - row.net_worth),
         from_date=row.date.isoformat(),
@@ -149,13 +153,14 @@ def get_history(
     shown = [r for r in past if start is None or r.date >= start]
     tracked = next((r.date for r in rows if not r.estimated), None)
     last_month = months_back(today, 1)
+    at_cost = now.at_cost(investments_totals(db, user.id).invested)
 
     return NetWorthHistory(
         range=range_,
         today=today.isoformat(),
         points=[_point(r.date, _figures(r), r.estimated) for r in shown]
         + [_point(today, now, False)],
-        since_last_month=_change(now, nearest(past, last_month), last_month),
-        since_start=_change(now, shown[0] if shown else None, start),
+        since_last_month=_change(now, at_cost, nearest(past, last_month), last_month),
+        since_start=_change(now, at_cost, shown[0] if shown else None, start),
         tracked_since=None if tracked is None else tracked.isoformat(),
     )
