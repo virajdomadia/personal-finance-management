@@ -689,3 +689,37 @@ def test_an_income_reminder_is_settled_by_a_matching_credit(headers: Headers) ->
     )
     record(headers, pay, "2026-11-01", type="income", amount="80000.00", category="Salary")
     assert listed(headers)[0]["due"] == ["2026-10-01"]
+
+
+def _salary(headers: Headers, pay: int) -> None:
+    made(
+        headers,
+        pay,
+        name="Salary",
+        type="income",
+        amount="80000.00",
+        category="Salary",
+        day=1,
+        remind_days=3,
+    )
+
+
+def test_a_salary_a_little_off_the_reminder_still_settles_it(headers: Headers) -> None:
+    pay = bank(headers)
+    _salary(headers, pay)
+    record(headers, pay, "2026-11-01", type="income", amount="80412.00", category="Salary")
+    assert listed(headers)[0]["due"] == ["2026-10-01"]
+
+
+def test_a_credit_far_off_the_salary_does_not_settle_it(headers: Headers) -> None:
+    pay = bank(headers)
+    _salary(headers, pay)
+    record(headers, pay, "2026-11-01", type="income", amount="95000.00", category="Salary")
+    assert listed(headers)[0]["due"] == ["2026-10-01", "2026-11-01"]
+
+
+def test_a_bill_still_needs_its_exact_amount(headers: Headers) -> None:
+    pay = bank(headers)
+    instalment(headers, pay)
+    record(headers, pay, "2026-11-05", amount="1510.00", category="Insurance")
+    assert listed(headers)[0]["due"] == ["2026-10-05", "2026-11-05"]

@@ -279,6 +279,28 @@ def test_sip_far_from_its_debit_day_is_not_matched(headers: Headers, db_session:
     assert db_session.scalars(select(InvestmentTrade)).all() == []
 
 
+def test_a_salary_sms_in_review_settles_the_salary_reminder(
+    headers: Headers, db_session: Session
+) -> None:
+    # The money is in the balance as soon as the message is recorded, so the reminder can't
+    # still count it as coming: that would count the salary twice.
+    b = bank(headers, balance="10000.00")
+    reminder(headers, b, name="Salary", type="income", amount="80000.00", category="Salary")
+    assert [i["template"]["name"] for i in due(headers)] == ["Salary"]
+
+    result = one(headers, kind="credit", amount="80000.00", payee="ACME PAYROLL")
+    assert result["status"] == "review"  # an unknown payee still asks for its category
+    assert balance(headers, b) == "90000.00"
+    assert due(headers) == []
+
+
+def test_a_debit_in_review_still_leaves_its_bill_due(headers: Headers, db_session: Session) -> None:
+    b = bank(headers, balance="50000.00")
+    reminder(headers, b)  # rent, ₹10,000
+    one(headers, amount="10000.00", payee="SOMEONE NEW")
+    assert [i["template"]["name"] for i in due(headers)] == ["Rent"]
+
+
 # Recurring reminders
 
 
