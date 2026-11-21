@@ -29,8 +29,9 @@ _SYMBOL = re.compile(r"[A-Z0-9]{1,20}")
 _NO_NAME = "Enter a name."
 TICKER_RULE = "Enter the coin's ticker, like BTC."
 QTY_RULE = "Enter a quantity above 0, with up to 8 decimals, like 0.00014067."
-PRICE_RULE = "Enter a price above 0, with up to 4 decimals, like 7504827.5."
+PRICE_RULE = "Enter a price above 0, with up to 10 decimals, like 7504827.5."
 MAX_PRICE = Decimal(10) ** 10
+PRICE_PLACES = 10  # a coin can trade at a fraction of a paisa
 
 
 def _symbol(value: Any) -> str | None:
@@ -43,7 +44,9 @@ def _symbol(value: Any) -> str | None:
 
 
 CoinQty = Annotated[Decimal | None, BeforeValidator(decimal_input(8, Decimal(10) ** 16, QTY_RULE))]
-CoinPrice = Annotated[Decimal | None, BeforeValidator(decimal_input(4, MAX_PRICE, PRICE_RULE))]
+CoinPrice = Annotated[
+    Decimal | None, BeforeValidator(decimal_input(PRICE_PLACES, MAX_PRICE, PRICE_RULE))
+]
 CoinSymbol = Annotated[str | None, BeforeValidator(_symbol)]
 CoinName = Annotated[str | None, BeforeValidator(lambda v: clean_text(v, _NO_NAME, 60))]
 

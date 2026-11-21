@@ -269,7 +269,7 @@ def _check_amounts(values: dict[str, Any]) -> Decimal:
     """
     quantity = values["quantity"]
     if values["opening"]:
-        price = (values["amount"] / quantity).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+        price = (values["amount"] / quantity).quantize(Decimal("1e-10"), rounding=ROUND_HALF_UP)
         if price == 0:
             message = "That's too little for that many coins."
             raise RequestValidationError([field_error("amount", message)])

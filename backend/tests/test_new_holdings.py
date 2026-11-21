@@ -206,7 +206,7 @@ def test_fund_and_first_purchase_together(headers: Headers, db_session: Session)
     assert balance(headers, bank) == "49155.00"
     # The purchase recorded its NAV, as a purchase made on its own does.
     navs = db_session.scalars(select(InstrumentPrice)).all()
-    assert [(n.trade_id, str(n.price)) for n in navs] == [(trade["id"], "84.5000")]
+    assert [(n.trade_id, n.price) for n in navs] == [(trade["id"], Decimal("84.5"))]
 
 
 def test_fund_existing_units(headers: Headers) -> None:

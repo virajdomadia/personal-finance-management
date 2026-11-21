@@ -22,7 +22,7 @@ TODAY = date(2026, 11, 9)
 DAY = "2026-11-05"
 MISMATCH = "Quantity × price doesn't match the amount. Check the quantity and price."
 QTY = "Enter a quantity above 0, with up to 8 decimals, like 0.00014067."
-PRICE = "Enter a price above 0, with up to 4 decimals, like 7504827.5."
+PRICE = "Enter a price above 0, with up to 10 decimals, like 7504827.5."
 
 
 @pytest.fixture
@@ -205,7 +205,7 @@ def test_partial_sell_realises(headers: Headers) -> None:
                 "opening": True,
                 "price": None,
                 "charges": None,
-                "quantity": "100000000",
+                "quantity": "9999999999999999",
                 "amount": "0.01",
             },
             "amount",

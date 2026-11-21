@@ -58,7 +58,14 @@ def fmt_nav(value: Decimal) -> str:
     return str(value.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP))
 
 
-fmt_price = fmt_nav
+def fmt_price(value: Decimal) -> str:
+    """A stock or coin price: 4 decimals, as a NAV; under ₹1, every digit up to 10 decimals
+    (at least 4), so a coin priced at a fraction of a paisa doesn't show as 0.0008."""
+    if abs(value) >= 1:
+        return fmt_nav(value)
+    text = format(value.quantize(Decimal("1e-10"), rounding=ROUND_HALF_UP), "f").rstrip("0")
+    whole, _, fraction = text.partition(".")
+    return f"{whole}.{fraction.ljust(4, '0')}"
 
 
 def fmt_coin(value: Decimal) -> str:

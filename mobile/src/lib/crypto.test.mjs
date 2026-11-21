@@ -151,10 +151,10 @@ test("cryptoTradeErrors returns the server's messages", () => {
   assert.equal(blank.coin_id, "Choose a coin.");
   assert.equal(blank.account_id, "Choose a broker or exchange account.");
   assert.equal(blank.quantity, "Enter a quantity above 0, with up to 8 decimals, like 0.00014067.");
-  assert.equal(blank.price, "Enter a price above 0, with up to 4 decimals, like 7504827.5.");
+  assert.equal(blank.price, "Enter a price above 0, with up to 10 decimals, like 7504827.5.");
   assert.equal(blank.amount, "Enter the amount.");
   assert.equal(cryptoTradeErrors(form({ quantity: "0.000000001" }), today).quantity?.startsWith("Enter a quantity"), true);
-  assert.equal(cryptoTradeErrors(form({ price: "1.00001" }), today).price?.startsWith("Enter a price"), true);
+  assert.equal(cryptoTradeErrors(form({ price: "1.00000000001" }), today).price?.startsWith("Enter a price"), true);
   assert.equal(cryptoTradeErrors(form({ date: "2026-12-01" }), today).date, "The date can't be in the future.");
   assert.equal(cryptoTradeErrors(form({ date: "2026-02-30" }), today).date, "Enter a date like 2026-11-08.");
   assert.equal(cryptoTradeErrors(form({ amount: "0" }), today).amount, "Amount must be greater than 0.");
@@ -182,4 +182,20 @@ test("cryptoTradeTitle and cryptoTradeDeleteText", () => {
   assert.equal(text.title, "Delete Bought 0.00014067 BTC on 1 Nov 2026?");
   assert.match(text.body, /CoinDCX's cash moves back/);
   assert.doesNotMatch(cryptoTradeDeleteText({ ...trade, opening: true }).body, /cash/);
+});
+
+test("a coin priced at a fraction of a paisa keeps its digits", () => {
+  assert.equal(formatCoinPrice("0.00084"), "₹0.00084");
+  assert.equal(formatCoinPrice("0.0000000400"), "₹0.00000004");
+  assert.equal(formatCoinPrice("0.5000"), "₹0.50");
+  assert.equal(formatCoinAverage("0.0008400000"), "₹0.00084");
+  const shib = { quantity: "10000000", price: "0.00084", charges: "", amount: "8400.00" };
+  assert.equal(qtyMismatch(form(shib)), false);
+  assert.equal(qtyMismatch(form({ ...shib, amount: "9000.00" })), true);
+});
+
+test("cryptoTradeErrors takes a price with up to 10 decimals", () => {
+  const today = "2026-11-10";
+  assert.equal(cryptoTradeErrors(form({ price: "0.00084" }), today).price, undefined);
+  assert.equal(cryptoTradeErrors(form({ price: "0.00000000001" }), today).price?.startsWith("Enter a price"), true);
 });

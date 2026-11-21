@@ -13,6 +13,7 @@ import {
   type CryptoTrade,
   type CryptoTradeForm,
   type CryptoTradeMode,
+  PRICE_DECIMALS,
   cryptoTradeFormFrom,
   cryptoTradePayload,
   formatCoinQty,
@@ -34,7 +35,7 @@ const MODES: { value: CryptoTradeMode; label: string }[] = [
 export const NEW_COIN = "new";
 // The server's messages, so a local check reads the same as the server's.
 export const QTY_RULE = "Enter a quantity above 0, with up to 8 decimals, like 0.00014067.";
-export const PRICE_RULE = "Enter a price above 0, with up to 4 decimals, like 7504827.5.";
+export const PRICE_RULE = "Enter a price above 0, with up to 10 decimals, like 7504827.5.";
 const MONEY = /^\d+(?:\.\d{1,2})?$/;
 const MISMATCH = "Quantity × price doesn't match the amount. Check the quantity and price.";
 const RENDERED = ["coin_id", "name", "symbol", "account_id", "date", "amount", "charges", "price", "quantity", "note"] as const;
@@ -74,7 +75,7 @@ function localErrors(form: Form): Record<string, string> {
   else if (form.date > todayIndia()) errors.date = "The date can't be in the future.";
   // The server's limits: quantity up to 8 decimals and 16 whole digits, price up to 4 and 10.
   if (!validNumber(form.quantity.trim(), 8, 16)) errors.quantity = QTY_RULE;
-  if (form.mode !== "opening" && !validNumber(form.price.trim(), 4, 10)) errors.price = PRICE_RULE;
+  if (form.mode !== "opening" && !validNumber(form.price.trim(), PRICE_DECIMALS, 10)) errors.price = PRICE_RULE;
   const amount = cleanMoney(form.amount);
   if (amount === "") errors.amount = "Enter the amount.";
   else if (!MONEY.test(amount)) errors.amount = "Enter an amount, like 3000 or 2999.85.";

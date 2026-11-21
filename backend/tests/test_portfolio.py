@@ -604,6 +604,24 @@ def test_closed_coin_position(headers: Headers) -> None:
     assert [(c["symbol"], c["account_id"]) for c in body["closed"]] == [("BTC", account)]
 
 
+def test_a_micro_priced_coin_is_valued_exactly(headers: Headers) -> None:
+    from tests.test_coins import add_coin_price
+
+    account, shib = exchange(headers, balance="10000.00"), coin(headers, "SHIB")
+    made_coin(
+        headers,
+        coin_id=shib,
+        account_id=account,
+        quantity="10000000",
+        price="0.00084",
+        charges="0.00",
+        amount="8400.00",
+    )
+    assert add_coin_price(headers, shib, "2026-11-05", "0.00084").status_code == 201
+    [row] = portfolio(headers)["crypto"]["by_coin"]
+    assert (row["price"], row["value"], row["unrealised"]) == ("0.00084", "8400.00", "0.00")
+
+
 def test_overall_adds_crypto(headers: Headers) -> None:
     broker_id, infy = broker(headers), stock(headers)
     made(headers, stock_id=infy, account_id=broker_id, quantity=10, price="500.00")
