@@ -15,7 +15,7 @@ from app.models.transaction import Transaction
 from app.models.user import User
 from app.sms import ingest as ingest_module
 from tests.clock import pin_india_today
-from tests.test_accounts import Headers, auth, make
+from tests.test_accounts import Headers, archive_empty, auth, make
 
 client = TestClient(app)
 TODAY = today_india()
@@ -409,7 +409,7 @@ def test_last4_on_two_accounts_asks_for_account(headers: Headers, db_session: Se
 
 def test_archived_account_is_not_used(headers: Headers, db_session: Session) -> None:
     b = bank(headers)
-    assert client.post(f"/api/accounts/{b}/archive", headers=headers).status_code in (200, 204)
+    assert archive_empty(headers, b).status_code in (200, 204)
     assert one(headers)["reason"] == "account"
 
 

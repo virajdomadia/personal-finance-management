@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.routes import fund_trades, funds, sips
 from app.main import app
 from app.models.user import User
-from tests.test_accounts import Headers, archive, auth, locs
+from tests.test_accounts import Headers, archive_empty, auth, locs
 from tests.test_fund_trades import bank, broker, buy, fund, patch, stock
 
 client = TestClient(app)
@@ -202,7 +202,7 @@ def test_field_rules(
         account_id = broker(headers)
     elif kind == "archived":
         account_id = bank(headers, name="Old")
-        assert archive(headers, account_id).status_code == 200
+        assert archive_empty(headers, account_id).status_code == 200
     body = {
         "fund_id": fund_id,
         "account_id": account_id,
@@ -279,7 +279,7 @@ def test_restarting_a_sip_checks_its_bank(headers: Headers) -> None:
     sip_id = made(headers, fund_id, account_id)["id"]
     stop = client.patch(f"{URL}/{sip_id}", json={"active": False}, headers=headers)
     assert stop.status_code == 200
-    assert archive(headers, account_id).status_code == 200
+    assert archive_empty(headers, account_id).status_code == 200
     response = client.patch(f"{URL}/{sip_id}", json={"active": True}, headers=headers)
     assert response.status_code == 422, response.json()
     assert locs(response) == [["body", "account_id"]]

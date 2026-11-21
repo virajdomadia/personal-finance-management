@@ -309,6 +309,13 @@ def archive(headers: Headers, id_: int) -> Response:
     return client.post(f"{URL}/{id_}/archive", headers=headers)
 
 
+def archive_empty(headers: Headers, id_: int) -> Response:
+    """Archives an account after correcting its balance to zero, as only an empty one can go."""
+    zeroed = client.patch(f"{URL}/{id_}", json={"balance": "0.00"}, headers=headers)
+    assert zeroed.status_code == 200, zeroed.json()
+    return archive(headers, id_)
+
+
 def restore(headers: Headers, id_: int) -> Response:
     return client.post(f"{URL}/{id_}/restore", headers=headers)
 
@@ -403,9 +410,53 @@ def test_patch_archived_is_409(headers: Headers) -> None:
     assert response.json() == {"detail": "Restore this account before editing it."}
 
 
+CARD = {"type": "credit_card", "credit_limit": "100000.00", "statement_day": 5, "due_day": 25}
+
+
+@pytest.mark.parametrize(
+    ("extra", "balance", "detail"),
+    [
+        (
+            {"type": "bank", "bank_kind": "savings"},
+            "50000.00",
+            "SBI still holds ₹50,000. Move it out before archiving SBI.",
+        ),
+        (
+            {"type": "bank", "bank_kind": "current"},
+            "-120.50",
+            "SBI shows -₹120.50. Bring it to zero before archiving it.",
+        ),
+        (CARD, "-300.00", "SBI shows -₹300. Bring it to zero before archiving it."),
+        ({"type": "cash"}, "5.00", "SBI still holds ₹5. Move it out before archiving SBI."),
+        ({"type": "wallet"}, "10.00", "SBI still holds ₹10. Move it out before archiving SBI."),
+        ({"type": "broker"}, "1.00", "SBI still holds ₹1. Move it out before archiving SBI."),
+        (CARD, "20000.00", "SBI still owes ₹20,000. Pay it off before archiving SBI."),
+    ],
+    ids=["bank", "overdrawn-bank", "overpaid-card", "cash", "wallet", "broker", "card"],
+)
+def test_archive_with_a_balance_is_409_and_keeps_net_worth(
+    headers: Headers, extra: dict[str, Any], balance: str, detail: str
+) -> None:
+    created = make(headers, name="SBI", balance=balance, **extra).json()
+    before = client.get(URL, headers=headers).json()
+
+    response = archive(headers, created["id"])
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": detail}
+    after = client.get(URL, headers=headers).json()
+    assert [a["id"] for a in after["accounts"]] == [created["id"]]
+    assert (after["total_have"], after["total_owe"]) == (before["total_have"], before["total_owe"])
+
+
+def test_archive_with_a_zero_balance_goes_through(headers: Headers) -> None:
+    card = make(headers, name="Card", balance="0.00", **CARD).json()
+    assert archive(headers, card["id"]).status_code == 200
+
+
 def test_archive_leaves_list_and_totals(headers: Headers) -> None:
     kept = make(headers, name="Kept", balance="10.00").json()
-    gone = make(headers, name="Gone", balance="5.00").json()
+    gone = make(headers, name="Gone", balance="0.00").json()
 
     response = archive(headers, gone["id"])
 
@@ -418,7 +469,7 @@ def test_archive_leaves_list_and_totals(headers: Headers) -> None:
 
 def test_archived_list_shows_only_archived_with_active_totals(headers: Headers) -> None:
     make(headers, name="Kept", balance="10.00")
-    gone = make(headers, name="Gone", balance="5.00").json()
+    gone = make(headers, name="Gone", balance="0.00").json()
     archive(headers, gone["id"])
 
     body = client.get(URL, params={"archived": "true"}, headers=headers).json()
@@ -890,7 +941,7 @@ def test_archiving_an_account_with_money_set_aside_is_refused(goal_headers: Head
         "₹50,000 of HDFC is set aside for Emergency fund. Release it first."
     )
     client.post(f"{GOALS}/{ef}/archive", headers=headers)
-    assert archive(headers, hdfc).status_code == 200
+    assert archive_empty(headers, hdfc).status_code == 200
 
 
 def test_archiving_the_account_a_policy_pays_from_is_refused(goal_headers: Headers) -> None:
@@ -951,7 +1002,7 @@ def test_archive_rereads_ppfs_repointed_before_the_lock(
         return [] if len(calls) == 1 else found  # as if repointed just after the first read
 
     monkeypatch.setattr(accounts, "_ppf_ids", first_read_misses_it)
-    assert archive(headers, hdfc).status_code == 200
+    assert archive_empty(headers, hdfc).status_code == 200
     assert len(calls) == 4  # read, re-read, then both again
     assert _account(headers, created.json()["id"])["pay_from_id"] is None
 

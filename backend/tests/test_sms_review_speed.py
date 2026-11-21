@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.api import dates
 from app.models.sms import PayeeRule
-from tests.test_accounts import Headers, auth
+from tests.test_accounts import Headers, archive_empty, auth
 from tests.test_categories import find, patch
 from tests.test_sms_expected import reminder
 from tests.test_sms_ingest import (
@@ -278,7 +278,7 @@ def test_an_archived_account_is_not_confident(headers: Headers, db_session: Sess
     history(headers, db_session, "Ramesh", "Gift", "Gift", "Gift")
     body = entry(payee="Ramesh")
     send(headers, body)
-    archived = client.post(f"/api/accounts/{b}/archive", headers=headers)
+    archived = archive_empty(headers, b)
     assert archived.status_code == 200, archived.json()
     got = item(headers, db_session, body)
     assert got["confident"] is False

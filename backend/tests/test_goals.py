@@ -65,6 +65,14 @@ def account(db: Session, user_id: int, name: str = "SBI", type_: str = "bank") -
     return row
 
 
+def _empty(db: Session, account_id: int) -> None:
+    """Only an empty account can be archived."""
+    row = db.get(Account, account_id)
+    assert row is not None
+    row.opening_balance = Decimal(0)
+    db.commit()
+
+
 def spend(db: Session, user_id: int) -> None:
     """The Task 2 expenses, as transactions. The first is on 2026-05-20."""
     bank = account(db, user_id)
@@ -779,6 +787,7 @@ def test_restore_refused_while_an_account_it_has_money_in_is_archived(
     db_session.commit()
     assert earmark(headers, goal_id, bank, "set_aside", "100.00").status_code == 201
     client.post(f"{URL}/{goal_id}/archive", headers=headers)
+    _empty(db_session, bank)
     assert client.post(f"/api/accounts/{bank}/archive", headers=headers).status_code == 200
 
     response = client.post(f"{URL}/{goal_id}/restore", headers=headers)
@@ -820,6 +829,7 @@ def test_restore_ignores_an_archived_account_the_goal_released(
     earmark(headers, goal_id, bank, "set_aside", "100.00")
     earmark(headers, goal_id, bank, "release", "100.00")
     client.post(f"{URL}/{goal_id}/archive", headers=headers)
+    _empty(db_session, bank)
     assert client.post(f"/api/accounts/{bank}/archive", headers=headers).status_code == 200
     assert client.post(f"{URL}/{goal_id}/restore", headers=headers).status_code == 200
 

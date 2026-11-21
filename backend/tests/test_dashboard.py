@@ -14,7 +14,7 @@ from app.api.routes.dashboard import next_due_date
 from app.main import app
 from app.models.sms import SmsEntry
 from app.models.user import User
-from tests.test_accounts import Headers, auth, make
+from tests.test_accounts import Headers, archive_empty, auth, make
 from tests.test_coins import add_coin_price
 from tests.test_crypto_trades import coin, exchange
 from tests.test_crypto_trades import existing as existing_coin
@@ -117,7 +117,7 @@ def test_archived_accounts_are_excluded(headers: Headers) -> None:
     gone_card = card(headers, name="Old", balance="500.00", credit_limit="1000.00", due_day=9)
     card(headers, name="New", balance="100.00", credit_limit="1000.00", due_day=20)
     for id_ in (gone_cash, gone_card):
-        client.post(f"/api/accounts/{id_}/archive", headers=headers)
+        archive_empty(headers, id_)
 
     body = get(headers)
 
@@ -128,7 +128,7 @@ def test_archived_accounts_are_excluded(headers: Headers) -> None:
 
 def test_only_archived_accounts_means_no_accounts(headers: Headers) -> None:
     id_ = make(headers, balance="5.00").json()["id"]
-    client.post(f"/api/accounts/{id_}/archive", headers=headers)
+    archive_empty(headers, id_)
 
     assert get(headers) == EMPTY
 

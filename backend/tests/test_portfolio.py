@@ -9,7 +9,7 @@ from app.api.routes import coins, crypto_trades, dashboard, fund_trades, funds, 
 from app.api.routes import portfolio as portfolio_route
 from app.main import app
 from app.models.account import Account
-from tests.test_accounts import Headers, archive, auth
+from tests.test_accounts import Headers, archive, archive_empty, auth
 from tests.test_coins import add_coin_price
 from tests.test_crypto_trades import coin, exchange
 from tests.test_crypto_trades import existing as existing_coin
@@ -249,7 +249,7 @@ def test_archive_broker_with_holdings_is_409(headers: Headers) -> None:
     assert response.status_code == 409
     assert response.json()["detail"] == "Sell the shares held in Zerodha before archiving it."
     made(headers, stock_id=infy, account_id=account, side="sell", quantity=10, price="500.00")
-    assert client.post(url, headers=headers).status_code == 200
+    assert archive_empty(headers, account).status_code == 200
 
 
 STOCK_KEYS = ("holdings", "by_stock", "closed", "totals")
@@ -386,7 +386,7 @@ def test_archive_bank_with_units_is_409(headers: Headers) -> None:
     assert response.status_code == 409
     assert response.json()["detail"] == "Redeem the fund units held in SBI before archiving it."
     assert redeem(headers, fund_id=ppfcf, account_id=account).status_code == 201
-    assert archive(headers, account).status_code == 200
+    assert archive_empty(headers, account).status_code == 200
 
 
 def test_archive_bank_with_active_sip_is_409(headers: Headers) -> None:
@@ -401,11 +401,11 @@ def test_archive_bank_with_active_sip_is_409(headers: Headers) -> None:
         headers=headers,
     )
     assert stopped.status_code == 200, stopped.json()
-    assert archive(headers, account).status_code == 200
+    assert archive_empty(headers, account).status_code == 200
 
 
 def test_archive_plain_bank_still_works(headers: Headers) -> None:
-    assert archive(headers, bank(headers)).status_code == 200
+    assert archive_empty(headers, bank(headers)).status_code == 200
 
 
 # Deposits (PPF and RD) on the portfolio and the dashboard
@@ -642,7 +642,7 @@ def test_archive_broker_with_coins_is_409(headers: Headers) -> None:
     assert response.status_code == 409
     assert response.json()["detail"] == "Sell the coins held in CoinDCX before archiving it."
     assert sell_coin(headers, coin_id=btc, account_id=account).status_code == 201
-    assert client.post(url, headers=headers).status_code == 200
+    assert archive_empty(headers, account).status_code == 200
 
 
 def test_holdings_in_a_goal_are_tagged(headers: Headers) -> None:

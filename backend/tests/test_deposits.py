@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.dates import today_india
 from app.api.deposits import add_months
 from app.main import app
-from tests.test_accounts import Headers, auth, locs, make
+from tests.test_accounts import Headers, archive_empty, auth, locs, make
 from tests.test_transactions import income, post
 
 client = TestClient(app)
@@ -180,7 +180,7 @@ def test_rd_numbers_are_checked(headers: Headers) -> None:
 def test_pay_from_must_be_an_active_bank(headers: Headers) -> None:
     card = make(headers, type="credit_card", name="Card", credit_limit="1000.00").json()["id"]
     old = bank(headers, "Old")
-    client.post(f"/api/accounts/{old}/archive", headers=headers)
+    archive_empty(headers, old)
 
     on_card = rd(headers, card)
     assert on_card.status_code == 422
@@ -195,7 +195,7 @@ def test_an_rds_pay_from_can_only_be_changed_to_an_active_bank(headers: Headers)
     pay = bank(headers)
     card = make(headers, type="credit_card", name="Card", credit_limit="1000.00").json()["id"]
     old = bank(headers, "Old")
-    client.post(f"/api/accounts/{old}/archive", headers=headers)
+    archive_empty(headers, old)
     created = rd(headers, pay).json()
     path = f"/api/accounts/{created['id']}"
 
@@ -262,8 +262,8 @@ def test_a_changed_pay_from_is_locked_together_with_its_account(
 def test_restoring_a_ppf_clears_an_archived_pay_from(headers: Headers) -> None:
     pay = bank(headers)
     created = ppf(headers, pay_from_id=pay, balance="0.00").json()
-    assert client.post(f"/api/accounts/{created['id']}/archive", headers=headers).status_code == 200
-    assert client.post(f"/api/accounts/{pay}/archive", headers=headers).status_code == 200
+    assert archive_empty(headers, created['id']).status_code == 200
+    assert archive_empty(headers, pay).status_code == 200
 
     restored = client.post(f"/api/accounts/{created['id']}/restore", headers=headers)
 
@@ -274,8 +274,8 @@ def test_restoring_a_ppf_clears_an_archived_pay_from(headers: Headers) -> None:
 def test_restoring_an_rd_whose_bank_is_archived_is_refused(headers: Headers) -> None:
     pay = bank(headers, "HDFC")
     created = rd(headers, pay, name="SBI RD", balance="0.00", deposits_paid=0).json()
-    assert client.post(f"/api/accounts/{created['id']}/archive", headers=headers).status_code == 200
-    assert client.post(f"/api/accounts/{pay}/archive", headers=headers).status_code == 200
+    assert archive_empty(headers, created['id']).status_code == 200
+    assert archive_empty(headers, pay).status_code == 200
 
     refused = client.post(f"/api/accounts/{created['id']}/restore", headers=headers)
 
@@ -411,7 +411,7 @@ def test_archiving_a_bank_clears_pay_from_on_a_ppf(headers: Headers) -> None:
     pay = bank(headers)
     created = ppf(headers, pay_from_id=pay).json()
 
-    assert client.post(f"/api/accounts/{pay}/archive", headers=headers).status_code == 200
+    assert archive_empty(headers, pay).status_code == 200
     assert one(headers, created["id"])["pay_from_id"] is None
 
 
@@ -611,7 +611,7 @@ def test_close_rd_at_the_balance_only_transfers(headers: Headers) -> None:
 def test_close_rd_checks_its_input_and_writes_nothing_on_error(headers: Headers) -> None:
     pay = bank(headers)
     old = bank(headers, "Old")
-    client.post(f"/api/accounts/{old}/archive", headers=headers)
+    archive_empty(headers, old)
     cash = make(headers, type="cash", name="Wallet", balance="5000.00").json()["id"]
     created = rd(headers, pay).json()
     today = today_india()

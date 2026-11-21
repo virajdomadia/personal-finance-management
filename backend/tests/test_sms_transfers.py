@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.dates import today_india
 from app.models.sms import AccountIdentifier, PayeeRule
 from app.models.user import User
-from tests.test_accounts import Headers, auth
+from tests.test_accounts import Headers, archive_empty, auth
 from tests.test_sms_ingest import (
     account,
     balance,
@@ -135,7 +135,7 @@ def test_masked_payee_ignores_archived_and_other_users_accounts(
 ) -> None:
     bank(headers, last4="1244", name="Federal", balance="50000.00")
     archived = bank(headers, last4="8650", name="Old BOI")
-    assert client.post(f"/api/accounts/{archived}/archive", headers=headers).status_code in (
+    assert archive_empty(headers, archived).status_code in (
         200,
         204,
     )

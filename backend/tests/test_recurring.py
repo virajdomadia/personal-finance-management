@@ -13,7 +13,7 @@ from app.api.routes import recurring, transactions
 from app.main import app
 from app.models.insurance import InsurancePolicy
 from app.models.user import User
-from tests.test_accounts import Headers, archive, auth, locs
+from tests.test_accounts import Headers, archive_empty, auth, locs
 from tests.test_deposits import rd
 from tests.test_fund_trades import bank
 
@@ -258,7 +258,7 @@ def test_patch_to_an_unrecordable_account_is_refused(headers: Headers) -> None:
 def test_stopping_works_even_when_the_account_is_archived(headers: Headers) -> None:
     account_id = bank(headers)
     template_id = made(headers, account_id)["id"]
-    archived = archive(headers, account_id)
+    archived = archive_empty(headers, account_id)
     assert archived.status_code == 200, archived.json()
     response = client.patch(f"{URL}/{template_id}", json={"active": False}, headers=headers)
     assert response.status_code == 200, response.json()
@@ -538,12 +538,12 @@ def test_template_of_an_archived_account_asks_for_nothing(headers: Headers) -> N
     made(headers, account_id, name="Rent")
     made(headers, account_id, name="Move", type="transfer", to_account_id=to_id, category=None)
     assert len(due_items(headers)) > 0
-    assert archive(headers, to_id).status_code == 200
+    assert archive_empty(headers, to_id).status_code == 200
     rows = {r["name"]: r for r in listed(headers)}
     assert rows["Move"]["due"] == [] and rows["Move"]["coming_up"] is None
     assert rows["Rent"]["due"] != []
     assert {i["template"]["name"] for i in due_items(headers)} == {"Rent"}
-    assert archive(headers, account_id).status_code == 200
+    assert archive_empty(headers, account_id).status_code == 200
     assert all(r["due"] == [] and r["coming_up"] is None for r in listed(headers))
     assert len(listed(headers)) == 2
     assert due_items(headers) == []

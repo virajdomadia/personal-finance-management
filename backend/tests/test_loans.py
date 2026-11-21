@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.routes.dashboard import today_india
 from app.main import app
-from tests.test_accounts import Headers, auth, locs, make
+from tests.test_accounts import Headers, archive_empty, auth, locs, make
 
 client = TestClient(app)
 
@@ -150,7 +150,7 @@ def test_pay_from_must_be_an_own_active_non_loan_account(
     assert locs(make_loan(headers, pay_from_id=999999)) == [["body", "pay_from_id"]]
 
     archived = bank(headers)
-    client.post(f"/api/accounts/{archived}/archive", headers=headers)
+    archive_empty(headers, archived)
     assert locs(make_loan(headers, pay_from_id=archived)) == [["body", "pay_from_id"]]
 
     stranger = auth(db_session, monkeypatch, "them@example.com")
@@ -223,7 +223,7 @@ def test_card_available_credit_excludes_linked_loans(headers: Headers) -> None:
 def test_archived_loans_do_not_block_credit(headers: Headers) -> None:
     hdfc = card(headers, balance="0.00")
     id = loan(headers, balance="1000.00", pay_from_id=hdfc)["id"]
-    client.post(f"/api/accounts/{id}/archive", headers=headers)
+    archive_empty(headers, id)
     assert get(headers, hdfc)["available_credit"] == "72000.00"
 
 
