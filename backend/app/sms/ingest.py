@@ -23,7 +23,13 @@ from app.models.investment import Instrument, InvestmentTrade
 from app.models.market import MarketCode
 from app.models.sms import AccountIdentifier, PayeeRule, SmsEntry
 from app.models.transaction import Transaction
-from app.sms.expected import apply_expected, emis_paid, expected_candidates, rule_template
+from app.sms.expected import (
+    apply_expected,
+    emis_paid,
+    expected_candidates,
+    rule_template,
+    sip_buys_typed,
+)
 from app.sms.merchants import builtin_category
 from app.sms.payees import display_name, payee_key
 from app.sms.recording import link as _link
@@ -348,6 +354,13 @@ def _typed_by_hand(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | Non
     """The owner already typed this in: link to it instead of recording it again."""
     if entry.kind not in OUT_SIDE | IN_SIDE or entry.amount is None:
         return None
+    if entry.kind == "debit" and entry.account_id is not None:
+        # A SIP instalment typed in as a fund purchase: the debit is that purchase's money.
+        buys = sip_buys_typed(db, user_id, entry.account_id, entry.amount, entry.occurred_on)
+        if len(buys) == 1:
+            entry.trade_id = buys[0].id
+            entry.status = "duplicate"
+            return entry
     linked = linked_on_side(user_id, entry.kind)
     query = (
         select(Transaction)
