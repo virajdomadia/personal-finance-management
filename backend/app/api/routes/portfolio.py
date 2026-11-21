@@ -190,6 +190,46 @@ class Deposits(BaseModel):
     accounts: list[DepositAccount]
 
 
+class StalePrice(BaseModel):
+    instrument_id: int
+    kind: str
+    symbol: str
+    price_date: str | None  # None: linked, but no price has arrived yet
+
+
+# How old a linked holding's price may be before its source is taken to have stopped: stocks and
+# funds price on weekdays (a weekend and a holiday is 4 days); coins trade every day.
+STALE_AFTER_DAYS = {"stock": 4, "mutual_fund": 4, "crypto": 2}
+
+
+def stale_prices(
+    db: Session, user_id: int, result: Replay, prices: dict[int, tuple[date, Decimal]], today: date
+) -> list[StalePrice]:
+    """Held instruments linked to a price source whose price is older than the source should
+    allow, or that has no price yet: the nightly refresh is failing for them. A holding priced by
+    hand isn't listed; its date already shows."""
+    held = {pos.instrument_id for pos in result.positions.values() if pos.quantity > 0}
+    if not held:
+        return []
+    found = []
+    for inst in db.scalars(
+        select(Instrument).where(
+            Instrument.user_id == user_id,
+            Instrument.id.in_(held),
+            Instrument.source_code.is_not(None),
+        )
+    ):
+        allowed = STALE_AFTER_DAYS.get(inst.kind)
+        current = prices.get(inst.id)
+        if allowed is None or (current is not None and (today - current[0]).days <= allowed):
+            continue
+        day = None if current is None else current[0].isoformat()
+        found.append(
+            StalePrice(instrument_id=inst.id, kind=inst.kind, symbol=inst.symbol, price_date=day)
+        )
+    return sorted(found, key=lambda s: (s.symbol, s.instrument_id))
+
+
 class Portfolio(BaseModel):
     holdings: list[Holding]
     by_stock: list[StockTotal]
@@ -199,6 +239,7 @@ class Portfolio(BaseModel):
     crypto: CryptoPortfolio
     overall: Totals
     deposits: Deposits
+    stale_prices: list[StalePrice]
 
 
 def _percent(unrealised: Decimal, invested: Decimal) -> str:
@@ -535,4 +576,5 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
                 for d in deposits
             ],
         ),
+        stale_prices=stale_prices(db, user.id, result, prices, today),
     )

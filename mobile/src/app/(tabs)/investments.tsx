@@ -14,7 +14,7 @@ import { DEPOSIT_SHORT, type GoalTag, errorMessage, formatRupees } from "@/lib/a
 import { ApiError, apiFetch } from "@/lib/api";
 import { type CoinTotal, type CryptoTradeMode, formatCoinAverage, formatCoinPrice, formatCoinQty } from "@/lib/crypto";
 import { type FundTotal, type FundTradeMode, type Sip, dueText, formatNav, formatUnits } from "@/lib/funds";
-import { type DepositRow, type DepositsPortfolio, type Portfolio, type StockTotal, type SyncResult, type SyncState, type Totals, type Unlinked, formatSigned, syncOutcome, syncStatusText, tone } from "@/lib/investments";
+import { type DepositRow, type DepositsPortfolio, type Portfolio, type StockTotal, type SyncResult, type SyncState, type Totals, type Unlinked, formatSigned, stalePricesText, syncOutcome, syncStatusText, tone } from "@/lib/investments";
 import { accountEmoji, investmentEmoji, investmentSticker } from "@/lib/fun";
 import { useSession } from "@/lib/session";
 import { BRAND, INPUT_RADIUS, SHADOW_OFFSET_SM } from "@/lib/theme";
@@ -412,6 +412,11 @@ export default function InvestmentsScreen() {
           {syncStatusText(sync)}
         </Text>
       )}
+      {portfolio && stalePricesText(portfolio.stale_prices) ? (
+        <Text variant="labelMedium" accessibilityLiveRegion="polite" style={[styles.syncLine, styles.error]}>
+          {stalePricesText(portfolio.stale_prices)}
+        </Text>
+      ) : null}
 
       <View style={styles.segments}>
         <Segmented<Segment>

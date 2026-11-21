@@ -29,6 +29,7 @@ import {
   type DepositRow,
   type Part,
   type Portfolio,
+  stalePricesText,
   type Stock,
   type StockTotal,
   type Totals,
@@ -237,6 +238,7 @@ export function InvestmentsView({ brokerId }: { brokerId: number | null }) {
         }
       />
       {data && <Overall portfolio={data.portfolio} />}
+      {data && <StalePrices portfolio={data.portfolio} />}
 
       <Notice message={notice} />
 
@@ -644,6 +646,17 @@ function BrokerTrades({
 }
 
 // Stocks, funds, deposits and crypto together, when there are two or more to add up.
+// Linked prices that stopped arriving: the values built on them may be out of date.
+function StalePrices({ portfolio }: { portfolio: Portfolio }) {
+  const text = stalePricesText(portfolio.stale_prices);
+  if (text === null) return null;
+  return (
+    <p role="status" className="mb-4 text-sm font-bold text-loss">
+      {text}
+    </p>
+  );
+}
+
 function Overall({ portfolio }: { portfolio: Portfolio }) {
   const { overall } = portfolio;
   if (holdingKinds(portfolio) < 2) return null;
