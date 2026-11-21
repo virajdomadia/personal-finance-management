@@ -28,6 +28,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.expression import FunctionElement
 
 from app.db.base import Base
+from app.models.price import price_type
 
 
 class _IndiaToday(FunctionElement):
@@ -104,7 +105,8 @@ class InvestmentTrade(Base):
     side: Mapped[str] = mapped_column(String(4))  # "buy" or "sell"
     date: Mapped[dt.date] = mapped_column(Date)
     quantity: Mapped[Decimal] = mapped_column(Numeric(24, 8))  # shares, units or coins
-    price: Mapped[Decimal] = mapped_column(Numeric(14, 4))  # price or NAV
+    # Price or NAV: 10 decimals, so a coin priced at a fraction of a paisa keeps its value.
+    price: Mapped[Decimal] = mapped_column(price_type())
     charges: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     # A buy's cost or a sell's proceeds, charges included.
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
@@ -133,7 +135,7 @@ class InstrumentPrice(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     instrument_id: Mapped[int] = mapped_column(ForeignKey("instruments.id"), index=True)
     date: Mapped[dt.date] = mapped_column(Date)
-    price: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    price: Mapped[Decimal] = mapped_column(price_type())
     # Set when a fund trade recorded this NAV; it follows that trade.
     trade_id: Mapped[int | None] = mapped_column(ForeignKey("investment_trades.id"), index=True)
     source: Mapped[str] = mapped_column(String(10), server_default="manual")  # "manual" or "auto"

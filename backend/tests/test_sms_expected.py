@@ -212,6 +212,58 @@ def test_sip_without_nav_records_spending_and_asks_for_the_nav(
     assert balance(headers, b) == "45000.00"
 
 
+def _typed_buy(headers: Headers, fund_id: int, account_id: int, **fields: Any) -> int:
+    body = {
+        "fund_id": fund_id,
+        "account_id": account_id,
+        "side": "buy",
+        "date": today_india().isoformat(),
+        "units": "100.000",
+        "nav": "50.0000",
+        "charges": "0.00",
+        "amount": "5000.00",
+        **fields,
+    }
+    response = client.post("/api/investments/fund-trades", json=body, headers=headers)
+    assert response.status_code == 201, response.json()
+    return response.json()["id"]
+
+
+@pytest.mark.parametrize("linked", [True, False])
+def test_sip_typed_by_hand_is_not_recorded_again(
+    headers: Headers, db_session: Session, linked: bool
+) -> None:
+    b = bank(headers, balance="50000.00")
+    f = fund(headers)
+    s = sip(db_session, f, b)
+    nav(db_session, f, "50.0000")
+    typed = _typed_buy(headers, f, b, **({"sip_id": s} if linked else {}))
+    assert balance(headers, b) == "45000.00"
+
+    body = entry(amount="5000.00", payee="BSE LIMITED")
+    result = send(headers, body).json()["results"][0]
+    assert result["status"] == "duplicate"
+
+    assert transactions(db_session) == []
+    assert [t.id for t in db_session.scalars(select(InvestmentTrade))] == [typed]
+    assert stored(db_session, body["hash"]).trade_id == typed
+    assert balance(headers, b) == "45000.00"
+
+
+def test_sip_typed_by_hand_is_claimed_by_one_message_only(
+    headers: Headers, db_session: Session
+) -> None:
+    b = bank(headers, balance="50000.00")
+    f = fund(headers)
+    s = sip(db_session, f, b)
+    nav(db_session, f, "50.0000")
+    _typed_buy(headers, f, b, sip_id=s)
+    assert one(headers, amount="5000.00", payee="BSE LIMITED")["status"] == "duplicate"
+    # A second debit of the same amount is new money out, not the typed buy again.
+    assert one(headers, amount="5000.00", payee="BSE LIMITED")["status"] != "duplicate"
+    assert balance(headers, b) == "40000.00"
+
+
 def test_sip_far_from_its_debit_day_is_not_matched(headers: Headers, db_session: Session) -> None:
     b = bank(headers, balance="50000.00")
     f = fund(headers)
@@ -225,6 +277,28 @@ def test_sip_far_from_its_debit_day_is_not_matched(headers: Headers, db_session:
     result = one(headers, amount="5000.00", payee="BSE LIMITED")
     assert (result["status"], result["reason"]) == ("review", "category")
     assert db_session.scalars(select(InvestmentTrade)).all() == []
+
+
+def test_a_salary_sms_in_review_settles_the_salary_reminder(
+    headers: Headers, db_session: Session
+) -> None:
+    # The money is in the balance as soon as the message is recorded, so the reminder can't
+    # still count it as coming: that would count the salary twice.
+    b = bank(headers, balance="10000.00")
+    reminder(headers, b, name="Salary", type="income", amount="80000.00", category="Salary")
+    assert [i["template"]["name"] for i in due(headers)] == ["Salary"]
+
+    result = one(headers, kind="credit", amount="80000.00", payee="ACME PAYROLL")
+    assert result["status"] == "review"  # an unknown payee still asks for its category
+    assert balance(headers, b) == "90000.00"
+    assert due(headers) == []
+
+
+def test_a_debit_in_review_still_leaves_its_bill_due(headers: Headers, db_session: Session) -> None:
+    b = bank(headers, balance="50000.00")
+    reminder(headers, b)  # rent, ₹10,000
+    one(headers, amount="10000.00", payee="SOMEONE NEW")
+    assert [i["template"]["name"] for i in due(headers)] == ["Rent"]
 
 
 # Recurring reminders

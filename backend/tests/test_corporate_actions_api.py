@@ -600,6 +600,27 @@ def test_portfolio_dividends_and_total_return(
     assert Decimal(after) == Decimal(before) + 100  # just the sale's profit
 
 
+def test_a_linked_dividend_counts_what_the_bank_received(
+    headers: Headers, db_session: Session
+) -> None:
+    # A ₹1,000 dividend paid ₹900 after 10% TDS: the return counts the ₹900 that arrived.
+    _, infy = holding(headers)  # 40 shares, held at cost
+    id_ = dividend(db_session, infy)  # ₹25 a share: ₹1,000 gross
+    paid = income(headers, bank(headers), "900.00", EX + timedelta(days=3))
+    totals = portfolio_body(headers)["totals"]
+    assert (totals["dividends"], totals["total_return"]) == ("1000.00", "1000.00")  # TDS unknown
+
+    assert client.post(f"{ACTIONS}/{id_}/links/{paid}", headers=headers).status_code == 200
+    body = portfolio_body(headers)
+    assert body["holdings"][0]["dividends"] == "900.00"
+    assert body["by_stock"][0]["dividends"] == "900.00"
+    assert (body["totals"]["dividends"], body["totals"]["total_return"]) == ("900.00", "900.00")
+    assert body["overall"]["total_return"] == "900.00"
+    # The action still shows its gross.
+    (row,) = client.get(ACTIONS, params={"status": "applied"}, headers=headers).json()["actions"]
+    assert row["dividend"]["gross"] == "1000.00"
+
+
 def test_upcoming_dividend_counts_once_its_ex_date_comes(
     headers: Headers, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

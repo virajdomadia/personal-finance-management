@@ -10,10 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.routes import net_worth
+from app.api.snapshots import backfill
 from app.main import app
 from app.models.snapshot import NetWorthSnapshot
 from app.models.user import User
 from tests.test_accounts import Headers, auth, make
+from tests.test_portfolio import price
 from tests.test_trades import broker, stock
 from tests.test_trades import made as made_trade
 
@@ -239,13 +241,41 @@ def holding_stocks(headers: Headers) -> None:
     made_trade(headers, stock_id=infy, account_id=broker_id, quantity=10, price="500.00")
 
 
-def test_an_estimate_is_compared_without_investments(headers: Headers, db_session: Session) -> None:
-    holding_stocks(headers)  # net worth 10,000, of which 5,000 is shares
+def test_an_estimate_is_compared_at_cost(headers: Headers, db_session: Session) -> None:
+    holding_stocks(headers)  # broker cash 5,000 and shares that cost 5,000
     snap(db_session, me(db_session), date(2026, 10, 13), "4000.00", estimated=True)
     body = get(headers)
-    # Like with like: 5,000 without the shares against the 4,000 estimate, not 10,000 against it.
-    assert body["since_last_month"] == change("1000.00", "2026-10-13", estimated=True)
-    assert body["since_start"] == change("1000.00", "2026-10-13", estimated=True, on_target=False)
+    # An estimate holds investments at what they cost, so today is too: 10,000 against 4,000.
+    assert body["since_last_month"] == change("6000.00", "2026-10-13", estimated=True)
+    assert body["since_start"] == change("6000.00", "2026-10-13", estimated=True, on_target=False)
+
+
+def test_a_rise_in_price_isnt_counted_against_an_estimate(
+    headers: Headers, db_session: Session
+) -> None:
+    broker_id, infy = broker(headers, balance="10000.00"), stock(headers)
+    made_trade(headers, stock_id=infy, account_id=broker_id, quantity=10, price="500.00")
+    price(headers, infy, "700.00")  # now worth 7,000; it cost 5,000
+    snap(db_session, me(db_session), date(2026, 10, 13), "4000.00", estimated=True)
+    assert get(headers)["since_last_month"] == change("6000.00", "2026-10-13", estimated=True)
+
+
+def test_buying_at_an_unchanged_price_is_no_change_since_an_estimate(
+    headers: Headers, db_session: Session
+) -> None:
+    # Two ₹5,000 purchases at the same price, one in October and one this month.
+    broker_id, infy = broker(headers, balance="20000.00"), stock(headers)
+    for day in ("2026-10-02", "2026-11-02"):
+        made_trade(
+            headers, stock_id=infy, account_id=broker_id, quantity=10, price="500.00", date=day
+        )
+    price(headers, infy, "500.00", day="2026-11-02")
+    backfill(db_session, me(db_session), TODAY)
+
+    body = get(headers)
+    assert body["since_start"]["from_date"] == "2026-10-31"
+    assert body["since_start"]["estimated"] is True
+    assert body["since_start"]["amount"] == "0.00"
 
 
 def test_a_real_snapshot_is_compared_with_investments(

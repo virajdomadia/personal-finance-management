@@ -277,7 +277,7 @@ def test_backfill_replays_balances_to_each_month_end(db_session: Session) -> Non
     assert (october.stocks, october.funds, october.crypto) == (0, 0, 0)
 
 
-def test_backfill_leaves_investments_out_but_counts_broker_cash(db_session: Session) -> None:
+def test_backfill_counts_holdings_at_cost(db_session: Session) -> None:
     uid = new_user(db_session)
     broker_id = account(db_session, uid, "broker", "10000.00", date(2026, 9, 1))
     inst = Instrument(user_id=uid, kind="stock", symbol="INFY", name="INFY")
@@ -301,9 +301,10 @@ def test_backfill_leaves_investments_out_but_counts_broker_cash(db_session: Sess
     backfill(db_session, uid, TODAY)
     rows = by_date(db_session, uid)
     assert rows[date(2026, 9, 30)].net_worth == Decimal("10000.00")
-    # The shares bought in October aren't counted, so the estimate falls by their cost.
-    assert rows[date(2026, 10, 31)].net_worth == Decimal("6000.00")
-    assert rows[date(2026, 10, 31)].stocks == Decimal("0.00")
+    # Buying shares only moves money from cash into shares, held at what they cost.
+    october = rows[date(2026, 10, 31)]
+    assert october.net_worth == Decimal("10000.00")
+    assert (october.bank_cash, october.stocks) == (Decimal("6000.00"), Decimal("4000.00"))
 
 
 def test_an_account_counts_from_when_it_was_added_without_transactions(

@@ -9,7 +9,8 @@ from app.api.routes import coins, crypto_trades, dashboard, fund_trades, funds, 
 from app.api.routes import portfolio as portfolio_route
 from app.main import app
 from app.models.account import Account
-from tests.test_accounts import Headers, archive, auth
+from app.models.investment import Instrument
+from tests.test_accounts import Headers, archive, archive_empty, auth
 from tests.test_coins import add_coin_price
 from tests.test_crypto_trades import coin, exchange
 from tests.test_crypto_trades import existing as existing_coin
@@ -190,6 +191,7 @@ def test_empty_portfolio(headers: Headers) -> None:
         "crypto": {"holdings": [], "by_coin": [], "closed": [], "totals": empty},
         "overall": empty,
         "deposits": {"value": "0.00", "interest_estimate": "0.00", "accounts": []},
+        "stale_prices": [],
         "holdings": [],
         "by_stock": [],
         "closed": [],
@@ -249,7 +251,7 @@ def test_archive_broker_with_holdings_is_409(headers: Headers) -> None:
     assert response.status_code == 409
     assert response.json()["detail"] == "Sell the shares held in Zerodha before archiving it."
     made(headers, stock_id=infy, account_id=account, side="sell", quantity=10, price="500.00")
-    assert client.post(url, headers=headers).status_code == 200
+    assert archive_empty(headers, account).status_code == 200
 
 
 STOCK_KEYS = ("holdings", "by_stock", "closed", "totals")
@@ -386,7 +388,7 @@ def test_archive_bank_with_units_is_409(headers: Headers) -> None:
     assert response.status_code == 409
     assert response.json()["detail"] == "Redeem the fund units held in SBI before archiving it."
     assert redeem(headers, fund_id=ppfcf, account_id=account).status_code == 201
-    assert archive(headers, account).status_code == 200
+    assert archive_empty(headers, account).status_code == 200
 
 
 def test_archive_bank_with_active_sip_is_409(headers: Headers) -> None:
@@ -401,11 +403,11 @@ def test_archive_bank_with_active_sip_is_409(headers: Headers) -> None:
         headers=headers,
     )
     assert stopped.status_code == 200, stopped.json()
-    assert archive(headers, account).status_code == 200
+    assert archive_empty(headers, account).status_code == 200
 
 
 def test_archive_plain_bank_still_works(headers: Headers) -> None:
-    assert archive(headers, bank(headers)).status_code == 200
+    assert archive_empty(headers, bank(headers)).status_code == 200
 
 
 # Deposits (PPF and RD) on the portfolio and the dashboard
@@ -604,6 +606,49 @@ def test_closed_coin_position(headers: Headers) -> None:
     assert [(c["symbol"], c["account_id"]) for c in body["closed"]] == [("BTC", account)]
 
 
+def test_prices_that_stopped_updating_are_flagged(
+    headers: Headers, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(portfolio_route, "today_india", lambda: date(2026, 11, 9))  # a Monday
+    zerodha = broker(headers)
+    infy, tcs, wipro, hdfc = (stock(headers, s) for s in ("INFY", "TCS", "WIPRO", "HDFC"))
+    for s in (infy, tcs, wipro, hdfc):
+        made(headers, stock_id=s, account_id=zerodha, quantity=1, price="100.00")
+    price(headers, infy, "100.00", day="2026-10-30")  # linked, 10 days old: stale
+    price(headers, tcs, "100.00", day="2026-11-06")  # linked, last Friday's close: fresh
+    price(headers, wipro, "100.00", day="2026-10-01")  # priced by hand: its date is enough
+    exchange_id, btc = exchange(headers, balance="10000.00"), coin(headers)
+    made_coin(headers, coin_id=btc, account_id=exchange_id)
+    assert add_coin_price(headers, btc, "2026-11-06", "7500000").status_code == 201  # 3 days
+    for id_, code in ((infy, "INFY"), (tcs, "TCS"), (hdfc, "HDFCBANK"), (btc, "bitcoin")):
+        row = db_session.get(Instrument, id_)
+        assert row is not None
+        row.source_code = code  # linked to a price source; HDFC has no price yet
+    db_session.commit()
+
+    assert portfolio(headers)["stale_prices"] == [
+        {"instrument_id": btc, "kind": "crypto", "symbol": "BTC", "price_date": "2026-11-06"},
+        {"instrument_id": hdfc, "kind": "stock", "symbol": "HDFC", "price_date": None},
+        {"instrument_id": infy, "kind": "stock", "symbol": "INFY", "price_date": "2026-10-30"},
+    ]
+
+
+def test_a_micro_priced_coin_is_valued_exactly(headers: Headers) -> None:
+    account, shib = exchange(headers, balance="10000.00"), coin(headers, "SHIB")
+    made_coin(
+        headers,
+        coin_id=shib,
+        account_id=account,
+        quantity="10000000",
+        price="0.00084",
+        charges="0.00",
+        amount="8400.00",
+    )
+    assert add_coin_price(headers, shib, "2026-11-05", "0.00084").status_code == 201
+    [row] = portfolio(headers)["crypto"]["by_coin"]
+    assert (row["price"], row["value"], row["unrealised"]) == ("0.00084", "8400.00", "0.00")
+
+
 def test_overall_adds_crypto(headers: Headers) -> None:
     broker_id, infy = broker(headers), stock(headers)
     made(headers, stock_id=infy, account_id=broker_id, quantity=10, price="500.00")
@@ -642,7 +687,7 @@ def test_archive_broker_with_coins_is_409(headers: Headers) -> None:
     assert response.status_code == 409
     assert response.json()["detail"] == "Sell the coins held in CoinDCX before archiving it."
     assert sell_coin(headers, coin_id=btc, account_id=account).status_code == 201
-    assert client.post(url, headers=headers).status_code == 200
+    assert archive_empty(headers, account).status_code == 200
 
 
 def test_holdings_in_a_goal_are_tagged(headers: Headers) -> None:

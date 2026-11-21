@@ -111,6 +111,52 @@ def emis_paid(db: Session, user_id: int, loan_id: int, day: date) -> list[Transa
     )
 
 
+def sip_buys_typed(
+    db: Session, user_id: int, account_id: int, amount: Decimal, day: date
+) -> list[InvestmentTrade]:
+    """Purchases already recorded for an active SIP on this account of exactly this amount, within
+    `SIP_WINDOW` of a debit on `day`, that no message has claimed yet: tied to the SIP, or of its
+    fund and not tied to any SIP."""
+    sips = select(Sip.id, Sip.instrument_id).where(
+        Sip.user_id == user_id,
+        Sip.account_id == account_id,
+        Sip.active.is_(True),
+        Sip.amount == amount,
+    )
+    rows = db.execute(sips).all()
+    if not rows:
+        return []
+    claimed = select(SmsEntry.trade_id).where(
+        SmsEntry.user_id == user_id, SmsEntry.trade_id.is_not(None)
+    )
+    for_sip = or_(
+        *(
+            or_(
+                InvestmentTrade.sip_id == sip_id,
+                and_(InvestmentTrade.sip_id.is_(None), InvestmentTrade.instrument_id == fund_id),
+            )
+            for sip_id, fund_id in rows
+        )
+    )
+    return list(
+        db.scalars(
+            select(InvestmentTrade)
+            .where(
+                InvestmentTrade.user_id == user_id,
+                InvestmentTrade.account_id == account_id,
+                InvestmentTrade.side == "buy",
+                InvestmentTrade.opening.is_(False),
+                InvestmentTrade.amount == amount,
+                InvestmentTrade.date >= day - SIP_WINDOW,
+                InvestmentTrade.date <= day + SIP_WINDOW,
+                InvestmentTrade.id.not_in(claimed),
+                for_sip,
+            )
+            .order_by(InvestmentTrade.date, InvestmentTrade.id)
+        )
+    )
+
+
 def _sips(
     db: Session, user_id: int, account: Account, amount: Decimal, day: date
 ) -> list[Candidate]:

@@ -149,4 +149,14 @@ test("validNumber follows the server: trailing zeros aren't decimals, whole digi
   assert.equal(validNumber("-1", 8, 16), false);
   assert.equal(validNumber("7504827.50000", 4, 10), true);
   assert.equal(validNumber("12345678901", 4, 10), false);
+});
+
+test("a coin priced at a fraction of a paisa keeps its digits", () => {
+  assert.equal(formatCoinPrice("0.00084"), "₹0.00084");
+  assert.equal(formatCoinPrice("0.0000000400"), "₹0.00000004");
+  assert.equal(formatCoinPrice("0.5000"), "₹0.50");
+  assert.equal(formatCoinAverage("0.0008400000"), "₹0.00084");
+  const shib = { quantity: "10000000", price: "0.00084", charges: "", amount: "8400.00" };
+  assert.equal(qtyMismatch(form(shib)), false);
+  assert.equal(qtyMismatch(form({ ...shib, amount: "9000.00" })), true);
 });

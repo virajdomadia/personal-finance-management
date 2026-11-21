@@ -21,6 +21,7 @@ import {
   tradeFormFrom,
   tradePayload,
   tradeTotal,
+  stalePricesText,
 } from "./investments.ts";
 
 const form = {
@@ -282,4 +283,20 @@ test("applyPick replaces what an earlier pick filled in, and keeps what was type
     name: "Gilt Fund",
     symbol: "BANK",
   });
+});
+
+test("stalePricesText names the linked prices that stopped updating", () => {
+  assert.equal(stalePricesText([]), null);
+  assert.equal(
+    stalePricesText([{ instrument_id: 1, kind: "stock", symbol: "INFY", price_date: "2026-10-30" }]),
+    "INFY's price hasn't updated since 30 Oct 2026, so its value may be out of date.",
+  );
+  assert.equal(
+    stalePricesText([
+      { instrument_id: 3, kind: "crypto", symbol: "BTC", price_date: "2026-11-06" },
+      { instrument_id: 2, kind: "stock", symbol: "HDFC", price_date: null },
+      { instrument_id: 1, kind: "stock", symbol: "INFY", price_date: "2026-10-30" },
+    ]),
+    "Prices haven't updated for BTC (since 6 Nov 2026), HDFC (none yet) and INFY (since 30 Oct 2026), so their values may be out of date.",
+  );
 });

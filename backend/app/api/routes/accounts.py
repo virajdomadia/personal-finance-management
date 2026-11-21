@@ -679,6 +679,24 @@ def _ppf_ids(db: Session, user_id: int, id: int) -> list[int]:
 ARCHIVE_TRIES = 3
 
 
+def _refuse_unless_empty(account: Account, balance: Decimal) -> None:
+    if balance == 0:
+        return
+    if balance < 0:
+        detail = f"{account.name} shows {rupees(balance)}. Bring it to zero before archiving it."
+    elif account.type in LIABILITY_TYPES:
+        detail = (
+            f"{account.name} still owes {rupees(balance)}. "
+            f"Pay it off before archiving {account.name}."
+        )
+    else:
+        detail = (
+            f"{account.name} still holds {rupees(balance)}. "
+            f"Move it out before archiving {account.name}."
+        )
+    raise HTTPException(status.HTTP_409_CONFLICT, detail)
+
+
 @router.post("/{id}/archive")
 def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountResponse:
     from app.api.goals import load_goal_tags  # it imports this module
@@ -775,6 +793,8 @@ def archive_account(id: int, user: CurrentUser, db: DbSession) -> AccountRespons
                 f"This account pays the {insurer} premium. "
                 "Change the policy's paying account or lapse the policy first.",
             )
+        # An archived account leaves net worth, so one that still holds or owes money can't go.
+        _refuse_unless_empty(account, balance_of(account, load_book(db, user.id).flows))
         # Every check passed: the bank's PPFs (locked above) let go of it.
         if account.type == "bank":
             for ppf in db.scalars(select(Account).where(Account.id.in_(ppf_ids))):

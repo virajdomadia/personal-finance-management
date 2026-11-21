@@ -211,32 +211,35 @@ def added_on(account: Account) -> date | None:
     return created.astimezone(INDIA).date()
 
 
-def reminded(templates: list[Template]) -> set[int]:
-    """Accounts an active transfer reminder pays into: the reminder stands for their bill,
-    instalment or EMI, so it isn't listed twice."""
-    return {
-        e.template.to_account_id
-        for e in templates
-        if e.template.type == "transfer" and e.template.to_account_id is not None
-    }
+def reminded(templates: list[Template]) -> dict[int, Decimal]:
+    """What active monthly transfer reminders pay into each account a month. A reminder (or
+    several) covering an account's EMI, instalment or bill stands for it, so it isn't listed
+    twice; a yearly prepayment or a smaller top-up is a payment of its own."""
+    paid: dict[int, Decimal] = defaultdict(Decimal)
+    for e in templates:
+        t = e.template
+        if t.type == "transfer" and t.to_account_id is not None and t.frequency == "monthly":
+            paid[t.to_account_id] += t.amount
+    return paid
+
+
+def stands_for(covered: dict[int, Decimal] | None, account_id: int, due: Decimal) -> bool:
+    """Whether monthly reminders into the account pay at least what is due."""
+    return covered is not None and account_id in covered and covered[account_id] >= due
 
 
 def emi_items(
-    db: Session, user_id: int, ctx: Context, until: date, skip: set[int] | None = None
+    db: Session, user_id: int, ctx: Context, until: date, covered: dict[int, Decimal] | None = None
 ) -> list[Due]:
     """Each active loan's instalment day in the window (this month's too, when passed and
     unpaid), unless an EMI is already recorded for that period or the day is before the loan
-    was added. A loan in `skip` is paid by a transfer reminder."""
-    skip = skip or set()
+    was added, or monthly transfer reminders (`covered`) pay the EMI."""
     items = []
     loans = sorted(
         (
             a
             for a in ctx.accounts.values()
-            if a.type == "loan"
-            and a.archived_at is None
-            and a.due_day is not None
-            and a.id not in skip
+            if a.type == "loan" and a.archived_at is None and a.due_day is not None
         ),
         key=lambda a: a.id,
     )
@@ -245,6 +248,8 @@ def emi_items(
         if upcoming is None or loan.due_day is None:
             continue
         amount = Decimal(upcoming.amount)
+        if stands_for(covered, loan.id, amount):
+            continue
         interest = Decimal(upcoming.interest) if upcoming.interest is not None else ZERO
         payer = ctx.account(loan.pay_from_id)
         since = added_on(loan)
@@ -287,15 +292,17 @@ def sip_items(db: Session, user_id: int, ctx: Context, until: date) -> list[Due]
     return items
 
 
-def rd_items(ctx: Context, until: date, skip: set[int] | None = None) -> list[Due]:
-    """Unpaid instalments in the window. An RD in `skip` is paid by a transfer reminder."""
-    skip = skip or set()
+def rd_items(ctx: Context, until: date, covered: dict[int, Decimal] | None = None) -> list[Due]:
+    """Unpaid instalments in the window, unless monthly transfer reminders (`covered`) pay
+    the instalment."""
     items = []
     for rd in sorted(ctx.accounts.values(), key=lambda a: a.id):
-        if rd.type != "rd" or rd.archived_at is not None or rd.id in skip:
+        if rd.type != "rd" or rd.archived_at is not None:
             continue
         opened, amount, tenure = rd.opened_on, rd.deposit_amount, rd.tenure_months
         if opened is None or amount is None or tenure is None:
+            continue
+        if stands_for(covered, rd.id, amount):
             continue
         if rd.due_day is None or rd.deposits_at_opening is None:
             continue
@@ -380,18 +387,13 @@ def next_bill_date(card: Account, today: date, last_due: date | None) -> date | 
 
 
 def card_items(
-    db: Session, user_id: int, ctx: Context, until: date, skip: set[int] | None = None
+    db: Session, user_id: int, ctx: Context, until: date, covered: dict[int, Decimal] | None = None
 ) -> list[Due]:
     """One bill per card: the unpaid part of its latest statement on that statement's due
-    date, overdue until paid; else what is owed now, on the date it will fall due. A card in
-    `skip` is paid by a transfer reminder."""
-    paid_by_reminder = skip or set()
+    date, overdue until paid; else what is owed now, on the date it will fall due. A bill that
+    monthly transfer reminders (`covered`) pay in full isn't listed."""
     cards = sorted(
-        (
-            a
-            for a in ctx.accounts.values()
-            if a.type == "credit_card" and a.archived_at is None and a.id not in paid_by_reminder
-        ),
+        (a for a in ctx.accounts.values() if a.type == "credit_card" and a.archived_at is None),
         key=lambda a: a.id,
     )
     statements = {b.account_id: b for b in card_bills(db, user_id, cards, ctx.today, grace=None)}
@@ -406,6 +408,8 @@ def card_items(
             if due is None or owed <= 0:
                 continue
             when, amount, varies = due, owed, True
+        if stands_for(covered, card.id, amount):
+            continue
         items.append(
             ctx.item(
                 when,
@@ -482,14 +486,14 @@ def due_items(
     """Everything due up to `until`, overdue items included, in list order."""
     if templates is None:
         templates = load_templates(db, user_id, ctx)
-    skip = reminded(templates)
+    covered = reminded(templates)
     items = [
         *template_items(templates, ctx, until),
-        *emi_items(db, user_id, ctx, until, skip),
+        *emi_items(db, user_id, ctx, until, covered),
         *sip_items(db, user_id, ctx, until),
-        *rd_items(ctx, until, skip),
+        *rd_items(ctx, until, covered),
         *fd_items(ctx, until),
-        *card_items(db, user_id, ctx, until, skip),
+        *card_items(db, user_id, ctx, until, covered),
         *goal_items(db, user_id, ctx, goals, until),
     ]
     return sorted((i for i in items if i.date <= until), key=_order)

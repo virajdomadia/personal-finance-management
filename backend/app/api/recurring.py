@@ -91,6 +91,9 @@ def open_occurrences(t: TemplateRow, paid: list[date], skips: set[date], upto: d
 
 
 MONEY_OUT = frozenset({"expense", "transfer", "emi"})
+# A salary moves a little month to month (tax, arrears), so income may differ this much from its
+# reminder; a bill is settled only by its exact amount.
+INCOME_SPREAD = Decimal("0.10")
 
 
 class Money(NamedTuple):
@@ -106,16 +109,20 @@ class Money(NamedTuple):
 def pays_for(reminder: Money, payment: Money) -> bool:
     """Whether a payment recorded without the reminder is the payment the reminder asks for.
 
-    Same paying account, same amount, and money moving the same way: a bill is settled by money
+    Same paying account, same amount (income within `INCOME_SPREAD` of it), and money moving the
+    same way: a bill is settled by money
     leaving the account however it was recorded (an RD instalment set up as an expense but
     recorded as a transfer), income only by income. A transfer reminder needs a transfer to its
     own target. When both are the same type and both have a category, the categories must match.
     """
-    if payment.account_id != reminder.account_id or payment.amount != reminder.amount:
+    if payment.account_id != reminder.account_id:
         return False
     if reminder.type == "income":
-        if payment.type != "income":
+        off = abs(payment.amount - reminder.amount)
+        if payment.type != "income" or off > reminder.amount * INCOME_SPREAD:
             return False
+    elif payment.amount != reminder.amount:
+        return False
     elif payment.type not in MONEY_OUT:
         return False
     if reminder.to_account_id is not None and (

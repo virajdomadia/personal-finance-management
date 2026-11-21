@@ -1,6 +1,9 @@
 import { type GoalTag, cleanMoney, formatRupees } from "./accounts.ts";
 import { formatDate, realDate } from "./dates.ts";
 
+// Like the server: a coin can be priced at a fraction of a paisa.
+export const PRICE_DECIMALS = 10;
+
 // These mirror the response models in backend/app/api/routes/{coins,crypto_trades,portfolio}.py.
 export type Coin = {
   id: number;
@@ -98,21 +101,21 @@ function chargesPaise(raw: string): bigint | null {
 }
 
 // The server refuses a non-opening trade whose quantity x price is further from amount - charges
-// (buy) or amount + charges (sell) than Rs 1.00 or quantity x Rs 0.00005, whichever is more: a
-// price has at most 4 decimals, so rounding it can move quantity x price by up to that much.
+// (buy) or amount + charges (sell) than Rs 1.00 or quantity x Rs 0.00005, whichever is more: an
+// exchange may show a price rounded to 4 decimals, so quantity x price can be off by that much.
 export function qtyMismatch(form: CryptoTradeForm): boolean {
   if (form.mode === "opening") return false;
   const quantity = scaled(form.quantity.trim(), 8);
-  const price = scaled(form.price.trim(), 4);
+  const price = scaled(form.price.trim(), PRICE_DECIMALS);
   const gross = scaled(cleanMoney(form.amount), 2);
   const fee = chargesPaise(form.charges);
   if (quantity === null || price === null || gross === null || fee === null) return false;
   const expected = form.mode === "buy" ? gross - fee : gross + fee;
-  // Quantity x price is in 10^-12 of a rupee; paise are 10^-2. Compared ten times over, so
-  // quantity (10^-8) x 0.00005 is a whole number: quantity x 5 in 10^-13.
-  const diff = (quantity * price - expected * BigInt(10) ** BigInt(10)) * BigInt(10);
-  const rupee = BigInt(10) ** BigInt(13);
-  const rounding = quantity * BigInt(5);
+  // Quantity (10^-8) x price (10^-10) is in 10^-18 of a rupee; paise are 10^-2. Quantity x
+  // Rs 0.00005 is then quantity x 500000.
+  const diff = quantity * price - expected * BigInt(10) ** BigInt(16);
+  const rupee = BigInt(10) ** BigInt(18);
+  const rounding = quantity * BigInt(500000);
   const tolerance = rounding > rupee ? rounding : rupee;
   return (diff < BigInt(0) ? -diff : diff) > tolerance;
 }
@@ -167,23 +170,25 @@ export function formatCoinQty(quantity: string): string {
 }
 
 // A recorded or typed price (current price, price history, a trade's "@ price") shows as entered:
-// up to 4 decimals, trailing zeros trimmed but never fewer than 2.
+// up to 4 decimals (10 below Rs 1, so a fraction of a paisa shows), trailing zeros trimmed but
+// never fewer than 2.
 export function formatCoinPrice(price: string): string {
   const [whole, fraction = ""] = price.split(".");
-  const trimmed = fraction.slice(0, 4).replace(/0+$/, "").padEnd(2, "0");
+  const places = BigInt(whole) === BigInt(0) ? PRICE_DECIMALS : 4;
+  const trimmed = fraction.slice(0, places).replace(/0+$/, "").padEnd(2, "0");
   return `₹${groupDecimal(`${whole}.${trimmed}`)}`;
 }
 
 // A derived average (average price, an existing-coins trade's "avg"). From ₹1 up it shows rupees and
-// paise, rounded half up from the 4-decimal figure. Below ₹1 it shows up to 4 decimals, trimmed but
-// never fewer than 2.
+// paise, rounded half up from the 4-decimal figure. Below ₹1 it shows up to 10 decimals, trimmed
+// but never fewer than 2.
 export function formatCoinAverage(price: string): string {
   const [whole, fraction = ""] = price.split(".");
-  const padded = fraction.padEnd(4, "0").slice(0, 4);
   if (BigInt(whole) === BigInt(0)) {
-    const trimmed = padded.replace(/0+$/, "").padEnd(2, "0");
+    const trimmed = fraction.slice(0, PRICE_DECIMALS).replace(/0+$/, "").padEnd(2, "0");
     return `₹${whole}.${trimmed}`;
   }
+  const padded = fraction.padEnd(4, "0").slice(0, 4);
   const hundredths = BigInt(whole + padded.slice(0, 2)) + BigInt(Number(padded[2]) >= 5 ? 1 : 0);
   const text = hundredths.toString();
   return `₹${groupDecimal(`${text.slice(0, -2)}.${text.slice(-2)}`)}`;
@@ -192,7 +197,7 @@ export function formatCoinAverage(price: string): string {
 const MONEY = /^\d+(?:\.\d{1,2})?$/;
 const MAX_AMOUNT = BigInt(10) ** BigInt(14); // Rs 10^12 in paise
 const QTY_RULE = "Enter a quantity above 0, with up to 8 decimals, like 0.00014067.";
-const PRICE_RULE = "Enter a price above 0, with up to 4 decimals, like 7504827.5.";
+const PRICE_RULE = "Enter a price above 0, with up to 10 decimals, like 7504827.5.";
 const MONEY_RULE = "Enter an amount, like 1234.50.";
 
 // Like the server: trailing zeros don't count as decimals; above 0 and below 10^whole digits.
@@ -215,7 +220,7 @@ export function cryptoTradeErrors(form: CryptoTradeForm, today: string): Record<
   else if (!realDate(date)) errors.date = "Enter a date like 2026-11-08.";
   else if (date > today) errors.date = "The date can't be in the future.";
   if (!validNumber(form.quantity.trim(), 8, 16)) errors.quantity = QTY_RULE;
-  if (form.mode !== "opening" && !validNumber(form.price.trim(), 4, 10)) errors.price = PRICE_RULE;
+  if (form.mode !== "opening" && !validNumber(form.price.trim(), PRICE_DECIMALS, 10)) errors.price = PRICE_RULE;
   const amount = cleanMoney(form.amount);
   let gross: bigint | null = null;
   if (amount === "") errors.amount = "Enter the amount.";

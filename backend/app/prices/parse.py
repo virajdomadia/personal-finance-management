@@ -13,8 +13,8 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 IST = timezone(timedelta(hours=5, minutes=30))
 EQUITY_SERIES = {"EQ", "BE"}
 COIN_SEARCH_LIMIT = 20
-_PLACES = Decimal("0.0001")
-_MAX_PRICE = Decimal(10) ** 10  # exclusive: the price column is Numeric(14, 4)
+_PLACES = Decimal("1e-10")
+_MAX_PRICE = Decimal(10) ** 10  # exclusive: the price columns are Numeric(20, 10)
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,7 @@ class Quote:
 
 
 def to_price(text: str | int | Decimal | None) -> Decimal | None:
-    """Round to 4 places half-up; None unless the value is finite and positive."""
+    """Round to 10 places half-up; None unless the value is finite and positive."""
     if text is None or isinstance(text, bool):
         return None
     try:

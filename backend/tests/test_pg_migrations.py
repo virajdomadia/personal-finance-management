@@ -253,7 +253,8 @@ CATEGORIES_REVISION = "2d46fef3dab4"
 NET_WORTH_REVISION = "4f9a2c7e1b30"
 BUDGETS_REVISION = "7e5d2fc1e167"
 FD_REVISION = "a1c3e5f7b902"
-HEAD_REVISION = "c3f8a1d4e625"
+ACTIONS_REVISION = "c3f8a1d4e625"
+HEAD_REVISION = "d5a9c2e7f314"
 PRE_ACTIONS_REVISION = "b7d2e4f6a813"
 ACTION_TABLES = {"corporate_actions", "stock_actions", "dividend_links"}
 SMS_TABLES = {"account_identifiers", "sms_entries", "payee_rules", "sms_samples"}
@@ -781,4 +782,39 @@ def test_corporate_actions_migration_round_trip(migrations_db: str) -> None:
     }
     assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [
         (PRE_ACTIONS_REVISION,)
+    ]
+
+
+def _execute(url: str, sql: str) -> None:
+    engine = create_engine(url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(sql))
+    finally:
+        engine.dispose()
+
+
+def test_migration_widens_prices_keeping_values(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, ACTIONS_REVISION)
+    seed_investments(migrations_db, "10")
+    _execute(migrations_db, "UPDATE investment_trades SET price = 84.3793")
+    command.upgrade(config, "head")
+
+    [(price,)] = rows(migrations_db, "SELECT price FROM investment_trades")
+    assert (price, str(price)) == (Decimal("84.3793"), "84.3793000000")
+    # A coin priced at a fraction of a paisa now keeps every digit.
+    _execute(migrations_db, "UPDATE investment_trades SET price = 0.00084")
+    assert rows(migrations_db, "SELECT price FROM investment_trades") == [(Decimal("0.00084"),)]
+
+    # Downgrading refuses while a price has more than 4 decimals, and changes nothing.
+    with pytest.raises(RuntimeError, match="A price has more than 4 decimals"):
+        command.downgrade(config, ACTIONS_REVISION)
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(HEAD_REVISION,)]
+    assert rows(migrations_db, "SELECT price FROM investment_trades") == [(Decimal("0.00084"),)]
+
+    _execute(migrations_db, "UPDATE investment_trades SET price = 84.3793")
+    command.downgrade(config, ACTIONS_REVISION)
+    assert [str(p) for (p,) in rows(migrations_db, "SELECT price FROM investment_trades")] == [
+        "84.3793"
     ]

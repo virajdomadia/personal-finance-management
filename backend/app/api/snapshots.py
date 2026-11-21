@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.api.balances import balance_of, load_dated_movements, net_flows
 from app.api.dates import INDIA, clamped_date
+from app.api.portfolio import load_action_rows, load_kinds, load_trade_rows, replay
 from app.api.routes.accounts import DEPOSIT_TYPES, totals
 from app.api.worth import GROUPS, worth_of
 from app.models.account import Account
@@ -32,6 +33,7 @@ NEAREST_BEFORE = 16
 NEAREST_AFTER = 3
 ON_TARGET_DAYS = 3
 INVESTMENT_GROUPS = ("stocks", "funds", "crypto")
+GROUP_OF_KIND = {"stock": "stocks", "mutual_fund": "funds", "crypto": "crypto"}
 PAISE = Decimal("0.01")
 # The nightly run is scheduled for 23:30 India time but can start as late as 00:29. Its snapshot
 # belongs to the evening it was meant for, so the date is taken this long before the run.
@@ -45,8 +47,13 @@ class Figures(NamedTuple):
     split: dict[str, Decimal]  # every group in GROUPS
 
     def without_investments(self) -> Decimal:
-        """Net worth less stocks, funds and coins: what an estimated month-end can compare with."""
+        """Net worth less stocks, funds and coins."""
         return self.net_worth - sum((self.split[g] for g in INVESTMENT_GROUPS), Decimal(0))
+
+    def at_cost(self, invested: Decimal) -> Decimal:
+        """Net worth with stocks, funds and coins at what they cost: what an estimated month-end,
+        which has no past prices, can compare with."""
+        return self.without_investments() + invested.quantize(PAISE)
 
 
 def rounded(have: Decimal, owe: Decimal, split: dict[str, Decimal]) -> Figures:
@@ -199,13 +206,16 @@ def estimate_month_ends(
     db: Session, user_id: int, today: date, months: int = BACKFILL_MONTHS
 ) -> dict[date, Figures]:
     """Estimated figures for each month-end before the first real snapshot, from transactions
-    and trade cash only: investments count as zero. A month-end with no account is left out."""
+    and trades. There are no past prices, so holdings count at what they cost: a purchase only
+    moves money from cash into a holding. A month-end with no account is left out."""
     first_real = first_real_date(db, user_id)
     ends = [d for d in month_ends(today, months) if first_real is None or d < first_real]
     if not ends:
         return {}
     accounts = list(db.scalars(select(Account).where(Account.user_id == user_id)).all())
     moves = load_dated_movements(db, user_id)
+    trades, actions = load_trade_rows(db, user_id), load_action_rows(db, user_id)
+    kinds = load_kinds(db, user_id)
 
     # An account counts from its first movement or the day it was added, whichever is earlier.
     starts = {a.id: india_date(a.created_at) for a in accounts}
@@ -230,6 +240,15 @@ def estimate_month_ends(
         )
         split = dict.fromkeys(GROUPS, Decimal(0))
         split["deposits"] = deposits
+        held = replay(
+            (t for t in trades if t.date <= end), (a for a in actions if a.ex_date <= end)
+        )
+        ids = {a.id for a in counted}
+        for pos in held.positions.values():
+            group = GROUP_OF_KIND.get(kinds.get(pos.instrument_id, ""))
+            if pos.quantity > 0 and pos.account_id in ids and group is not None:
+                split[group] += pos.invested
+                have += pos.invested
         estimates[end] = rounded(have, owe, split)
     return estimates
 

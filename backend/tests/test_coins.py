@@ -19,7 +19,7 @@ from tests.test_stocks import add_price, add_stock
 client = TestClient(app)
 
 URL = "/api/investments"
-PRICE = "Enter a price above 0, with up to 4 decimals, like 7504827.5."
+PRICE = "Enter a price above 0, with up to 10 decimals, like 7504827.5."
 TICKER = "Enter the coin's ticker, like BTC."
 IN_USE = "This coin has trades. Delete them first."
 
@@ -160,7 +160,7 @@ def test_coins_do_not_leak_into_stocks_and_funds(headers: Headers) -> None:
     assert client.get(f"{URL}/coins/{coin}/prices", headers=headers).json()["prices"] != []
 
 
-@pytest.mark.parametrize("price", ["0", "1.23456", "-1", "abc", "", 5, 1.5, "1e3", None])
+@pytest.mark.parametrize("price", ["0", "0.00000000001", "-1", "abc", "", 5, 1.5, "1e3", None])
 def test_bad_price(headers: Headers, price: Any) -> None:
     coin = add_coin(headers).json()["id"]
     response = add_coin_price(headers, coin, "2026-11-01", price)
@@ -217,6 +217,18 @@ def test_fmt_coin_and_price() -> None:
     assert fmt_coin(Decimal("0.000000005")) == "0.00000001"
     assert fmt_coin(Decimal("0.00014067")) == "0.00014067"
     assert fmt_price(Decimal("7504827.5")) == "7504827.5000"
+    # Under ₹1 a price keeps its digits, up to 10 decimals, and at least 4.
+    assert fmt_price(Decimal("0.00084")) == "0.00084"
+    assert fmt_price(Decimal("0.5")) == "0.5000"
+    assert fmt_price(Decimal("0.123456789012")) == "0.123456789"
+
+
+def test_a_micro_price_is_kept(headers: Headers) -> None:
+    coin = add_coin(headers, "SHIB", "Shiba Inu").json()["id"]
+    response = add_coin_price(headers, coin, "2026-11-01", "0.00084")
+    assert response.status_code == 201, response.json()
+    assert response.json()["price"] == "0.00084"
+    assert coin_list(headers)[0]["price"] == "0.00084"
 
 
 def test_delete_coin_with_a_trade_is_409(headers: Headers) -> None:

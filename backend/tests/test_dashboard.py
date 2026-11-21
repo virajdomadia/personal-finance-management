@@ -14,7 +14,7 @@ from app.api.routes.dashboard import next_due_date
 from app.main import app
 from app.models.sms import SmsEntry
 from app.models.user import User
-from tests.test_accounts import Headers, auth, make
+from tests.test_accounts import Headers, archive_empty, auth, make
 from tests.test_coins import add_coin_price
 from tests.test_crypto_trades import coin, exchange
 from tests.test_crypto_trades import existing as existing_coin
@@ -117,7 +117,7 @@ def test_archived_accounts_are_excluded(headers: Headers) -> None:
     gone_card = card(headers, name="Old", balance="500.00", credit_limit="1000.00", due_day=9)
     card(headers, name="New", balance="100.00", credit_limit="1000.00", due_day=20)
     for id_ in (gone_cash, gone_card):
-        client.post(f"/api/accounts/{id_}/archive", headers=headers)
+        archive_empty(headers, id_)
 
     body = get(headers)
 
@@ -128,7 +128,7 @@ def test_archived_accounts_are_excluded(headers: Headers) -> None:
 
 def test_only_archived_accounts_means_no_accounts(headers: Headers) -> None:
     id_ = make(headers, balance="5.00").json()["id"]
-    client.post(f"/api/accounts/{id_}/archive", headers=headers)
+    archive_empty(headers, id_)
 
     assert get(headers) == EMPTY
 
@@ -407,4 +407,55 @@ def test_dashboard_to_review_and_card_bill(headers: Headers, db_session: Session
     pay("4000.00", "2026-11-05")
     assert get(headers)["card_bill"]["amount"] == "8000.00"
     pay("8000.00", "2026-11-06")
+    assert get(headers)["card_bill"] is None
+
+
+def _statement_card(headers: Headers, db: Session, amount: str) -> tuple[int, int]:
+    """A bank and a card whose statement on 5 Nov asks `amount` by 25 Nov."""
+    uid = db.scalar(select(User.id))
+    assert uid is not None
+    bank_id = make(headers, type="bank", name="SBI", bank_kind="savings", balance="50000.00")
+    regalia = card(headers, name="Regalia", balance=amount)
+    _sms(
+        db,
+        uid,
+        f"statement-{regalia}",
+        kind="card_statement",
+        status="recorded",
+        account_id=regalia,
+        amount=Decimal(amount),
+        occurred_on=date(2026, 11, 5),
+        due_date=date(2026, 11, 25),
+    )
+    return bank_id.json()["id"], regalia
+
+
+def _record(headers: Headers, **fields: Any) -> None:
+    response = client.post("/api/transactions", json=fields, headers=headers)
+    assert response.status_code == 201, response.json()
+
+
+def test_a_payment_on_the_statement_day_pays_the_bill(
+    headers: Headers, db_session: Session
+) -> None:
+    bank_id, regalia = _statement_card(headers, db_session, "15000.00")
+    _record(
+        headers,
+        type="transfer",
+        account_id=bank_id,
+        to_account_id=regalia,
+        amount="15000.00",
+        date="2026-11-05",
+    )
+    assert get(headers)["card_bill"] is None
+
+
+def test_a_refund_to_the_card_lowers_the_bill_but_never_below_zero(
+    headers: Headers, db_session: Session
+) -> None:
+    _, regalia = _statement_card(headers, db_session, "12000.00")
+    refund = {"type": "income", "account_id": regalia, "category": "Refund"}
+    _record(headers, **refund, amount="2000.00", date="2026-11-06")
+    assert get(headers)["card_bill"]["amount"] == "10000.00"
+    _record(headers, **refund, amount="20000.00", date="2026-11-07")
     assert get(headers)["card_bill"] is None

@@ -535,6 +535,54 @@ def test_a_transfer_reminder_stands_for_the_rd_and_the_emi(
     assert safe(headers)["due"] == "9000.00"
 
 
+def test_a_reminder_that_doesnt_cover_the_month_leaves_the_emi_rd_and_bill(
+    headers: Headers, db_session: Session
+) -> None:
+    w = World(db_session)
+    bank = w.account("bank", "HDFC", "200000.00", bank_kind="savings")
+    loan = w.account(
+        "loan",
+        "Home loan",
+        "1000000.00",
+        due_day=20,
+        emi_amount=Decimal("25000.00"),
+        interest_rate=Decimal("12.00"),
+        pay_from_id=bank.id,
+    )
+    rd = w.account(
+        "rd",
+        "SBI RD",
+        "5000.00",
+        opened_on=date(2026, 10, 1),
+        deposit_amount=Decimal("5000.00"),
+        due_day=15,
+        tenure_months=12,
+        deposits_at_opening=1,
+        interest_rate=Decimal("7.00"),
+    )
+    card = w.account("credit_card", "Regalia", "12000.00", due_day=23)
+    w.statement(card, "12000.00", date(2026, 11, 3), date(2026, 11, 23))
+    # A yearly prepayment, a small top-up and a part payment: none is the month's whole due.
+    w.template(
+        "Prepayment",
+        "transfer",
+        "50000.00",
+        bank,
+        to_account_id=loan.id,
+        frequency="yearly",
+        month=3,
+        day=20,
+    )
+    w.template("RD top-up", "transfer", "1000.00", bank, to_account_id=rd.id, day=15)
+    w.template("Card part", "transfer", "2000.00", bank, to_account_id=card.id, day=23)
+
+    body = next_30(headers)
+    listed = {(i["kind"], i["name"], i["amount"]) for i in body["items"]}
+    assert ("emi", "Home loan EMI", "25000.00") in listed
+    assert ("rd", "SBI RD instalment", "5000.00") in listed
+    assert ("card_bill", "Regalia bill", "12000.00") in listed
+
+
 def test_an_archived_paying_account_is_taken_to_be_a_bank(
     headers: Headers, db_session: Session
 ) -> None:

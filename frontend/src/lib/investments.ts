@@ -1,6 +1,7 @@
 import { type GoalTag, cleanMoney, formatRupees } from "./accounts.ts";
 import type { CryptoPortfolio } from "./crypto.ts";
 import type { FundsPortfolio } from "./funds.ts";
+import { formatDate } from "./transactions.ts";
 
 export type TradeSide = "buy" | "sell";
 
@@ -154,7 +155,27 @@ export type Portfolio = {
   crypto: CryptoPortfolio;
   deposits: Deposits;
   overall: Totals;
+  stale_prices: StalePrice[];
 };
+
+// A held instrument linked to a price source whose price stopped arriving (see the server's
+// `stale_prices`): its value may be out of date.
+export type StalePrice = { instrument_id: number; kind: string; symbol: string; price_date: string | null };
+
+function joinNames(parts: string[]): string {
+  return parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+export function stalePricesText(stale: StalePrice[]): string | null {
+  if (stale.length === 0) return null;
+  if (stale.length === 1) {
+    const [s] = stale;
+    const since = s.price_date ? `hasn't updated since ${formatDate(s.price_date)}` : "hasn't arrived yet";
+    return `${s.symbol}'s price ${since}, so its value may be out of date.`;
+  }
+  const parts = stale.map((s) => `${s.symbol} (${s.price_date ? `since ${formatDate(s.price_date)}` : "none yet"})`);
+  return `Prices haven't updated for ${joinNames(parts)}, so their values may be out of date.`;
+}
 
 // One independently loaded piece of the Investments page.
 export type Part<T> = { status: "ready"; data: T } | { status: "error" };

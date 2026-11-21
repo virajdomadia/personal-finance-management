@@ -11,7 +11,7 @@ from app.api.routes.accounts import fmt
 from app.api.routes.dashboard import today_india
 from app.main import app
 from app.models.transaction import Transaction
-from tests.test_accounts import Headers, auth, locs, make
+from tests.test_accounts import Headers, archive_empty, auth, locs, make
 from tests.test_loans import bank, emi, loan
 
 client = TestClient(app)
@@ -139,11 +139,16 @@ def test_archive_and_restore_report_the_live_balance(headers: Headers) -> None:
     bank = account(headers, "bank")
     assert expense(headers, bank, "100.00").status_code == 201
 
+    refused = client.post(f"/api/accounts/{bank}/archive", headers=headers)
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == "Cash still holds ₹900. Move it out before archiving Cash."
+
+    assert expense(headers, bank, "900.00").status_code == 201
     archived = client.post(f"/api/accounts/{bank}/archive", headers=headers).json()
     restored = client.post(f"/api/accounts/{bank}/restore", headers=headers).json()
 
-    assert archived["balance"] == "900.00"
-    assert restored["balance"] == "900.00"
+    assert archived["balance"] == "0.00"
+    assert restored["balance"] == "0.00"
 
 
 # Correcting an account's balance
@@ -399,7 +404,7 @@ def test_a_typed_category_matching_a_known_one_uses_its_spelling(headers: Header
 
 def test_new_transaction_on_an_archived_account_is_rejected(headers: Headers) -> None:
     id = account(headers)
-    client.post(f"/api/accounts/{id}/archive", headers=headers)
+    archive_empty(headers, id)
 
     response = expense(headers, id)
 
@@ -410,7 +415,7 @@ def test_new_transaction_on_an_archived_account_is_rejected(headers: Headers) ->
 def test_transfer_to_an_archived_account_is_rejected(headers: Headers) -> None:
     source = account(headers)
     target = account(headers)
-    client.post(f"/api/accounts/{target}/archive", headers=headers)
+    archive_empty(headers, target)
 
     response = transfer(headers, source, target)
 
@@ -421,7 +426,7 @@ def test_transfer_to_an_archived_account_is_rejected(headers: Headers) -> None:
 def test_transaction_on_an_archived_account_is_kept_but_locked(headers: Headers) -> None:
     id = account(headers)
     tx = expense(headers, id).json()["id"]
-    client.post(f"/api/accounts/{id}/archive", headers=headers)
+    archive_empty(headers, id)
 
     listed = client.get(URL, headers=headers).json()["transactions"]
     edit = client.patch(f"{URL}/{tx}", json={"note": "x"}, headers=headers)

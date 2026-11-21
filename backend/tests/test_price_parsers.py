@@ -63,7 +63,12 @@ def test_bhavcopy_only_equity_series() -> None:
 
 
 def test_to_price_rounds_half_up() -> None:
-    assert to_price("12.34565") == Decimal("12.3457")
+    assert to_price("12.000000000050") == Decimal("12.0000000001")
+
+
+def test_to_price_keeps_micro_prices() -> None:
+    assert to_price("0.00084") == Decimal("0.00084")
+    assert to_price("0.00000004") == Decimal("0.00000004")
     for bad in ("0", "-1", "NaN", "Infinity", "", "abc", "N.A."):
         assert to_price(bad) is None
 
@@ -113,8 +118,8 @@ def test_yahoo_close_none_when_no_data() -> None:
 def test_to_price_rejects_out_of_range() -> None:
     assert to_price("1E+30") is None
     assert to_price("10000000000") is None
-    assert to_price("9999999999.99995") is None
-    assert to_price("9999999999.9999") == Decimal("9999999999.9999")
+    assert to_price("9999999999.99999999995") is None  # rounds up to the limit
+    assert to_price("9999999999.9999999999") == Decimal("9999999999.9999999999")
 
 
 def test_navall_bad_date_or_non_positive_nav_gives_no_price() -> None:

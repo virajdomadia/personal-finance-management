@@ -141,7 +141,7 @@ class Figures(BaseModel):
     value: str
     unrealised: str
     unrealised_percent: str
-    dividends: str  # gross of applied dividends, all time, as on the Investments page
+    dividends: str  # applied dividends received, all time, as on the Investments page
 
 
 class TypeFigures(BaseModel):

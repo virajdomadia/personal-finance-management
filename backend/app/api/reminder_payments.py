@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import date
 from typing import NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.api.recurring import Money, TemplateRow, settle_unlinked
@@ -65,12 +65,15 @@ def load_reminder_payments(db: Session, user_id: int) -> ReminderPayments:
         )
     )
     paid: dict[int, list[date]] = defaultdict(list, {k: list(v) for k, v in linked.items()})
-    # A bank message still waiting in review is the owner's to place: the review asks whether
-    # it pays a reminder, so it doesn't settle one on its own first.
+    # A bank debit still waiting in review is the owner's to place: the review asks whether it
+    # pays a reminder, so it doesn't settle one on its own first. A credit in review does: its
+    # money is already in the balance, so an income reminder still expecting it would count the
+    # salary twice.
     in_review = select(SmsEntry.transaction_id).where(
         SmsEntry.user_id == user_id,
         SmsEntry.status.in_(("review", "draft")),
         SmsEntry.transaction_id.is_not(None),
+        SmsEntry.kind != "credit",
     )
     if templates:
         unlinked = db.scalars(
@@ -79,7 +82,11 @@ def load_reminder_payments(db: Session, user_id: int) -> ReminderPayments:
                 Transaction.recurring_template_id.is_(None),
                 Transaction.id.not_in(in_review),
                 Transaction.account_id.in_({t.account_id for t in templates}),
-                Transaction.amount.in_({t.amount for t in templates}),
+                # Income may differ from its reminder (`pays_for` decides), so it all comes.
+                or_(
+                    Transaction.amount.in_({t.amount for t in templates}),
+                    Transaction.type == "income",
+                ),
                 Transaction.date >= min(t.start_date for t in templates),
             )
         )

@@ -41,7 +41,7 @@ class NetWorthSnapshot(Base):
     stocks: Mapped[Decimal] = mapped_column(TOTAL)
     funds: Mapped[Decimal] = mapped_column(TOTAL)
     crypto: Mapped[Decimal] = mapped_column(TOTAL)
-    # True for a backfilled month-end worked out from transactions, without investments.
+    # True for a backfilled month-end worked out from transactions, with holdings at cost.
     estimated: Mapped[bool] = mapped_column(Boolean, server_default=false())
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
