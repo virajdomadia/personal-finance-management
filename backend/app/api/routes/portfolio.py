@@ -3,7 +3,8 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.api.dates import today_india
 from app.api.deposits import deposit_rows, with_deposits
@@ -22,6 +23,7 @@ from app.api.portfolio import (
     load_action_rows,
     load_trade_rows,
     replay,
+    round_paise,
     summarise,
     unrealised_percent,
 )
@@ -31,7 +33,9 @@ from app.api.routes.funds import MUTUAL_FUND
 from app.api.routes.sips import SipResponse, due_sip_list
 from app.db.session import DbSession
 from app.models.account import Account
+from app.models.corporate_action import DividendLink
 from app.models.investment import Instrument
+from app.models.transaction import Transaction
 
 router = APIRouter(
     prefix="/investments", tags=["investments"], dependencies=[Depends(get_current_user)]
@@ -53,7 +57,7 @@ class Figures(BaseModel):
     at_cost: bool
     unrealised: str
     unrealised_percent: str
-    dividends: str  # gross of every applied dividend, all time
+    dividends: str  # every applied dividend received, all time (see `DividendTotals`)
 
 
 class Holding(Figures):
@@ -81,11 +85,11 @@ class Totals(BaseModel):
     unrealised: str
     unrealised_percent: str
     realised: str
-    # Gross of applied dividends (stocks only), all time and this Indian financial year
-    # (1 Apr-31 Mar, by ex-date). Never in the ledger or net worth.
+    # Applied dividends received (stocks only), all time and this Indian financial year
+    # (1 Apr-31 Mar, by ex-date): see `DividendTotals`. Never in the ledger or net worth.
     dividends: str
     dividends_fy: str
-    total_return: str  # unrealised + realised + dividends
+    total_return: str  # unrealised + realised + dividends received
 
 
 class FundFigures(BaseModel):
@@ -268,25 +272,52 @@ def _coin_figures(
     }
 
 
-class DividendTotals:
-    """Applied dividends' gross, by (stock, account), all time and this financial year. Only
-    those whose ex-date has come count as received; an upcoming one isn't yet."""
+def linked_received(db: Session, user_id: int) -> dict[int, Decimal]:
+    """What the bank received for each dividend (by action id) linked to its credits."""
+    rows = db.execute(
+        select(DividendLink.stock_action_id, func.coalesce(func.sum(Transaction.amount), 0))
+        .join(Transaction, Transaction.id == DividendLink.transaction_id)
+        .where(DividendLink.user_id == user_id, Transaction.user_id == user_id)
+        .group_by(DividendLink.stock_action_id)
+    )
+    return {action_id: Decimal(amount) for action_id, amount in rows}
 
-    def __init__(self, result: Replay, actions: list[ActionRow], today: date) -> None:
+
+class DividendTotals:
+    """Applied dividends received, by (stock, account), all time and this financial year. Only
+    those whose ex-date has come count; an upcoming one isn't received yet.
+
+    A dividend linked to the bank credits that paid it counts what they paid, after TDS, shared
+    across its accounts by their gross. One not linked counts its gross: its TDS isn't known."""
+
+    def __init__(
+        self,
+        result: Replay,
+        actions: list[ActionRow],
+        today: date,
+        received: dict[int, Decimal] | None = None,
+    ) -> None:
         start = date(today.year if today.month >= 4 else today.year - 1, 4, 1)
         end = date(start.year + 1, 3, 31)
         by_id = {a.id: a for a in actions}
+        received = received or {}
+        gross_of: dict[int, Decimal] = {}
+        for (action_id, _), gross in result.dividends.items():
+            gross_of[action_id] = gross_of.get(action_id, ZERO) + gross
         self.by_position: dict[tuple[int, int], Decimal] = {}
         self.all = self.fy = ZERO
         for (action_id, account_id), gross in result.dividends.items():
             action = by_id[action_id]
             if action.ex_date > today:
                 continue
+            paid = gross
+            if action_id in received and gross_of[action_id] > 0:
+                paid = round_paise(received[action_id] * gross / gross_of[action_id])
             key = (action.instrument_id, account_id)
-            self.by_position[key] = self.by_position.get(key, ZERO) + gross
-            self.all += gross
+            self.by_position[key] = self.by_position.get(key, ZERO) + paid
+            self.all += paid
             if start <= action.ex_date <= end:
-                self.fy += gross
+                self.fy += paid
 
 
 NO_DIVIDENDS = (ZERO, ZERO)
@@ -436,7 +467,7 @@ def get_portfolio(user: CurrentUser, db: DbSession) -> Portfolio:
     today = today_india()
     deposits = deposit_rows(active, book, today)
     tags = load_goal_tags(db, user.id)
-    dividends = DividendTotals(result, actions, today)
+    dividends = DividendTotals(result, actions, today, linked_received(db, user.id))
     stock_dividends = (dividends.all, dividends.fy)
 
     holdings: list[Holding] = []
