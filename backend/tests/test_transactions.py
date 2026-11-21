@@ -287,6 +287,8 @@ def test_response_shape(headers: Headers) -> None:
         "interest": None,
         "note": "Weekly shop",
         "recurring_template_id": None,
+        "refund_of_id": None,
+        "refunded": None,
         "from_sms": False,
         "editable": True,
     }

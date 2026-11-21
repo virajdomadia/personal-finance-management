@@ -157,7 +157,7 @@ def test_preview_checks_every_row_and_saves_nothing(headers: Headers) -> None:
     assert [r["row"] for r in rows] == [2, 3, 4, 5]
     assert [r["status"] for r in rows] == ["ok", "ok", "error", "error"]
     assert rows[0]["date"] == YESTERDAY.isoformat()
-    assert rows[2]["errors"] == ["Type: use expense, income, transfer or EMI."]
+    assert rows[2]["errors"] == ["Type: use expense, income, transfer, EMI or refund."]
     assert rows[3]["errors"] == ["Account: no account called Nowhere."]
     assert transactions(headers) == []
     names = [c["name"] for c in client.get("/api/categories", headers=headers).json()["income"]]
@@ -184,6 +184,16 @@ def test_import_saves_every_row_and_a_second_import_adds_nothing(headers: Header
     assert {t["amount"] for t in saved} == {"250.50", "1000.00", "100.00"}
     assert balance(headers, sbi) == "1649.50"
     assert balance(headers, card) == "-100.00"
+
+
+def test_a_refund_row_imports_as_a_refund(headers: Headers) -> None:
+    sbi = account(headers, "SBI")
+    data = workbook([YESTERDAY, "Refund", 300, "SBI", None, "Shopping", None, "Returned shoes"])
+    response = send(headers, data)
+    assert (response.json()["imported"], response.json()["problems"]) == (1, 0), response.json()
+    [saved] = transactions(headers)
+    assert (saved["type"], saved["category"], saved["refund_of_id"]) == ("refund", "Shopping", None)
+    assert balance(headers, sbi) == "1300.00"
 
 
 def test_nothing_is_saved_while_any_row_has_a_problem(headers: Headers) -> None:

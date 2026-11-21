@@ -47,7 +47,13 @@ SOURCE = "import"
 
 COLUMNS = ["Date", "Type", "Amount", "Account", "To account", "Category", "Interest", "Note"]
 REQUIRED = ["Date", "Type", "Amount", "Account"]
-TYPES = {"expense": "expense", "income": "income", "transfer": "transfer", "emi": "emi"}
+TYPES = {
+    "expense": "expense",
+    "income": "income",
+    "transfer": "transfer",
+    "emi": "emi",
+    "refund": "refund",  # unlinked: a row names the spending category it gives back
+}
 FIELD_COLUMNS = {
     "date": "Date",
     "type": "Type",
@@ -237,7 +243,7 @@ def _values(raw: dict[str, Any], names: AccountNames) -> tuple[dict[str, Any], l
     type_text = (_text(raw["Type"]) or "").casefold()
     values["type"] = TYPES.get(type_text)
     if values["type"] is None:
-        errors.append("Type: use expense, income, transfer or EMI.")
+        errors.append("Type: use expense, income, transfer, EMI or refund.")
     readers = [
         ("date", lambda: _date(raw["Date"]) if _text(raw["Date"]) else None),
         ("amount", lambda: _money(raw["Amount"], "amount") if _text(raw["Amount"]) else None),
@@ -424,8 +430,8 @@ def template(db: Session, user_id: int) -> bytes:
 
     lists = book.create_sheet("Lists")
     lists.append(["Type", "Account", "Category"])
-    rows = max(4, len(accounts), len(categories))
-    types = ["expense", "income", "transfer", "emi"]
+    types = list(TYPES)
+    rows = max(len(types), len(accounts), len(categories))
     for i in range(rows):
         lists.append(
             [
@@ -459,7 +465,7 @@ def template(db: Session, user_id: int) -> bytes:
         ["Column", "What to put"],
         [
             ["Date", "The day it happened, like 16-11-2026. Not in the future."],
-            ["Type", "expense, income, transfer or emi."],
+            ["Type", "expense, income, transfer, emi or refund."],
             ["Amount", "A number above 0, like 1234.50. No minus sign."],
             ["Account", "The account it was paid from or into, named as in the app."],
             ["To account", "Transfers and EMIs only: where the money went (an EMI's loan)."],

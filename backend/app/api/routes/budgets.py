@@ -97,7 +97,7 @@ def month_rows(db: Session, user_id: int, start: date, through: date) -> list[cf
                 Transaction.date,
             ).where(
                 Transaction.user_id == user_id,
-                Transaction.type.in_(("income", "expense", "emi")),
+                Transaction.type.in_(cf.COUNTED_TYPES),
                 Transaction.date >= start,
                 Transaction.date <= through,
             )

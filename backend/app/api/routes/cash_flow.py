@@ -137,7 +137,7 @@ def month_summary(
                 Transaction.date,
             ).where(
                 Transaction.user_id == user.id,
-                Transaction.type.in_(("income", "expense", "emi")),
+                Transaction.type.in_(cf.COUNTED_TYPES),
                 Transaction.date >= before_start,
                 Transaction.date <= through,
             )

@@ -104,8 +104,11 @@ NAME_LIMIT = 40
 
 
 def kind_of(type_: str) -> str | None:
-    """The category kind a transaction type uses: an EMI's interest is spending."""
-    return {"income": "income", "expense": "expense", "emi": "expense"}.get(type_)
+    """The category kind a transaction type uses: an EMI's interest is spending, and a refund
+    gives spending back."""
+    return {"income": "income", "expense": "expense", "emi": "expense", "refund": "expense"}.get(
+        type_
+    )
 
 
 def name_key(name: str) -> str:
@@ -329,7 +332,7 @@ class Moved:
 
 
 def _transaction_types(kind: str) -> tuple[str, ...]:
-    return ("income",) if kind == "income" else ("expense", "emi")
+    return ("income",) if kind == "income" else ("expense", "emi", "refund")
 
 
 def _move_references(

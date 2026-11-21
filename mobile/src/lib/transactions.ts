@@ -3,7 +3,7 @@ import { formatCoinQty } from "./crypto.ts";
 import { MONTHS, formatDate } from "./dates.ts";
 import type { HistoryLine } from "./goals.ts";
 
-export type TransactionType = "income" | "expense" | "transfer" | "emi";
+export type TransactionType = "income" | "expense" | "transfer" | "emi" | "refund";
 
 export type Transaction = {
   id: number;
@@ -18,6 +18,8 @@ export type Transaction = {
   interest: string | null; // EMIs only
   note: string | null;
   recurring_template_id: number | null;
+  refund_of_id?: number | null; // a refund's purchase, when linked
+  refunded?: string | null; // an expense's linked refunds, when there are any
   editable: boolean;
   from_sms?: boolean; // recorded from a bank SMS
 };
@@ -41,6 +43,7 @@ export type TransactionForm = {
   category: string;
   interest: string;
   note: string;
+  refund_of_id: string; // a refund's purchase; "" when not linked
   recurring_template_id?: number | null; // set when it records a reminder occurrence
 };
 
@@ -52,6 +55,7 @@ export const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
   { value: "income", label: "Income" },
   { value: "transfer", label: "Transfer" },
   { value: "emi", label: "EMI" },
+  { value: "refund", label: "Refund" },
 ];
 
 // Types that move money into a second account: the transfer's destination, or the EMI's loan.
@@ -67,6 +71,7 @@ export function blankForm(type: TransactionType, date: string, accountId: number
     category: "",
     interest: "",
     note: "",
+    refund_of_id: "",
   };
 }
 
@@ -90,6 +95,7 @@ export function formFromTransaction(tx: Transaction): TransactionForm {
     category: tx.type === "emi" ? "" : (tx.category ?? ""),
     interest: tx.interest ?? "",
     note: tx.note ?? "",
+    refund_of_id: tx.refund_of_id == null ? "" : String(tx.refund_of_id),
     ...(tx.recurring_template_id == null ? {} : { recurring_template_id: tx.recurring_template_id }),
   };
 }
@@ -104,7 +110,9 @@ export function toPayload(form: TransactionForm, mode: "create" | "edit"): Recor
   payload.date = textOrNull(form.date);
   payload.account_id = idOrNull(form.account_id);
   if (TWO_ACCOUNTS.has(form.type)) payload.to_account_id = idOrNull(form.to_account_id);
-  else payload.category = textOrNull(form.category);
+  // A linked refund takes its purchase's category, so only an unlinked one names its own.
+  else if (!(form.type === "refund" && form.refund_of_id !== "")) payload.category = textOrNull(form.category);
+  if (form.type === "refund") payload.refund_of_id = idOrNull(form.refund_of_id);
   if (form.type === "emi") payload.interest = textOrNull(cleanMoney(form.interest));
   payload.note = textOrNull(form.note);
   if (form.recurring_template_id != null) payload.recurring_template_id = form.recurring_template_id;
@@ -125,13 +133,14 @@ export function changedPayload(form: TransactionForm, original: Transaction): Re
 // The fields the form shows for a type, in order, which is where field errors can be displayed.
 export function renderedFields(type: TransactionType): FieldKey[] {
   if (type === "emi") return ["amount", "date", "account_id", "to_account_id", "interest", "note"];
+  if (type === "refund") return ["amount", "date", "account_id", "refund_of_id", "category", "note"];
   return ["amount", "date", "account_id", type === "transfer" ? "to_account_id" : "category", "note"];
 }
 
 // A transfer is only "in" or "out" from one account's side, so without one in view it has no sign.
 export function signedAmount(tx: Transaction, viewedAccountId: number | null = null): string {
   const rupees = formatRupees(tx.amount);
-  if (tx.type === "income") return `+${rupees}`;
+  if (tx.type === "income" || tx.type === "refund") return `+${rupees}`;
   if (tx.type === "expense") return `-${rupees}`;
   // Only the principal reaches the loan; the paying account loses the whole EMI.
   if (tx.type === "emi" && viewedAccountId === tx.to_account_id) {
@@ -222,7 +231,7 @@ export function fromOptions(type: TransactionType, accounts: Account[], form: Tr
   const toAccount = byId(accounts, form.to_account_id);
   return accounts.filter((a) => {
     if (String(a.id) === form.account_id) return true;
-    if (type === "expense") return !isDeposit(a);
+    if (type === "expense" || type === "refund") return !isDeposit(a);
     if (type === "emi") return !isDeposit(a) && a.type !== "loan";
     if (type === "transfer") {
       if (String(a.id) === form.to_account_id) return false;
@@ -270,7 +279,9 @@ export function applyDepositRules(form: TransactionForm, accounts: Account[]): T
   const from = byId(accounts, form.account_id);
   const to = byId(accounts, form.to_account_id);
   let next = form;
-  if ((form.type === "expense" || form.type === "emi") && isDeposit(from)) next = { ...next, account_id: "" };
+  if ((form.type === "expense" || form.type === "emi" || form.type === "refund") && isDeposit(from)) {
+    next = { ...next, account_id: "" };
+  }
   if (form.type === "income" && isDeposit(from)) next = { ...next, category: "Interest" };
   if (form.type === "transfer") {
     if (isDeposit(from) && to && !isActiveBank(to)) next = { ...next, to_account_id: "" };
@@ -310,4 +321,35 @@ export function activityAmount(signed: string): string {
 // same amount (the release is stored negative), dated today. The caller saves the release first.
 export function expenseFormFromRelease(entry: HistoryLine, today: string): TransactionForm {
   return { ...blankForm("expense", today, entry.account_id), amount: entry.amount.replace(/^-/, "") };
+}
+
+// A purchase a refund could be for (GET /transactions/refundable).
+export type RefundablePurchase = {
+  id: number;
+  date: string;
+  amount: string;
+  left: string; // what is still unrefunded
+  category: string | null;
+  account_id: number;
+  account_name: string;
+  note: string | null;
+};
+
+// Where to ask for the purchases a refund on the form's date, of at least its amount, could be for.
+// `editingId` is the refund being edited, so its own amount still counts as refundable.
+export function refundablePath(form: TransactionForm, editingId: number | null = null): string {
+  const params = new URLSearchParams();
+  if (form.date) params.set("date", form.date);
+  const amount = cleanMoney(form.amount);
+  if (/^\d+(\.\d{1,2})?$/.test(amount) && Number(amount) > 0) params.set("amount", amount);
+  if (editingId !== null) params.set("exclude_id", String(editingId));
+  const query = params.toString();
+  return query ? `/transactions/refundable?${query}` : "/transactions/refundable";
+}
+
+export function purchaseLabel(p: RefundablePurchase): string {
+  const left = p.left === p.amount ? "" : ` (${formatRupees(p.left)} left)`;
+  const parts = [formatDate(p.date), p.category ?? "Uncategorised", `${formatRupees(p.amount)}${left}`];
+  if (p.note) parts.push(p.note);
+  return parts.join(" · ");
 }

@@ -63,21 +63,32 @@ export function TransactionRow({
   onPress: () => void;
 }) {
   // An SMS can record money before its category is known; To review asks for it.
-  const title = tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? `EMI · ${tx.to_account_name}` : (tx.category ?? "Uncategorised");
+  const category = tx.category ?? "Uncategorised";
+  const title =
+    tx.type === "transfer"
+      ? "Transfer"
+      : tx.type === "emi"
+        ? `EMI · ${tx.to_account_name}`
+        : tx.type === "refund"
+          ? `Refund · ${category}`
+          : category;
+  // A purchase shows what its linked refunds gave back.
+  const refundedText = tx.refunded ? `${formatRupees(tx.refunded)} refunded` : null;
   const accounts =
     tx.type === "transfer"
       ? `${tx.account_name} → ${tx.to_account_name}`
       : tx.type === "emi" && tx.interest !== null
         ? `${tx.account_name} · ${formatRupees(tx.interest)} interest`
         : tx.account_name;
+  const metaParts = [accounts, tx.note, refundedText].filter(Boolean);
   const amount = signedAmount(tx, viewedAccountId);
   return (
     <View style={styles.rowWrap}>
       <Row
         emoji={tx.type === "transfer" ? "🔁" : tx.type === "emi" ? "🏧" : categoryEmoji(tx.category)}
-        tone={tx.type === "income" ? "green" : tx.type === "expense" ? "pink" : tx.type === "emi" ? "purple" : "blue"}
+        tone={tx.type === "income" || tx.type === "refund" ? "green" : tx.type === "expense" ? "pink" : tx.type === "emi" ? "purple" : "blue"}
         title={title ?? ""}
-        meta={tx.note ? `${accounts} · ${tx.note}` : accounts}
+        meta={metaParts.join(" · ")}
         amount={amount}
         amountTone={amountTone(amount)}
         sub={

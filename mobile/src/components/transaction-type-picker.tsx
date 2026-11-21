@@ -10,6 +10,7 @@ const LOOK: Record<TransactionType, { emoji: string; tone: Tone }> = {
   income: { emoji: "\u{1F4B0}", tone: "green" },
   transfer: { emoji: "\u{1F501}", tone: "blue" },
   emi: { emoji: "\u{1F3E7}", tone: "purple" },
+  refund: { emoji: "\u{21A9}\u{FE0F}", tone: "green" },
 };
 
 type Props = {

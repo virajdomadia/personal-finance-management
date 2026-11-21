@@ -22,8 +22,8 @@ class Transaction(Base):
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), index=True)
     # Transfers: the account money enters. EMIs: the loan being repaid.
     to_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), index=True)
-    # Income and expense only; an EMI's is always "Loan interest". A name from the user's
-    # `categories` (the registry), in its spelling there.
+    # Income, expense and refund only (a refund's is a spending category); an EMI's is always
+    # "Loan interest". A name from the user's `categories` (the registry), in its spelling there.
     category: Mapped[str | None] = mapped_column(String(40))
     # EMIs only: the part of `amount` that is interest and charges. The rest repays the loan.
     interest: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
@@ -31,6 +31,11 @@ class Transaction(Base):
     # Set when this was recorded from a recurring template's occurrence.
     recurring_template_id: Mapped[int | None] = mapped_column(
         ForeignKey("recurring_templates.id"), index=True
+    )
+    # Refunds only: the purchase (an expense) this gives money back for, when known. A purchase
+    # deleted later leaves its refunds unlinked; they keep their category.
+    refund_of_id: Mapped[int | None] = mapped_column(
+        ForeignKey("transactions.id", ondelete="SET NULL"), index=True
     )
     # "manual", or "sms" when it was recorded from a bank message.
     source: Mapped[str] = mapped_column(String(10), server_default="manual")

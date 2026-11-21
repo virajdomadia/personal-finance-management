@@ -254,7 +254,8 @@ NET_WORTH_REVISION = "4f9a2c7e1b30"
 BUDGETS_REVISION = "7e5d2fc1e167"
 FD_REVISION = "a1c3e5f7b902"
 ACTIONS_REVISION = "c3f8a1d4e625"
-HEAD_REVISION = "d5a9c2e7f314"
+PRICES_REVISION = "d5a9c2e7f314"
+HEAD_REVISION = "e8b4d1f6a2c7"
 PRE_ACTIONS_REVISION = "b7d2e4f6a813"
 ACTION_TABLES = {"corporate_actions", "stock_actions", "dividend_links"}
 SMS_TABLES = {"account_identifiers", "sms_entries", "payee_rules", "sms_samples"}
@@ -818,3 +819,22 @@ def test_migration_widens_prices_keeping_values(migrations_db: str) -> None:
     assert [str(p) for (p,) in rows(migrations_db, "SELECT price FROM investment_trades")] == [
         "84.3793"
     ]
+
+
+def test_downgrade_refuses_refunds(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, "head")
+    seed_investments(migrations_db)  # a user and an account
+    _execute(
+        migrations_db,
+        "INSERT INTO transactions (id, user_id, type, amount, date, account_id, category, source,"
+        " created_at, updated_at) VALUES (1, 1, 'refund', 500, '2026-11-05', 1, 'Shopping',"
+        " 'manual', now(), now())",
+    )
+    with pytest.raises(RuntimeError, match="Refunds exist; delete them before downgrading."):
+        command.downgrade(config, PRICES_REVISION)
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(HEAD_REVISION,)]
+
+    _execute(migrations_db, "DELETE FROM transactions")
+    command.downgrade(config, PRICES_REVISION)
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(PRICES_REVISION,)]

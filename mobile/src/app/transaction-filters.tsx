@@ -84,7 +84,7 @@ export default function TransactionFiltersScreen() {
   };
 
   const kinds: ("expense" | "income")[] =
-    filters.type === "income" ? ["income"] : filters.type === "expense" || filters.type === "emi" ? ["expense"] : ["expense", "income"];
+    filters.type === "income" ? ["income"] : filters.type === "expense" || filters.type === "emi" || filters.type === "refund" ? ["expense"] : ["expense", "income"];
   const pickCategory = (name: string) => set({ category: filters.category !== null && sameName(filters.category, name) ? null : name });
   const isCategory = (name: string) => filters.category !== null && sameName(filters.category, name);
 
