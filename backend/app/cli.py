@@ -150,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("refresh-prices", help="fetch today's prices now, as the nightly job does")
     estimate = commands.add_parser(
         "backfill-net-worth",
-        help="estimate past month-end net worth from transactions (investments left out)",
+        help="estimate past month-end net worth from transactions (investments at cost)",
     )
     estimate.add_argument("email", nargs="?", help="one user; every user when left out")
     estimate.add_argument(
