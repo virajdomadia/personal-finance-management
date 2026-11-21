@@ -26,6 +26,7 @@ import {
   TYPE_LABELS,
   TYPE_ORDER,
   changedPayload,
+  cleanMoney,
   countError,
   dayError,
   depositErrors,
@@ -70,6 +71,8 @@ function blankForm(type: AccountType): AccountForm {
     type,
     name: type === "cash" ? CASH_NAME : "",
     balance: "",
+    balance_date: "",
+    balance_reason: "",
     institution: "",
     bank_kind: type === "bank" ? "savings" : "",
     last4: "",
@@ -434,7 +437,10 @@ function FormBody({
   }
 
   const hint = (key: keyof AccountForm): string | undefined => {
-    if (key === "balance" && editing) return "Changing this corrects the balance. Your transactions stay as they are.";
+    if (key === "balance" && editing) {
+      return "Changing this records a balance adjustment with your reason, so earlier figures stay as they were.";
+    }
+    if (key === "balance_reason") return "Like “Cash count” or “Missed interest”.";
     if (key === "balance" && type === "credit_card") return "Enter what you owe as a positive amount.";
     if (key === "balance" && type === "loan") return "The principal still to repay, as your lender shows it.";
     if (key === "balance" && type === "fd") return "The amount you put in.";
@@ -516,6 +522,8 @@ function FormBody({
     payFrom.push({ ...account, id: account.pay_from_id, name: "Archived account" });
   }
   const payFromCard = accounts.find((a) => String(a.id) === form.pay_from_id && a.type === "credit_card");
+  // A corrected balance is recorded as a dated adjustment, so it asks when and why.
+  const balanceChanged = account !== null && account !== undefined && cleanMoney(form.balance) !== cleanMoney(account.balance);
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -588,6 +596,23 @@ function FormBody({
             "balance",
             type === "credit_card" ? "Amount owed (₹)" : type === "loan" ? "Outstanding (₹)" : type === "fd" ? "Principal (₹)" : "Balance (₹)",
           )}
+
+          {balanceChanged ? (
+            <>
+              {field(
+                "balance_date",
+                <DateField
+                  label="As of (empty for today)"
+                  value={form.balance_date}
+                  onChange={(iso) => set("balance_date", iso)}
+                  disabled={busy}
+                  maxDate={todayIndia()}
+                  invalid={Boolean(errors.balance_date)}
+                />,
+              )}
+              {input("balance_reason", "Reason", { maxLength: 200 })}
+            </>
+          ) : null}
 
           {type !== "cash" ? input("institution", INSTITUTION_LABELS[type], { maxLength: 60 }) : null}
 

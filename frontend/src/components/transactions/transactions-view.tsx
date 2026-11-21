@@ -62,7 +62,7 @@ const MONTH_BUTTON = `${buttonClass("alt")} !rounded-full !px-3 !py-1.5 !text-xs
 const ROW_ACTION = `${buttonClass("alt")} !px-2.5 !py-1`;
 const CARD = "rounded-[18px] border-[2.5px] border-ink bg-card p-5 shadow-chunky";
 const SECTION_TITLE = "mb-2 text-xs font-black tracking-wide uppercase";
-const TYPE_TONE: Record<TransactionType, Tone> = { expense: "pink", income: "green", transfer: "blue", emi: "purple", refund: "green" };
+const TYPE_TONE: Record<TransactionType, Tone> = { expense: "pink", income: "green", transfer: "blue", emi: "purple", refund: "green", adjustment: "blue" };
 
 const PAGE_SIZE = 50;
 
@@ -656,14 +656,17 @@ function TransactionRow({
         ? `EMI · ${tx.to_account_name}`
         : tx.type === "refund"
           ? `Refund · ${category}`
-          : category;
+          : tx.type === "adjustment"
+            ? "Balance adjustment"
+            : category;
   const accountText =
     tx.type === "transfer"
       ? `${tx.account_name} → ${tx.to_account_name}`
       : tx.type === "emi" && tx.interest !== null
         ? `${tx.account_name} · ${formatRupees(tx.interest)} interest`
         : tx.account_name;
-  const emoji = tx.type === "transfer" ? "🔁" : tx.type === "emi" ? "🏧" : categoryEmoji(tx.category);
+  const emoji =
+    tx.type === "transfer" ? "🔁" : tx.type === "emi" ? "🏧" : tx.type === "adjustment" ? "⚖️" : categoryEmoji(tx.category);
   const amount = signedAmount(tx, viewedAccountId);
   const colour = amount.startsWith("+") ? "text-gain" : amount.startsWith("-") ? "text-loss" : "";
   return (
@@ -687,7 +690,7 @@ function TransactionRow({
         </div>
       </td>
       <td className={`${TD} hidden [overflow-wrap:anywhere] lg:table-cell`}>
-        {tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? "EMI" : tx.type === "refund" ? `Refund · ${category}` : category}
+        {tx.type === "transfer" ? "Transfer" : tx.type === "emi" ? "EMI" : tx.type === "refund" ? `Refund · ${category}` : tx.type === "adjustment" ? "Adjustment" : category}
       </td>
       <td className={`${TD} hidden max-w-56 [overflow-wrap:anywhere] lg:table-cell`}>{accountText}</td>
       <td className={`${TD_NUM} min-w-28 font-black [overflow-wrap:anywhere] ${colour}`}>

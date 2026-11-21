@@ -160,10 +160,16 @@ def test_correcting_a_balance_keeps_transactions_and_lands_on_the_new_figure(
     bank = account(headers, "bank", "1000.00")
     assert expense(headers, bank, "100.00").status_code == 201
 
-    response = client.patch(f"/api/accounts/{bank}", json={"balance": "500.00"}, headers=headers)
+    body = {"balance": "500.00", "balance_reason": "Statement"}
+    response = client.patch(f"/api/accounts/{bank}", json=body, headers=headers)
 
     assert response.json()["balance"] == "500.00"
-    assert client.get(URL, headers=headers).json()["transactions"][0]["amount"] == "100.00"
+    listed = client.get(URL, headers=headers).json()["transactions"]
+    # The expense stays as it was; the correction is a dated adjustment beside it.
+    assert [(t["type"], t["amount"]) for t in listed] == [
+        ("adjustment", "-400.00"),
+        ("expense", "100.00"),
+    ]
     assert expense(headers, bank, "50.00").status_code == 201
     assert balance_of(headers, bank) == "450.00"
 
@@ -172,7 +178,8 @@ def test_correcting_a_card_balance_lands_on_the_new_figure(headers: Headers) -> 
     card = account(headers, "credit_card", "0.00")
     assert expense(headers, card, "100.00").status_code == 201
 
-    response = client.patch(f"/api/accounts/{card}", json={"balance": "30.00"}, headers=headers)
+    body = {"balance": "30.00", "balance_reason": "Statement"}
+    response = client.patch(f"/api/accounts/{card}", json=body, headers=headers)
 
     assert response.json()["balance"] == "30.00"
 
@@ -186,13 +193,13 @@ def test_renaming_an_account_leaves_its_balance_alone(headers: Headers) -> None:
     assert response.json()["balance"] == "900.00"
 
 
-def test_a_correction_that_overflows_the_opening_balance_is_rejected(headers: Headers) -> None:
-    bank = account(headers, "bank", "999999999999.00")
-    assert expense(headers, bank, "999999999999.00").status_code == 201
+def test_a_correction_too_large_to_record_is_rejected(headers: Headers) -> None:
+    # From about -10 lakh crore to +10 lakh crore: the adjustment itself would be too large.
+    bank = account(headers, "bank", "-999999999999.00")
+    assert income(headers, bank, "1.00").status_code == 201
 
-    response = client.patch(
-        f"/api/accounts/{bank}", json={"balance": "999999999999.00"}, headers=headers
-    )
+    body = {"balance": "999999999999.00", "balance_reason": "Statement"}
+    response = client.patch(f"/api/accounts/{bank}", json=body, headers=headers)
 
     assert response.status_code == 422
     assert locs(response) == [["body", "balance"]]
@@ -434,7 +441,8 @@ def test_transaction_on_an_archived_account_is_kept_but_locked(headers: Headers)
     edit = client.patch(f"{URL}/{tx}", json={"note": "x"}, headers=headers)
     delete = client.delete(f"{URL}/{tx}", headers=headers)
 
-    assert [t["editable"] for t in listed] == [False]
+    # The expense, and the adjustment that emptied the account before archiving.
+    assert [t["editable"] for t in listed] == [False, False]
     assert edit.status_code == 409
     assert delete.status_code == 409
 

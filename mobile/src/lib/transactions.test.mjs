@@ -397,3 +397,17 @@ test("purchaseLabel says when, what and how much is left", () => {
   assert.equal(purchaseLabel(p), `${formatDate("2026-11-02")} · Shopping · ₹2,000.00 (₹1,500.00 left) · Shoes`);
   assert.equal(purchaseLabel({ ...p, left: "2000.00", note: null, category: null }), `${formatDate("2026-11-02")} · Uncategorised · ₹2,000.00`);
 });
+
+// Balance adjustments
+
+const adjustmentTx = { ...expense, id: 4, type: "adjustment", amount: "-230.00", category: null, note: "Cash count" };
+
+test("an adjustment shows its own sign and has no category", () => {
+  assert.equal(signedAmount(adjustmentTx), `-${formatRupees("230.00")}`);
+  assert.equal(signedAmount({ ...adjustmentTx, amount: "230.00" }), `+${formatRupees("230.00")}`);
+  assert.deepEqual(renderedFields("adjustment"), ["amount", "date", "account_id", "note"]);
+  const payload = toPayload(formFromTransaction(adjustmentTx), "edit");
+  assert.equal(payload.amount, "-230.00");
+  assert.equal("category" in payload, false);
+  assert.deepEqual(changedPayload(formFromTransaction(adjustmentTx), adjustmentTx), {});
+});

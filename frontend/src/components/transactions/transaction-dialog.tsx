@@ -39,13 +39,14 @@ const LABEL = "mb-1 block text-xs font-black tracking-wide uppercase";
 const HINT = "mt-1 text-xs font-bold text-zinc-600";
 const ERROR = "mt-1 text-xs font-extrabold text-loss";
 
-const TYPE_ICON: Record<TransactionType, string> = { expense: "💸", income: "💰", transfer: "🔁", emi: "🏧", refund: "↩️" };
+const TYPE_ICON: Record<TransactionType, string> = { expense: "💸", income: "💰", transfer: "🔁", emi: "🏧", refund: "↩️", adjustment: "⚖️" };
 const TYPE_ON: Record<TransactionType, string> = {
   expense: "bg-pink-strong text-white",
   income: "bg-green-strong text-white",
   transfer: "bg-blue-strong text-white",
   emi: "bg-purple-strong text-white",
   refund: "bg-green-strong text-white",
+  adjustment: "bg-blue-strong text-white",
 };
 
 const FROM_LABELS: Record<TransactionType, string> = {
@@ -54,6 +55,7 @@ const FROM_LABELS: Record<TransactionType, string> = {
   transfer: "From account",
   emi: "Paid from",
   refund: "Refunded to",
+  adjustment: "Account",
 };
 
 type Props = {
@@ -279,9 +281,10 @@ export function TransactionDialog({
     describedBy: errors[key] ? `te-${key}` : undefined,
     onChange: (value: string) => set(key, value),
   });
-  const noteField = field("note", "Note (optional)", <input {...props("note")} type="text" autoComplete="off" maxLength={200} />);
+  const noteField = field("note", type === "adjustment" ? "Reason" : "Note (optional)", <input {...props("note")} type="text" autoComplete="off" maxLength={200} />);
   const loans = accounts.filter((a) => a.type === "loan");
-  const types = TRANSACTION_TYPES.filter((t) => t.value !== "emi" || loans.length > 0);
+  // An adjustment is recorded by correcting an account's balance, so it isn't offered here.
+  const types = TRANSACTION_TYPES.filter((t) => t.value !== "adjustment" && (t.value !== "emi" || loans.length > 0));
   const option = (a: Account) => ({ value: String(a.id), label: a.name });
   const principal = subtractMoney(cleanMoney(form.amount), cleanMoney(form.interest));
 
@@ -409,7 +412,7 @@ export function TransactionDialog({
           {/* Expenses and income take the note first, so what was bought can pick the category. */}
           {type === "expense" || type === "income" || type === "refund" ? noteField : null}
 
-          {type === "emi"
+          {type === "emi" || type === "adjustment"
             ? null
             : type === "transfer"
             ? field(
@@ -454,7 +457,7 @@ export function TransactionDialog({
                 </>,
               )}
 
-          {type === "expense" || type === "income" ? null : noteField}
+          {type === "expense" || type === "income" || type === "refund" ? null : noteField}
 
           {formError ? (
             <p role="alert" className="text-sm font-extrabold text-loss">

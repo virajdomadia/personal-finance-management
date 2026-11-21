@@ -69,7 +69,7 @@ export type SearchFilters = {
   month: string; // "YYYY-MM"; ignored while a date range is set
   q: string;
   accountId: number | null;
-  type: "income" | "expense" | "transfer" | "emi" | "refund" | null;
+  type: "income" | "expense" | "transfer" | "emi" | "refund" | "adjustment" | null;
   category: string;
   from: string; // "YYYY-MM-DD" or ""
   to: string;

@@ -14,6 +14,7 @@ import {
   TYPE_LABELS,
   TYPE_ORDER,
   changedPayload,
+  cleanMoney,
   errorMessage,
   formFromAccount,
   renderedFields,
@@ -57,6 +58,8 @@ function blankForm(type: AccountType): AccountForm {
     type,
     name: type === "cash" ? CASH_NAME : "",
     balance: "",
+    balance_date: "",
+    balance_reason: "",
     institution: "",
     bank_kind: type === "bank" ? "savings" : "",
     last4: "",
@@ -201,6 +204,8 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict,
   }
 
   const type = form.type;
+  // A corrected balance is recorded as a dated adjustment, so it asks when and why.
+  const balanceChanged = editing && cleanMoney(form.balance) !== cleanMoney(account.balance);
   const payFromOptions = [
     ...(type === "rd" ? [] : [{ value: "", label: "Not linked" }]),
     ...payFromAccounts(accounts, type, account?.id).map((a) => ({ value: String(a.id), label: a.name })),
@@ -293,7 +298,7 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict,
             type === "credit_card" ? "Amount owed (₹)" : type === "loan" ? "Outstanding (₹)" : type === "fd" ? "Principal (₹)" : "Balance (₹)",
             <input {...props("balance")} type="text" inputMode="decimal" autoComplete="off" required />,
             editing
-              ? "Changing this corrects the balance. Your transactions stay as they are."
+              ? "Changing this records a balance adjustment with your reason, so earlier figures stay as they were."
               : type === "credit_card"
                 ? "Enter what you owe as a positive amount."
                 : type === "loan"
@@ -301,6 +306,13 @@ export function AccountDialog({ account, accounts, onClose, onSaved, onConflict,
                   : type === "fd"
                     ? "The amount you put in."
                     : undefined,
+          )}
+
+          {balanceChanged && (
+            <div className="grid grid-cols-2 gap-4">
+              {field("balance_date", "As of", <input {...props("balance_date")} type="date" max={todayIndia()} />, "Leave empty for today")}
+              {field("balance_reason", "Reason", <input {...props("balance_reason")} type="text" autoComplete="off" maxLength={200} />, "Like “Cash count” or “Missed interest”")}
+            </div>
           )}
 
           {type !== "cash" &&

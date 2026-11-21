@@ -71,7 +71,9 @@ export function TransactionRow({
         ? `EMI · ${tx.to_account_name}`
         : tx.type === "refund"
           ? `Refund · ${category}`
-          : category;
+          : tx.type === "adjustment"
+            ? "Balance adjustment"
+            : category;
   // A purchase shows what its linked refunds gave back.
   const refundedText = tx.refunded ? `${formatRupees(tx.refunded)} refunded` : null;
   const accounts =
@@ -85,7 +87,7 @@ export function TransactionRow({
   return (
     <View style={styles.rowWrap}>
       <Row
-        emoji={tx.type === "transfer" ? "🔁" : tx.type === "emi" ? "🏧" : categoryEmoji(tx.category)}
+        emoji={tx.type === "transfer" ? "🔁" : tx.type === "emi" ? "🏧" : tx.type === "adjustment" ? "⚖️" : categoryEmoji(tx.category)}
         tone={tx.type === "income" || tx.type === "refund" ? "green" : tx.type === "expense" ? "pink" : tx.type === "emi" ? "purple" : "blue"}
         title={title ?? ""}
         meta={metaParts.join(" · ")}

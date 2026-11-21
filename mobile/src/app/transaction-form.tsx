@@ -62,6 +62,7 @@ const FROM_LABELS: Record<TransactionType, string> = {
   transfer: "From account",
   emi: "Paid from",
   refund: "Refunded to",
+  adjustment: "Account",
 };
 
 type Loaded = {
@@ -532,7 +533,8 @@ function FormBody({
   const groups = pickerGroups(kindCategories);
   const suggestions = kindCategories.filter((c) => !c.archived).map((c) => c.name);
   const loans = accounts.filter((a) => a.type === "loan");
-  const types = TRANSACTION_TYPES.filter((t) => t.value !== "emi" || loans.length > 0);
+  // An adjustment is recorded by correcting an account's balance, so it isn't offered here.
+  const types = TRANSACTION_TYPES.filter((t) => t.value !== "adjustment" && (t.value !== "emi" || loans.length > 0));
   // Expenses and EMIs can't be paid from a PPF or RD, and a deposit only moves money with a bank.
   const payers = fromOptions(type, accounts, form);
   // Income into a PPF or RD can only be interest, so only that is offered.
@@ -653,7 +655,9 @@ function FormBody({
                 </>,
               )}
             </>
-          ) : type === "transfer"
+          ) : type === "adjustment"
+            ? null
+            : type === "transfer"
             ? field(
                 "to_account_id",
                 <>
@@ -689,7 +693,7 @@ function FormBody({
                 </>,
               )}
 
-          {field("note", input("note", "Note (optional)", { maxLength: 200 }))}
+          {field("note", input("note", type === "adjustment" ? "Reason" : "Note (optional)", { maxLength: 200 }))}
 
           <ChunkyButton
             variant="green"

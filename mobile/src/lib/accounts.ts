@@ -127,6 +127,10 @@ export type AccountForm = {
   matures_on: string;
   fd_payout: "" | FdPayout;
   moved_from_card: "" | "yes"; // create only
+  // Edit only: a changed balance is recorded as an adjustment on this day ("" means today),
+  // for this reason, once the account has anything recorded.
+  balance_date: string;
+  balance_reason: string;
 };
 
 export const TYPE_LABELS: Record<AccountType, string> = {
@@ -244,6 +248,8 @@ export function formFromAccount(account: Account): AccountForm {
     matures_on: account.matures_on ?? "",
     fd_payout: account.fd_payout ?? "",
     moved_from_card: "",
+    balance_date: "",
+    balance_reason: "",
   };
 }
 
@@ -277,6 +283,10 @@ export function changedPayload(form: AccountForm, original: Account): Record<str
   const changed: Record<string, unknown> = {};
   for (const key of Object.keys(after)) {
     if (!Object.is(after[key], before[key])) changed[key] = after[key];
+  }
+  if ("balance" in changed) {
+    if (form.balance_date) changed.balance_date = form.balance_date;
+    changed.balance_reason = form.balance_reason.trim() || null;
   }
   return changed;
 }
@@ -370,6 +380,7 @@ export function renderedFields(type: AccountType, mode: "create" | "edit"): (key
     ...(mode === "create" ? (["type"] as const) : []),
     "name",
     "balance",
+    ...(mode === "edit" ? (["balance_date", "balance_reason"] as const) : []),
     ...APPLICABLE[type],
     ...(mode === "create" && type === "loan" ? (["moved_from_card"] as const) : []),
   ];

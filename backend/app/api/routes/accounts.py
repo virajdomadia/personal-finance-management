@@ -11,7 +11,13 @@ from pydantic_core import PydanticCustomError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.balances import LIABILITY_TYPES, balance_of, opening_for
+from app.api.balances import (
+    LIABILITY_TYPES,
+    balance_of,
+    load_dated_movements,
+    net_flows,
+    opening_for,
+)
 from app.api.dates import iso_date, today_india
 from app.api.deposits import (
     DepositFigures,
@@ -234,6 +240,8 @@ Opened = Annotated[date | None, BeforeValidator(iso_date)]
 Tenure = Annotated[int | None, BeforeValidator(_tenure)]
 Paid = Annotated[int | None, BeforeValidator(_paid)]
 Flag = Annotated[bool, BeforeValidator(_flag)]
+ADJUST_REASON = "Say why the balance changed."
+Reason = Annotated[str | None, BeforeValidator(lambda v: clean_text(v, ADJUST_REASON, 200))]
 
 
 class AccountCreate(BaseModel):
@@ -286,6 +294,10 @@ class AccountUpdate(BaseModel):
     deposits_paid: Paid = None
     matures_on: Opened = None
     fd_payout: Payout = None
+    # A new balance is recorded as an adjustment on this day (default today), for this reason,
+    # once the account has anything recorded; until then it just replaces the opening balance.
+    balance_date: Opened = None
+    balance_reason: Reason = None
 
 
 class GoalTag(BaseModel):
@@ -605,6 +617,8 @@ def update_account(
     id: int, body: AccountUpdate, user: CurrentUser, db: DbSession
 ) -> AccountResponse:
     changes = body.model_dump(exclude_unset=True)
+    as_of = changes.pop("balance_date", None)
+    reason = changes.pop("balance_reason", None)
     new_bank = changes.get("pay_from_id")
     if new_bank is not None and new_bank != db.scalar(
         select(Account.pay_from_id).where(Account.id == id, Account.user_id == user.id)
@@ -627,6 +641,11 @@ def update_account(
         "deposits_paid": rd_deposits_paid(account, book),
         "name": account.name,
     }
+    adjustment = None
+    if changes.get("balance") is not None and account.id in book.flows:
+        adjustment = _adjustment(db, user.id, account, changes, as_of, reason)
+        # The balance it leaves today; the opening balance stays as it is.
+        changes["balance"] = values["balance"] + _shown(account, adjustment)
     values.update(changes)
     validate_rules(values, check_paid=bool({"deposits_paid", "tenure_months"} & changes.keys()))
     # Only a changed bank is locked (above) and checked: archiving a bank locks it and its PPFs in
@@ -640,8 +659,13 @@ def update_account(
             raise RequestValidationError(
                 [field_error("deposits_paid", "More instalments are already recorded than that.")]
             )
-    # Correcting a balance moves the opening balance, so the transactions stay as they are.
-    opening = opening_for(account, values["balance"], book.flows)
+    # Correcting the balance of an account with nothing recorded moves its opening balance;
+    # otherwise the adjustment carries the change and the opening balance stays.
+    opening = (
+        account.opening_balance
+        if adjustment is not None
+        else opening_for(account, values["balance"], book.flows)
+    )
     if abs(opening) >= MAX_MONEY:
         raise RequestValidationError(
             [field_error("balance", "This balance is too large with this account's transactions.")]
@@ -653,8 +677,50 @@ def update_account(
     account.emis_at_opening = emis_at_opening(values["emis_left"], account, book)
     if values["deposits_paid"] is not None:
         account.deposits_at_opening = at_opening
+    if adjustment is not None and adjustment.amount != 0:
+        db.add(adjustment)
     db.commit()
     return account_response(db, user.id, account)
+
+
+def _shown(account: Account, adjustment: Transaction) -> Decimal:
+    """How much an adjustment moves the balance shown: what is owed, for a card or loan."""
+    return -adjustment.amount if account.type in LIABILITY_TYPES else adjustment.amount
+
+
+def _adjustment(
+    db: Session,
+    user_id: int,
+    account: Account,
+    changes: dict[str, Any],
+    as_of: date | None,
+    reason: str | None,
+) -> Transaction:
+    """The entry that makes the account's balance on `as_of` (default today) the one entered.
+    Its amount is 0 when the balance already is that; then nothing is recorded and no reason
+    is needed."""
+    today = today_india()
+    day = as_of or today
+    if day > today:
+        message = "The date can't be in the future."
+        raise RequestValidationError([field_error("balance_date", message)])
+    flows_then = net_flows(m for d, m in load_dated_movements(db, user_id) if d <= day)
+    change = changes["balance"] - balance_of(account, flows_then)
+    # Money into the account raises a balance but lowers what a card or loan owes.
+    amount = -change if account.type in LIABILITY_TYPES else change
+    if amount != 0 and reason is None:
+        raise RequestValidationError([field_error("balance_reason", ADJUST_REASON)])
+    if abs(amount) >= MAX_MONEY:
+        message = "This balance is too large with this account's transactions."
+        raise RequestValidationError([field_error("balance", message)])
+    return Transaction(
+        user_id=user_id,
+        type="adjustment",
+        amount=amount,
+        date=day,
+        account_id=account.id,
+        note=reason,
+    )
 
 
 def _ppf_ids(db: Session, user_id: int, id: int) -> list[int]:

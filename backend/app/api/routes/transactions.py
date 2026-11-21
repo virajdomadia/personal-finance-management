@@ -51,7 +51,8 @@ router = APIRouter(
     prefix="/transactions", tags=["transactions"], dependencies=[Depends(get_current_user)]
 )
 
-TransactionType = Literal["income", "expense", "transfer", "emi", "refund"]
+TransactionType = Literal["income", "expense", "transfer", "emi", "refund", "adjustment"]
+ADJUST_REASON = "Say why the balance changed."
 _CHOOSE_PURCHASE = "Choose the purchase refunded."
 # How far back a purchase is suggested for a refund, and how many at most.
 REFUNDABLE_DAYS = 180
@@ -271,6 +272,10 @@ def validate_transaction_values(
     amount = values["amount"]
     if amount is None:
         errors.append(field_error("amount", "Enter an amount."))
+    elif type_ == "adjustment":
+        # Signed: what the correction moved into (or, below 0, out of) the account.
+        if amount == 0:
+            errors.append(field_error("amount", "An adjustment can't be ₹0."))
     elif amount <= 0:
         errors.append(field_error("amount", "Amount must be greater than 0."))
 
@@ -295,6 +300,14 @@ def validate_transaction_values(
             errors.append(field_error("category", "A transfer doesn't have a category."))
     elif type_ == "emi":
         _validate_emi(values, accounts, errors)
+    elif type_ == "adjustment":
+        if target is not None:
+            errors.append(field_error("to_account_id", "Only a transfer has a second account."))
+        if values["category"] is not None:
+            message = "An adjustment doesn't have a category."
+            errors.append(field_error("category", message))
+        if values["note"] is None:
+            errors.append(field_error("note", ADJUST_REASON))
     elif type_ is not None:
         if target is not None:
             errors.append(field_error("to_account_id", "Only a transfer has a second account."))
