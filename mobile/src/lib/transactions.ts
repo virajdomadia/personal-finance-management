@@ -3,7 +3,7 @@ import { formatCoinQty } from "./crypto.ts";
 import { MONTHS, formatDate } from "./dates.ts";
 import type { HistoryLine } from "./goals.ts";
 
-export type TransactionType = "income" | "expense" | "transfer" | "emi" | "refund";
+export type TransactionType = "income" | "expense" | "transfer" | "emi" | "refund" | "adjustment";
 
 export type Transaction = {
   id: number;
@@ -56,6 +56,8 @@ export const TRANSACTION_TYPES: { value: TransactionType; label: string }[] = [
   { value: "transfer", label: "Transfer" },
   { value: "emi", label: "EMI" },
   { value: "refund", label: "Refund" },
+  // Recorded by correcting an account's balance, so never picked when adding a transaction.
+  { value: "adjustment", label: "Adjustment" },
 ];
 
 // Types that move money into a second account: the transfer's destination, or the EMI's loan.
@@ -111,7 +113,10 @@ export function toPayload(form: TransactionForm, mode: "create" | "edit"): Recor
   payload.account_id = idOrNull(form.account_id);
   if (TWO_ACCOUNTS.has(form.type)) payload.to_account_id = idOrNull(form.to_account_id);
   // A linked refund takes its purchase's category, so only an unlinked one names its own.
-  else if (!(form.type === "refund" && form.refund_of_id !== "")) payload.category = textOrNull(form.category);
+  // A linked refund takes its purchase's category, and an adjustment has none.
+  else if (form.type !== "adjustment" && !(form.type === "refund" && form.refund_of_id !== "")) {
+    payload.category = textOrNull(form.category);
+  }
   if (form.type === "refund") payload.refund_of_id = idOrNull(form.refund_of_id);
   if (form.type === "emi") payload.interest = textOrNull(cleanMoney(form.interest));
   payload.note = textOrNull(form.note);
@@ -134,6 +139,7 @@ export function changedPayload(form: TransactionForm, original: Transaction): Re
 export function renderedFields(type: TransactionType): FieldKey[] {
   if (type === "emi") return ["amount", "date", "account_id", "to_account_id", "interest", "note"];
   if (type === "refund") return ["amount", "date", "account_id", "refund_of_id", "category", "note"];
+  if (type === "adjustment") return ["amount", "date", "account_id", "note"];
   return ["amount", "date", "account_id", type === "transfer" ? "to_account_id" : "category", "note"];
 }
 
@@ -141,6 +147,8 @@ export function renderedFields(type: TransactionType): FieldKey[] {
 export function signedAmount(tx: Transaction, viewedAccountId: number | null = null): string {
   const rupees = formatRupees(tx.amount);
   if (tx.type === "income" || tx.type === "refund") return `+${rupees}`;
+  // An adjustment's amount is already signed: money into the account, or out of it.
+  if (tx.type === "adjustment") return tx.amount.startsWith("-") ? rupees : `+${rupees}`;
   if (tx.type === "expense") return `-${rupees}`;
   // Only the principal reaches the loan; the paying account loses the whole EMI.
   if (tx.type === "emi" && viewedAccountId === tx.to_account_id) {

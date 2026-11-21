@@ -311,7 +311,8 @@ def archive(headers: Headers, id_: int) -> Response:
 
 def archive_empty(headers: Headers, id_: int) -> Response:
     """Archives an account after correcting its balance to zero, as only an empty one can go."""
-    zeroed = client.patch(f"{URL}/{id_}", json={"balance": "0.00"}, headers=headers)
+    body = {"balance": "0.00", "balance_reason": "Emptied before archiving"}
+    zeroed = client.patch(f"{URL}/{id_}", json=body, headers=headers)
     assert zeroed.status_code == 200, zeroed.json()
     return archive(headers, id_)
 

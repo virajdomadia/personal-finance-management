@@ -99,7 +99,7 @@ const e422 = (...items) => items.map(([loc, msg]) => ({ loc, msg }));
 const BANK_FIELDS = renderedFields("bank", "create");
 
 test("renderedFields follows what the dialog shows", () => {
-  assert.deepEqual(renderedFields("cash", "edit"), ["name", "balance"]);
+  assert.deepEqual(renderedFields("cash", "edit"), ["name", "balance", "balance_date", "balance_reason"]);
   assert.ok(renderedFields("bank", "create").includes("type"));
   assert.ok(!renderedFields("bank", "edit").includes("type"));
   assert.ok(!renderedFields("bank", "create").includes("credit_limit"));
@@ -217,9 +217,21 @@ test("changedPayload sends cleared fields as null and leaves the balance out whe
   assert.equal("balance" in changed, false);
 });
 
+test("a changed balance carries its as-of day and reason", () => {
+  const form = { ...formFromAccount(account), balance: "3000.50", balance_date: "2026-11-01", balance_reason: " Cash count " };
+  assert.deepEqual(changedPayload(form, account), { balance: "3000.50", balance_date: "2026-11-01", balance_reason: "Cash count" });
+  const today = { ...form, balance_date: "", balance_reason: "" };
+  assert.deepEqual(changedPayload(today, account), { balance: "3000.50", balance_reason: null });
+});
+
+test("the as-of day and reason are only sent with a changed balance", () => {
+  const form = { ...formFromAccount(account), name: "Renamed", balance_date: "2026-11-01", balance_reason: "x" };
+  assert.deepEqual(changedPayload(form, account), { name: "Renamed" });
+});
+
 test("changedPayload cleans a changed amount and never sends type", () => {
   const form = { ...formFromAccount(account), balance: "₹3,000.50" };
-  assert.deepEqual(changedPayload(form, account), { balance: "3000.50" });
+  assert.deepEqual(changedPayload(form, account), { balance: "3000.50", balance_reason: null });
 });
 
 test("cleanMoney strips the rupee sign only at the start, after an optional sign", () => {
@@ -448,6 +460,8 @@ test("an FD: labels, payout choices and its fields in the payload", () => {
   assert.deepEqual(renderedFields("fd", "edit"), [
     "name",
     "balance",
+    "balance_date",
+    "balance_reason",
     "institution",
     "interest_rate",
     "opened_on",

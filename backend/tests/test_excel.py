@@ -157,7 +157,7 @@ def test_preview_checks_every_row_and_saves_nothing(headers: Headers) -> None:
     assert [r["row"] for r in rows] == [2, 3, 4, 5]
     assert [r["status"] for r in rows] == ["ok", "ok", "error", "error"]
     assert rows[0]["date"] == YESTERDAY.isoformat()
-    assert rows[2]["errors"] == ["Type: use expense, income, transfer, EMI or refund."]
+    assert rows[2]["errors"] == ["Type: use expense, income, transfer, EMI, refund or adjustment."]
     assert rows[3]["errors"] == ["Account: no account called Nowhere."]
     assert transactions(headers) == []
     names = [c["name"] for c in client.get("/api/categories", headers=headers).json()["income"]]
@@ -194,6 +194,16 @@ def test_a_refund_row_imports_as_a_refund(headers: Headers) -> None:
     [saved] = transactions(headers)
     assert (saved["type"], saved["category"], saved["refund_of_id"]) == ("refund", "Shopping", None)
     assert balance(headers, sbi) == "1300.00"
+
+
+def test_an_adjustment_row_imports_with_its_sign(headers: Headers) -> None:
+    sbi = account(headers, "SBI")
+    data = workbook([YESTERDAY, "adjustment", "-40", "SBI", None, None, None, "Cash count"])
+    response = send(headers, data)
+    assert (response.json()["imported"], response.json()["problems"]) == (1, 0), response.json()
+    [saved] = transactions(headers)
+    assert (saved["type"], saved["amount"], saved["note"]) == ("adjustment", "-40.00", "Cash count")
+    assert balance(headers, sbi) == "960.00"
 
 
 def test_nothing_is_saved_while_any_row_has_a_problem(headers: Headers) -> None:

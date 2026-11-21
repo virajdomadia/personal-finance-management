@@ -53,6 +53,7 @@ TYPES = {
     "transfer": "transfer",
     "emi": "emi",
     "refund": "refund",  # unlinked: a row names the spending category it gives back
+    "adjustment": "adjustment",  # signed; the note says why the balance changed
 }
 FIELD_COLUMNS = {
     "date": "Date",
@@ -64,7 +65,8 @@ FIELD_COLUMNS = {
     "interest": "Interest",
     "note": "Note",
 }
-_MONEY_TEXT = re.compile(r"[0-9]+(\.[0-9]+)?")
+# A leading minus only passes for an adjustment; any other type then refuses it.
+_MONEY_TEXT = re.compile(r"-?[0-9]+(\.[0-9]+)?")
 _DAY_FIRST = re.compile(r"([0-9]{1,2})[/.-]([0-9]{1,2})[/.-]([0-9]{4})")
 
 
@@ -243,7 +245,7 @@ def _values(raw: dict[str, Any], names: AccountNames) -> tuple[dict[str, Any], l
     type_text = (_text(raw["Type"]) or "").casefold()
     values["type"] = TYPES.get(type_text)
     if values["type"] is None:
-        errors.append("Type: use expense, income, transfer, EMI or refund.")
+        errors.append("Type: use expense, income, transfer, EMI, refund or adjustment.")
     readers = [
         ("date", lambda: _date(raw["Date"]) if _text(raw["Date"]) else None),
         ("amount", lambda: _money(raw["Amount"], "amount") if _text(raw["Amount"]) else None),
@@ -465,7 +467,7 @@ def template(db: Session, user_id: int) -> bytes:
         ["Column", "What to put"],
         [
             ["Date", "The day it happened, like 16-11-2026. Not in the future."],
-            ["Type", "expense, income, transfer, emi or refund."],
+            ["Type", "expense, income, transfer, emi, refund or adjustment."],
             ["Amount", "A number above 0, like 1234.50. No minus sign."],
             ["Account", "The account it was paid from or into, named as in the app."],
             ["To account", "Transfers and EMIs only: where the money went (an EMI's loan)."],

@@ -337,7 +337,9 @@ def test_correcting_broker_balance_keeps_trades(headers: Headers) -> None:
     before = trades(headers)
     assert balance(headers, account) == "7380.00"
     url = f"/api/accounts/{account}"
-    response = client.patch(url, json={"balance": "1234.56"}, headers=headers)
+    response = client.patch(
+        url, json={"balance": "1234.56", "balance_reason": "Statement"}, headers=headers
+    )
     assert response.status_code == 200, response.json()
     assert response.json()["balance"] == "1234.56"
     assert balance(headers, account) == "1234.56"
