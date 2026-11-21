@@ -49,6 +49,9 @@ import {
   subtractMoney,
   toPayload,
   todayIndia,
+  type RefundablePurchase,
+  purchaseLabel,
+  refundablePath,
 } from "@/lib/transactions";
 
 const MONEY_MAX_LENGTH = 24;
@@ -58,6 +61,7 @@ const FROM_LABELS: Record<TransactionType, string> = {
   income: "Received in",
   transfer: "From account",
   emi: "Paid from",
+  refund: "Refunded to",
 };
 
 type Loaded = {
@@ -242,6 +246,8 @@ function FormBody({
       : (initialForm ?? startForm(accounts, todayIndia(), preselectedId)),
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Purchases a refund could be for, from the refund's date and amount.
+  const [purchases, setPurchases] = useState<RefundablePurchase[]>([]);
   const [general, setGeneral] = useState<string[]>([]);
   const [conflict, setConflict] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -338,8 +344,28 @@ function FormBody({
     if (next === type) return;
     setErrors({});
     setGeneral([]);
-    setForm((f) => applyDepositRules({ ...f, type: next, category: "", to_account_id: "", interest: "" }, accounts));
+    setForm((f) =>
+      applyDepositRules({ ...f, type: next, category: "", to_account_id: "", interest: "", refund_of_id: "" }, accounts),
+    );
   };
+
+  // A refund offers the purchases it could be for; only a suggestion, so a failure is quiet.
+  const purchasesPath = type === "refund" ? refundablePath(form, transaction?.id ?? null) : null;
+  useEffect(() => {
+    if (purchasesPath === null) return;
+    let stale = false;
+    const timer = setTimeout(() => {
+      apiFetch<{ purchases: RefundablePurchase[] }>(purchasesPath, { token: token ?? undefined })
+        .then((list) => {
+          if (!stale) setPurchases(list.purchases);
+        })
+        .catch(() => {});
+    }, 300);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [purchasesPath, token]);
 
   // Picking a loan for a new EMI fills in its suggested split and usual account.
   const chooseLoan = (loanId: string) => {
@@ -499,7 +525,10 @@ function FormBody({
   const yesterday = previousDay(today);
   const typeLabel = TRANSACTION_TYPES.find((t) => t.value === type)?.label;
   // Live categories, with subcategories under their parent; archived ones are left out.
-  const kindCategories = type === "transfer" || type === "emi" ? [] : categories[type];
+  // A refund gives spending back, so it takes a spending category.
+  const kindCategories = type === "transfer" || type === "emi" ? [] : categories[type === "income" ? "income" : "expense"];
+  const linked = type === "refund" && form.refund_of_id !== "";
+  const chosenPurchase = purchases.find((p) => String(p.id) === form.refund_of_id);
   const groups = pickerGroups(kindCategories);
   const suggestions = kindCategories.filter((c) => !c.archived).map((c) => c.name);
   const loans = accounts.filter((a) => a.type === "loan");
@@ -581,6 +610,24 @@ function FormBody({
             </>,
           )}
 
+          {type === "refund"
+            ? field(
+                "refund_of_id",
+                <>
+                  {heading("Refund of (optional)")}
+                  <View style={styles.chips}>
+                    {choice("Not linked", form.refund_of_id === "", () => set("refund_of_id", ""), "none")}
+                    {purchases.map((p) =>
+                      choice(purchaseLabel(p), form.refund_of_id === String(p.id), () => set("refund_of_id", String(p.id)), String(p.id)),
+                    )}
+                    {linked && chosenPurchase === undefined
+                      ? choice("The linked purchase", true, () => undefined, form.refund_of_id)
+                      : null}
+                  </View>
+                </>,
+              )
+            : null}
+
           {type === "emi" ? (
             <>
               {field(
@@ -614,6 +661,19 @@ function FormBody({
                   <View style={styles.chips}>
                     {toOptions(accounts, form).map((a) => choice(a.name, form.to_account_id === String(a.id), () => set("to_account_id", String(a.id)), String(a.id)))}
                   </View>
+                </>,
+              )
+            : linked
+            ? field(
+                "category",
+                <>
+                  {heading("Category")}
+                  <Text variant="bodyLarge">
+                    {chosenPurchase ? (chosenPurchase.category ?? "Uncategorised") : form.category || "The purchase's"}
+                  </Text>
+                  <HelperText type="info" visible>
+                    A linked refund gives spending back in its purchase&apos;s category.
+                  </HelperText>
                 </>,
               )
             : field(

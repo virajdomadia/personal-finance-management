@@ -23,7 +23,7 @@ from app.models.transaction import Transaction
 # Accounts whose balance is what's owed, so money coming in lowers it.
 LIABILITY_TYPES = {"credit_card", "loan"}
 # Movement types that bring money into their account; every other type takes it out.
-MONEY_IN = {"income", "sell"}
+MONEY_IN = {"income", "refund", "sell"}
 
 
 class Movement(NamedTuple):

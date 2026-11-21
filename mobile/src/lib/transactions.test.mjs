@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { formatRupees } from "./accounts.ts";
+
 import {
   applyDepositRules,
   blankForm,
@@ -27,13 +29,15 @@ import {
   toPayload,
   todayIndia,
   expenseFormFromRelease,
+  purchaseLabel,
+  refundablePath,
 } from "./transactions.ts";
 
 test("expenseFormFromRelease is an expense of the same amount from the same account, dated today", () => {
   const entry = { id: 9, account_id: 7, account_name: "HDFC", amount: "-5000.00", date: "2026-10-01", note: "Trip" };
   assert.deepEqual(expenseFormFromRelease(entry, "2026-11-11"), {
     type: "expense", amount: "5000.00", date: "2026-11-11", account_id: "7", to_account_id: "",
-    category: "", interest: "", note: "",
+    category: "", interest: "", note: "", refund_of_id: "",
   });
 });
 
@@ -350,4 +354,46 @@ test("an FD follows the same rules as a PPF or RD", () => {
   assert.deepEqual(incomeCategories(withFd, form("income", "8"), ["Salary", "Interest"]), ["Interest"]);
   assert.equal(applyDepositRules(form("expense", "8"), withFd).account_id, "");
   assert.equal(applyDepositRules(form("transfer", "3", "8"), withFd).account_id, "");
+});
+
+// Refunds
+
+const refundTx = { ...expense, id: 3, type: "refund", category: "Shopping", refund_of_id: null, refunded: null };
+const refundForm = (over = {}) => ({ ...blankForm("refund", "2026-11-10", 7), ...over });
+
+test("a refund is money in, and its form names the purchase it refunds", () => {
+  assert.equal(signedAmount(refundTx), `+${formatRupees(refundTx.amount)}`);
+  assert.deepEqual(renderedFields("refund"), ["amount", "date", "account_id", "refund_of_id", "category", "note"]);
+  assert.deepEqual(toPayload(refundForm({ amount: "500", category: "Shopping" }), "create"), {
+    type: "refund", amount: "500", date: "2026-11-10", account_id: 7, category: "Shopping", note: null, refund_of_id: null,
+  });
+});
+
+test("a linked refund sends its purchase and leaves the category to it", () => {
+  const payload = toPayload(refundForm({ amount: "500", category: "Shopping", refund_of_id: "12" }), "create");
+  assert.equal(payload.refund_of_id, 12);
+  assert.equal("category" in payload, false);
+});
+
+test("an untouched linked refund has nothing to save, and unlinking sends null", () => {
+  const linked = { ...refundTx, refund_of_id: 12 };
+  assert.deepEqual(changedPayload(formFromTransaction(linked), linked), {});
+  const unlinked = { ...formFromTransaction(linked), refund_of_id: "" };
+  assert.deepEqual(changedPayload(unlinked, linked), { refund_of_id: null, category: "Shopping" });
+});
+
+test("refunds aren't paid into a deposit", () => {
+  assert.deepEqual(ids(fromOptions("refund", all, form("refund"))), [1, 2, 3, 6, 7]);
+});
+
+test("refundablePath asks for purchases big enough for the refund on its date", () => {
+  assert.equal(refundablePath(refundForm({ amount: "₹1,500" })), "/transactions/refundable?date=2026-11-10&amount=1500");
+  assert.equal(refundablePath(refundForm({ amount: "" }), 3), "/transactions/refundable?date=2026-11-10&exclude_id=3");
+  assert.equal(refundablePath(refundForm({ date: "", amount: "" })), "/transactions/refundable");
+});
+
+test("purchaseLabel says when, what and how much is left", () => {
+  const p = { id: 1, date: "2026-11-02", amount: "2000.00", left: "1500.00", category: "Shopping", account_id: 7, account_name: "HDFC", note: "Shoes" };
+  assert.equal(purchaseLabel(p), `${formatDate("2026-11-02")} · Shopping · ₹2,000.00 (₹1,500.00 left) · Shoes`);
+  assert.equal(purchaseLabel({ ...p, left: "2000.00", note: null, category: null }), `${formatDate("2026-11-02")} · Uncategorised · ₹2,000.00`);
 });

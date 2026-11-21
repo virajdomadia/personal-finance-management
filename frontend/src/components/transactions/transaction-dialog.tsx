@@ -15,6 +15,7 @@ import {
   type FieldKey,
   type TransactionForm,
   type TransactionType,
+  type RefundablePurchase,
   applyDepositRules,
   applySuggestion,
   changedPayload,
@@ -23,6 +24,8 @@ import {
   incomeCategories,
   isDeposit,
   newTransactionForm,
+  purchaseLabel,
+  refundablePath,
   renderedFields,
   subtractMoney,
   suggestPath,
@@ -36,12 +39,13 @@ const LABEL = "mb-1 block text-xs font-black tracking-wide uppercase";
 const HINT = "mt-1 text-xs font-bold text-zinc-600";
 const ERROR = "mt-1 text-xs font-extrabold text-loss";
 
-const TYPE_ICON: Record<TransactionType, string> = { expense: "💸", income: "💰", transfer: "🔁", emi: "🏧" };
+const TYPE_ICON: Record<TransactionType, string> = { expense: "💸", income: "💰", transfer: "🔁", emi: "🏧", refund: "↩️" };
 const TYPE_ON: Record<TransactionType, string> = {
   expense: "bg-pink-strong text-white",
   income: "bg-green-strong text-white",
   transfer: "bg-blue-strong text-white",
   emi: "bg-purple-strong text-white",
+  refund: "bg-green-strong text-white",
 };
 
 const FROM_LABELS: Record<TransactionType, string> = {
@@ -49,6 +53,7 @@ const FROM_LABELS: Record<TransactionType, string> = {
   income: "Received in",
   transfer: "From account",
   emi: "Paid from",
+  refund: "Refunded to",
 };
 
 type Props = {
@@ -89,6 +94,8 @@ export function TransactionDialog({
     touchedRef.current = touched;
     setCategoryTouched(touched);
   };
+  // Purchases a refund could be for, from the refund's date and amount.
+  const [purchases, setPurchases] = useState<RefundablePurchase[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -127,7 +134,9 @@ export function TransactionDialog({
   const changeType = (type: TransactionType) => {
     setErrors({});
     touchCategory(false);
-    setForm((f) => applyDepositRules({ ...f, type, category: "", to_account_id: "", interest: "" }, accounts));
+    setForm((f) =>
+      applyDepositRules({ ...f, type, category: "", to_account_id: "", interest: "", refund_of_id: "" }, accounts),
+    );
   };
 
   // Picking a loan for a new EMI fills in its suggested split and usual account.
@@ -210,6 +219,35 @@ export function TransactionDialog({
       clearTimeout(timer);
     };
   }, [form.note, type, categoryTouched, depositIncome]);
+
+  // A refund offers the purchases it could be for; only a suggestion, so a failure is quiet.
+  const editingId = transaction?.id ?? null;
+  const purchasesPath = type === "refund" ? refundablePath(form, editingId) : null;
+  useEffect(() => {
+    if (purchasesPath === null) return;
+    let stale = false;
+    const timer = setTimeout(() => {
+      apiFetch<{ purchases: RefundablePurchase[] }>(purchasesPath)
+        .then((list) => {
+          if (!stale) setPurchases(list.purchases);
+        })
+        .catch(() => {});
+    }, 300);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [purchasesPath]);
+  const linked = type === "refund" && form.refund_of_id !== "";
+  const purchaseOptions = [
+    { value: "", label: "Not linked to a purchase" },
+    ...purchases.map((p) => ({ value: String(p.id), label: purchaseLabel(p) })),
+    // An edited refund's purchase stays listed even once nothing more is left to refund on it.
+    ...(linked && !purchases.some((p) => String(p.id) === form.refund_of_id)
+      ? [{ value: form.refund_of_id, label: "The linked purchase" }]
+      : []),
+  ];
+  const chosenPurchase = purchases.find((p) => String(p.id) === form.refund_of_id);
   const field = (key: FieldKey, label: string, input: React.ReactNode) => (
     <div>
       <label htmlFor={`t-${key}`} className={LABEL}>
@@ -272,7 +310,7 @@ export function TransactionDialog({
           ) : (
             <fieldset disabled={saving} className="min-w-0">
               <legend className={LABEL}>Type</legend>
-              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
                 {types.map((option) => (
                   <label key={option.value} className="relative block min-w-0">
                     <input
@@ -323,6 +361,14 @@ export function TransactionDialog({
             />,
           )}
 
+          {type === "refund"
+            ? field(
+                "refund_of_id",
+                "Refund of (optional)",
+                <Select {...pickerProps("refund_of_id")} options={purchaseOptions} />,
+              )
+            : null}
+
           {type === "emi" && (
             <>
               {field(
@@ -361,7 +407,7 @@ export function TransactionDialog({
           )}
 
           {/* Expenses and income take the note first, so what was bought can pick the category. */}
-          {type === "expense" || type === "income" ? noteField : null}
+          {type === "expense" || type === "income" || type === "refund" ? noteField : null}
 
           {type === "emi"
             ? null
@@ -370,6 +416,16 @@ export function TransactionDialog({
                 "to_account_id",
                 "To account",
                 <Select {...pickerProps("to_account_id")} placeholder="Choose an account" options={toOptions(accounts, form).map(option)} />,
+              )
+            : linked
+            ? (
+                <p className="text-sm font-black">
+                  Category:{" "}
+                  <span className="font-extrabold">
+                    {chosenPurchase ? (chosenPurchase.category ?? "Uncategorised") : (form.category || "the purchase's")}
+                  </span>
+                  <span className={`block ${HINT}`}>A linked refund gives spending back in its purchase&apos;s category.</span>
+                </p>
               )
             : depositIncome
             ? (
@@ -388,7 +444,7 @@ export function TransactionDialog({
                       set("category", value);
                     }}
                     maxLength={40}
-                    options={(type === "income" ? incomeCategories(accounts, form, categories.income) : categories[type]).map((name) => ({ value: name, label: name }))}
+                    options={(type === "income" ? incomeCategories(accounts, form, categories.income) : categories.expense).map((name) => ({ value: name, label: name }))}
                   />
                   {!categoryTouched && form.category !== "" ? (
                     <p className={HINT} aria-live="polite">

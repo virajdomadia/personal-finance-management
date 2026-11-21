@@ -151,7 +151,10 @@ def card_bills(
                 Transaction.user_id == user_id,
                 or_(
                     and_(Transaction.type == "transfer", Transaction.to_account_id == card.id),
-                    and_(Transaction.type == "income", Transaction.account_id == card.id),
+                    and_(
+                        Transaction.type.in_(("income", "refund")),
+                        Transaction.account_id == card.id,
+                    ),
                 ),
                 Transaction.date >= statement.occurred_on,
             )

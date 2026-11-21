@@ -14,6 +14,8 @@ from app.api.categories import UNCATEGORISED, name_key
 from app.models.category import Category
 
 ZERO = Decimal(0)
+# The transaction types a month's income and spending are made of.
+COUNTED_TYPES = ("income", "expense", "emi", "refund")
 
 
 @dataclass(frozen=True)
@@ -26,11 +28,14 @@ class Row:
 
 
 def spent(row: Row) -> Decimal:
-    """An expense's amount, an EMI's interest; transfers and income spend nothing."""
+    """An expense's amount, an EMI's interest, less a refund's amount (money back lowers its
+    category's spending, in the month it arrives); transfers and income spend nothing."""
     if row.type == "expense":
         return row.amount
     if row.type == "emi":
         return row.interest or ZERO
+    if row.type == "refund":
+        return -row.amount
     return ZERO
 
 

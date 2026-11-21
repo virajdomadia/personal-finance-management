@@ -1,7 +1,7 @@
 import calendar
 import re
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated, Any, Literal, NoReturn, get_args
 
@@ -36,6 +36,7 @@ from app.api.routes.accounts import (
     clean_text,
     field_error,
     fmt,
+    rupees,
 )
 from app.api.suggest import suggest_category
 from app.db.session import DbSession
@@ -50,7 +51,11 @@ router = APIRouter(
     prefix="/transactions", tags=["transactions"], dependencies=[Depends(get_current_user)]
 )
 
-TransactionType = Literal["income", "expense", "transfer", "emi"]
+TransactionType = Literal["income", "expense", "transfer", "emi", "refund"]
+_CHOOSE_PURCHASE = "Choose the purchase refunded."
+# How far back a purchase is suggested for a refund, and how many at most.
+REFUNDABLE_DAYS = 180
+REFUNDABLE_LIMIT = 20
 EMI_CATEGORY = "Loan interest"
 _CHOOSE_TEMPLATE = "Choose a reminder of this type."
 
@@ -72,6 +77,14 @@ def _type(value: Any) -> Any:
     return value
 
 
+def _purchase_id(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise PydanticCustomError("purchase", _CHOOSE_PURCHASE)
+    return value
+
+
 def _template_id(value: Any) -> int | None:
     if value is None:
         return None
@@ -88,6 +101,7 @@ Category = Annotated[
 ]
 Note = Annotated[str | None, BeforeValidator(lambda v: clean_text(v, "Enter a note.", limit=200))]
 TemplateRef = Annotated[int | None, BeforeValidator(_template_id)]
+PurchaseRef = Annotated[int | None, BeforeValidator(_purchase_id)]
 
 
 class TransactionCreate(BaseModel):
@@ -103,6 +117,7 @@ class TransactionCreate(BaseModel):
     interest: Money = None
     note: Note = None
     recurring_template_id: TemplateRef = None
+    refund_of_id: PurchaseRef = None
 
 
 class TransactionUpdate(BaseModel):
@@ -118,6 +133,7 @@ class TransactionUpdate(BaseModel):
     interest: Money = None
     note: Note = None
     recurring_template_id: TemplateRef = None
+    refund_of_id: PurchaseRef = None
 
 
 class TransactionResponse(BaseModel):
@@ -134,6 +150,8 @@ class TransactionResponse(BaseModel):
     interest: str | None
     note: str | None
     recurring_template_id: int | None
+    refund_of_id: int | None  # a refund's purchase, when linked
+    refunded: str | None  # an expense's linked refunds; None when there are none
     from_sms: bool
     # False once a linked account is archived; restore the account to change the transaction.
     editable: bool
@@ -165,7 +183,28 @@ class CategorySuggestion(BaseModel):
     source: Literal["history", "keywords"] | None
 
 
-def _to_response(tx: Transaction, accounts: dict[int, Account]) -> TransactionResponse:
+def refunded_totals(db: Session, user_id: int, ids: Iterable[int]) -> dict[int, Decimal]:
+    """What the refunds linked to each of these purchases add up to (a purchase with none
+    is left out)."""
+    wanted = list(ids)
+    if not wanted:
+        return {}
+    rows = db.execute(
+        select(Transaction.refund_of_id, Transaction.amount).where(
+            Transaction.user_id == user_id,
+            Transaction.type == "refund",
+            Transaction.refund_of_id.in_(wanted),
+        )
+    )
+    totals: dict[int, Decimal] = {}
+    for purchase_id, amount in rows:
+        totals[purchase_id] = totals.get(purchase_id, Decimal(0)) + amount
+    return totals
+
+
+def _to_response(
+    tx: Transaction, accounts: dict[int, Account], refunded: Decimal | None = None
+) -> TransactionResponse:
     account = accounts[tx.account_id]
     target = None if tx.to_account_id is None else accounts[tx.to_account_id]
     return TransactionResponse(
@@ -181,6 +220,8 @@ def _to_response(tx: Transaction, accounts: dict[int, Account]) -> TransactionRe
         interest=None if tx.interest is None else fmt(tx.interest),
         note=tx.note,
         recurring_template_id=tx.recurring_template_id,
+        refund_of_id=tx.refund_of_id,
+        refunded=None if not refunded else fmt(refunded),
         from_sms=tx.source == "sms",
         editable=account.archived_at is None and (target is None or target.archived_at is None),
     )
@@ -257,8 +298,12 @@ def validate_transaction_values(
     elif type_ is not None:
         if target is not None:
             errors.append(field_error("to_account_id", "Only a transfer has a second account."))
-        if values["category"] is None and not allow_uncategorised:
+        # A linked refund takes its purchase's category (`_check_refund`).
+        linked = type_ == "refund" and values.get("refund_of_id") is not None
+        if values["category"] is None and not allow_uncategorised and not linked:
             errors.append(field_error("category", "Choose a category."))
+    if type_ != "refund" and values.get("refund_of_id") is not None:
+        errors.append(field_error("refund_of_id", "Only a refund links to a purchase."))
 
     if type_ != "emi" and values["interest"] is not None:
         errors.append(field_error("interest", "Only an EMI has an interest part."))
@@ -297,7 +342,7 @@ def _validate_deposits(
         what = f"{_article(account).capitalize()} {_deposit_name(account)}"
         return f"{what} only takes deposits, interest and withdrawals to a bank."
 
-    if type_ in ("expense", "emi") and source is not None and deposit(source):
+    if type_ in ("expense", "emi", "refund") and source is not None and deposit(source):
         found.append(("account_id", only(source)))
     if type_ == "emi" and target is not None and deposit(target):
         found.append(("to_account_id", only(target)))
@@ -406,6 +451,9 @@ def save_checks(
     validate_transaction_values(values, accounts, allow_uncategorised)
     if link_changed:
         _check_template(db, user_id, values)
+    purchase = _check_refund(db, user_id, values, existing_id)
+    if values["type"] == "expense" and existing_id is not None:
+        _check_refunded(db, user_id, values, existing_id)
     before = load_movements(db, user_id)
     after = [m for m in before if m.id != existing_id]
     after.append(
@@ -426,13 +474,69 @@ def save_checks(
     elif values["category"] is not None:
         # The registry's spelling; an edit may keep the archived category it already had.
         kept = None if existing_id is None else db.get(Transaction, existing_id)
+        # A linked refund keeps its purchase's category even once that is archived.
+        keep = None if purchase is None else purchase.category
         values["category"] = resolve(
             db,
             user_id,
             kind_of(values["type"]) or "expense",
             values["category"],
-            keep=None if kept is None else kept.category,
+            keep=keep if kept is None else kept.category,
         )
+
+
+def _check_refund(
+    db: Session, user_id: int, values: dict[str, Any], existing_id: int | None
+) -> Transaction | None:
+    """A linked refund's purchase: the owner's expense, dated no later than the refund, with
+    enough left to refund. The refund takes its category. Returns the purchase, locked."""
+    purchase_id = values.get("refund_of_id")
+    if values["type"] != "refund" or purchase_id is None:
+        return None
+    purchase = None
+    if 1 <= purchase_id <= MAX_ID and purchase_id != existing_id:
+        # Locked, so two refunds saved at once can't together pass what is left.
+        purchase = db.scalar(
+            select(Transaction)
+            .where(
+                Transaction.id == purchase_id,
+                Transaction.user_id == user_id,
+                Transaction.type == "expense",
+            )
+            .with_for_update()
+        )
+    if purchase is None:
+        raise RequestValidationError([field_error("refund_of_id", _CHOOSE_PURCHASE)])
+    if values["date"] < purchase.date:
+        message = "A refund can't be dated before its purchase."
+        raise RequestValidationError([field_error("date", message)])
+    others = refunded_totals(db, user_id, [purchase.id]).get(purchase.id, Decimal(0))
+    if existing_id is not None:
+        current = db.get(Transaction, existing_id)
+        if current is not None and current.refund_of_id == purchase.id:
+            others -= current.amount
+    left = purchase.amount - others
+    if values["amount"] > left:
+        message = f"Only {rupees(left)} of this purchase is left to refund."
+        raise RequestValidationError([field_error("amount", message)])
+    given = values["category"]
+    if given is not None and (purchase.category or "").casefold() != given.casefold():
+        message = "A linked refund takes its purchase's category."
+        raise RequestValidationError([field_error("category", message)])
+    values["category"] = purchase.category
+    return purchase
+
+
+def _check_refunded(db: Session, user_id: int, values: dict[str, Any], existing_id: int) -> None:
+    """A purchase can't be made smaller than what its linked refunds already gave back. Only a
+    smaller amount is checked, so an edit that keeps it costs no query."""
+    current = db.get(Transaction, existing_id)  # already loaded and locked by the caller
+    if current is None or values["amount"] >= current.amount:
+        return
+    refunded = refunded_totals(db, user_id, [existing_id]).get(existing_id, Decimal(0))
+    if values["amount"] < refunded:
+        message = f"{rupees(refunded)} of this purchase is already refunded."
+        raise RequestValidationError([field_error("amount", message)])
 
 
 def _query_error(field: str, message: str) -> NoReturn:
@@ -489,10 +593,13 @@ def _require_active(tx: Transaction, accounts: dict[int, Account]) -> None:
 
 
 def _spent(tx: Transaction) -> Decimal:
+    """As the month report counts it (`cash_flow.spent`): a refund gives spending back."""
     if tx.type == "expense":
         return tx.amount
     if tx.type == "emi" and tx.interest is not None:
         return tx.interest
+    if tx.type == "refund":
+        return -tx.amount
     return Decimal(0)
 
 
@@ -598,7 +705,8 @@ def list_transactions(
     if wanted:
         if name_key(wanted) == name_key(UNCATEGORISED):
             query = query.where(
-                Transaction.category.is_(None), Transaction.type.in_(("income", "expense"))
+                Transaction.category.is_(None),
+                Transaction.type.in_(("income", "expense", "refund")),
             )
         else:
             names = category_family(db, user.id, wanted)
@@ -620,8 +728,9 @@ def list_transactions(
 
     accounts = _all_accounts(db, user.id)
     page = matches[offset : offset + limit]
+    refunded = refunded_totals(db, user.id, [t.id for t in page if t.type == "expense"])
     return TransactionList(
-        transactions=[_to_response(t, accounts) for t in page],
+        transactions=[_to_response(t, accounts, refunded.get(t.id)) for t in page],
         has_more=offset + limit < len(matches),
         total_income=fmt(sum((t.amount for t in matches if t.type == "income"), Decimal(0))),
         total_expense=fmt(sum((_spent(t) for t in matches), Decimal(0))),
@@ -648,9 +757,80 @@ def create_transaction(
     return _to_response(tx, accounts)
 
 
+class RefundablePurchase(BaseModel):
+    id: int
+    date: str
+    amount: str
+    left: str  # what is still unrefunded
+    category: str | None
+    account_id: int
+    account_name: str
+    note: str | None
+
+
+class RefundableList(BaseModel):
+    purchases: list[RefundablePurchase]
+
+
+@router.get("/refundable")
+def list_refundable(
+    user: CurrentUser,
+    db: DbSession,
+    day: Annotated[date | None, Query(alias="date")] = None,
+    amount: Annotated[Decimal | None, Query(gt=0, lt=MAX_MONEY, decimal_places=2)] = None,
+    exclude_id: Annotated[int | None, Query(ge=1, le=MAX_ID)] = None,
+) -> RefundableList:
+    """Purchases a refund on `date` (default today) could be for: expenses from the
+    `REFUNDABLE_DAYS` before it with at least `amount` still unrefunded, newest first.
+    `exclude_id` is a refund being edited, so its own amount counts as still refundable."""
+    on = day or today_india()
+    rows = list(
+        db.scalars(
+            select(Transaction)
+            .where(
+                Transaction.user_id == user.id,
+                Transaction.type == "expense",
+                Transaction.date <= on,
+                Transaction.date >= on - timedelta(days=REFUNDABLE_DAYS),
+            )
+            .order_by(Transaction.date.desc(), Transaction.id.desc())
+        )
+    )
+    refunded = refunded_totals(db, user.id, [t.id for t in rows])
+    if exclude_id is not None:
+        editing = db.scalar(
+            select(Transaction).where(Transaction.id == exclude_id, Transaction.user_id == user.id)
+        )
+        if editing is not None and editing.refund_of_id in refunded:
+            refunded[editing.refund_of_id] -= editing.amount
+    accounts = _all_accounts(db, user.id)
+    found: list[RefundablePurchase] = []
+    for t in rows:
+        left = t.amount - refunded.get(t.id, Decimal(0))
+        if left <= 0 or (amount is not None and left < amount):
+            continue
+        found.append(
+            RefundablePurchase(
+                id=t.id,
+                date=t.date.isoformat(),
+                amount=fmt(t.amount),
+                left=fmt(left),
+                category=t.category,
+                account_id=t.account_id,
+                account_name=accounts[t.account_id].name,
+                note=t.note,
+            )
+        )
+        if len(found) == REFUNDABLE_LIMIT:
+            break
+    return RefundableList(purchases=found)
+
+
 @router.get("/{id}")
 def get_transaction(id: int, user: CurrentUser, db: DbSession) -> TransactionResponse:
-    return _to_response(_get_owned(db, user.id, id), _all_accounts(db, user.id))
+    tx = _get_owned(db, user.id, id)
+    refunded = refunded_totals(db, user.id, [tx.id]).get(tx.id)
+    return _to_response(tx, _all_accounts(db, user.id), refunded)
 
 
 @router.patch("/{id}")
@@ -673,6 +853,7 @@ def update_transaction(
         "interest": tx.interest,
         "note": tx.note,
         "recurring_template_id": tx.recurring_template_id,
+        "refund_of_id": tx.refund_of_id,
         **changes,
     }
     _require_active(tx, accounts)
@@ -690,8 +871,20 @@ def update_transaction(
         link_changed=link_changed,
         allow_uncategorised=uncategorised_sms,
     )
+    old_category = tx.category
     for field, value in values.items():
         setattr(tx, field, value)
+    if tx.type == "expense" and tx.category != old_category:
+        # Its linked refunds give spending back in the purchase's category, wherever it moves.
+        db.execute(
+            update(Transaction)
+            .where(
+                Transaction.user_id == user.id,
+                Transaction.type == "refund",
+                Transaction.refund_of_id == tx.id,
+            )
+            .values(category=tx.category)
+        )
     try:
         db.commit()
     except IntegrityError:  # its reminder was deleted since it was checked
@@ -699,7 +892,8 @@ def update_transaction(
             db.rollback()
             raise
         _template_gone(db)
-    return _to_response(tx, accounts)
+    refunded = refunded_totals(db, user.id, [tx.id]).get(tx.id)
+    return _to_response(tx, accounts, refunded)
 
 
 @router.delete("/{id}")
@@ -720,6 +914,12 @@ def delete_transaction(id: int, user: CurrentUser, db: DbSession) -> dict[str, i
     )
     # A dividend it was linked to just loses the link (links are notes, not money).
     delete_links_for_transactions(db, user.id, [tx.id])
+    # Its refunds stay, unlinked, keeping the category they give spending back in.
+    db.execute(
+        update(Transaction)
+        .where(Transaction.user_id == user.id, Transaction.refund_of_id == tx.id)
+        .values(refund_of_id=None)
+    )
     db.delete(tx)
     db.commit()
     return {"id": id}

@@ -204,7 +204,8 @@ def free_balance(
 
 
 def _spend_by_month(db: Session, user_id: int) -> tuple[dict[Month, Decimal], date | None]:
-    """Expenses plus whole EMIs by calendar month, and the user's earliest transaction date."""
+    """Expenses plus whole EMIs, less refunds, by calendar month, and the user's earliest
+    transaction date."""
     spend: dict[Month, Decimal] = defaultdict(Decimal)
     first: date | None = None
     for kind, amount, day in db.execute(
@@ -216,6 +217,8 @@ def _spend_by_month(db: Session, user_id: int) -> tuple[dict[Month, Decimal], da
             first = day
         if kind in ("expense", "emi"):
             spend[(day.year, day.month)] += amount
+        elif kind == "refund":
+            spend[(day.year, day.month)] -= amount
     return spend, first
 
 
