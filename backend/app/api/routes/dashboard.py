@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.balances import balance_of
@@ -122,8 +122,8 @@ def card_bills(
     today: date,
     grace: timedelta | None = BILL_GRACE,
 ) -> list[CardBill]:
-    """Every card's unpaid bill, soonest first: its latest statement SMS, less what was
-    transferred into the card after the statement's date. Shown until `grace` past due (the
+    """Every card's unpaid bill, soonest first: its latest statement SMS, less what was paid or
+    credited to the card on or after the statement's date. Shown until `grace` past due (the
     dashboard's 3 days); with no grace, until it is paid."""
     bills: list[tuple[date, int, CardBill]] = []
     for card in cards:
@@ -144,12 +144,16 @@ def card_bills(
             continue
         if grace is not None and statement.due_date < today - grace:
             continue
+        # A payment the day the statement arrives pays it (it came after the statement was made,
+        # or the SMS would have asked less), and a refund or other credit to the card lowers it.
         paid = db.scalar(
             select(func.coalesce(func.sum(Transaction.amount), 0)).where(
                 Transaction.user_id == user_id,
-                Transaction.type == "transfer",
-                Transaction.to_account_id == card.id,
-                Transaction.date > statement.occurred_on,
+                or_(
+                    and_(Transaction.type == "transfer", Transaction.to_account_id == card.id),
+                    and_(Transaction.type == "income", Transaction.account_id == card.id),
+                ),
+                Transaction.date >= statement.occurred_on,
             )
         )
         left = statement.amount - Decimal(paid or 0)
