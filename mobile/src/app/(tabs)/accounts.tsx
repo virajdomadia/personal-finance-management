@@ -88,6 +88,13 @@ export default function AccountsScreen() {
     router.push({ pathname, params: { id: String(deposit.id) } });
   }, []);
 
+  // A credit card's statements, on their own screen.
+  const openStatements = useCallback((card: Account) => {
+    if (navigating.current) return;
+    navigating.current = true;
+    router.push({ pathname: "/card-statements", params: { id: String(card.id), name: card.name } });
+  }, []);
+
   const dueCards = useMemo(() => {
     const cards: { key: string; text: string; params: { rd: string } | { interest: string } }[] = [];
     for (const account of list?.accounts ?? []) {
@@ -247,6 +254,15 @@ export default function AccountsScreen() {
                     label="Record EMI"
                     accessibilityLabel={`Record an EMI for ${item.name}`}
                     onPress={() => recordEmi(item)}
+                  />
+                ) : item.type === "credit_card" ? (
+                  <ChunkyButton
+                    compact
+                    variant="alt"
+                    icon="file-document-outline"
+                    label="Statements"
+                    accessibilityLabel={`Statements for ${item.name}`}
+                    onPress={() => openStatements(item)}
                   />
                 ) : item.type === "ppf" ? (
                   <>

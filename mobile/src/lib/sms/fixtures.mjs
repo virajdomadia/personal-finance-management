@@ -2,7 +2,7 @@
 //
 // `expect` is the one line a message gives, a list of lines (CDSL can list several shares),
 // "ignore" or "unreadable". Each line names kind, amount, last4, payee, ref and date; balance,
-// dueDate, isin and quantity are checked when given. Messages are read as if received at
+// dueDate, minDue, isin and quantity are checked when given. Messages are read as if received at
 // RECEIVED unless a fixture says otherwise.
 //
 // The owner's real samples come first. Their account digits and reference numbers are replaced by
@@ -76,7 +76,7 @@ export const FIXTURES = [
   {
     name: "hdfc card statement", note: PUBLIC, sender: "VM-HDFCBK", bank: "hdfc",
     body: "HDFC Bank Credit Card XX7242 Statement: Total Amt Due Rs.42,926.27, Min Amt Due Rs.2,150.00, Payment Due Date 15-12-26.",
-    expect: { kind: "card_statement", amount: "42926.27", last4: "7242", payee: null, ref: null, date: "2026-11-12", dueDate: "2026-12-15" },
+    expect: { kind: "card_statement", amount: "42926.27", last4: "7242", payee: null, ref: null, date: "2026-11-12", dueDate: "2026-12-15", minDue: "2150.00" },
   },
 
   // State Bank of India
@@ -110,7 +110,7 @@ export const FIXTURES = [
   {
     name: "sbi card statement", note: PUBLIC, sender: "VM-SBICRD", bank: "sbicard",
     body: "SBI Card ending 3344: Statement generated. Total Amount Due Rs 8,450.75. Min Amount Due Rs 423.00. Pay by 02-Dec-26.",
-    expect: { kind: "card_statement", amount: "8450.75", last4: "3344", payee: null, ref: null, date: "2026-11-12", dueDate: "2026-12-02" },
+    expect: { kind: "card_statement", amount: "8450.75", last4: "3344", payee: null, ref: null, date: "2026-11-12", dueDate: "2026-12-02", minDue: "423.00" },
   },
   {
     name: "sbi card payment", note: PUBLIC, sender: "VM-SBICRD", bank: "sbicard",
@@ -274,7 +274,7 @@ export const FIXTURES = [
   {
     name: "federal card statement", note: PUBLIC, sender: "AX-FEDBNK-S", bank: "federal",
     body: "Your Federal Bank Credit Card XX5530 statement is generated. Total amount due: Rs.4,912.40. Minimum amount due: Rs.250.00. Due date: 28-11-2026. -Federal Bank",
-    expect: { kind: "card_statement", amount: "4912.40", last4: "5530", payee: null, ref: null, date: "2026-11-12", dueDate: "2026-11-28" },
+    expect: { kind: "card_statement", amount: "4912.40", last4: "5530", payee: null, ref: null, date: "2026-11-12", dueDate: "2026-11-28", minDue: "250.00" },
   },
   {
     name: "federal card payment", note: PUBLIC, sender: "AX-FEDBNK-S", bank: "federal",

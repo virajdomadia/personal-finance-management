@@ -65,6 +65,8 @@ class SmsEntry(Base):
     isin: Mapped[str | None] = mapped_column(String(12))
     quantity: Mapped[Decimal | None] = mapped_column(Numeric(24, 8))
     due_date: Mapped[dt.date | None] = mapped_column(Date)
+    # A card statement's minimum due, when the message gives one.
+    minimum_due: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
     # "recorded", "review", "draft", "ignored" or "duplicate".
     status: Mapped[str] = mapped_column(String(12))

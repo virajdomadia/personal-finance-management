@@ -15,6 +15,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.card_statements import record_from_sms
 from app.api.categories import usable
 from app.api.routes.accounts import rupees
 from app.api.routes.transactions import lock_accounts, save_checks
@@ -85,6 +86,7 @@ def _new_entry(user_id: int, sms: "ParsedSms") -> SmsEntry:
         isin=None if sms.isin is None else sms.isin.upper(),
         quantity=sms.quantity,
         due_date=sms.due_date,
+        minimum_due=sms.minimum_due,
         status="review",
     )
 
@@ -273,10 +275,11 @@ def _account(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
 
 
 def _card_statement(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
-    """A statement is kept for the card bill reminder; it doesn't move money."""
+    """A statement fills in the card's statement for its date; it doesn't move money."""
     if entry.kind != "card_statement":
         return None
     entry.status = "recorded"
+    record_from_sms(db, user_id, entry)
     return entry
 
 

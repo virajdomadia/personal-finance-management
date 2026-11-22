@@ -339,7 +339,9 @@ export function reviewCountText(count: number): string {
 
 // "Regalia bill ₹12,500 due 5 Dec".
 export function cardBillText(bill: CardBill): string {
-  return `${bill.name} bill ${whole(bill.amount)} due ${formatDueDate(bill.due_date)}`;
+  const text = `${bill.name} bill ${whole(bill.amount)} due ${formatDueDate(bill.due_date)}`;
+  const minimum = bill.minimum_left;
+  return minimum && Number(minimum) > 0 ? `${text} · minimum ${whole(minimum)} still to pay` : text;
 }
 
 // "Category: Food and dining", "Transfer to SBI", plus "Ticks off Rent" when tied to a reminder.

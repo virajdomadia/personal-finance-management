@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.api.routes import budgets, cash_flow, upcoming
 from app.main import app
 from app.models.account import Account
+from app.models.card_statement import CardStatement
 from app.models.goal import Goal, GoalEarmark
 from app.models.insurance import InsurancePolicy
 from app.models.investment import Instrument, Sip
@@ -58,6 +59,16 @@ class World:
         )
 
     def statement(self, card: Account, amount: str, on: date, due: date) -> None:
+        self.add(
+            CardStatement(
+                user_id=self.user,
+                account_id=card.id,
+                statement_date=on,
+                total_due=Decimal(amount),
+                due_date=due,
+                source="sms",
+            )
+        )
         self.add(
             SmsEntry(
                 user_id=self.user,
@@ -358,20 +369,7 @@ def test_card_bills_from_statements_and_reminders(headers: Headers, db_session: 
     regalia = w.account("credit_card", "Regalia", "15000.00", due_day=23)
     paid = w.account("credit_card", "Paid by reminder", "7000.00", due_day=10)
     settled = w.account("credit_card", "Settled", "0.00", due_day=3)
-    w.add(
-        SmsEntry(
-            user_id=w.user,
-            hash=hashlib.sha256(b"statement").hexdigest(),
-            sender="HDFCBK",
-            bank="hdfc",
-            kind="card_statement",
-            status="recorded",
-            account_id=regalia.id,
-            amount=Decimal("12000.00"),
-            occurred_on=date(2026, 11, 3),
-            due_date=date(2026, 11, 23),
-        )
-    )
+    w.statement(regalia, "12000.00", date(2026, 11, 3), date(2026, 11, 23))
     w.tx("transfer", "2000.00", date(2026, 11, 5), bank, to_account_id=regalia.id)
     w.template(
         "Card payment",

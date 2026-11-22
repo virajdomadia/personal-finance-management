@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.balances import balance_of
+from app.api.card_statements import latest_statement
 from app.api.categories import name_key
 from app.api.dates import INDIA, clamped_date
 from app.api.deposits import add_months, deposit_figures, rd_due_months
@@ -31,7 +32,6 @@ from app.models.goal import Goal, GoalEarmark
 from app.models.insurance import InsurancePolicy
 from app.models.investment import Instrument, Sip
 from app.models.recurring import RecurringTemplate
-from app.models.sms import SmsEntry
 from app.sms.expected import emis_paid
 
 ZERO = Decimal(0)
@@ -357,19 +357,9 @@ def fd_items(ctx: Context, until: date) -> list[Due]:
 
 
 def _last_statement_due(db: Session, user_id: int, card_id: int) -> date | None:
-    """The due date of the card's latest recorded statement, paid or not."""
-    return db.scalar(
-        select(SmsEntry.due_date)
-        .where(
-            SmsEntry.user_id == user_id,
-            SmsEntry.account_id == card_id,
-            SmsEntry.kind == "card_statement",
-            SmsEntry.status == "recorded",
-            SmsEntry.due_date.is_not(None),
-        )
-        .order_by(SmsEntry.occurred_on.desc(), SmsEntry.id.desc())
-        .limit(1)
-    )
+    """The due date of the card's latest statement, paid or not."""
+    latest = latest_statement(db, user_id, card_id)
+    return None if latest is None else latest.due_date
 
 
 def next_bill_date(card: Account, today: date, last_due: date | None) -> date | None:

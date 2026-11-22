@@ -4,6 +4,7 @@ from app.api.routes import (
     accounts,
     auth,
     budgets,
+    card_statements,
     cash_flow,
     categories,
     coins,
@@ -41,6 +42,7 @@ api_router = APIRouter()
 api_router.include_router(auth.public_router)
 api_router.include_router(auth.router)
 api_router.include_router(accounts.router)
+api_router.include_router(card_statements.router)
 api_router.include_router(deposits.router)
 api_router.include_router(imports.router)
 api_router.include_router(family.router)

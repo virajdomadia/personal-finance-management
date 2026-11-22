@@ -100,7 +100,8 @@ export type Dashboard = {
   card_bill?: CardBill | null;
 };
 
-export type CardBill = { account_id: number; name: string; amount: string; due_date: string };
+// `minimum_left`: what is still to pay of the statement's minimum; null or missing without one.
+export type CardBill = { account_id: number; name: string; amount: string; due_date: string; minimum_left?: string | null };
 
 export type AssetSplit = { group: "bank_cash" | "deposits" | "stocks" | "funds" | "crypto"; value: string };
 

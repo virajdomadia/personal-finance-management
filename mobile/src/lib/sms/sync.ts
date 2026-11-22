@@ -52,6 +52,7 @@ export type SmsEntry = {
   isin: string | null;
   quantity: string | null;
   due_date: string | null;
+  minimum_due: string | null; // a card statement's, when the message gives one
 };
 
 export type SyncDeps = {
@@ -178,6 +179,7 @@ function toEntry(hash: string, address: string, bank: string, line: Parsed, toda
     isin: clip(line.isin, 12),
     quantity: line.quantity,
     due_date: line.dueDate,
+    minimum_due: line.minDue,
   };
 }
 

@@ -203,6 +203,14 @@ test("reviewCountText", () => {
   assert.equal(reviewCountText(4), "4 messages to check");
 });
 
+test("cardBillText adds the minimum still to pay, when there is one", () => {
+  const bill = { account_id: 2, name: "HDFC Regalia", amount: "12500.00", due_date: "2026-12-05" };
+  const base = cardBillText(bill);
+  assert.equal(cardBillText({ ...bill, minimum_left: "500.00" }), `${base} · minimum ₹500 still to pay`);
+  assert.equal(cardBillText({ ...bill, minimum_left: "0.00" }), base);
+  assert.equal(cardBillText({ ...bill, minimum_left: null }), base);
+});
+
 test("cardBillText uses the API's amount as text", () => {
   assert.equal(cardBillText({ account_id: 2, name: "Regalia", amount: "12500.00", due_date: "2026-12-05" }), "Regalia bill ₹12,500 due 5 Dec");
   assert.equal(cardBillText({ account_id: 2, name: "Regalia", amount: "12500.50", due_date: "2026-12-05" }), "Regalia bill ₹12,500.50 due 5 Dec");

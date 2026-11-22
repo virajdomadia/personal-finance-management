@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.card_statements import record_from_sms
 from app.api.routes import coins, crypto_trades, dashboard, fund_trades, funds, sips
 from app.api.routes.accounts import fmt
 from app.api.routes.dashboard import next_due_date
@@ -300,15 +301,17 @@ def test_asset_split_sums_to_total_have(headers: Headers, monkeypatch: pytest.Mo
 
 
 def _sms(db: Session, user_id: int, seed: str, **fields: Any) -> None:
-    db.add(
-        SmsEntry(
-            user_id=user_id,
-            hash=hashlib.sha256(seed.encode()).hexdigest(),
-            sender="HDFCBK",
-            bank="hdfc",
-            **fields,
-        )
+    entry = SmsEntry(
+        user_id=user_id,
+        hash=hashlib.sha256(seed.encode()).hexdigest(),
+        sender="HDFCBK",
+        bank="hdfc",
+        **fields,
     )
+    db.add(entry)
+    db.flush()
+    if entry.kind == "card_statement" and entry.status == "recorded":
+        record_from_sms(db, user_id, entry)  # as recording a statement SMS does
     db.commit()
 
 
@@ -386,6 +389,7 @@ def test_dashboard_to_review_and_card_bill(headers: Headers, db_session: Session
         "account_id": regalia,
         "name": "Regalia",
         "amount": "12000.00",
+        "minimum_left": None,  # the SMS gave no minimum
         "due_date": "2026-11-13",
     }
 

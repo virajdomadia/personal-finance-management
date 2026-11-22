@@ -90,7 +90,7 @@ test("test_only_known_senders_are_parsed", async () => {
   assert.ok(!sentText.includes(bank.body), "raw text never leaves the phone");
   const [entry] = batches[0];
   assert.deepEqual(Object.keys(entry).sort(), [
-    "amount", "balance", "bank", "date", "due_date", "hash", "isin", "kind", "last4", "payee", "quantity", "ref", "sender",
+    "amount", "balance", "bank", "date", "due_date", "hash", "isin", "kind", "last4", "minimum_due", "payee", "quantity", "ref", "sender",
   ]);
   assert.equal(entry.sender, BOI.sender);
   assert.equal(entry.bank, "boi");

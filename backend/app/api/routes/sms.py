@@ -59,6 +59,7 @@ class ParsedSms(BaseModel):
     isin: Annotated[str | None, Field(pattern=r"^[A-Za-z0-9]{12}$")] = None
     quantity: Annotated[Decimal | None, Field(gt=0, max_digits=24, decimal_places=8)] = None
     due_date: Day = None
+    minimum_due: Money = None  # a card statement's, when the message gives one
 
     @model_validator(mode="after")
     def _rules(self) -> "ParsedSms":
@@ -71,6 +72,8 @@ class ParsedSms(BaseModel):
             raise PydanticCustomError("amount", "Enter an amount.")
         if self.amount is not None and self.amount <= 0:
             raise PydanticCustomError("amount", "Amount must be greater than 0.")
+        if self.minimum_due is not None and self.minimum_due < 0:
+            raise PydanticCustomError("minimum_due", "The minimum can't be negative.")
         if self.payee is not None:
             self.payee = " ".join(self.payee.split()) or None
         if self.ref is not None:
