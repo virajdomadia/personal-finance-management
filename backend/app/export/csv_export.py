@@ -437,16 +437,9 @@ def _net_worth(db: Session, user_id: int) -> Sheet:
     ]  # fmt: skip
     rows = [
         [
-            n.date,
-            money(n.net_worth),
-            money(n.total_have),
-            money(n.total_owe),
-            money(n.bank_cash),
-            money(n.deposits),
-            money(n.stocks),
-            money(n.funds),
-            money(n.crypto),
-            n.estimated,
+            n.date, money(n.net_worth), money(n.total_have), money(n.total_owe),
+            money(n.bank_cash), money(n.deposits), money(n.stocks), money(n.funds),
+            money(n.crypto), n.estimated,
         ]  # fmt: skip
         for n in found
     ]
