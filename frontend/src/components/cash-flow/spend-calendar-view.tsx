@@ -15,6 +15,7 @@ import {
   calendarWeeks,
   dayTone,
   dayTransactionsHref,
+  leadMark,
   markText,
   marksByDate,
   paceText,
@@ -254,7 +255,7 @@ function MonthGrid({ data }: { data: SpendCalendar }) {
         {data.per_day !== null && (
           <p className="text-xs font-bold text-zinc-600">
             <span className="text-gain">■</span> within {whole(data.per_day)} ·{" "}
-            <span className="text-loss">■</span> over · reminders: ✓ paid, ! due, • coming
+            <span className="text-loss">■</span> over
           </p>
         )}
       </div>
@@ -281,7 +282,7 @@ function MonthGrid({ data }: { data: SpendCalendar }) {
         </tbody>
       </table>
       <p className="mt-2 text-xs font-bold text-zinc-600">
-        Rent, SIPs and other fixed payments aren&apos;t counted here: they&apos;re already taken out of the free amount. Pick a day to see its transactions.
+        Rent, SIPs and other fixed payments aren&apos;t counted here: they&apos;re already taken out of the free amount. Reminders: ✓ paid · ! due · • coming · – skipped. Pick a day to see its transactions.
       </p>
     </section>
   );
@@ -289,17 +290,27 @@ function MonthGrid({ data }: { data: SpendCalendar }) {
 
 // The day's reminders as small badges; their names are in the cell's label and tooltip.
 function MarkBadges({ marks }: { marks: Mark[] }) {
-  if (marks.length === 0) return null;
+  const lead = leadMark(marks);
+  if (lead === null) return null;
+  const badge = (m: Mark, extra = "") => (
+    <span
+      key={m.template_id}
+      className={`flex size-3.5 items-center justify-center rounded-full text-[9px] leading-none font-black sm:size-4 ${MARK[m.state].className} ${extra}`}
+    >
+      {MARK[m.state].symbol}
+    </span>
+  );
   return (
-    <span className="flex gap-0.5" aria-hidden="true">
-      {marks.slice(0, 3).map((m) => (
-        <span
-          key={`${m.template_id}`}
-          className={`flex size-3.5 items-center justify-center rounded-full text-[9px] leading-none font-black sm:size-4 ${MARK[m.state].className}`}
-        >
-          {MARK[m.state].symbol}
-        </span>
-      ))}
+    <span className="flex items-center gap-0.5" aria-hidden="true">
+      {/* Narrow cells: the most urgent mark and a count; wider ones show up to three. */}
+      <span className="flex items-center gap-0.5 sm:hidden">
+        {badge(lead.mark)}
+        {lead.more > 0 && <span className="text-[9px] font-black">+{lead.more}</span>}
+      </span>
+      <span className="hidden gap-0.5 sm:flex">
+        {marks.slice(0, 3).map((m) => badge(m))}
+        {marks.length > 3 && <span className="text-[10px] font-black">+{marks.length - 3}</span>}
+      </span>
     </span>
   );
 }
@@ -307,11 +318,11 @@ function MarkBadges({ marks }: { marks: Mark[] }) {
 function DayCell({ day, marks }: { day: CalendarDay; marks: Mark[] }) {
   const tone = dayTone(day);
   const number = Number(day.date.slice(8));
-  const box = `flex h-14 flex-col justify-between rounded-[10px] border-2 px-0.5 py-1 sm:h-20 sm:p-1.5 ${TONE[tone]}`;
+  const box = `flex h-16 flex-col justify-between rounded-[10px] border-2 px-0.5 py-1 sm:h-20 sm:p-1.5 ${TONE[tone]}`;
   const reminders = marks.map(markText).join("; ");
   const reminderWords = reminders ? `. ${reminders}` : "";
   const top = (
-    <span className="flex items-start justify-between gap-0.5">
+    <span className="flex flex-col items-start gap-0.5 sm:flex-row sm:justify-between">
       <span className="text-xs font-black">{number}</span>
       <MarkBadges marks={marks} />
     </span>

@@ -212,6 +212,15 @@ export function markText(m: Mark): string {
   return `${m.name} ${whole(m.amount)} ${state}`;
 }
 
+const URGENCY: Record<Mark["state"], number> = { due: 0, coming: 1, paid: 2, skipped: 3 };
+
+// The one mark a narrow day cell shows (the most urgent) and how many more there are.
+export function leadMark(marks: Mark[]): { mark: Mark; more: number } | null {
+  if (marks.length === 0) return null;
+  const mark = marks.reduce((best, m) => (URGENCY[m.state] < URGENCY[best.state] ? m : best));
+  return { mark, more: marks.length - 1 };
+}
+
 // The calendar's two reminder lists: fixed money (active monthly) and the rest (yearly or stopped).
 export function splitTemplates<T extends { frequency: string; active: boolean }>(templates: T[]): { fixed: T[]; other: T[] } {
   const isFixed = (t: T) => t.active && t.frequency === "monthly";

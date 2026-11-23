@@ -17,6 +17,7 @@ import {
   calendarPath,
   calendarWeeks,
   dayTone,
+  leadMark,
   markText,
   marksByDate,
   monthLabel,
@@ -258,7 +259,7 @@ function MonthGrid({ data, onDay }: { data: SpendCalendar; onDay: (date: string)
         </View>
       ))}
       <Text variant="bodySmall" style={styles.muted}>
-        Rent, SIPs and other fixed payments aren&apos;t counted here: they&apos;re already taken out of the free amount. Tap a day to see its transactions.
+        Rent, SIPs and other fixed payments aren&apos;t counted here: they&apos;re already taken out of the free amount. Reminders: ✓ paid · ! due · • coming · – skipped. Tap a day to see its transactions.
       </Text>
     </ChunkyBox>
   );
@@ -272,15 +273,24 @@ const MARK = {
   skipped: { symbol: "–", bg: BRAND.zinc200, fg: BRAND.ink },
 } as const;
 
+// A cell is ~30dp wide on a small phone: one badge (the most urgent) and a count of the rest.
+// The names are all in the cell's spoken label.
 function MarkBadges({ marks }: { marks: Mark[] }) {
-  if (marks.length === 0) return null;
+  const lead = leadMark(marks);
+  if (lead === null) return null;
+  const look = MARK[lead.mark.state];
   return (
     <View style={styles.badges} importantForAccessibility="no-hide-descendants">
-      {marks.slice(0, 2).map((m) => (
-        <View key={m.template_id} style={[styles.badge, { backgroundColor: MARK[m.state].bg }]}>
-          <Text style={[styles.badgeText, { color: MARK[m.state].fg }]}>{MARK[m.state].symbol}</Text>
-        </View>
-      ))}
+      <View style={[styles.badge, { backgroundColor: look.bg }]}>
+        <Text allowFontScaling={false} style={[styles.badgeText, { color: look.fg }]}>
+          {look.symbol}
+        </Text>
+      </View>
+      {lead.more > 0 ? (
+        <Text allowFontScaling={false} style={styles.more}>
+          +{lead.more}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -292,7 +302,9 @@ function DayCell({ day, marks, onPress }: { day: CalendarDay; marks: Mark[]; onP
   const reminders = marks.length > 0 ? `. ${marks.map(markText).join("; ")}` : "";
   const top = (
     <View style={styles.dayTop}>
-      <Text style={[styles.dayNumber, { color: tone.fg }]}>{number}</Text>
+      <Text maxFontSizeMultiplier={1.2} style={[styles.dayNumber, { color: tone.fg }]}>
+        {number}
+      </Text>
       <MarkBadges marks={marks} />
     </View>
   );
@@ -425,10 +437,11 @@ const styles = StyleSheet.create({
   week: { flexDirection: "row", gap: 4 },
   weekday: { flex: 1, textAlign: "center" },
   slot: { flex: 1, minWidth: 0 },
-  day: { height: 52, borderWidth: 2, borderRadius: 10, paddingHorizontal: 3, paddingVertical: 4, justifyContent: "space-between" },
+  day: { height: 58, borderWidth: 2, borderRadius: 10, paddingHorizontal: 3, paddingVertical: 4, justifyContent: "space-between" },
   dayNumber: { fontSize: 12, fontWeight: "800" },
-  dayTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  badges: { flexDirection: "row", gap: 1 },
+  dayTop: { gap: 2 },
+  badges: { flexDirection: "row", alignItems: "center", gap: 1 },
+  more: { fontSize: 8, lineHeight: 10, fontWeight: "900", color: BRAND.ink },
   badge: { width: 12, height: 12, borderRadius: 6, alignItems: "center", justifyContent: "center" },
   badgeText: { fontSize: 8, lineHeight: 10, fontWeight: "900" },
   dayAmount: { fontSize: 11, fontWeight: "800", textAlign: "right", fontVariant: ["tabular-nums"] },

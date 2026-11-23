@@ -9,6 +9,7 @@ from app.api.spend_calendar import (
     allowance,
     calendar_days,
     counts_in,
+    last_settled,
     month_marks,
     pace,
 )
@@ -150,3 +151,12 @@ def test_marks_yearly_only_in_its_month() -> None:
     premium = reminder("yearly", day=10, month=3)
     assert month_marks(premium, [], set(), date(2026, 11, 1), today) == []
     assert month_marks(premium, [], set(), date(2026, 3, 1), today) == [(date(2026, 3, 10), "due")]
+
+
+def test_last_settled_counts_an_early_payment_for_its_own_month() -> None:
+    rent = TemplateRow(1, "monthly", 1, None, date(2026, 10, 1), None, 3, False)
+    # October and November paid, then 29 Nov from "Coming up 1 Dec": that settles December.
+    paid = [date(2026, 10, 1), date(2026, 11, 1), date(2026, 11, 29)]
+    assert last_settled(rent, paid, set()) == date(2026, 12, 1)
+    assert last_settled(rent, [date(2026, 11, 2)], set()) == date(2026, 11, 1)
+    assert last_settled(rent, [], set()) is None

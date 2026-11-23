@@ -6,7 +6,7 @@ Pure functions over plain rows, so the arithmetic is tested without a database.
 """
 
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import NamedTuple
 
@@ -117,3 +117,15 @@ def month_marks(
             state = "due" if o <= today else "coming"
         marks.append((o, state))
     return marks
+
+
+def last_settled(row: TemplateRow, paid: list[date], skips: set[date]) -> date | None:
+    """The latest occurrence these payments settle, by the reminder rules: a payment in the
+    lead-up settles the next occurrence, so rent paid on 29 Nov for 1 Dec settles December."""
+    if not paid:
+        return None
+    upto = max(paid) + timedelta(days=max(row.remind_days, 31) + 31)
+    live = row._replace(active=True)  # a stopped reminder has no open occurrences of its own
+    open_ = set(open_occurrences(live, paid, skips, upto))
+    settled = [o for o in occurrences(live, upto) if o not in open_ and o not in skips]
+    return max(settled, default=None)

@@ -234,3 +234,14 @@ def test_marks_on_the_month(headers: Headers) -> None:
         "kind": "out",
         "state": "paid",
     }
+
+
+def test_rent_paid_early_then_stopped_counts_in_its_month(
+    headers: Headers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hdfc = bank(headers, "100000.00", "HDFC")
+    reminder = made(headers, hdfc, amount="16000.00", day=1, start_date="2026-10-01")
+    recorded(headers, hdfc, "2026-10-01", recurring_template_id=reminder["id"])
+    recorded(headers, hdfc, "2026-10-30", recurring_template_id=reminder["id"])  # for 1 Nov
+    stop(headers, reminder["id"])
+    assert month(headers)["fixed_out"] == "16000.00"  # November's rent was paid

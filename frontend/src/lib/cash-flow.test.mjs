@@ -12,6 +12,7 @@ import {
   dayTone,
   dayTransactionsHref,
   filtersFromParams,
+  leadMark,
   marksByDate,
   markText,
   paceText,
@@ -174,4 +175,12 @@ test("splitTemplates: fixed is active monthly, other is yearly or stopped", () =
   const { fixed, other } = splitTemplates([t(1, "monthly", true), t(2, "yearly", true), t(3, "monthly", false)]);
   assert.deepEqual(fixed.map((x) => x.id), [1]);
   assert.deepEqual(other.map((x) => x.id), [2, 3]);
+});
+
+test("leadMark picks the most urgent mark and counts the rest", () => {
+  assert.equal(leadMark([]), null);
+  const lead = leadMark([mark("2026-11-05", "Rent", "paid"), mark("2026-11-05", "EMI", "due"), mark("2026-11-05", "Gym", "coming")]);
+  assert.equal(lead.mark.name, "EMI");
+  assert.equal(lead.more, 2);
+  assert.equal(leadMark([mark("2026-11-05", "Gym", "skipped"), mark("2026-11-05", "PPF", "coming")]).mark.name, "PPF");
 });

@@ -83,28 +83,22 @@ def spend_calendar(
     end = date(first.year, first.month, cf.last_day(first.year, first.month))
     through = min(end, today)
 
-    last_paid: dict[int, date] = dict(
-        db.execute(
-            select(Transaction.recurring_template_id, func.max(Transaction.date))
-            .where(
-                Transaction.user_id == user.id,
-                Transaction.recurring_template_id.is_not(None),
-            )
-            .group_by(Transaction.recurring_template_id)
-        ).all()
-    )
     lines: list[tuple[sc.Fixed, FixedLine]] = []
     templates = list(
         db.scalars(select(RecurringTemplate).where(RecurringTemplate.user_id == user.id))
     )
     payments = load_reminder_payments(db, user.id)
     marks: list[Mark] = []
+    rows = {
+        t.id: TemplateRow(
+            t.id, t.frequency, t.day, t.month, t.start_date, t.end_date, t.remind_days, t.active
+        )
+        for t in templates
+    }
     for t in templates:
         if not t.active:
             continue
-        row = TemplateRow(
-            t.id, t.frequency, t.day, t.month, t.start_date, t.end_date, t.remind_days, t.active
-        )
+        row = rows[t.id]
         for day, state in sc.month_marks(
             row, payments.paid.get(t.id, []), payments.skips.get(t.id, set()), first, today
         ):
@@ -123,9 +117,11 @@ def spend_calendar(
         if t.frequency != "monthly":
             continue
         kind = "income" if t.type == "income" else "out"
-        fixed = sc.Fixed(
-            t.name, kind, t.amount, t.day, t.start_date, t.end_date, t.active, last_paid.get(t.id)
+        # A stopped reminder counts up to the last occurrence a payment recorded through it settled.
+        last = sc.last_settled(
+            rows[t.id], payments.linked.get(t.id, []), payments.skips.get(t.id, set())
         )
+        fixed = sc.Fixed(t.name, kind, t.amount, t.day, t.start_date, t.end_date, t.active, last)
         line = FixedLine(
             id=t.id,
             source="reminder",

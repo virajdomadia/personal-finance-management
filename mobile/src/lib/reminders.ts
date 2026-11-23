@@ -23,6 +23,8 @@ export const BUDGET_CHANNEL = {
 // scheduled before it.
 export const CALENDAR_URL = "/calendar";
 export const UPCOMING_URL = "/upcoming";
+// What the calendar shows (reminders and premiums); other bills (cards, EMIs, deposits, SIPs) are on Upcoming.
+const ON_CALENDAR = new Set(["recurring", "insurance"]);
 export const BUDGETS_URL = "/budgets";
 
 // Whether each kind is on, kept per phone. Off until turned on in Profile.
@@ -103,7 +105,7 @@ export function planDueReminders(items: UpcomingItem[], now: Date): DueReminder[
     for (const lead of leads) {
       const at = addDays(item.date, -lead);
       if (at.getTime() <= now.getTime()) continue;
-      out.push({ id: dueId(item, lead), at, ...dueText(item, lead), url: CALENDAR_URL });
+      out.push({ id: dueId(item, lead), at, ...dueText(item, lead), url: ON_CALENDAR.has(item.kind) ? CALENDAR_URL : UPCOMING_URL });
     }
   }
   out.sort((a, b) => a.at.getTime() - b.at.getTime());
