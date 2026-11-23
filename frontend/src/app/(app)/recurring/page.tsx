@@ -1,25 +1,9 @@
-import type { Metadata } from "next";
-import { Suspense } from "react";
-
-import { RecurringView } from "@/components/recurring/recurring-view";
-
-export const metadata: Metadata = {
-  title: "Recurring",
-};
+import { redirect } from "next/navigation";
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
-// `?add=1` (from the first-run checklist) opens the add dialog.
-async function Content({ searchParams }: { searchParams: SearchParams }) {
+// Reminders now live on the spending calendar; old links and bookmarks land there.
+export default async function RecurringPage({ searchParams }: { searchParams: SearchParams }) {
   const { add } = await searchParams;
-  const adding = add === "1";
-  return <RecurringView key={adding ? "add" : "list"} adding={adding} />;
-}
-
-export default function RecurringPage({ searchParams }: { searchParams: SearchParams }) {
-  return (
-    <Suspense>
-      <Content searchParams={searchParams} />
-    </Suspense>
-  );
+  redirect(add === "1" ? "/calendar?add=1" : "/calendar");
 }

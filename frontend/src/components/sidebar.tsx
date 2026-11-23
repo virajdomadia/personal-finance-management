@@ -23,7 +23,6 @@ const LINKS = [
   { href: "/budgets", emoji: "📊", label: "Budgets" },
   { href: "/investments", emoji: "📈", label: "Investments" },
   { href: "/family", emoji: "👨‍👩‍👧", label: "Family" },
-  { href: "/recurring", emoji: "🔁", label: "Recurring" },
   { href: "/insurance", emoji: "🛡️", label: "Insurance" },
   { href: "/goals", emoji: "🎯", label: "Goals" },
 ] as const;
