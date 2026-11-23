@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { type Template, scheduleText, toggleLabel, whole } from "@/lib/recurring";
 
 import { DueSection } from "./due-list";
+import { FreeToSpend } from "./free-to-spend";
 import { TemplateDialog } from "./template-dialog";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; templates: Template[] };
@@ -115,6 +116,7 @@ export function RecurringView({ adding = false }: { adding?: boolean }) {
       />
 
       <Notice message={notice} />
+      <FreeToSpend refreshKey={dueKey} />
       <DueSection refreshKey={dueKey} onChanged={reload} />
 
       {load.status === "loading" && (

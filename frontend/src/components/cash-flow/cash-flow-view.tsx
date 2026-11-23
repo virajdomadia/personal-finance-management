@@ -58,6 +58,9 @@ export function CashFlowView({ month }: { month: string | null }) {
         title={`Cash flow · ${load.status === "ready" ? formatMonth(load.data.month) : title}`}
         action={
           <>
+            <Link href={month ? `/calendar?month=${month}` : "/calendar"} className={`${buttonClass("alt")} uppercase`}>
+              Calendar
+            </Link>
             <Link href="/categories" className={`${buttonClass("alt")} uppercase`}>
               Categories
             </Link>

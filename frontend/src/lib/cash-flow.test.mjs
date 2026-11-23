@@ -92,3 +92,62 @@ test("sliceType keeps spending apart from income of the same name", () => {
     "/transactions?month=2026-11&category=Other&type=expense",
   );
 });
+
+// --- Spend calendar ---------------------------------------------------------------------------
+
+import {
+  calendarPath,
+  calendarWeeks,
+  dayTone,
+  dayTransactionsHref,
+  paceText,
+  shortRupees,
+} from "./cash-flow.ts";
+
+const novemberDays = Array.from({ length: 30 }, (_, i) => ({
+  date: `2026-11-${String(i + 1).padStart(2, "0")}`,
+  spent: i < 12 ? "100.00" : null,
+  over: i < 12 ? false : null,
+}));
+
+test("calendarPath", () => {
+  assert.equal(calendarPath(null), "/calendar");
+  assert.equal(calendarPath("2026-10"), "/calendar?month=2026-10");
+});
+
+test("calendarWeeks starts on Monday and pads with nulls", () => {
+  const weeks = calendarWeeks(novemberDays);
+  assert.equal(weeks.length, 6);
+  assert.deepEqual(weeks[0].slice(0, 6), [null, null, null, null, null, null]);
+  assert.equal(weeks[0][6].date, "2026-11-01");
+  assert.equal(weeks[5][0].date, "2026-11-30");
+  assert.deepEqual(weeks[5].slice(1), [null, null, null, null, null, null]);
+  assert.ok(weeks.every((w) => w.length === 7));
+});
+
+test("shortRupees", () => {
+  assert.equal(shortRupees("0.00"), "₹0");
+  assert.equal(shortRupees("420.00"), "₹420");
+  assert.equal(shortRupees("999.60"), "₹1,000");
+  assert.equal(shortRupees("1234.00"), "₹1.2k");
+  assert.equal(shortRupees("125000.00"), "₹1.3L");
+  assert.equal(shortRupees("-1500.00"), "−₹1.5k");
+});
+
+test("dayTone", () => {
+  assert.equal(dayTone({ date: "2026-11-13", spent: null, over: null }), "future");
+  assert.equal(dayTone({ date: "2026-11-05", spent: "600.00", over: false }), "under");
+  assert.equal(dayTone({ date: "2026-11-05", spent: "1600.00", over: true }), "over");
+  assert.equal(dayTone({ date: "2026-11-05", spent: "600.00", over: null }), "plain");
+});
+
+test("dayTransactionsHref", () => {
+  assert.equal(dayTransactionsHref("2026-11-05"), "/transactions?from=2026-11-05&to=2026-11-05");
+});
+
+test("paceText", () => {
+  assert.equal(paceText("2000.00"), "₹2,000 under pace");
+  assert.equal(paceText("-500.00"), "₹500 over pace");
+  assert.equal(paceText("0.00"), "Right on pace");
+  assert.equal(paceText(null), null);
+});

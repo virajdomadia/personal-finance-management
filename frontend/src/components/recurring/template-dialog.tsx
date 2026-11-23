@@ -58,19 +58,24 @@ function renderedFields(form: TemplateForm): Key[] {
 type Props = {
   template: Template | null; // null means adding
   frequency: Frequency; // for a new one
+  type?: TemplateType; // for a new one; the form's default otherwise
   onClose: () => void;
   onSaved: () => void;
   onConflict: (message: string) => void;
 };
 
-export function TemplateDialog({ template, frequency, onClose, onSaved, onConflict }: Props) {
+export function TemplateDialog({ template, frequency, type, onClose, onSaved, onConflict }: Props) {
   const editing = template !== null;
   const fromPolicy = template !== null && template.policy_id !== null;
   const ref = useRef<HTMLDialogElement>(null);
   const savingRef = useRef(false);
   const submitRef = useRef<HTMLButtonElement>(null);
   const needFocus = useRef(false);
-  const [form, setForm] = useState<TemplateForm>(() => (template ? templateFormFrom(template) : templateFormBlank(frequency)));
+  const [form, setForm] = useState<TemplateForm>(() => {
+    if (template) return templateFormFrom(template);
+    const blank = templateFormBlank(frequency);
+    return type ? { ...blank, type } : blank;
+  });
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<CategoryList>({ income: [], expense: [] });
   const [accountsFailed, setAccountsFailed] = useState(false);

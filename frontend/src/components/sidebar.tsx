@@ -19,6 +19,7 @@ const LINKS = [
   { href: "/accounts", emoji: "👛", label: "Accounts" },
   { href: "/transactions", emoji: "💸", label: "Transactions" },
   { href: "/cash-flow", emoji: "🗓️", label: "Cash flow" },
+  { href: "/calendar", emoji: "📅", label: "Spending calendar" },
   { href: "/budgets", emoji: "📊", label: "Budgets" },
   { href: "/investments", emoji: "📈", label: "Investments" },
   { href: "/family", emoji: "👨‍👩‍👧", label: "Family" },
