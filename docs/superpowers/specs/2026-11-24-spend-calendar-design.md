@@ -59,3 +59,25 @@ SIP 5,000 − PPF 3,000 = 30,800 free a month → 30,800 ÷ 31 = ₹994 a day in
   shortened (₹1.2k) in narrow cells.
 - How to get the IDs of matched-but-unlinked reminder payments (`ReminderPayments` currently returns
   dates only).
+
+---
+
+## Part 2 (24 Nov): the calendar replaces the Recurring screen
+
+**Why:** the owner wants one place for fixed money: "remove the recurring feature and add notification and CRUD of recurring with spending calendar".
+
+**Decided by the owner:** the Recurring screen goes away on web and phone. Everything it did moves to the calendar. Yearly and stopped reminders live in an **"Other reminders"** list under "Your fixed money" (option 1). Reminders as data stay, because Upcoming, safe-to-spend, SMS matching and phone notifications all run on them.
+
+**What the calendar gains**
+- **Due now** (this month only): the existing due list with Done / Skip, as on the Recurring screen today.
+- **Day markers:** every reminder occurrence in the month is marked on its day, either paid (tick), due (owed, today or earlier), coming, or skipped. Yearly ones show in their month.
+- **Full CRUD** in both lists: add, edit, stop or restart, delete, and undo a skip. A policy's reminder still can't be deleted (it's changed from Insurance), exactly as today.
+- **Your fixed money** = active monthly reminders, plus SIP plans (SIPs are still changed from Investments). **Other reminders** = yearly reminders and stopped ones.
+
+**Notifications:** they stay scheduled on the phone from the reminders (no Firebase, no new native module). Due-reminder notifications now open the calendar. The old `/upcoming` link is still accepted, so notifications already scheduled keep working.
+
+**Removed:** the web `/recurring` page (it now redirects to `/calendar`, and `?add=1` opens the add form), the sidebar entry, the Recurring view and its summary; the phone's `recurring` screen and its Profile entry (Profile now opens the calendar).
+
+**Anti-goals:** no reminder data or behaviour changes; Upcoming and safe-to-spend are untouched.
+
+**Approach (my call, as how-it-gets-made):** move the Recurring screen's list and its actions into a shared reminder-list component on each platform, rendered twice on the calendar with the templates split. The backend adds the month's reminder occurrences to `GET /calendar`.

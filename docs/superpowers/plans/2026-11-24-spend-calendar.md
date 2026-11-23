@@ -213,3 +213,28 @@ Router: `APIRouter(prefix="/calendar", tags=["calendar"], dependencies=[Depends(
 
 - [ ] Whole-branch review, then push `feat/spend-calendar` and open a PR (ask the owner first).
 - [ ] After merge: API + web deploy via the GitHub Actions `vercel.yml` (no Vercel build minutes), then `eas update --branch production --environment production` after confirming the runtime is unchanged.
+
+---
+
+## Part 2: calendar replaces Recurring (spec "Part 2")
+
+### Task 7: Reminder occurrences in `GET /api/calendar`
+
+**Files:** Modify `backend/app/api/spend_calendar.py`, `backend/app/api/routes/calendar.py`. Test `backend/tests/test_spend_calendar_math.py`, `backend/tests/test_spend_calendar.py`.
+
+**Interfaces:** Produces `def month_marks(row: TemplateRow, paid: list[date], skips: set[date], first: date, today: date) -> list[tuple[date, str]]` (state ∈ "paid" | "due" | "coming" | "skipped") in `spend_calendar.py`, built on `recurring.occurrences` and `recurring.open_occurrences`. Response gains `marks: list[Mark]` with `Mark = {date, template_id, name, amount, kind: "income"|"out", state}` for every **active** reminder (monthly and yearly) with an occurrence in the month, sorted by date then name, using `load_reminder_payments`.
+
+- [ ] Failing tests: math: an occurrence settled by a payment is "paid", an open one on or before today is "due", after today is "coming", a skipped one is "skipped", and a yearly reminder outside its month gives no mark. API: rent paid on the 5th shows `{"date": "2026-11-05", "state": "paid"}`; salary not recorded shows "due"; a yearly premium due in March is absent from November.
+- [ ] Implement, run `ENVIRONMENT=test uv run pytest tests/test_spend_calendar.py tests/test_spend_calendar_math.py -q`, and run the full suite. Commit.
+
+### Task 8: Web: the calendar takes over Recurring
+
+**Files:** Create `frontend/src/components/recurring/reminder-list.tsx` (the table, row and actions moved out of `recurring-view.tsx`: edit, stop/restart, delete with ConfirmDelete, undo skip). Modify `spend-calendar-view.tsx` (due section via `DueSection` for the current month; "Your fixed money" = active monthly templates in a `ReminderList` plus SIP rows; "Other reminders" = the rest in a `ReminderList`; day markers; `?add=1` opens Add fixed expense). Replace `frontend/src/app/(app)/recurring/page.tsx` with a redirect to `/calendar` (keeping `?add=1`). Delete `recurring-view.tsx` and `free-to-spend.tsx`. Remove the sidebar entry; `setup.ts` href → `/calendar?add=1`. Lib helpers in `cash-flow.ts` with tests in `cash-flow.test.mjs`: `type Mark`, `marksByDate(marks) -> Map<string, Mark[]>`, `markText(mark) -> "Rent ₹16,000 paid"`, `splitTemplates(templates) -> { fixed, other }` (fixed = active && monthly).
+
+- [ ] Failing lib tests, then implement, `npm test && npm run lint && npx tsc --noEmit`, and check it in the browser (add, edit, stop, delete, record a due one, undo a skip, markers). Commit.
+
+### Task 9: Phone: the calendar takes over Recurring, and notifications open it
+
+**Files:** Create `mobile/src/components/reminder-list.tsx` (rows and actions moved out of `recurring.tsx`, delete dialog included). Modify `mobile/src/app/calendar.tsx` (DueList for the current month, the two lists, markers), `mobile/src/lib/cash-flow.ts` and its tests (same helpers as web), `mobile/src/lib/reminders.ts` (due notifications use `CALENDAR_URL = "/calendar"`; `reminderTarget` accepts `/calendar`, `/upcoming` and `/budgets`) and `reminders.test.mjs`, `mobile/src/app/(tabs)/profile.tsx` (entry opens the calendar). Delete `mobile/src/app/recurring.tsx` and its `Stack.Screen`. **Do not touch `mobile/package.json`.**
+
+- [ ] Failing tests (helpers; `reminderTarget("/calendar")` → "/calendar", `"/upcoming"` still accepted; due reminders built with url "/calendar"), implement, `npm test`, `npx tsc --noEmit`, `npm run lint`, and `git diff main -- mobile/package.json` empty. Commit.
