@@ -58,6 +58,7 @@ ALL_TABLES = {
     "corporate_actions",
     "stock_actions",
     "dividend_links",
+    "card_statements",
 }
 
 
@@ -395,6 +396,7 @@ def test_recurring_migration_round_trip(migrations_db: str) -> None:
         "budgets",
         "market_codes",
         "net_worth_snapshots",
+        "card_statements",
     }
     columns = {c["name"] for c in inspect(create_engine(migrations_db)).get_columns("transactions")}
     assert "recurring_template_id" not in columns
@@ -450,6 +452,7 @@ def test_goals_migration_round_trip(migrations_db: str) -> None:
         "net_worth_snapshots",
         "categories",
         "budgets",
+        "card_statements",
     }
     assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(RECURRING_REVISION,)]
 
@@ -776,7 +779,7 @@ def test_corporate_actions_migration_round_trip(migrations_db: str) -> None:
     ] == (True,)
 
     command.downgrade(config, PRE_ACTIONS_REVISION)
-    assert tables(migrations_db) == ALL_TABLES - ACTION_TABLES
+    assert tables(migrations_db) == ALL_TABLES - ACTION_TABLES - {"card_statements"}
     inspector = inspect(create_engine(migrations_db))
     assert "basis_date" not in {c["name"] for c in inspector.get_columns("investment_trades")}
     assert not {"actions_backfilled_at", "suspect_drop_on"} & {
