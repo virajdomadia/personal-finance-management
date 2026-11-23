@@ -58,6 +58,7 @@ ALL_TABLES = {
     "corporate_actions",
     "stock_actions",
     "dividend_links",
+    "card_statements",
 }
 
 
@@ -255,7 +256,8 @@ BUDGETS_REVISION = "7e5d2fc1e167"
 FD_REVISION = "a1c3e5f7b902"
 ACTIONS_REVISION = "c3f8a1d4e625"
 PRICES_REVISION = "d5a9c2e7f314"
-HEAD_REVISION = "e8b4d1f6a2c7"
+REFUNDS_REVISION = "e8b4d1f6a2c7"
+HEAD_REVISION = "f3c7a9e1d4b8"
 PRE_ACTIONS_REVISION = "b7d2e4f6a813"
 ACTION_TABLES = {"corporate_actions", "stock_actions", "dividend_links"}
 SMS_TABLES = {"account_identifiers", "sms_entries", "payee_rules", "sms_samples"}
@@ -394,6 +396,7 @@ def test_recurring_migration_round_trip(migrations_db: str) -> None:
         "budgets",
         "market_codes",
         "net_worth_snapshots",
+        "card_statements",
     }
     columns = {c["name"] for c in inspect(create_engine(migrations_db)).get_columns("transactions")}
     assert "recurring_template_id" not in columns
@@ -449,6 +452,7 @@ def test_goals_migration_round_trip(migrations_db: str) -> None:
         "net_worth_snapshots",
         "categories",
         "budgets",
+        "card_statements",
     }
     assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(RECURRING_REVISION,)]
 
@@ -775,7 +779,7 @@ def test_corporate_actions_migration_round_trip(migrations_db: str) -> None:
     ] == (True,)
 
     command.downgrade(config, PRE_ACTIONS_REVISION)
-    assert tables(migrations_db) == ALL_TABLES - ACTION_TABLES
+    assert tables(migrations_db) == ALL_TABLES - ACTION_TABLES - {"card_statements"}
     inspector = inspect(create_engine(migrations_db))
     assert "basis_date" not in {c["name"] for c in inspector.get_columns("investment_trades")}
     assert not {"actions_backfilled_at", "suspect_drop_on"} & {
@@ -838,3 +842,44 @@ def test_downgrade_refuses_refunds(migrations_db: str) -> None:
     _execute(migrations_db, "DELETE FROM transactions")
     command.downgrade(config, PRICES_REVISION)
     assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(PRICES_REVISION,)]
+
+
+def test_statement_sms_are_copied_into_card_statements(migrations_db: str) -> None:
+    config = alembic_config(migrations_db)
+    command.upgrade(config, REFUNDS_REVISION)
+    seed_investments(migrations_db)  # a user and an account
+    sms = (
+        "INSERT INTO sms_entries (id, user_id, hash, sender, bank, kind, amount, occurred_on,"
+        " due_date, account_id, status) VALUES ({id}, 1, '{h}', 'HDFCBK', 'hdfc',"
+        " 'card_statement', {amount}, '{on}', '{due}', 1, '{status}')"
+    )
+    for id_, amount, on, status in [
+        (1, "15000", "2026-10-03", "recorded"),
+        (2, "15100", "2026-10-03", "recorded"),  # the same statement, read again: it wins
+        (3, "9000", "2026-11-03", "recorded"),
+        (4, "500", "2026-11-10", "review"),  # not recorded: left out
+    ]:
+        due = "2026-10-23" if on == "2026-10-03" else "2026-11-23"
+        _execute(
+            migrations_db,
+            sms.format(id=id_, h=f"{id_:064d}", amount=amount, on=on, due=due, status=status),
+        )
+    command.upgrade(config, "head")
+
+    assert rows(
+        migrations_db,
+        "SELECT account_id, statement_date, total_due, minimum_due, due_date, source"
+        " FROM card_statements ORDER BY statement_date",
+    ) == [
+        (1, date(2026, 10, 3), Decimal("15100.00"), None, date(2026, 10, 23), "sms"),
+        (1, date(2026, 11, 3), Decimal("9000.00"), None, date(2026, 11, 23), "sms"),
+    ]
+
+    # A statement entered by hand exists nowhere else, so the downgrade refuses while one does.
+    _execute(migrations_db, "UPDATE card_statements SET source = 'manual'")
+    with pytest.raises(RuntimeError, match="Statements entered by hand exist"):
+        command.downgrade(config, REFUNDS_REVISION)
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(HEAD_REVISION,)]
+    _execute(migrations_db, "DELETE FROM card_statements")
+    command.downgrade(config, REFUNDS_REVISION)
+    assert rows(migrations_db, "SELECT version_num FROM alembic_version") == [(REFUNDS_REVISION,)]

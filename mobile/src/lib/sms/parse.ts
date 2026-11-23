@@ -19,6 +19,7 @@ export type Parsed = {
   isin: string | null;
   quantity: string | null;
   dueDate: string | null;
+  minDue: string | null; // a card statement's minimum due, when the message gives one
 };
 
 export type ParseResult = Parsed[] | "unreadable" | "ignore";
@@ -339,6 +340,10 @@ const TOTAL_DUE = new RegExp(
   String.raw`\btot(?:al|\.)?\s*(?:amt\.?|amount)?\s*(?:due|payable|outstanding)\b[^0-9]{0,20}?(${NUM})`,
   "i",
 );
+const MIN_DUE = new RegExp(
+  String.raw`\bmin(?:imum)?\.?\s*(?:amt\.?|amount)?\s*(?:due|payable)\b[^0-9]{0,20}?(${NUM})`,
+  "i",
+);
 const DUE_WORDS = /\b(?:due\s*(?:date|by|on)?|pay(?:able)?\s+(?:by|before))\b\s*(?:is\b|:|-)?\s*(?:on\b|by\b)?\s*/gi;
 const NOT_TOTAL = /(?:min(?:imum)?\.?\s*(?:amt\.?|amount)?\s*(?:due|payable)?|limit|lmt|bal(?:ance)?)\W*$/i;
 
@@ -352,6 +357,7 @@ function blank(line: Partial<Parsed> & { kind: SmsKind; date: string }): Parsed 
     isin: null,
     quantity: null,
     dueDate: null,
+    minDue: null,
     ...line,
   };
 }
@@ -362,6 +368,8 @@ function statement(text: string, received: string): ParseResult {
   const total = TOTAL_DUE.exec(text);
   const amount = (total && money(total[1])) || amountOf(text, NOT_TOTAL);
   if (!amount) return "ignore";
+  const min = MIN_DUE.exec(text);
+  const minimum = (min && money(min[1])) || null;
   let dueDate: string | null = null;
   let rest = text;
   for (const words of text.matchAll(DUE_WORDS)) {
@@ -384,6 +392,7 @@ function statement(text: string, received: string): ParseResult {
       date: dateIn(rest, received) ?? received,
       last4: last4Of(text, "card_statement"),
       dueDate,
+      minDue: minimum,
     }),
   ];
 }

@@ -8,7 +8,7 @@ import { senderBank } from "./senders.ts";
 
 const AT = new Date(RECEIVED);
 const MAIN = ["kind", "amount", "last4", "payee", "ref", "date"];
-const EXTRA = ["balance", "dueDate", "isin", "quantity"];
+const EXTRA = ["balance", "dueDate", "minDue", "isin", "quantity"];
 
 // Checks every field the expectation names; the six main ones must always be named.
 function assertLine(actual, expected, label) {

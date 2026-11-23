@@ -4,10 +4,11 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.balances import balance_of
+from app.api.card_statements import latest_statement, standing
 from app.api.dates import clamped_date, today_india
 from app.api.deposits import with_deposits
 from app.api.deps import CurrentUser, get_current_user
@@ -20,7 +21,6 @@ from app.api.worth import worth_of
 from app.db.session import DbSession
 from app.models.account import Account
 from app.models.sms import SmsEntry
-from app.models.transaction import Transaction
 
 router = APIRouter(
     prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(get_current_user)]
@@ -46,6 +46,7 @@ class CardBill(BaseModel):
     account_id: int
     name: str
     amount: str  # what is still to pay of the latest statement
+    minimum_left: str | None  # what is still to pay of its minimum; None without one
     due_date: str
 
 
@@ -122,49 +123,23 @@ def card_bills(
     today: date,
     grace: timedelta | None = BILL_GRACE,
 ) -> list[CardBill]:
-    """Every card's unpaid bill, soonest first: its latest statement SMS, less what was paid or
-    credited to the card on or after the statement's date. Shown until `grace` past due (the
-    dashboard's 3 days); with no grace, until it is paid."""
+    """Every card's unpaid bill, soonest first: its latest statement, less what was paid or
+    credited to the card on or after the statement's date (`card_statements.standing`). Shown
+    until `grace` past due (the dashboard's 3 days); with no grace, until it is paid."""
     bills: list[tuple[date, int, CardBill]] = []
     for card in cards:
-        statement = db.scalar(
-            select(SmsEntry)
-            .where(
-                SmsEntry.user_id == user_id,
-                SmsEntry.account_id == card.id,
-                SmsEntry.kind == "card_statement",
-                SmsEntry.status == "recorded",
-                SmsEntry.amount.is_not(None),
-                SmsEntry.due_date.is_not(None),
-            )
-            .order_by(SmsEntry.occurred_on.desc(), SmsEntry.id.desc())
-            .limit(1)
-        )
-        if statement is None or statement.amount is None or statement.due_date is None:
+        statement = latest_statement(db, user_id, card.id)
+        if statement is None:
             continue
         if grace is not None and statement.due_date < today - grace:
             continue
-        # A payment the day the statement arrives pays it (it came after the statement was made,
-        # or the SMS would have asked less), and a refund or other credit to the card lowers it.
-        paid = db.scalar(
-            select(func.coalesce(func.sum(Transaction.amount), 0)).where(
-                Transaction.user_id == user_id,
-                or_(
-                    and_(Transaction.type == "transfer", Transaction.to_account_id == card.id),
-                    and_(
-                        Transaction.type.in_(("income", "refund")),
-                        Transaction.account_id == card.id,
-                    ),
-                ),
-                Transaction.date >= statement.occurred_on,
-            )
-        )
-        left = statement.amount - Decimal(paid or 0)
-        if left > 0:
+        s = standing(db, user_id, statement, today)
+        if s.left > 0:
             bill = CardBill(
                 account_id=card.id,
                 name=card.name,
-                amount=fmt(left),
+                amount=fmt(s.left),
+                minimum_left=None if s.minimum_left is None else fmt(s.minimum_left),
                 due_date=statement.due_date.isoformat(),
             )
             bills.append((statement.due_date, card.id, bill))

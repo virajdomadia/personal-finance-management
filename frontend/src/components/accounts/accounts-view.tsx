@@ -29,6 +29,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { accountEmoji } from "@/lib/fun";
 
 import { AccountDialog } from "./account-dialog";
+import { CardStatementsDialog } from "./card-statements-dialog";
 import { CloseDepositDialog } from "./close-deposit-dialog";
 import { RenewFdDialog } from "./renew-fd-dialog";
 
@@ -42,7 +43,8 @@ type Dialog =
   | { kind: "ppf-deposit"; account: Account }
   | { kind: "ppf-interest"; account: Account }
   | { kind: "close-deposit"; account: Account } // an RD or FD
-  | { kind: "renew-fd"; account: Account };
+  | { kind: "renew-fd"; account: Account }
+  | { kind: "statements"; account: Account }; // a credit card
 
 // What the first-run checklist asks the add dialog to start on (`/accounts?add=...`).
 export type AddStart = { type: AccountType; bank_kind?: string };
@@ -164,6 +166,7 @@ export function AccountsView({ add = null }: { add?: AddStart | null }) {
           onDeposit={(account, kind) => setDialog({ kind, account })}
           onCloseDeposit={(account) => setDialog({ kind: "close-deposit", account })}
           onRenewFd={(account) => setDialog({ kind: "renew-fd", account })}
+          onStatements={(account) => setDialog({ kind: "statements", account })}
           onRestore={async (account) => {
             setNotice(null);
             try {
@@ -175,6 +178,10 @@ export function AccountsView({ add = null }: { add?: AddStart | null }) {
             reload();
           }}
         />
+      )}
+
+      {dialog.kind === "statements" && (
+        <CardStatementsDialog card={dialog.account} onClose={closeDialog} onChanged={reload} />
       )}
 
       {dialog.kind === "form" && (
@@ -289,6 +296,7 @@ function Content({
   onDeposit,
   onCloseDeposit,
   onRenewFd,
+  onStatements,
 }: {
   data: AccountList;
   archived: boolean;
@@ -301,6 +309,7 @@ function Content({
   onDeposit: (account: Account, kind: "instalment" | "ppf-deposit" | "ppf-interest") => void;
   onCloseDeposit: (account: Account) => void;
   onRenewFd: (account: Account) => void;
+  onStatements: (card: Account) => void;
 }) {
   const dueLines = archived
     ? []
@@ -434,6 +443,7 @@ function Content({
                     onDeposit={onDeposit}
                     onCloseDeposit={onCloseDeposit}
                     onRenewFd={onRenewFd}
+                    onStatements={onStatements}
                   />
                 ))}
               </ul>
@@ -461,6 +471,7 @@ function AccountRow({
   onDeposit,
   onCloseDeposit,
   onRenewFd,
+  onStatements,
 }: {
   account: Account;
   onEdit: (account: Account) => void;
@@ -470,6 +481,7 @@ function AccountRow({
   onDeposit: (account: Account, kind: "instalment" | "ppf-deposit" | "ppf-interest") => void;
   onCloseDeposit: (account: Account) => void;
   onRenewFd: (account: Account) => void;
+  onStatements: (card: Account) => void;
 }) {
   const [restoring, setRestoring] = useState(false);
   const [today] = useState(todayIndia);
@@ -584,6 +596,11 @@ function AccountRow({
           </button>
         ) : (
           <>
+            {card && (
+              <button type="button" className={ROW_ACTION} aria-label={`Statements for ${account.name}`} onClick={() => onStatements(account)}>
+                Statements
+              </button>
+            )}
             {loan && !paidOff && (
               <button
                 type="button"
