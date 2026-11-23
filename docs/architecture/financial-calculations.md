@@ -165,6 +165,21 @@ safe to spend = money now − due before payday − set aside for goals − budg
 
 Example, 12 November, salary reminder on the 1st, so the window runs to 30 November: bank ₹60,000 and cash ₹2,000 = ₹62,000. Due: rent ₹20,000 (Housing) on the 15th, an EMI of ₹12,000 on the 20th, a card bill of ₹8,000 on the 25th = ₹40,000. Set aside for goals ₹5,000. Budgets: Food and dining ₹800 left; Housing ₹20,000 left less the ₹20,000 rent = ₹0; Shopping overspent, ₹0. Safe to spend = 62,000 − 40,000 − 5,000 − 800 = **₹16,200**.
 
+### Spend calendar
+
+```
+free      = monthly income reminders − other monthly reminders − SIP plans
+daily     = free ÷ days in the month   (rounded half up to the paisa; the same every day)
+```
+
+- **Fixed money** is every monthly reminder (income in; expense and transfer out) and every SIP plan that is active and overlaps the month (start date on or before its last day, end date, if any, on or after its 1st). It counts for the whole month. Yearly reminders never count.
+- The daily amount depends only on those, never on what was recorded, so it doesn't move mid-month. With no monthly income reminder there is no daily amount and days aren't judged.
+- **Spent on a day** is the [cash flow](#monthly-cash-flow) spending rule (expenses, EMI interest, less refunds), leaving out any transaction that pays a fixed outgoing reminder, whether recorded through it or matched to it, so rent day isn't counted as spending. SIP instalments are investment buys, not spending.
+- A day is **over** when spent > daily (with a negative daily amount, any spending is over). Days after today are blank.
+- **Left** = free − spent this month; **pace** = daily × days so far − spent (positive is under).
+
+Example, 30-day November: salary ₹54,800 − rent ₹16,000 − SIP ₹5,000 − PPF ₹3,000 = ₹30,800 free; ₹30,800 ÷ 30 = **₹1,026.67 a day**.
+
 ## Weekly digest
 
 **Built on branch `weekly-digest`.** See the [design](../superpowers/specs/2026-11-13-weekly-digest-design.md). `GET /digest?week=` works out one week's summary when asked; nothing is stored.
