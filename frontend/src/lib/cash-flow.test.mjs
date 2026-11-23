@@ -4,13 +4,19 @@ import { test } from "node:test";
 import {
   activeFilterCount,
   blankFilters,
+  calendarPath,
+  calendarWeeks,
   categoryLink,
   changeText,
   changeTone,
+  dayTone,
+  dayTransactionsHref,
   filtersFromParams,
+  paceText,
   paramsFromFilters,
   searchQuery,
   shortDate,
+  shortRupees,
   sliceType,
 } from "./cash-flow.ts";
 
@@ -95,14 +101,6 @@ test("sliceType keeps spending apart from income of the same name", () => {
 
 // --- Spend calendar ---------------------------------------------------------------------------
 
-import {
-  calendarPath,
-  calendarWeeks,
-  dayTone,
-  dayTransactionsHref,
-  paceText,
-  shortRupees,
-} from "./cash-flow.ts";
 
 const novemberDays = Array.from({ length: 30 }, (_, i) => ({
   date: `2026-11-${String(i + 1).padStart(2, "0")}`,

@@ -156,3 +156,75 @@ export function sliceType(
   );
   return clash ? "expense" : null;
 }
+
+// --- Spend calendar (`GET /calendar`) --------------------------------------------------------
+
+export type FixedLine = {
+  id: number;
+  source: "reminder" | "sip";
+  name: string;
+  kind: "income" | "out";
+  type: string;
+  amount: string;
+  day: number;
+  account_id: number;
+};
+
+export type CalendarDay = { date: string; spent: string | null; over: boolean | null };
+
+export type SpendCalendar = {
+  month: string;
+  is_current: boolean;
+  through: string;
+  income: string;
+  fixed_out: string;
+  free: string;
+  per_day: string | null;
+  spent: string;
+  left: string;
+  pace: string | null;
+  fixed: FixedLine[];
+  days: CalendarDay[];
+  previous_month: string | null;
+  next_month: string | null;
+};
+
+// The current month when `month` is null.
+export const calendarPath = (month: string | null) => (month === null ? "/calendar" : `/calendar?month=${month}`);
+
+// The month as Monday-first weeks of seven, padded with nulls before the 1st and after the last.
+export function calendarWeeks(days: CalendarDay[]): (CalendarDay | null)[][] {
+  if (days.length === 0) return [];
+  const [y, m, d] = days[0].date.split("-").map(Number);
+  const lead = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7; // Monday = 0
+  const cells: (CalendarDay | null)[] = [...Array<null>(lead).fill(null), ...days];
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks: (CalendarDay | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+}
+
+// A short amount for a narrow cell: ₹420, ₹1.2k, ₹1.3L. Rounded half up.
+export function shortRupees(amount: string): string {
+  const negative = amount.trim().startsWith("-");
+  const value = Math.abs(Number(amount));
+  const one = (n: number) => (Math.round(n * 10) / 10).toFixed(1).replace(/\.0$/, "");
+  let text: string;
+  if (value >= 100000) text = `₹${one(value / 100000)}L`;
+  else if (value >= 1000) text = `₹${one(value / 1000)}k`;
+  else text = formatRupees(String(Math.round(value)));
+  return `${negative ? "−" : ""}${text}`;
+}
+
+export function dayTone(day: CalendarDay): "over" | "under" | "plain" | "future" {
+  if (day.spent === null) return "future";
+  if (day.over === null) return "plain";
+  return day.over ? "over" : "under";
+}
+
+export function paceText(pace: string | null): string | null {
+  if (pace === null) return null;
+  if (isZero(pace)) return "Right on pace";
+  const over = pace.trim().startsWith("-");
+  return `${formatRupees(String(Math.round(Math.abs(Number(pace)))))} ${over ? "over" : "under"} pace`;
+}

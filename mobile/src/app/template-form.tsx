@@ -44,7 +44,7 @@ type Key = keyof TemplateForm;
 type Loaded = { accounts: Account[]; categories: CategoryTree; template: Template | null };
 
 export default function TemplateFormScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, type } = useLocalSearchParams<{ id?: string; type?: string }>();
   const { token, logOut } = useSession();
   const editing = id !== undefined;
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -98,16 +98,22 @@ export default function TemplateFormScreen() {
     );
   }
 
-  return <FormBody {...loaded} />;
+  // `type` (from the spending calendar) picks income or expense for a new reminder.
+  const initialType = type === "income" || type === "expense" ? type : undefined;
+  return <FormBody {...loaded} initialType={initialType} />;
 }
 
-function FormBody({ accounts, categories, template }: Loaded) {
+function FormBody({ accounts, categories, template, initialType }: Loaded & { initialType?: TemplateType }) {
   const editing = template !== null;
   const fromPolicy = template !== null && template.policy_id !== null;
   const { token, logOut } = useSession();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [form, setForm] = useState<TemplateForm>(() => (template ? templateFormFrom(template) : templateFormBlank("monthly")));
+  const [form, setForm] = useState<TemplateForm>(() => {
+    if (template) return templateFormFrom(template);
+    const blank = templateFormBlank("monthly");
+    return initialType ? { ...blank, type: initialType } : blank;
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [general, setGeneral] = useState<string[]>([]);
   const [conflict, setConflict] = useState<string | null>(null);

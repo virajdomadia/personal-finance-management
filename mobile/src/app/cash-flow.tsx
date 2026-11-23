@@ -306,6 +306,12 @@ export default function CashFlowScreen() {
           />
 
           <ChunkyButton
+            label="Spending calendar"
+            icon="calendar-month-outline"
+            variant="alt"
+            onPress={() => router.push({ pathname: "/calendar", params: data.is_current ? {} : { month: data.month } })}
+          />
+          <ChunkyButton
             label={`Budgets for ${monthLabel(data.month)}`}
             icon="piggy-bank-outline"
             variant="alt"

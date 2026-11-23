@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, AppState, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, AppState, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { Button, Dialog, Portal, Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -11,6 +11,7 @@ import { errorMessage, formatDueDate } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import { categoryEmoji } from "@/lib/fun";
 import type { GoalDue } from "@/lib/goals";
+import type { SpendCalendar } from "@/lib/cash-flow";
 import { type DueItem, type Template, scheduleText, toggleLabel, whole } from "@/lib/recurring";
 import { useSession } from "@/lib/session";
 import { BRAND } from "@/lib/theme";
@@ -35,6 +36,7 @@ export default function RecurringScreen() {
   const [templates, setTemplates] = useState<Template[] | null>(null);
   const [due, setDue] = useState<DueItem[]>([]);
   const [goalsDue, setGoalsDue] = useState<GoalDue[]>([]);
+  const [month, setMonth] = useState<SpendCalendar | null>(null);
   const [failed, setFailed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -59,6 +61,12 @@ export default function RecurringScreen() {
       setDue(items.items);
       setGoalsDue(items.goals_due ?? []);
       setFailed(false);
+      // Only a summary; the screen works without it.
+      apiFetch<SpendCalendar>("/calendar", auth)
+        .then((c) => {
+          if (mine === latest.current) setMonth(c);
+        })
+        .catch(() => {});
     } catch (err) {
       if (mine !== latest.current) return;
       if (err instanceof ApiError && err.status === 401) {
@@ -174,6 +182,19 @@ export default function RecurringScreen() {
         >
           {failed ? <Banner messages={[`${FAILED} Pull down to try again.`]} /> : null}
           {notice !== null ? <Banner messages={[notice]} /> : null}
+          {month !== null && month.fixed.length > 0 ? (
+            <Pressable
+              onPress={() => router.push("/calendar")}
+              accessibilityRole="button"
+              accessibilityHint="Opens the spending calendar"
+              style={({ pressed }) => [styles.freeLine, pressed && { opacity: 0.6 }]}
+            >
+              <Text variant="bodyMedium" style={{ color: BRAND.ink }}>
+                🧮 Every month: {whole(month.income)} in − {whole(month.fixed_out)} fixed = {whole(month.free)} free
+                {month.per_day !== null ? ` · ${whole(month.per_day)} a day` : ""}
+              </Text>
+            </Pressable>
+          ) : null}
           <DueList items={due} goals={goalsDue} onChanged={() => void load()} />
 
           {templates.length === 0 ? (
@@ -285,6 +306,7 @@ export default function RecurringScreen() {
 }
 
 const styles = StyleSheet.create({
+  freeLine: { borderWidth: 2, borderColor: BRAND.ink, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: BRAND.card },
   screen: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, padding: 24 },
   centerText: { textAlign: "center" },
