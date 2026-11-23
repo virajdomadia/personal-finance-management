@@ -3,8 +3,8 @@ import { test } from "node:test";
 
 import {
   BUDGETS_URL,
+  CALENDAR_URL,
   MAX_DUE,
-  UPCOMING_URL,
   budgetLevel,
   dueText,
   parsePref,
@@ -13,6 +13,7 @@ import {
   planDueReminders,
   prefValue,
   reminderTarget,
+  UPCOMING_URL,
 } from "./reminders.ts";
 
 const item = (o = {}) => ({
@@ -45,7 +46,7 @@ test("planDueReminders: the day before and the day, at 9 am", () => {
   assert.equal(plan[0].title, "EMI due tomorrow: Car loan");
   assert.equal(plan[0].body, "₹12,000 from HDFC. Keep the balance ready.");
   assert.equal(plan[1].title, "EMI due today: Car loan");
-  assert.equal(plan[0].url, UPCOMING_URL);
+  assert.equal(plan[0].url, UPCOMING_URL); // an EMI is on Upcoming, not the calendar
 });
 
 test("planDueReminders: a premium is reminded a week ahead too", () => {
@@ -159,8 +160,16 @@ test("parseSent and prefs", () => {
 });
 
 test("reminderTarget only opens our routes", () => {
-  assert.equal(reminderTarget({ url: "/upcoming" }), "/upcoming");
+  assert.equal(reminderTarget({ url: "/calendar" }), "/calendar");
+  assert.equal(reminderTarget({ url: "/upcoming" }), "/upcoming"); // already scheduled before the calendar
   assert.equal(reminderTarget({ url: "/budgets" }), "/budgets");
   assert.equal(reminderTarget({ url: "/digest" }), null);
   assert.equal(reminderTarget(null), null);
+});
+
+test("planDueReminders: reminders and premiums open the calendar, other bills open Upcoming", () => {
+  const url = (kind) => planDueReminders([item({ kind })], NOW)[0].url;
+  assert.equal(url("recurring"), CALENDAR_URL);
+  assert.equal(url("insurance"), CALENDAR_URL);
+  for (const kind of ["emi", "card_bill", "fd", "fd_interest", "rd", "sip"]) assert.equal(url(kind), UPCOMING_URL, kind);
 });

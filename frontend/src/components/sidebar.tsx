@@ -19,10 +19,10 @@ const LINKS = [
   { href: "/accounts", emoji: "👛", label: "Accounts" },
   { href: "/transactions", emoji: "💸", label: "Transactions" },
   { href: "/cash-flow", emoji: "🗓️", label: "Cash flow" },
+  { href: "/calendar", emoji: "📅", label: "Spending calendar" },
   { href: "/budgets", emoji: "📊", label: "Budgets" },
   { href: "/investments", emoji: "📈", label: "Investments" },
   { href: "/family", emoji: "👨‍👩‍👧", label: "Family" },
-  { href: "/recurring", emoji: "🔁", label: "Recurring" },
   { href: "/insurance", emoji: "🛡️", label: "Insurance" },
   { href: "/goals", emoji: "🎯", label: "Goals" },
 ] as const;

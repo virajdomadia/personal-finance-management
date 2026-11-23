@@ -4,6 +4,7 @@ from app.api.routes import (
     accounts,
     auth,
     budgets,
+    calendar,
     card_statements,
     cash_flow,
     categories,
@@ -54,6 +55,7 @@ api_router.include_router(setup.router)
 api_router.include_router(transactions.router)
 api_router.include_router(categories.router)
 api_router.include_router(cash_flow.router)
+api_router.include_router(calendar.router)
 api_router.include_router(budgets.router)
 api_router.include_router(upcoming.router)
 api_router.include_router(digest.router)

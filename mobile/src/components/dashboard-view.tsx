@@ -154,6 +154,7 @@ export function DashboardView({ data, failed, onOpenAccounts, dueList, trend, re
 
         <SafeToSpendCard refreshKey={refreshKey} />
         <MonthCard />
+        <ChunkyButton label="Spending calendar" icon="calendar-month-outline" variant="alt" onPress={() => router.push("/calendar")} />
         {hasSplit ? (
           <Tile label="Where it is" emoji="🧭">
             <StackedBar items={split} label="Where your money is" />

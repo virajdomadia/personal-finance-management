@@ -56,7 +56,6 @@ function Screens() {
             <Stack.Screen name="fund" />
             <Stack.Screen name="sip-form" />
             <Stack.Screen name="coin" />
-            <Stack.Screen name="recurring" />
             <Stack.Screen name="template-form" />
             <Stack.Screen name="insurance" />
             <Stack.Screen name="policy-form" />
@@ -73,6 +72,7 @@ function Screens() {
             <Stack.Screen name="payee-rules" />
             <Stack.Screen name="net-worth" />
             <Stack.Screen name="cash-flow" />
+            <Stack.Screen name="calendar" />
             <Stack.Screen name="categories" />
             <Stack.Screen name="category-form" />
             <Stack.Screen name="transaction-filters" />

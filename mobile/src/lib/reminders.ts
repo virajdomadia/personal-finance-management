@@ -19,7 +19,12 @@ export const BUDGET_CHANNEL = {
   description: "When a budget is nearly used up or goes over",
 } as const;
 
+// Due reminders open the spending calendar. `/upcoming` is still accepted for notifications
+// scheduled before it.
+export const CALENDAR_URL = "/calendar";
 export const UPCOMING_URL = "/upcoming";
+// What the calendar shows (reminders and premiums); other bills (cards, EMIs, deposits, SIPs) are on Upcoming.
+const ON_CALENDAR = new Set(["recurring", "insurance"]);
 export const BUDGETS_URL = "/budgets";
 
 // Whether each kind is on, kept per phone. Off until turned on in Profile.
@@ -100,7 +105,7 @@ export function planDueReminders(items: UpcomingItem[], now: Date): DueReminder[
     for (const lead of leads) {
       const at = addDays(item.date, -lead);
       if (at.getTime() <= now.getTime()) continue;
-      out.push({ id: dueId(item, lead), at, ...dueText(item, lead), url: UPCOMING_URL });
+      out.push({ id: dueId(item, lead), at, ...dueText(item, lead), url: ON_CALENDAR.has(item.kind) ? CALENDAR_URL : UPCOMING_URL });
     }
   }
   out.sort((a, b) => a.at.getTime() - b.at.getTime());
@@ -189,8 +194,8 @@ export const parsePref = (raw: string | null): boolean => raw === "on";
 export const prefValue = (on: boolean): string => (on ? "on" : "off");
 
 // Where a tapped reminder or alert goes: only these two routes, whatever else is in `data`.
-export function reminderTarget(data: unknown): typeof UPCOMING_URL | typeof BUDGETS_URL | null {
+export function reminderTarget(data: unknown): typeof CALENDAR_URL | typeof UPCOMING_URL | typeof BUDGETS_URL | null {
   if (typeof data !== "object" || data === null) return null;
   const url = (data as { url?: unknown }).url;
-  return url === UPCOMING_URL || url === BUDGETS_URL ? url : null;
+  return url === CALENDAR_URL || url === UPCOMING_URL || url === BUDGETS_URL ? url : null;
 }

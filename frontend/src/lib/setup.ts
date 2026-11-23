@@ -50,7 +50,7 @@ const STEPS: Record<StepKey, { title: string; hint: string; href: string; emoji:
   recurring: {
     title: "Salary, rent and SIPs",
     hint: "Get a nudge when regular money comes in or goes out.",
-    href: "/recurring?add=1",
+    href: "/calendar?add=1",
     emoji: "🔁",
   },
   investments: {

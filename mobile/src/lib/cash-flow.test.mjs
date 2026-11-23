@@ -4,18 +4,27 @@ import { test } from "node:test";
 import {
   barWidth,
   biggestDay,
+  calendarPath,
+  calendarWeeks,
   cashFlowPath,
   changeText,
   changeTone,
   dailySummary,
+  dayTone,
   isEmptyMonth,
   isZero,
+  leadMark,
+  marksByDate,
+  markText,
   monthLabel,
+  paceText,
   percentText,
   shortDay,
+  shortRupees,
   signedWhole,
   sliceText,
   sliceType,
+  splitTemplates,
 } from "./cash-flow.ts";
 
 const slice = (o = {}) => ({
@@ -119,4 +128,80 @@ test("sliceType keeps an income and a spending category of one name apart", () =
   assert.equal(sliceType("spending", "Food", data), null);
   assert.equal(sliceType("spending", "other", data), "expense");
   assert.equal(sliceType("spending", "Bonus", data), "expense");
+});
+
+// --- Spend calendar ---------------------------------------------------------------------------
+
+
+const novemberDays = Array.from({ length: 30 }, (_, i) => ({
+  date: `2026-11-${String(i + 1).padStart(2, "0")}`,
+  spent: i < 12 ? "100.00" : null,
+  over: i < 12 ? false : null,
+}));
+
+test("calendarPath", () => {
+  assert.equal(calendarPath(null), "/calendar");
+  assert.equal(calendarPath("2026-10"), "/calendar?month=2026-10");
+});
+
+test("calendarWeeks starts on Monday and pads with nulls", () => {
+  const weeks = calendarWeeks(novemberDays);
+  assert.equal(weeks.length, 6);
+  assert.deepEqual(weeks[0].slice(0, 6), [null, null, null, null, null, null]);
+  assert.equal(weeks[0][6].date, "2026-11-01");
+  assert.equal(weeks[5][0].date, "2026-11-30");
+  assert.ok(weeks.every((w) => w.length === 7));
+});
+
+test("shortRupees", () => {
+  assert.equal(shortRupees("0.00"), "₹0");
+  assert.equal(shortRupees("420.00"), "₹420");
+  assert.equal(shortRupees("999.60"), "₹1,000");
+  assert.equal(shortRupees("1234.00"), "₹1.2k");
+  assert.equal(shortRupees("125000.00"), "₹1.3L");
+  assert.equal(shortRupees("-1500.00"), "−₹1.5k");
+});
+
+test("dayTone", () => {
+  assert.equal(dayTone({ date: "2026-11-13", spent: null, over: null }), "future");
+  assert.equal(dayTone({ date: "2026-11-05", spent: "600.00", over: false }), "under");
+  assert.equal(dayTone({ date: "2026-11-05", spent: "1600.00", over: true }), "over");
+  assert.equal(dayTone({ date: "2026-11-05", spent: "600.00", over: null }), "plain");
+});
+
+test("paceText", () => {
+  assert.equal(paceText("2000.00"), "₹2,000 under pace");
+  assert.equal(paceText("-500.00"), "₹500 over pace");
+  assert.equal(paceText("0.00"), "Right on pace");
+  assert.equal(paceText(null), null);
+});
+
+const mark = (date, name, state, kind = "out") => ({ date, template_id: 1, name, amount: "16000.00", kind, state });
+
+test("marksByDate groups a month's marks by day", () => {
+  const byDate = marksByDate([mark("2026-11-05", "Rent", "paid"), mark("2026-11-05", "Gym", "due"), mark("2026-11-10", "PPF", "coming")]);
+  assert.deepEqual([...byDate.keys()], ["2026-11-05", "2026-11-10"]);
+  assert.equal(byDate.get("2026-11-05").length, 2);
+});
+
+test("markText", () => {
+  assert.equal(markText(mark("2026-11-05", "Rent", "paid")), "Rent ₹16,000 paid");
+  assert.equal(markText(mark("2026-11-05", "Rent", "due")), "Rent ₹16,000 due");
+  assert.equal(markText(mark("2026-11-05", "Rent", "skipped")), "Rent ₹16,000 skipped");
+  assert.equal(markText(mark("2026-11-01", "Salary", "paid", "income")), "Salary ₹16,000 received");
+});
+
+test("splitTemplates: fixed is active monthly, other is yearly or stopped", () => {
+  const t = (id, frequency, active) => ({ id, frequency, active });
+  const { fixed, other } = splitTemplates([t(1, "monthly", true), t(2, "yearly", true), t(3, "monthly", false)]);
+  assert.deepEqual(fixed.map((x) => x.id), [1]);
+  assert.deepEqual(other.map((x) => x.id), [2, 3]);
+});
+
+test("leadMark picks the most urgent mark and counts the rest", () => {
+  assert.equal(leadMark([]), null);
+  const lead = leadMark([mark("2026-11-05", "Rent", "paid"), mark("2026-11-05", "EMI", "due"), mark("2026-11-05", "Gym", "coming")]);
+  assert.equal(lead.mark.name, "EMI");
+  assert.equal(lead.more, 2);
+  assert.equal(leadMark([mark("2026-11-05", "Gym", "skipped"), mark("2026-11-05", "PPF", "coming")]).mark.name, "PPF");
 });
