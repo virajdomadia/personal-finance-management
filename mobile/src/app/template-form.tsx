@@ -44,7 +44,7 @@ type Key = keyof TemplateForm;
 type Loaded = { accounts: Account[]; categories: CategoryTree; template: Template | null };
 
 export default function TemplateFormScreen() {
-  const { id, type } = useLocalSearchParams<{ id?: string; type?: string }>();
+  const { id, type, frequency } = useLocalSearchParams<{ id?: string; type?: string; frequency?: string }>();
   const { token, logOut } = useSession();
   const editing = id !== undefined;
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -100,10 +100,17 @@ export default function TemplateFormScreen() {
 
   // `type` (from the spending calendar) picks income or expense for a new reminder.
   const initialType = type === "income" || type === "expense" ? type : undefined;
-  return <FormBody {...loaded} initialType={initialType} />;
+  const initialFrequency: Frequency = frequency === "yearly" ? "yearly" : "monthly";
+  return <FormBody {...loaded} initialType={initialType} initialFrequency={initialFrequency} />;
 }
 
-function FormBody({ accounts, categories, template, initialType }: Loaded & { initialType?: TemplateType }) {
+function FormBody({
+  accounts,
+  categories,
+  template,
+  initialType,
+  initialFrequency,
+}: Loaded & { initialType?: TemplateType; initialFrequency: Frequency }) {
   const editing = template !== null;
   const fromPolicy = template !== null && template.policy_id !== null;
   const { token, logOut } = useSession();
@@ -111,7 +118,7 @@ function FormBody({ accounts, categories, template, initialType }: Loaded & { in
   const insets = useSafeAreaInsets();
   const [form, setForm] = useState<TemplateForm>(() => {
     if (template) return templateFormFrom(template);
-    const blank = templateFormBlank("monthly");
+    const blank = templateFormBlank(initialFrequency);
     return initialType ? { ...blank, type: initialType } : blank;
   });
   const [errors, setErrors] = useState<Record<string, string>>({});

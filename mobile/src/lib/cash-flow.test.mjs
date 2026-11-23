@@ -13,6 +13,8 @@ import {
   dayTone,
   isEmptyMonth,
   isZero,
+  marksByDate,
+  markText,
   monthLabel,
   paceText,
   percentText,
@@ -21,6 +23,7 @@ import {
   signedWhole,
   sliceText,
   sliceType,
+  splitTemplates,
 } from "./cash-flow.ts";
 
 const slice = (o = {}) => ({
@@ -170,4 +173,26 @@ test("paceText", () => {
   assert.equal(paceText("-500.00"), "₹500 over pace");
   assert.equal(paceText("0.00"), "Right on pace");
   assert.equal(paceText(null), null);
+});
+
+const mark = (date, name, state, kind = "out") => ({ date, template_id: 1, name, amount: "16000.00", kind, state });
+
+test("marksByDate groups a month's marks by day", () => {
+  const byDate = marksByDate([mark("2026-11-05", "Rent", "paid"), mark("2026-11-05", "Gym", "due"), mark("2026-11-10", "PPF", "coming")]);
+  assert.deepEqual([...byDate.keys()], ["2026-11-05", "2026-11-10"]);
+  assert.equal(byDate.get("2026-11-05").length, 2);
+});
+
+test("markText", () => {
+  assert.equal(markText(mark("2026-11-05", "Rent", "paid")), "Rent ₹16,000 paid");
+  assert.equal(markText(mark("2026-11-05", "Rent", "due")), "Rent ₹16,000 due");
+  assert.equal(markText(mark("2026-11-05", "Rent", "skipped")), "Rent ₹16,000 skipped");
+  assert.equal(markText(mark("2026-11-01", "Salary", "paid", "income")), "Salary ₹16,000 received");
+});
+
+test("splitTemplates: fixed is active monthly, other is yearly or stopped", () => {
+  const t = (id, frequency, active) => ({ id, frequency, active });
+  const { fixed, other } = splitTemplates([t(1, "monthly", true), t(2, "yearly", true), t(3, "monthly", false)]);
+  assert.deepEqual(fixed.map((x) => x.id), [1]);
+  assert.deepEqual(other.map((x) => x.id), [2, 3]);
 });

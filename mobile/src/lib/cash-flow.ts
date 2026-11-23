@@ -185,9 +185,38 @@ export type SpendCalendar = {
   pace: string | null;
   fixed: FixedLine[];
   days: CalendarDay[];
+  marks: Mark[];
   previous_month: string | null;
   next_month: string | null;
 };
+
+// A reminder's occurrence on a day of the month.
+export type Mark = {
+  date: string;
+  template_id: number;
+  name: string;
+  amount: string;
+  kind: "income" | "out";
+  state: "paid" | "skipped" | "due" | "coming";
+};
+
+export function marksByDate(marks: Mark[]): Map<string, Mark[]> {
+  const byDate = new Map<string, Mark[]>();
+  for (const m of marks) byDate.set(m.date, [...(byDate.get(m.date) ?? []), m]);
+  return byDate;
+}
+
+// "Rent ₹16,000 paid", "Salary ₹54,800 received".
+export function markText(m: Mark): string {
+  const state = m.state === "paid" && m.kind === "income" ? "received" : m.state;
+  return `${m.name} ${whole(m.amount)} ${state}`;
+}
+
+// The calendar's two reminder lists: fixed money (active monthly) and the rest (yearly or stopped).
+export function splitTemplates<T extends { frequency: string; active: boolean }>(templates: T[]): { fixed: T[]; other: T[] } {
+  const isFixed = (t: T) => t.active && t.frequency === "monthly";
+  return { fixed: templates.filter(isFixed), other: templates.filter((t) => !isFixed(t)) };
+}
 
 // The current month when `month` is null.
 export const calendarPath = (month: string | null) => (month === null ? "/calendar" : `/calendar?month=${month}`);

@@ -3,8 +3,8 @@ import { test } from "node:test";
 
 import {
   BUDGETS_URL,
+  CALENDAR_URL,
   MAX_DUE,
-  UPCOMING_URL,
   budgetLevel,
   dueText,
   parsePref,
@@ -45,7 +45,7 @@ test("planDueReminders: the day before and the day, at 9 am", () => {
   assert.equal(plan[0].title, "EMI due tomorrow: Car loan");
   assert.equal(plan[0].body, "₹12,000 from HDFC. Keep the balance ready.");
   assert.equal(plan[1].title, "EMI due today: Car loan");
-  assert.equal(plan[0].url, UPCOMING_URL);
+  assert.equal(plan[0].url, CALENDAR_URL); // a due reminder opens the spending calendar
 });
 
 test("planDueReminders: a premium is reminded a week ahead too", () => {
@@ -159,7 +159,8 @@ test("parseSent and prefs", () => {
 });
 
 test("reminderTarget only opens our routes", () => {
-  assert.equal(reminderTarget({ url: "/upcoming" }), "/upcoming");
+  assert.equal(reminderTarget({ url: "/calendar" }), "/calendar");
+  assert.equal(reminderTarget({ url: "/upcoming" }), "/upcoming"); // already scheduled before the calendar
   assert.equal(reminderTarget({ url: "/budgets" }), "/budgets");
   assert.equal(reminderTarget({ url: "/digest" }), null);
   assert.equal(reminderTarget(null), null);

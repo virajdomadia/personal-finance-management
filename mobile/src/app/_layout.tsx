@@ -56,7 +56,6 @@ function Screens() {
             <Stack.Screen name="fund" />
             <Stack.Screen name="sip-form" />
             <Stack.Screen name="coin" />
-            <Stack.Screen name="recurring" />
             <Stack.Screen name="template-form" />
             <Stack.Screen name="insurance" />
             <Stack.Screen name="policy-form" />

@@ -5,22 +5,28 @@ import { Text, useTheme } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ChunkyBox, ChunkyButton, HeaderAction, ScreenHeader } from "@/components/chunky";
+import { DueList } from "@/components/due-list";
 import { Banner } from "@/components/form-parts";
+import { ReminderList } from "@/components/reminder-list";
 import { errorMessage } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
 import {
   type CalendarDay,
-  type FixedLine,
+  type Mark,
   type SpendCalendar,
   calendarPath,
   calendarWeeks,
   dayTone,
+  markText,
+  marksByDate,
   monthLabel,
   paceText,
   shortDay,
   shortRupees,
+  splitTemplates,
 } from "@/lib/cash-flow";
-import { whole } from "@/lib/recurring";
+import type { GoalDue } from "@/lib/goals";
+import { type DueItem, type Template, whole } from "@/lib/recurring";
 import { blankFilters, filterHandoff } from "@/lib/search";
 import { useSession } from "@/lib/session";
 import { BRAND } from "@/lib/theme";
@@ -47,6 +53,10 @@ export default function CalendarScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [data, setData] = useState<SpendCalendar | null>(null);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [due, setDue] = useState<DueItem[]>([]);
+  const [goalsDue, setGoalsDue] = useState<GoalDue[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const latest = useRef(0);
@@ -56,9 +66,17 @@ export default function CalendarScreen() {
   const load = useCallback(async () => {
     const mine = ++latest.current;
     try {
-      const result = await apiFetch<SpendCalendar>(calendarPath(monthRef.current), { token: token ?? undefined });
+      const auth = { token: token ?? undefined };
+      const [result, list, items] = await Promise.all([
+        apiFetch<SpendCalendar>(calendarPath(monthRef.current), auth),
+        apiFetch<{ templates: Template[] }>("/recurring", auth),
+        apiFetch<{ items: DueItem[]; goals_due?: GoalDue[] }>("/recurring/due", auth),
+      ]);
       if (mine !== latest.current) return;
       setData(result);
+      setTemplates(list.templates);
+      setDue(items.items);
+      setGoalsDue(items.goals_due ?? []);
       setError(null);
     } catch (err) {
       if (mine !== latest.current) return;
@@ -106,12 +124,17 @@ export default function CalendarScreen() {
     filterHandoff.next = { ...blankFilters(date.slice(0, 7)), dateFrom: date, dateTo: date };
     router.navigate("/transactions");
   };
-  const addFixed = (type: "income" | "expense") => push({ pathname: "/template-form", params: { type } });
-  const editFixed = (line: FixedLine) =>
-    line.source === "sip" ? push("/(tabs)/investments") : push({ pathname: "/template-form", params: { id: String(line.id) } });
+  const add = (type: "income" | "expense", frequency: "monthly" | "yearly" = "monthly") =>
+    push({ pathname: "/template-form", params: { type, frequency } });
+  const edit = (t: Template) => push({ pathname: "/template-form", params: { id: String(t.id) } });
+  const openSips = () => push("/(tabs)/investments");
 
   const title = data ? monthLabel(data.month) : month ? monthLabel(month) : "This month";
-  const fixed = data ? <FixedMoney data={data} onAdd={addFixed} onEdit={editFixed} /> : null;
+  const { fixed: fixedTemplates, other } = splitTemplates(templates);
+  const lists = { onEdit: edit, onChanged: () => void load(), onNotice: setNotice };
+  const fixed = data ? (
+    <FixedMoney data={data} templates={fixedTemplates} onAdd={add} onOpenSips={openSips} {...lists} />
+  ) : null;
 
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -141,11 +164,14 @@ export default function CalendarScreen() {
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         >
           {error ? <Banner messages={[`${error} Pull down to try again.`]} /> : null}
+          {notice !== null ? <Banner messages={[notice]} /> : null}
           {/* Until there's a daily amount, asking for the fixed money comes first. */}
           {data.per_day === null ? fixed : null}
+          {data.is_current ? <DueList items={due} goals={goalsDue} onChanged={() => void load()} /> : null}
           <Figures data={data} />
           <MonthGrid data={data} onDay={openDay} />
           {data.per_day !== null ? fixed : null}
+          <OtherReminders templates={other} onAdd={() => add("expense", "yearly")} {...lists} />
         </ScrollView>
       )}
     </View>
@@ -202,6 +228,7 @@ function Figures({ data }: { data: SpendCalendar }) {
 }
 
 function MonthGrid({ data, onDay }: { data: SpendCalendar; onDay: (date: string) => void }) {
+  const marks = marksByDate(data.marks);
   return (
     <ChunkyBox style={styles.card}>
       <View style={styles.gridHead}>
@@ -225,7 +252,7 @@ function MonthGrid({ data, onDay }: { data: SpendCalendar; onDay: (date: string)
         <View key={i} style={styles.week}>
           {week.map((day, j) => (
             <View key={j} style={styles.slot}>
-              {day === null ? null : <DayCell day={day} onPress={() => onDay(day.date)} />}
+              {day === null ? null : <DayCell day={day} marks={marks.get(day.date) ?? []} onPress={() => onDay(day.date)} />}
             </View>
           ))}
         </View>
@@ -237,14 +264,42 @@ function MonthGrid({ data, onDay }: { data: SpendCalendar; onDay: (date: string)
   );
 }
 
-function DayCell({ day, onPress }: { day: CalendarDay; onPress: () => void }) {
+// A reminder's mark on its day: paid, owed, still to come, or skipped.
+const MARK = {
+  paid: { symbol: "✓", bg: BRAND.gain, fg: "#FFFFFF" },
+  due: { symbol: "!", bg: BRAND.loss, fg: "#FFFFFF" },
+  coming: { symbol: "•", bg: BRAND.ink, fg: "#FFFFFF" },
+  skipped: { symbol: "–", bg: BRAND.zinc200, fg: BRAND.ink },
+} as const;
+
+function MarkBadges({ marks }: { marks: Mark[] }) {
+  if (marks.length === 0) return null;
+  return (
+    <View style={styles.badges} importantForAccessibility="no-hide-descendants">
+      {marks.slice(0, 2).map((m) => (
+        <View key={m.template_id} style={[styles.badge, { backgroundColor: MARK[m.state].bg }]}>
+          <Text style={[styles.badgeText, { color: MARK[m.state].fg }]}>{MARK[m.state].symbol}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function DayCell({ day, marks, onPress }: { day: CalendarDay; marks: Mark[]; onPress: () => void }) {
   const tone = TONE[dayTone(day)];
   const number = Number(day.date.slice(8));
   const box = [styles.day, { backgroundColor: tone.bg, borderColor: tone.border }];
+  const reminders = marks.length > 0 ? `. ${marks.map(markText).join("; ")}` : "";
+  const top = (
+    <View style={styles.dayTop}>
+      <Text style={[styles.dayNumber, { color: tone.fg }]}>{number}</Text>
+      <MarkBadges marks={marks} />
+    </View>
+  );
   if (day.spent === null) {
     return (
-      <View style={box} accessible accessibilityLabel={`${shortDay(day.date)}, still to come`}>
-        <Text style={[styles.dayNumber, { color: tone.fg }]}>{number}</Text>
+      <View style={box} accessible accessibilityLabel={`${shortDay(day.date)}, still to come${reminders}`}>
+        {top}
       </View>
     );
   }
@@ -252,11 +307,11 @@ function DayCell({ day, onPress }: { day: CalendarDay; onPress: () => void }) {
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${shortDay(day.date)}, spent ${whole(day.spent)}${tone.word}`}
+      accessibilityLabel={`${shortDay(day.date)}, spent ${whole(day.spent)}${tone.word}${reminders}`}
       accessibilityHint="Shows that day's transactions"
       style={({ pressed }) => [...box, pressed && styles.pressed]}
     >
-      <Text style={[styles.dayNumber, { color: tone.fg }]}>{number}</Text>
+      {top}
       <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={[styles.dayAmount, { color: tone.fg }]}>
         {shortRupees(day.spent).replace("₹", "")}
       </Text>
@@ -264,18 +319,26 @@ function DayCell({ day, onPress }: { day: CalendarDay; onPress: () => void }) {
   );
 }
 
+type ListActions = {
+  onEdit: (t: Template) => void;
+  onChanged: () => void;
+  onNotice: (message: string | null) => void;
+};
+
 function FixedMoney({
   data,
+  templates,
   onAdd,
-  onEdit,
+  onOpenSips,
+  ...actions
 }: {
   data: SpendCalendar;
+  templates: Template[];
   onAdd: (type: "income" | "expense") => void;
-  onEdit: (line: FixedLine) => void;
-}) {
-  const income = data.fixed.filter((f) => f.kind === "income");
-  const out = data.fixed.filter((f) => f.kind === "out");
-  const empty = data.fixed.length === 0;
+  onOpenSips: () => void;
+} & ListActions) {
+  const sips = data.fixed.filter((f) => f.source === "sip");
+  const empty = templates.length === 0 && sips.length === 0;
   return (
     <ChunkyBox style={styles.card}>
       <Text variant="titleSmall" accessibilityRole="header" style={styles.heading}>
@@ -283,16 +346,37 @@ function FixedMoney({
       </Text>
       <Text variant="bodySmall" style={styles.muted}>
         {empty
-          ? "Tell us what comes in and goes out every month (salary, rent, SIP, PPF) and we'll work out how much you can spend each day."
-          : "What comes in and goes out every month. Changing these changes the daily amount."}
+          ? "Tell us what comes in and goes out every month (salary, rent, SIP, PPF) and we'll work out how much you can spend each day. You'll be reminded when each one is due."
+          : `Every month: ${whole(data.income)} in − ${whole(data.fixed_out)} fixed = ${whole(data.free)} free. Changing these changes the daily amount.`}
       </Text>
       {data.per_day === null && !empty ? (
         <Text variant="bodySmall" style={{ color: BRAND.loss }}>
           Add your monthly income to get a daily amount.
         </Text>
       ) : null}
-      <FixedList title="COMES IN" lines={income} empty="No monthly income yet." onEdit={onEdit} />
-      <FixedList title="GOES OUT" lines={out} empty="No fixed expenses yet." onEdit={onEdit} />
+      {templates.length > 0 ? <ReminderList templates={templates} {...actions} /> : null}
+      {sips.map((line) => (
+        <Pressable
+          key={`sip-${line.id}`}
+          onPress={onOpenSips}
+          accessibilityRole="button"
+          accessibilityLabel={`${line.name} SIP, ${whole(line.amount)} on the ${ordinal(line.day)}`}
+          accessibilityHint="Opens Investments to change this SIP"
+          style={({ pressed }) => [styles.fixedRow, pressed && styles.pressed]}
+        >
+          <View style={styles.fixedText}>
+            <Text variant="bodyLarge" numberOfLines={1} style={styles.heading}>
+              {line.name}
+            </Text>
+            <Text variant="bodySmall" style={styles.muted}>
+              SIP · on the {ordinal(line.day)}
+            </Text>
+          </View>
+          <Text variant="titleMedium" style={styles.fixedAmount}>
+            {whole(line.amount)}
+          </Text>
+        </Pressable>
+      ))}
       <View style={styles.row}>
         <ChunkyButton label="Add income" icon="plus" variant="green" onPress={() => onAdd("income")} style={styles.cell} />
         <ChunkyButton label="Add expense" icon="plus" variant="pink" onPress={() => onAdd("expense")} style={styles.cell} />
@@ -301,41 +385,24 @@ function FixedMoney({
   );
 }
 
-function FixedList({ title, lines, empty, onEdit }: { title: string; lines: FixedLine[]; empty: string; onEdit: (line: FixedLine) => void }) {
+function OtherReminders({ templates, onAdd, ...actions }: { templates: Template[]; onAdd: () => void } & ListActions) {
   return (
-    <View style={styles.fixedList}>
-      <Text variant="labelMedium" accessibilityRole="header" style={styles.section}>
-        {title}
+    <ChunkyBox style={styles.card}>
+      <Text variant="titleSmall" accessibilityRole="header" style={styles.heading}>
+        🗂️ Other reminders
       </Text>
-      {lines.length === 0 ? (
-        <Text variant="bodyMedium" style={styles.muted}>
-          {empty}
-        </Text>
+      <Text variant="bodySmall" style={styles.muted}>
+        Yearly payments like insurance premiums, and reminders you&apos;ve stopped. They don&apos;t change the daily amount.
+      </Text>
+      {templates.length > 0 ? (
+        <ReminderList templates={templates} {...actions} />
       ) : (
-        lines.map((line) => (
-          <Pressable
-            key={`${line.source}-${line.id}`}
-            onPress={() => onEdit(line)}
-            accessibilityRole="button"
-            accessibilityLabel={`${line.name}, ${whole(line.amount)} on the ${ordinal(line.day)}`}
-            accessibilityHint={line.source === "sip" ? "Opens Investments to change this SIP" : "Edits this reminder"}
-            style={({ pressed }) => [styles.fixedRow, pressed && styles.pressed]}
-          >
-            <View style={styles.fixedText}>
-              <Text variant="bodyLarge" numberOfLines={1} style={styles.heading}>
-                {line.name}
-              </Text>
-              <Text variant="bodySmall" style={styles.muted}>
-                {line.source === "sip" ? "SIP · " : ""}on the {ordinal(line.day)}
-              </Text>
-            </View>
-            <Text variant="titleMedium" style={styles.fixedAmount}>
-              {whole(line.amount)}
-            </Text>
-          </Pressable>
-        ))
+        <Text variant="bodyMedium" style={styles.muted}>
+          None yet.
+        </Text>
       )}
-    </View>
+      <ChunkyButton label="Add yearly reminder" icon="plus" variant="alt" onPress={onAdd} />
+    </ChunkyBox>
   );
 }
 
@@ -348,7 +415,6 @@ const styles = StyleSheet.create({
   content: { padding: 16, gap: 12 },
   muted: { color: BRAND.zinc600 },
   heading: { color: BRAND.ink },
-  section: { color: BRAND.ink, letterSpacing: 0.6 },
   figures: { gap: 12 },
   row: { flexDirection: "row", gap: 12 },
   cell: { flex: 1, minWidth: 0 },
@@ -361,9 +427,12 @@ const styles = StyleSheet.create({
   slot: { flex: 1, minWidth: 0 },
   day: { height: 52, borderWidth: 2, borderRadius: 10, paddingHorizontal: 3, paddingVertical: 4, justifyContent: "space-between" },
   dayNumber: { fontSize: 12, fontWeight: "800" },
+  dayTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  badges: { flexDirection: "row", gap: 1 },
+  badge: { width: 12, height: 12, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+  badgeText: { fontSize: 8, lineHeight: 10, fontWeight: "900" },
   dayAmount: { fontSize: 11, fontWeight: "800", textAlign: "right", fontVariant: ["tabular-nums"] },
   pressed: { opacity: 0.6 },
-  fixedList: { gap: 6 },
   fixedRow: {
     flexDirection: "row",
     alignItems: "center",
