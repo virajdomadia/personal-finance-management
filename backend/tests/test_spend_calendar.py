@@ -165,3 +165,72 @@ def test_other_users_data_hidden(
     data = month(other)
     assert data["fixed"] == []
     assert data["free"] == "0.00"
+
+
+def stop(headers: Headers, reminder_id: int) -> None:
+    response = client.patch(
+        f"/api/recurring/{reminder_id}", json={"active": False}, headers=headers
+    )
+    assert response.status_code == 200, response.json()
+
+
+def test_stopping_rent_keeps_earlier_months(headers: Headers) -> None:
+    hdfc = bank(headers, "100000.00", "HDFC")
+    made(
+        headers,
+        hdfc,
+        name="Salary",
+        type="income",
+        amount="54800.00",
+        day=1,
+        category="Salary",
+        start_date="2026-10-01",
+    )
+    reminder = made(headers, hdfc, amount="16000.00", day=5, start_date="2026-10-01")
+    recorded(headers, hdfc, "2026-10-05", recurring_template_id=reminder["id"])
+    stop(headers, reminder["id"])
+    october = month(headers, month="2026-10")
+    assert october["fixed_out"] == "16000.00"
+    assert october["days"][4]["spent"] == "0.00"
+    assert month(headers)["fixed_out"] == "0.00"  # gone from November on
+
+
+def test_rent_paid_then_stopped_this_month(headers: Headers) -> None:
+    hdfc = bank(headers, "100000.00", "HDFC")
+    reminder = made(headers, hdfc, amount="16000.00", day=5, start_date="2026-10-01")
+    recorded(headers, hdfc, "2026-11-05", recurring_template_id=reminder["id"])
+    stop(headers, reminder["id"])
+    november = month(headers)
+    assert november["fixed_out"] == "16000.00"
+    assert november["days"][4]["spent"] == "0.00"
+
+
+def test_payment_of_a_reminder_not_counted_this_month_is_not_spending(headers: Headers) -> None:
+    hdfc = bank(headers, "100000.00", "HDFC")
+    reminder = made(headers, hdfc, amount="16000.00", day=5, start_date="2026-10-01")
+    recorded(headers, hdfc, "2026-10-05", recurring_template_id=reminder["id"])
+    stop(headers, reminder["id"])
+    # Paid once more by hand in November after stopping: still not everyday spending.
+    recorded(headers, hdfc, "2026-11-05", recurring_template_id=reminder["id"])
+    assert month(headers)["days"][4]["spent"] == "0.00"
+
+
+def test_marks_on_the_month(headers: Headers) -> None:
+    hdfc = bank(headers, "100000.00", "HDFC")
+    made(headers, hdfc, name="Salary", type="income", amount="54800.00", day=1, category="Salary")
+    reminder = rent(headers, hdfc)
+    made(headers, hdfc, name="Premium", amount="12000.00", frequency="yearly", month=3, day=10)
+    recorded(headers, hdfc, "2026-11-05", recurring_template_id=reminder["id"])
+    marks = month(headers)["marks"]
+    assert [(m["date"], m["name"], m["state"]) for m in marks] == [
+        ("2026-11-01", "Salary", "due"),
+        ("2026-11-05", "Rent", "paid"),
+    ]
+    assert marks[1] == {
+        "date": "2026-11-05",
+        "template_id": reminder["id"],
+        "name": "Rent",
+        "amount": "16000.00",
+        "kind": "out",
+        "state": "paid",
+    }

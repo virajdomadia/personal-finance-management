@@ -9,7 +9,8 @@ from app.api import cash_flow as cf
 from app.api import spend_calendar as sc
 from app.api.dates import today_india
 from app.api.deps import CurrentUser, get_current_user
-from app.api.reminder_payments import fixed_payment_ids
+from app.api.recurring import TemplateRow
+from app.api.reminder_payments import fixed_payment_ids, load_reminder_payments
 from app.api.routes.accounts import fmt
 from app.api.routes.cash_flow import _future, _month
 from app.db.session import DbSession
@@ -37,6 +38,17 @@ class CalendarDayOut(BaseModel):
     over: bool | None  # None after today, or when there's no daily amount
 
 
+class Mark(BaseModel):
+    """A reminder's occurrence on a day of the month."""
+
+    date: str
+    template_id: int
+    name: str
+    amount: str
+    kind: str  # "income" or "out"
+    state: str  # "paid", "skipped", "due" or "coming"
+
+
 class SpendCalendar(BaseModel):
     month: str  # "YYYY-MM"
     is_current: bool
@@ -50,6 +62,7 @@ class SpendCalendar(BaseModel):
     pace: str | None  # positive: under the daily amount so far
     fixed: list[FixedLine]  # income first, then outgoings, each by day
     days: list[CalendarDayOut]
+    marks: list[Mark]  # every active reminder's occurrences this month, by date
     previous_month: str | None
     next_month: str | None
 
@@ -70,15 +83,49 @@ def spend_calendar(
     end = date(first.year, first.month, cf.last_day(first.year, first.month))
     through = min(end, today)
 
-    lines: list[tuple[sc.Fixed, FixedLine]] = []
-    reminders = db.scalars(
-        select(RecurringTemplate).where(
-            RecurringTemplate.user_id == user.id, RecurringTemplate.frequency == "monthly"
-        )
+    last_paid: dict[int, date] = dict(
+        db.execute(
+            select(Transaction.recurring_template_id, func.max(Transaction.date))
+            .where(
+                Transaction.user_id == user.id,
+                Transaction.recurring_template_id.is_not(None),
+            )
+            .group_by(Transaction.recurring_template_id)
+        ).all()
     )
-    for t in reminders:
+    lines: list[tuple[sc.Fixed, FixedLine]] = []
+    templates = list(
+        db.scalars(select(RecurringTemplate).where(RecurringTemplate.user_id == user.id))
+    )
+    payments = load_reminder_payments(db, user.id)
+    marks: list[Mark] = []
+    for t in templates:
+        if not t.active:
+            continue
+        row = TemplateRow(
+            t.id, t.frequency, t.day, t.month, t.start_date, t.end_date, t.remind_days, t.active
+        )
+        for day, state in sc.month_marks(
+            row, payments.paid.get(t.id, []), payments.skips.get(t.id, set()), first, today
+        ):
+            marks.append(
+                Mark(
+                    date=day.isoformat(),
+                    template_id=t.id,
+                    name=t.name,
+                    amount=fmt(t.amount),
+                    kind="income" if t.type == "income" else "out",
+                    state=state,
+                )
+            )
+    marks.sort(key=lambda m: (m.date, m.name))
+    for t in templates:
+        if t.frequency != "monthly":
+            continue
         kind = "income" if t.type == "income" else "out"
-        fixed = sc.Fixed(t.name, kind, t.amount, t.day, t.start_date, t.end_date, t.active)
+        fixed = sc.Fixed(
+            t.name, kind, t.amount, t.day, t.start_date, t.end_date, t.active, last_paid.get(t.id)
+        )
         line = FixedLine(
             id=t.id,
             source="reminder",
@@ -112,8 +159,10 @@ def spend_calendar(
     counted.sort(key=lambda p: (p[1].kind != "income", p[1].day, p[1].name))
     allowance = sc.allowance([f for f, _ in counted], first)
 
+    # Paying any fixed outgoing is never everyday spending, even in a month it doesn't count in
+    # (stopped, not started yet, or paid late).
     fixed_reminders = {
-        line.id for _, line in counted if line.source == "reminder" and line.kind == "out"
+        line.id for _, line in lines if line.source == "reminder" and line.kind == "out"
     }
     skip = fixed_payment_ids(db, user.id, fixed_reminders)
     rows = [
@@ -154,6 +203,7 @@ def spend_calendar(
         left=fmt(allowance.free - spent),
         pace=None if pace is None else fmt(pace),
         fixed=[line for _, line in counted],
+        marks=marks,
         days=[
             CalendarDayOut(
                 date=d.date.isoformat(),

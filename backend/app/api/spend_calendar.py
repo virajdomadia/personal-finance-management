@@ -11,6 +11,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import NamedTuple
 
 from app.api.cash_flow import ZERO, Row, last_day, spent
+from app.api.recurring import TemplateRow, occurrences, open_occurrences
 
 CENT = Decimal("0.01")
 
@@ -25,6 +26,9 @@ class Fixed(NamedTuple):
     start_date: date
     end_date: date | None
     active: bool
+    # A stopped item still counts up to the month of its last payment, so stopping one never
+    # rewrites the months it was paid in.
+    last_paid: date | None = None
 
 
 class Allowance(NamedTuple):
@@ -41,11 +45,12 @@ class CalendarDay(NamedTuple):
 
 
 def counts_in(item: Fixed, first: date) -> bool:
-    """Whether an item counts for the month starting `first`: active, and overlapping it."""
+    """Whether an item counts for the month starting `first`: it overlaps the month and is
+    active, or was stopped after a payment in that month or later."""
     end = date(first.year, first.month, last_day(first.year, first.month))
-    return (
-        item.active and item.start_date <= end and (item.end_date is None or item.end_date >= first)
-    )
+    if item.start_date > end or (item.end_date is not None and item.end_date < first):
+        return False
+    return item.active or (item.last_paid is not None and item.last_paid >= first)
 
 
 def allowance(items: Iterable[Fixed], first: date) -> Allowance:
@@ -91,3 +96,24 @@ def pace(per_day: Decimal | None, through: date, first: date, spent: Decimal) ->
     if per_day is None:
         return None
     return (per_day * ((through - first).days + 1) - spent).quantize(CENT, ROUND_HALF_UP)
+
+
+def month_marks(
+    row: TemplateRow, paid: list[date], skips: set[date], first: date, today: date
+) -> list[tuple[date, str]]:
+    """A reminder's occurrences in the month and where each stands: "paid", "skipped", "due"
+    (on or before today and still owed) or "coming". For an active reminder."""
+    end = date(first.year, first.month, last_day(first.year, first.month))
+    open_ = set(open_occurrences(row, paid, skips, end))
+    marks: list[tuple[date, str]] = []
+    for o in occurrences(row, end):
+        if o < first:
+            continue
+        if o in skips:
+            state = "skipped"
+        elif o not in open_:
+            state = "paid"
+        else:
+            state = "due" if o <= today else "coming"
+        marks.append((o, state))
+    return marks

@@ -2,12 +2,14 @@ from datetime import date
 from decimal import Decimal
 
 from app.api.cash_flow import Row
+from app.api.recurring import TemplateRow
 from app.api.spend_calendar import (
     Allowance,
     Fixed,
     allowance,
     calendar_days,
     counts_in,
+    month_marks,
     pace,
 )
 
@@ -20,6 +22,7 @@ def item(name: str, kind: str, amount: str, **kw: object) -> Fixed:
         "start_date": START,
         "end_date": None,
         "active": True,
+        "last_paid": None,
         **kw,
     }
     return Fixed(name, kind, Decimal(amount), **values)  # type: ignore[arg-type]
@@ -69,7 +72,7 @@ def test_counts_in_by_dates() -> None:
     ended = item("Old", "out", "100", end_date=date(2026, 10, 31))
     assert counts_in(ended, date(2026, 10, 1))
     assert not counts_in(ended, date(2026, 11, 1))
-    off = item("Off", "out", "100", active=False)
+    off = item("Off", "out", "100", active=False)  # stopped and never paid
     assert not counts_in(off, date(2026, 11, 1))
 
 
@@ -115,3 +118,35 @@ def test_pace() -> None:
     first, through = date(2026, 11, 1), date(2026, 11, 12)
     assert pace(Decimal("1000"), through, first, Decimal("10000")) == Decimal("2000.00")
     assert pace(None, through, first, Decimal("10000")) is None
+
+
+def test_stopped_item_counts_up_to_its_last_payment() -> None:
+    stopped = item("Rent", "out", "16000", active=False, last_paid=date(2026, 10, 5))
+    assert counts_in(stopped, date(2026, 9, 1))
+    assert counts_in(stopped, date(2026, 10, 1))
+    assert not counts_in(stopped, date(2026, 11, 1))
+    never_paid = item("Gym", "out", "3000", active=False)
+    assert not counts_in(never_paid, date(2026, 10, 1))
+
+
+def reminder(frequency: str = "monthly", day: int = 5, month: int | None = None) -> TemplateRow:
+    return TemplateRow(1, frequency, day, month, date(2026, 1, 1), None, 3, True)
+
+
+def test_marks_paid_due_coming_skipped() -> None:
+    nov, today = date(2026, 11, 1), date(2026, 11, 12)
+    assert month_marks(reminder(day=5), [date(2026, 11, 5)], set(), nov, today) == [
+        (date(2026, 11, 5), "paid")
+    ]
+    assert month_marks(reminder(day=5), [], set(), nov, today) == [(date(2026, 11, 5), "due")]
+    assert month_marks(reminder(day=12), [], set(), nov, today) == [(date(2026, 11, 12), "due")]
+    assert month_marks(reminder(day=20), [], set(), nov, today) == [(date(2026, 11, 20), "coming")]
+    skipped = {date(2026, 11, 5)}
+    assert month_marks(reminder(day=5), [], skipped, nov, today) == [(date(2026, 11, 5), "skipped")]
+
+
+def test_marks_yearly_only_in_its_month() -> None:
+    today = date(2026, 11, 12)
+    premium = reminder("yearly", day=10, month=3)
+    assert month_marks(premium, [], set(), date(2026, 11, 1), today) == []
+    assert month_marks(premium, [], set(), date(2026, 3, 1), today) == [(date(2026, 3, 10), "due")]
