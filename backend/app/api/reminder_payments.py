@@ -10,7 +10,7 @@ from typing import NamedTuple
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.api.recurring import Money, TemplateRow, settle_unlinked
+from app.api.recurring import Money, TemplateRow, pays_for, settle_unlinked
 from app.models.insurance import InsurancePolicy
 from app.models.recurring import RecurringSkip, RecurringTemplate
 from app.models.sms import SmsEntry
@@ -49,11 +49,26 @@ def load_reminder_payments(db: Session, user_id: int) -> ReminderPayments:
     ):
         skips[template_id].add(occurrence)
 
+    templates = _matchable(db, user_id)
+    paid: dict[int, list[date]] = defaultdict(list, {k: list(v) for k, v in linked.items()})
+    if templates:
+        settled = settle_unlinked(
+            [(_row(t), _money(t)) for t in templates],
+            linked,
+            skips,
+            [(tx.date, _money(tx)) for tx in _unlinked(db, user_id, templates)],
+        )
+        paid.update(settled)
+    return ReminderPayments(paid, linked, skips)
+
+
+def _matchable(db: Session, user_id: int) -> list[RecurringTemplate]:
+    """The active reminders an unlinked payment may settle."""
     # A policy's reminder moves only through renewing the policy, so it never takes a match.
     policies = select(InsurancePolicy.template_id).where(
         InsurancePolicy.user_id == user_id, InsurancePolicy.template_id.is_not(None)
     )
-    templates = list(
+    return list(
         db.scalars(
             select(RecurringTemplate)
             .where(
@@ -64,7 +79,10 @@ def load_reminder_payments(db: Session, user_id: int) -> ReminderPayments:
             .order_by(RecurringTemplate.id)
         )
     )
-    paid: dict[int, list[date]] = defaultdict(list, {k: list(v) for k, v in linked.items()})
+
+
+def _unlinked(db: Session, user_id: int, templates: list[RecurringTemplate]) -> list[Transaction]:
+    """Transactions recorded without a reminder that might pay one of `templates`."""
     # A bank debit still waiting in review is the owner's to place: the review asks whether it
     # pays a reminder, so it doesn't settle one on its own first. A credit in review does: its
     # money is already in the balance, so an income reminder still expecting it would count the
@@ -75,9 +93,10 @@ def load_reminder_payments(db: Session, user_id: int) -> ReminderPayments:
         SmsEntry.transaction_id.is_not(None),
         SmsEntry.kind != "credit",
     )
-    if templates:
-        unlinked = db.scalars(
-            select(Transaction).where(
+    return list(
+        db.scalars(
+            select(Transaction)
+            .where(
                 Transaction.user_id == user_id,
                 Transaction.recurring_template_id.is_(None),
                 Transaction.id.not_in(in_review),
@@ -89,12 +108,43 @@ def load_reminder_payments(db: Session, user_id: int) -> ReminderPayments:
                 ),
                 Transaction.date >= min(t.start_date for t in templates),
             )
+            .order_by(Transaction.date, Transaction.id)
         )
-        settled = settle_unlinked(
-            [(_row(t), _money(t)) for t in templates],
-            linked,
-            skips,
-            [(tx.date, _money(tx)) for tx in unlinked],
+    )
+
+
+def fixed_payment_ids(db: Session, user_id: int, template_ids: set[int]) -> set[int]:
+    """The transactions that pay one of these reminders: recorded through it, or matched to it
+    the way `load_reminder_payments` matches them. Each transaction pays at most one."""
+    if not template_ids:
+        return set()
+    ids = set(
+        db.scalars(
+            select(Transaction.id).where(
+                Transaction.user_id == user_id,
+                Transaction.recurring_template_id.in_(template_ids),
+            )
         )
-        paid.update(settled)
-    return ReminderPayments(paid, linked, skips)
+    )
+    templates = [t for t in _matchable(db, user_id) if t.id in template_ids]
+    if not templates:
+        return ids
+    payments = load_reminder_payments(db, user_id)
+    candidates = _unlinked(db, user_id, _matchable(db, user_id))
+    taken: set[int] = set()
+    for t in templates:
+        matched = list(payments.paid.get(t.id, []))
+        for day in payments.linked.get(t.id, []):
+            matched.remove(day)
+        for day in matched:
+            tx = next(
+                (
+                    c
+                    for c in candidates
+                    if c.id not in taken and c.date == day and pays_for(_money(t), _money(c))
+                ),
+                None,
+            )
+            if tx is not None:
+                taken.add(tx.id)
+    return ids | taken
