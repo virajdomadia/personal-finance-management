@@ -18,11 +18,26 @@ from sqlalchemy import Engine, create_engine, make_url, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-import app.models  # noqa: F401  (registers models on Base.metadata)
-from app.core.config import Settings
-from app.db.base import Base
-from app.db.session import get_db
-from app.main import app
+from app.core.config import Settings, get_settings
+
+
+def _isolate_settings() -> None:
+    """The suite runs on the code's own defaults (auth closed, no secrets), never on the
+    developer's backend/.env or exported variables: ENVIRONMENT=development there would open
+    auth and break every test that expects a 401. Tests that need a setting patch it."""
+    Settings.model_config["env_file"] = None
+    for field in Settings.model_fields:
+        os.environ.pop(field.upper(), None)
+    get_settings.cache_clear()
+
+
+_isolate_settings()
+
+# Imported after the settings are isolated: the app reads them when it is imported.
+import app.models  # noqa: E402, F401  (registers models on Base.metadata)
+from app.db.base import Base  # noqa: E402
+from app.db.session import get_db  # noqa: E402
+from app.main import app  # noqa: E402
 
 PG_URL = os.environ.get("TEST_DATABASE_URL", "")
 ON_POSTGRES = bool(PG_URL)

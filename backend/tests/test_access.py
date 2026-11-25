@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -92,6 +94,21 @@ def test_missing_environment_defaults_to_closed(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.delenv("ENVIRONMENT", raising=False)
 
     assert Settings(_env_file=None).environment == "production"
+
+
+def test_the_suite_ignores_the_developers_env_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A developer's backend/.env opens auth locally; the tests must run closed regardless.
+    (tmp_path / ".env").write_text("ENVIRONMENT=development\nTOKEN_SECRET=from-dot-env\n")
+    monkeypatch.chdir(tmp_path)
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+        assert settings.environment != "development"
+        assert settings.token_secret == ""
+    finally:
+        get_settings.cache_clear()
 
 
 def test_development_without_token_secret_uses_first_user(
