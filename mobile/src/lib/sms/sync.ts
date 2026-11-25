@@ -53,6 +53,8 @@ export type SmsEntry = {
   quantity: string | null;
   due_date: string | null;
   minimum_due: string | null; // a card statement's, when the message gives one
+  // Present (true) only for money back, so a server from before refunds still takes the rest.
+  refund?: true;
 };
 
 export type SyncDeps = {
@@ -180,6 +182,7 @@ function toEntry(hash: string, address: string, bank: string, line: Parsed, toda
     quantity: line.quantity,
     due_date: line.dueDate,
     minimum_due: line.minDue,
+    ...(line.refund ? { refund: true as const } : {}),
   };
 }
 

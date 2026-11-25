@@ -436,3 +436,23 @@ test("a future clause after money that moved doesn't hide it", () => {
   assert.deepEqual([line.kind, line.amount, line.last4], ["credit", "5000.00", "1234"]);
   assert.equal(parseSms("madeupbank", "Rs.499.00 will be debited from your A/c XX4321 on 15-11-26", AT), "ignore");
 });
+
+test("money back is flagged as a refund; other credits and debits aren't", () => {
+  for (const body of [
+    "Refund of Rs 799.00 from AMAZON credited to A/c XX1234 on 10-11-26",
+    "Rs.799 refunded to your A/c XX1234 by FLIPKART on 10-11-26",
+    "Rs.500 debited from A/c XX1234 has been reversed on 10-11-26",
+    "Rs 500 credited to A/c XX1234 on 10-11-26. Reversal of UPI txn 412345678901",
+    "Txn of Rs 500 debited from A/c XX1234 is reversed and credited back",
+  ]) {
+    const line = parseOne("madeupbank", body);
+    assert.deepEqual([line.kind, line.refund], ["credit", true], body);
+  }
+  for (const body of [
+    "Rs 50,000.00 credited to A/c XX1234 from ACME CORP on 10-11-26",
+    "Rs.250 cashback credited to your A/c XX1234",
+    "Rs 243.00 debited from A/c XX1234 to SWIGGY on 10-11-26",
+  ]) {
+    assert.equal(parseOne("madeupbank", body).refund, false, body);
+  }
+});

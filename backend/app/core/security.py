@@ -23,6 +23,8 @@ class TokenClaims:
     user_id: int
     session_version: int
     expires_at: int
+    # The sign-in (`sessions` row) the token belongs to. None for a token issued before sessions.
+    session_id: int | None = None
 
 
 def _sign(payload: str, secret: str) -> str:
@@ -30,10 +32,19 @@ def _sign(payload: str, secret: str) -> str:
     return urlsafe_b64encode(digest).rstrip(b"=").decode()
 
 
-def create_token(user_id: int, session_version: int, secret: str, now: float | None = None) -> str:
-    """A token is "userId.sessionVersion.expirySeconds.signature", signed over what precedes it."""
+def create_token(
+    user_id: int,
+    session_version: int,
+    secret: str,
+    now: float | None = None,
+    session_id: int | None = None,
+) -> str:
+    """A token is "userId.sessionVersion.sessionId.expirySeconds.signature", signed over what
+    precedes it. Without a session id it is the older "userId.sessionVersion.expirySeconds.
+    signature", which is still accepted until it expires."""
     expiry = int(time.time() if now is None else now) + TOKEN_MAX_AGE_SECONDS
-    payload = f"{user_id}.{session_version}.{expiry}"
+    fields = [user_id, session_version, *([] if session_id is None else [session_id]), expiry]
+    payload = ".".join(str(field) for field in fields)
     return f"{payload}.{_sign(payload, secret)}"
 
 
@@ -48,17 +59,18 @@ def parse_token(token: str, secret: str, now: float | None = None) -> TokenClaim
     if not secret:
         return None
     parts = token.split(".")
-    if len(parts) != 4:
+    if len(parts) not in (4, 5):
         return None
-    user_id, session_version, expires_at = (_number(part) for part in parts[:3])
-    if user_id is None or session_version is None or expires_at is None:
+    numbers = [_number(part) for part in parts[:-1]]
+    if any(n is None for n in numbers):
         return None
-    payload = ".".join(parts[:3])
-    if not compare_digest(parts[3].encode(), _sign(payload, secret).encode()):
+    payload = ".".join(parts[:-1])
+    if not compare_digest(parts[-1].encode(), _sign(payload, secret).encode()):
         return None
+    user_id, session_version, *session, expires_at = (n for n in numbers if n is not None)
     if (time.time() if now is None else now) >= expires_at:
         return None
-    return TokenClaims(user_id, session_version, expires_at)
+    return TokenClaims(user_id, session_version, expires_at, session[0] if session else None)
 
 
 def bearer_token(request: Request) -> str:

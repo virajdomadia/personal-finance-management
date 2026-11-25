@@ -18,3 +18,17 @@ class User(Base):
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str | None] = mapped_column(String(40))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LoginSession(Base):
+    """One sign-in (a browser or a phone). Its id is in the session token; logout deletes the row,
+    which revokes that token alone. Signing out everywhere bumps `User.session_version` instead,
+    which also covers tokens issued before sessions existed."""
+
+    __tablename__ = "sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # When its token expires; expired rows are cleared at the next sign-in.
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

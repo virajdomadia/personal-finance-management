@@ -82,6 +82,7 @@ export async function apiFetch<T>(path: string, { method, token, body, asOwner }
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (!response.ok) throw await failure(response, profile.sent);
+    if (response.status === 204) return undefined as T; // done, nothing to say (logout)
     return (await response.json()) as T;
   } finally {
     clearTimeout(timeout);

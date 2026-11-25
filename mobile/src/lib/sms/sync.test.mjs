@@ -585,3 +585,18 @@ test("test_a_response_without_results_gives_no_outcomes", async () => {
   assert.equal(result.sent, 1);
   assert.deepEqual(result.outcomes, []);
 });
+
+test("test_a_refund_is_sent_flagged_and_other_lines_are_unchanged", async () => {
+  const refund = { id: "1", address: BOI.sender, body: "Refund of Rs 799.00 from AMAZON credited to A/c XX1234 on 10-11-26", date: NOW.getTime() - 2000 };
+  const { read } = inbox([refund, boiMessage(2, NOW.getTime() - 1000)]);
+  const { post, batches } = recorder();
+  const { save } = saver(settings());
+
+  await syncSms({ read, post, hash: sha256, settings: settings(), now: NOW, save });
+
+  const [money, debit] = batches.flat();
+  assert.equal(money.kind, "credit");
+  assert.equal(money.refund, true);
+  // Only a refund carries the field, so a server from before refunds still takes the rest.
+  assert.equal("refund" in debit, false);
+});

@@ -7,7 +7,8 @@ import { bankName } from "../review.ts";
 import type { EntryOutcome } from "./sync.ts";
 
 export const SMS_CHANNEL = {
-  id: "sms-transactions",
+  id: "sms-transactions-private",
+  retiredId: "sms-transactions",
   name: "Transactions from SMS",
   description: "When a bank SMS is recorded or needs your answer",
 } as const;

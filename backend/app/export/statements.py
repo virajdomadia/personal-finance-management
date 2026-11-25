@@ -28,7 +28,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.api.balances import Movement, load_movements, net_flows
-from app.api.categories import kind_of, resolve
+from app.api.categories import current_name, kind_of, resolve
 from app.api.dates import today_india
 from app.api.routes.transactions import lock_accounts, validate_transaction_values
 from app.export.importing import FileProblem, rule_errors, step_problem
@@ -426,6 +426,9 @@ def suggest(db: Session, user_id: int, account: Account, lines: list[Line]) -> l
                 )
             else:
                 category = income_category(line.narration)
+                if category is not None:
+                    # "Refund" is no longer a default; a user without it gets no suggestion.
+                    category = current_name(db, user_id, "income", category)
         duplicate = _take(unmatched, line)
         found.append(
             Suggestion(display_name(payee) if payee else None, kind, category, other, duplicate)
@@ -452,7 +455,8 @@ def _saved(
         )
     ):
         if t.account_id == account_id:
-            found.append((t.date, t.amount, "in" if t.type == "income" else "out"))
+            money_in = t.type in ("income", "refund")
+            found.append((t.date, t.amount, "in" if money_in else "out"))
         if t.to_account_id == account_id:
             found.append((t.date, t.amount - (t.interest or 0), "in"))
     return found

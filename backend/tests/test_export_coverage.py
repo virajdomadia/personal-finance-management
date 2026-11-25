@@ -19,7 +19,7 @@ def test_every_table_is_exported_or_excluded_with_a_reason() -> None:
 
 def test_the_decisions_so_far() -> None:
     found = plan(Base.metadata)
-    assert set(found.excluded) == {"users", "market_codes", "corporate_actions"}
+    assert set(found.excluded) == {"users", "sessions", "market_codes", "corporate_actions"}
     assert {"stock_actions", "dividend_links"} <= {t.name for t in found.exported}
     assert {"accounts", "transactions", "sms_entries", "instrument_prices"} <= {
         t.name for t in found.exported

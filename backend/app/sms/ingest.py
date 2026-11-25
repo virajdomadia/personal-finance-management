@@ -42,6 +42,8 @@ if TYPE_CHECKING:
 
 MONEY_OUT = {"debit", "card_spend"}
 MONEY_IN = {"credit"}
+# What a credit can be recorded as, or typed in as by hand: income, or money back (a refund).
+MONEY_IN_TYPES = ("income", "refund")
 # The two sides a message can tell of one transaction. A transfer between the owner's accounts
 # is told once from each side, so it can carry one message of each.
 OUT_SIDE = MONEY_OUT
@@ -87,6 +89,7 @@ def _new_entry(user_id: int, sms: "ParsedSms") -> SmsEntry:
         quantity=sms.quantity,
         due_date=sms.due_date,
         minimum_due=sms.minimum_due,
+        refund=sms.refund,
         status="review",
     )
 
@@ -314,7 +317,8 @@ def _direction(entry: SmsEntry) -> Any:
             Transaction.type.in_(("expense", "emi", "transfer")), Transaction.account_id == account
         )
     if entry.kind in MONEY_IN:
-        return or_(and_(Transaction.type == "income", Transaction.account_id == account), into)
+        money_in = Transaction.type.in_(MONEY_IN_TYPES)
+        return or_(and_(money_in, Transaction.account_id == account), into)
     return into  # a card payment received: a transfer into the card
 
 
@@ -774,9 +778,18 @@ def pair_transfer(db: Session, user_id: int, entry: SmsEntry, account: Account) 
         return None
     if entry.kind == "debit":
         return _debit_side(db, user_id, entry, account)
-    if entry.kind in MONEY_IN:
+    if entry.kind in MONEY_IN and not is_refund(entry, account):
         return _credit_side(db, user_id, entry, account)
     return None
+
+
+def is_refund(entry: SmsEntry, account: Account | None) -> bool:
+    """Money back from a merchant, recorded as a refund (it lowers spending) rather than income:
+    a credit the message called a refund or reversal, or any credit onto a credit card (a payment
+    onto a card is its own kind, `card_payment`). Never one side of a transfer."""
+    if entry.kind not in MONEY_IN:
+        return False
+    return entry.refund or (account is not None and account.type == "credit_card")
 
 
 def _transfer(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
@@ -865,22 +878,35 @@ def _category_for(db: Session, user_id: int, entry: SmsEntry) -> str | None:
             PayeeRule.user_id == user_id, PayeeRule.payee_key == entry.payee_key
         )
     )
-    kind = "expense" if entry.kind in MONEY_OUT else "income"
+    spending = entry.kind in MONEY_OUT or is_refund(entry, _account_of(db, entry))
+    kind = "expense" if spending else "income"
     if rule is not None and rule.category is not None:
         # An archived category isn't used: the money waits in To review instead.
         return usable(db, user_id, kind, rule.category)
-    if entry.kind in MONEY_OUT:
+    if spending:
         builtin = builtin_category(entry.payee_key)
         return None if builtin is None else usable(db, user_id, kind, builtin)
     return None
 
 
+def _account_of(db: Session, entry: SmsEntry) -> Account | None:
+    return None if entry.account_id is None else db.get(Account, entry.account_id)
+
+
+def recorded_type(db: Session, entry: SmsEntry) -> str:
+    """What the entry's money is recorded as when it is neither a transfer nor expected."""
+    if entry.kind in MONEY_OUT:
+        return "expense"
+    return "refund" if is_refund(entry, _account_of(db, entry)) else "income"
+
+
 def _category(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
-    """Records the money as income or an expense, categorised when the payee is known."""
-    spending = entry.kind in MONEY_OUT
+    """Records the money as an expense, income or a refund, categorised when the payee is
+    known."""
+    type_ = recorded_type(db, entry)
     category = _category_for(db, user_id, entry)
     values = {
-        "type": "expense" if spending else "income",
+        "type": type_,
         "account_id": entry.account_id,
         "amount": entry.amount,
         "date": entry.occurred_on,
@@ -892,9 +918,10 @@ def _category(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
     if category is not None:
         entry.status, entry.reason, entry.message = "recorded", None, None
     elif entry.payee is not None:
-        _review(entry, "category", f"New payee: {entry.payee}")
+        what = "refund" if type_ == "refund" else "payee"
+        _review(entry, "category", f"New {what}: {entry.payee}")
     else:
-        what = "payment" if spending else "credit"
+        what = {"expense": "payment", "income": "credit", "refund": "refund"}[type_]
         _review(entry, "category", f"New {what}: the SMS names no payee")
     return entry
 

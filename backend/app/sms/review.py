@@ -263,7 +263,7 @@ def categorise(
     remember: bool,
     expected_amount: Decimal | None = None,
 ) -> None:
-    """Gives the entry's income or expense its category. `remember` keeps it as the payee's
+    """Gives the entry's income, expense or refund its category. `remember` keeps it as the payee's
     rule and answers the payee's other uncategorised items of the same type too.
 
     `expected_amount` is for an approval made from an earlier look: once locked, the money must
@@ -281,7 +281,7 @@ def categorise(
     tx = txs.get(entry.transaction_id)
     if tx is None:
         _conflict(_OWN_GONE)
-    if tx.type not in ("income", "expense"):
+    if tx.type not in ("income", "expense", "refund"):
         _conflict(f"This is a {tx.type} now, which has no category.")
     if expected_amount is not None and (
         tx.category is not None

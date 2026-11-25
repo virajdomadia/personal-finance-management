@@ -903,20 +903,26 @@ def test_free_balance_is_the_balance_less_what_active_goals_set_aside(
     assert _money(_account(headers, hdfc)) == ("80000.00", "50000.00", "30000.00")
 
     bike = _goal(headers, "Bike")
-    over = _earmark(headers, bike, hdfc, "set_aside", "40000.00")
-    assert _money(_account(headers, hdfc)) == ("80000.00", "90000.00", "-10000.00")
-    warning = "₹10,000 more is set aside than HDFC holds."
-    assert warning in over.json()["warnings"]
-    assert warning in client.get(f"{GOALS}/{ef}", headers=headers).json()["warnings"]
+    _earmark(headers, bike, hdfc, "set_aside", "30000.00")
+    assert _money(_account(headers, hdfc)) == ("80000.00", "80000.00", "0.00")
 
     # Goals only label money: the totals and net worth stay as they were.
     after = client.get(URL, headers=headers).json()
     assert (after["total_have"], after["total_owe"]) == (before["total_have"], before["total_owe"])
     assert client.get("/api/dashboard", headers=headers).json()["net_worth"] == worth
 
+    # Spending what is set aside leaves the free balance negative, and the goals warn.
+    body = {"type": "expense", "account_id": hdfc, "amount": "10000.00", "category": "Shopping"}
+    spent = client.post("/api/transactions", json={**body, "date": str(GOAL_DAY)}, headers=headers)
+    assert spent.status_code == 201, spent.json()
+    assert _money(_account(headers, hdfc)) == ("70000.00", "80000.00", "-10000.00")
+    warning = "₹10,000 more is set aside than HDFC holds."
+    for goal_id in (ef, bike):
+        assert warning in client.get(f"{GOALS}/{goal_id}", headers=headers).json()["warnings"]
+
     # An archived goal's earmark stops counting.
     client.post(f"{GOALS}/{bike}/archive", headers=headers)
-    assert _money(_account(headers, hdfc)) == ("80000.00", "50000.00", "30000.00")
+    assert _money(_account(headers, hdfc)) == ("70000.00", "50000.00", "20000.00")
 
 
 def test_archiving_an_account_with_money_set_aside_is_refused(goal_headers: Headers) -> None:
@@ -924,18 +930,18 @@ def test_archiving_an_account_with_money_set_aside_is_refused(goal_headers: Head
     hdfc = _hdfc(headers)
     ef = _goal(headers, "Emergency fund", "emergency")
     bike = _goal(headers, "Bike")
-    _earmark(headers, bike, hdfc, "set_aside", "40000.00")
+    _earmark(headers, bike, hdfc, "set_aside", "30000.00")
     _earmark(headers, ef, hdfc, "set_aside", "50000.00")
 
     response = archive(headers, hdfc)
     assert response.status_code == 409
     assert response.json()["detail"] == (
-        "₹90,000 of HDFC is set aside for Emergency fund, Bike. Release it first."
+        "₹80,000 of HDFC is set aside for Emergency fund, Bike. Release it first."
     )
     assert _account(headers, hdfc)["archived"] is False
 
     # A goal released in full no longer counts; nor does an archived goal.
-    _earmark(headers, bike, hdfc, "release", "40000.00")
+    _earmark(headers, bike, hdfc, "release", "30000.00")
     response = archive(headers, hdfc)
     assert response.status_code == 409
     assert response.json()["detail"] == (

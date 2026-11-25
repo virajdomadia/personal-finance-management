@@ -80,6 +80,8 @@ Then run any of these (emails are lowercased):
 - `uv run python -m app.cli move-user old@gmail.com new@gmail.com` points the user at a different Google account. It clears the Google link and signs the user out everywhere.
 - `uv run python -m app.cli revoke-sessions you@gmail.com` signs the user out of every device.
 
+Each sign-in is its own session: logging out (website or app) ends only that one. "Sign out everywhere" (the website's Your data page, or You in the app) and `revoke-sessions` end them all, including tokens issued before sessions existed, which otherwise last their 30 days.
+
 `move-user` is the way back in after losing a Google account: run it with the old and new emails, then sign in with the new account.
 
 ## Android app

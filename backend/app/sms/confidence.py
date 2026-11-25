@@ -24,7 +24,7 @@ from fastapi.exceptions import RequestValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.categories import UNCATEGORISED, ensure_seeded, name_key
+from app.api.categories import UNCATEGORISED, ensure_seeded, kind_of, name_key
 from app.models.account import Account
 from app.models.category import Category
 from app.models.investment import Sip
@@ -59,6 +59,7 @@ OFFERED_WHY: dict[str, str] = {
     "maybe_transfer": "May be a transfer",
 }
 AS_TRANSFER = "Payee is set as a transfer"
+REFUND_WHY = "A refund: check its category"
 AS_REMINDER = "Payee is set as a regular payment"
 
 
@@ -72,7 +73,7 @@ class Assessment:
     suggested_account_id: int | None = None
     confident: bool = False
     why: str = ""
-    type: str | None = None  # "income" or "expense": the recorded money's type
+    type: str | None = None  # "income", "expense" or "refund": the recorded money's type
     amount: Decimal | None = None
 
 
@@ -100,7 +101,7 @@ def _moves_like(entry: SmsEntry, tx: Transaction) -> bool:
     if entry.kind in ingest.MONEY_OUT:
         return tx.type in ("expense", "emi", "transfer") and tx.account_id == here
     if entry.kind in ingest.MONEY_IN:
-        return (tx.type == "income" and tx.account_id == here) or into
+        return (tx.type in ingest.MONEY_IN_TYPES and tx.account_id == here) or into
     return into
 
 
@@ -201,12 +202,14 @@ class Context:
                 Transaction.user_id == user_id,
                 SmsEntry.payee_key.in_(keys),
                 SmsEntry.status.not_in(review.OPEN),  # settled: not still being asked about
-                Transaction.type.in_(("income", "expense")),
+                Transaction.type.in_(("income", "expense", "refund")),
                 Transaction.category.is_not(None),
             )
             .order_by(Transaction.date.desc(), Transaction.id.desc())
         )
         for key, tx_id, type_, category in rows:
+            # By category kind: a refund's category is a spending one, as its purchases' are.
+            type_ = kind_of(type_) or type_
             group = self.history[(key, type_)]
             if (key, tx_id) in seen or len(group) >= HISTORY_LIMIT:
                 continue
@@ -365,7 +368,7 @@ def assess(ctx: Context, entry: SmsEntry) -> Assessment:
     tx = None if entry.transaction_id is None else ctx.txs.get(entry.transaction_id)
     if (
         tx is None
-        or tx.type not in ("income", "expense")
+        or tx.type not in ("income", "expense", "refund")
         or tx.category is not None
         or tx.recurring_template_id is not None
     ):
@@ -386,24 +389,25 @@ def assess(ctx: Context, entry: SmsEntry) -> Assessment:
         return found
 
     sure = False
-    builtin = builtin_category(key) if entry.kind in ingest.MONEY_OUT else None
+    kind = kind_of(tx.type) or tx.type
+    builtin = builtin_category(key) if kind == "expense" else None
     if rule is not None and rule.category is not None:
-        found.suggested_category = ctx.usable(tx.type, rule.category)
+        found.suggested_category = ctx.usable(kind, rule.category)
         if found.suggested_category is None:
             found.why = f"{rule.category} is archived"
             return found
         found.source, found.why, sure = "rule", f"Payee rule: {found.suggested_category}", True
-    elif builtin is not None and (named := ctx.usable(tx.type, builtin)) is not None:
+    elif builtin is not None and (named := ctx.usable(kind, builtin)) is not None:
         found.suggested_category, found.source = named, "merchant"
         found.why, sure = f"Known merchant: {entry.payee or key}", True
     else:
-        past = ctx.history.get((key, tx.type), [])
+        past = ctx.history.get((key, kind), [])
         if not past:
             found.why = "First time for this payee"
             return found
         name, count = _most_common(past)
         found.count, found.total = count, len(past)
-        found.suggested_category = ctx.usable(tx.type, name)
+        found.suggested_category = ctx.usable(kind, name)
         if found.suggested_category is None:
             found.why = f"{name} is archived"
             return found
@@ -415,7 +419,10 @@ def assess(ctx: Context, entry: SmsEntry) -> Assessment:
             found.why = f"Seen {_times(count)} before"
         else:
             found.why = f"{found.suggested_category} only {count} of {len(past)} times"
-    if sure:
+    if sure and tx.type == "refund":
+        # Suggested, but always looked at: money back isn't approved in a batch with spending.
+        found.why = REFUND_WHY
+    elif sure:
         blocker = _blocker(ctx, entry, tx)
         if blocker is not None:
             found.why = blocker

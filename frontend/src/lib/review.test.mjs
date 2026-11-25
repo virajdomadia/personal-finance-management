@@ -122,6 +122,12 @@ test("actionsFor offers only dismiss for a reason it doesn't know", () => {
   assert.deepEqual(actionsFor(item({ reason: null })), ["dismiss"]);
 });
 
+test("categoryType follows the server: a refund is answered with a spending category", () => {
+  assert.equal(categoryType(item({ kind: "credit", category_type: "expense" })), "expense");
+  assert.equal(categoryType(item({ kind: "credit", category_type: "income" })), "income");
+  assert.equal(categoryType(item({ kind: "debit", category_type: "expense" })), "expense");
+});
+
 test("categoryType reads money in as income, everything else as an expense", () => {
   assert.equal(categoryType(item({ kind: "credit" })), "income");
   assert.equal(categoryType(item({ kind: "debit" })), "expense");

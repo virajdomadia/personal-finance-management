@@ -413,3 +413,29 @@ def test_an_atm_withdrawal_is_a_transfer_to_cash(headers: Headers) -> None:
     (line,) = preview(headers, sbi, data).json()["lines"]
 
     assert (line["type"], line["other_account_id"], line["payee"]) == ("transfer", cash, "Mumbai")
+
+
+def refund_statement() -> bytes:
+    d1 = DAY.strftime("%d/%m/%y")
+    return xlsx(
+        [
+            ["Date", "Narration", "Chq./Ref.No.", "Value Dt", "Withdrawal Amt.",
+             "Deposit Amt.", "Closing Balance"],
+            [d1, "REFUND-AMAZON PAY-ORDER 123", "0", d1, None, 799.0, 10799.0],
+        ]
+    )  # fmt: skip
+
+
+def test_a_refund_already_recorded_is_a_duplicate_and_not_called_income(
+    headers: Headers,
+) -> None:
+    sbi = account(headers, "SBI")
+    body = {"type": "refund", "account_id": sbi, "amount": "799.00", "date": DAY.isoformat()}
+    typed = client.post("/api/transactions", json={**body, "category": "Shopping"}, headers=headers)
+    assert typed.status_code == 201, typed.json()
+
+    found = preview(headers, sbi, refund_statement()).json()
+
+    assert (found["new"], found["duplicates"]) == (0, 1)
+    # "Refund" is not an income category new users have, so it isn't suggested.
+    assert found["lines"][0]["category"] is None

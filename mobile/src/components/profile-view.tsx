@@ -34,6 +34,7 @@ type Props = {
   onBudgets: () => void;
   onExport: () => void;
   onLogOut: () => void;
+  onLogOutEverywhere: () => void;
 };
 
 // The streak chip, hidden when there is no streak.
@@ -52,7 +53,7 @@ function StreakPill({ days }: { days: number | null }) {
 }
 
 // The profile tab's content, without the session or fetching.
-export function ProfileView({ viewing, viewingMember, onViewing, onManageFamily, streak, notifications, onGoals, onRecurring, onInsurance, onArchived, onSms, onPayeeRules, onCategories, onBudgets, onExport, onLogOut }: Props) {
+export function ProfileView({ viewing, viewingMember, onViewing, onManageFamily, streak, notifications, onGoals, onRecurring, onInsurance, onArchived, onSms, onPayeeRules, onCategories, onBudgets, onExport, onLogOut, onLogOutEverywhere }: Props) {
   return (
     <View>
       <ScreenHeader title="You" right={<StreakPill days={streak} />} />
@@ -119,6 +120,7 @@ export function ProfileView({ viewing, viewingMember, onViewing, onManageFamily,
           <Row emoji="🗄️" tone="card" title="Archived accounts" amount="›" onPress={onArchived} accessibilityLabel="Archived accounts" accessibilityHint="Opens Archived accounts" />
           <Row emoji="💾" tone="blue" title="Export my data" meta="Spreadsheets or a full backup, to save or send" amount="›" onPress={onExport} accessibilityLabel="Export my data" accessibilityHint="Chooses a file to export and share" />
           <Row emoji="🚪" tone="pink" title="Log out" onPress={onLogOut} accessibilityLabel="Log out" />
+          <Row emoji="🔒" tone="card" title="Sign out everywhere" meta="Every browser and phone, this one too" onPress={onLogOutEverywhere} accessibilityLabel="Sign out everywhere" accessibilityHint="Asks before signing out every device" />
         </View>
       </View>
     </View>

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -94,6 +96,21 @@ def test_missing_environment_defaults_to_closed(monkeypatch: pytest.MonkeyPatch)
     assert Settings(_env_file=None).environment == "production"
 
 
+def test_the_suite_ignores_the_developers_env_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A developer's backend/.env opens auth locally; the tests must run closed regardless.
+    (tmp_path / ".env").write_text("ENVIRONMENT=development\nTOKEN_SECRET=from-dot-env\n")
+    monkeypatch.chdir(tmp_path)
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+        assert settings.environment != "development"
+        assert settings.token_secret == ""
+    finally:
+        get_settings.cache_clear()
+
+
 def test_development_without_token_secret_uses_first_user(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -179,4 +196,9 @@ def test_token_vector() -> None:
     assert (
         create_token(7, 2, "vector-secret", now=1000)
         == "7.2.2593000.h4iwZlqGe1wYGglpni-75ZF6nkgb-yIC90TlA69JV7k"
+    )
+    # The website checks session tokens too: frontend/src/lib/auth.test.mjs asserts the same.
+    assert (
+        create_token(7, 2, "vector-secret", now=1000, session_id=9)
+        == "7.2.9.2593000.uxWs_ZZKDlDOJR9zoM6dip_s_ugNnkIswEASaswoeEE"
     )

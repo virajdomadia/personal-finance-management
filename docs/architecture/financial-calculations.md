@@ -77,6 +77,8 @@ net cash flow = income − expenses
 
 **Decided, comes with the ledger.** A refund is its own type. It links to the original expense and reduces that expense's category spending, in the month of the refund. An unlinked refund names an expense category. The refunds linked to one expense can't add up to more than it.
 
+**SMS refunds (2026-11-25).** A bank SMS that is money back is recorded as an unlinked `refund`, in the payee's spending category when it is known (a payee rule, the built-in merchant list, or asked in To review with spending categories): any credit onto a credit card (a payment onto the card is its own kind), and any bank credit the phone reads as a refund or reversal ("refund", "refunded", "reversed", "reversal", "credited back"). Cashback and other credits stay income. A refund is never paired as one side of a transfer, and it is suggested but never approved in a batch. New users no longer get a "Refund" income category; users who have one keep it.
+
 ### Monthly cash flow
 
 **Built on branch `cash-flow`.** See the [design](../superpowers/specs/2026-11-12-cash-flow-design.md). `GET /cash-flow?month=YYYY-MM` returns a month's figures.
@@ -89,7 +91,8 @@ net       = income − spending
 
 | Movement | Income | Spending |
 |---|---|---|
-| `income` (salary, interest, dividends, refunds) | amount | — |
+| `income` (salary, interest, dividends) | amount | — |
+| `refund` (money back) | — | minus amount |
 | `expense` (any account, cards included, when the purchase is made) | — | amount |
 | `emi` | — | `interest` only; the principal only lowers the loan |
 | `transfer` (between own accounts, card bill payments, PPF/RD deposits and withdrawals) | — | — |
@@ -99,7 +102,7 @@ net       = income − spending
 - **Previous month at the same day**: the month before, from its 1st to the same day number, clamped to its length. 12 November compares with 1–12 October; 30 March with 1–28 February. On a month's last day the month counts as whole, so 31 March (like any later day) compares with the whole of February, and 30 April with the whole of March. A whole past month compares with the whole month before. The change is `this − previous`, and its percent is `change ÷ previous × 100` rounded half up to a whole number, with no percent when the previous figure is 0.
 - **By category**: income and spending are grouped by category. A subcategory's figure also counts in its parent's (one level). Each group's share is `group ÷ total × 100`, rounded half up to a whole percent. A transaction without a category (SMS, not yet answered) is "Uncategorised"; an EMI's interest is "Loan interest". The top 3 are the three biggest spending groups, ties by name.
 - **Daily spending**: each day's spending, and its bar height as `day ÷ the biggest day × 100`, rounded half up. Days after today have no figure.
-- Refunds are income until they get their own type (below).
+- A refund lowers the spending of its category in the month it arrives (above).
 
 Example, November up to the 12th: salary ₹80,000; groceries ₹6,000; a Swiggy order ₹1,200 under Food and dining → Dining; an EMI of ₹12,000 with ₹3,000 interest; ₹20,000 paid to the credit card; ₹10,000 into a fund. Income ₹80,000, spending ₹6,000 + ₹1,200 + ₹3,000 = **₹10,200**, net **₹69,800**. The card payment, the fund purchase and the ₹9,000 principal are not spending.
 
@@ -386,7 +389,7 @@ set_aside    = sum of active (not archived) goals' earmarks in the account
 free_balance = balance − set_aside
 ```
 
-A bank with ₹80,000 and ₹50,000 set aside has a free balance of **₹30,000**. Clients show `free_balance` as the headline. It goes negative when more is set aside than the account holds, and each goal with an earmark there shows a warning ("₹X more is set aside than {account} holds."). Nothing is released automatically. A PPF or RD in a goal also carries an `in_goal` tag.
+A bank with ₹80,000 and ₹50,000 set aside has a free balance of **₹30,000**. Clients show `free_balance` as the headline. Setting money aside is refused above the free balance ("Only ₹X of {account} is free to set aside."). It can still go negative when spending later takes the account below what is set aside, and each goal with an earmark there shows a warning ("₹X more is set aside than {account} holds."). Nothing is released automatically. A PPF or RD in a goal also carries an `in_goal` tag.
 
 Archiving an account that has money set aside is refused ("₹X of {account} is set aside for {goals}. Release it first."). Account archiving locks the account and its PPFs in id order, rereads the PPF ids under the lock and retries up to 3 times if they changed.
 

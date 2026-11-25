@@ -16,9 +16,10 @@ from pydantic_core import PydanticCustomError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from app.api.balances import load_flows
 from app.api.dates import iso_date, today_india
 from app.api.deps import CurrentUser, get_current_user
-from app.api.goals import GoalResponse, load_goal_book
+from app.api.goals import GoalResponse, free_balance, load_goal_book, load_goal_tags
 from app.api.portfolio import user_replay
 from app.api.routes.accounts import MAX_ID, Money, Ref, clean_text, field_error, fmt, rupees
 from app.api.routes.stocks import Deleted
@@ -367,6 +368,15 @@ def add_earmark(id: int, body: EarmarkCreate, user: CurrentUser, db: DbSession) 
             message = f"Only {rupees(held)} of {account.name} is set aside for this goal."
             raise RequestValidationError([field_error("amount", message)])
         amount = -amount
+    else:
+        # The account is locked, so its balance and earmarks can't change before this commits.
+        set_aside = load_goal_tags(db, user.id).set_aside_by_account
+        free = free_balance(account, load_flows(db, user.id), set_aside)
+        if amount > free:
+            message = (
+                f"Only {rupees(max(free, Decimal(0)))} of {account.name} is free to set aside."
+            )
+            raise RequestValidationError([field_error("amount", message)])
     db.add(
         GoalEarmark(
             user_id=user.id,

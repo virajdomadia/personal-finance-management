@@ -138,6 +138,12 @@ test("expectedChoices keeps EMIs, SIPs and reminders only", () => {
   );
 });
 
+test("categoryType follows the server: a refund is answered with a spending category", () => {
+  assert.equal(categoryType(item({ kind: "credit", category_type: "expense" })), "expense");
+  assert.equal(categoryType(item({ kind: "credit", category_type: "income" })), "income");
+  assert.equal(categoryType(item({ kind: "debit", category_type: "expense" })), "expense");
+});
+
 test("categoryType: money in is income", () => {
   assert.equal(categoryType(item({ kind: "credit" })), "income");
   assert.equal(categoryType(item({ kind: "debit" })), "expense");
