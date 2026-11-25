@@ -18,6 +18,7 @@ PostgreSQL. Neon in production, a local cluster on port 5434 (`backend/.pgdata`)
 | Table | Columns that matter |
 |---|---|
 | `users` | `id`, `email`, `session_version` |
+| `sessions` | `user_id`, `created_at`, `expires_at`: one row per sign-in. A session token carries its id, and logout deletes the row. Not in backups. |
 | `accounts` | `type` (`bank`, `credit_card`, `cash`, `broker`, `wallet`), `name`, `opening_balance NUMERIC(14,2)`, `institution`, `bank_kind`, `last4`, `credit_limit`, `statement_day`, `due_day`, `archived_at` |
 | `transactions` | `type` (`income`, `expense`, `transfer`), `amount NUMERIC(14,2)` > 0, `date`, `account_id`, `to_account_id`, `category` text, `note` |
 | `recurring_templates` | `name`, `type`, `amount NUMERIC(14,2)`, `account_id`, `to_account_id`, `category`, `note`, `frequency` (`monthly`, `yearly`), `day`, `month`, `start_date`, `end_date`, `remind_days`, `active` |

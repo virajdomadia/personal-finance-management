@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS } from "@/lib/auth";
+import { SESSION_COOKIE, SESSION_MAX_AGE_SECONDS, endSessionRequest } from "@/lib/auth";
 import { PROFILE_COOKIE } from "@/lib/family";
 
 export type LoginState = { error: string | null };
@@ -53,9 +53,44 @@ export async function loginWithGoogle(credential: string): Promise<LoginState> {
   return { error: null };
 }
 
-export async function logout(): Promise<void> {
+async function signOutHere(): Promise<never> {
   const cookieStore = await cookies();
   cookieStore.delete(SESSION_COOKIE);
   cookieStore.delete(PROFILE_COOKIE);
   redirect("/login");
+}
+
+// Revokes this browser's session on the API, then forgets the cookie. Also runs on a 401, when the
+// token is already dead, so the API's answer doesn't matter: the cookie goes either way.
+export async function logout(): Promise<void> {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (token) {
+    try {
+      await fetch(...endSessionRequest(API_URL, "logout", token));
+    } catch {
+      // The API is down or slow; the cookie is still removed below.
+    }
+  }
+  await signOutHere();
+}
+
+export type SignOutEverywhereState = { error: string | null };
+
+const EVERYWHERE_FAILED = "Couldn't sign out your other devices. Try again in a few minutes.";
+
+// Signs every browser and phone out. Unlike logout, it reports a failure: the point is that the
+// other devices are signed out, and staying here signed in says they weren't.
+export async function logoutEverywhere(): Promise<SignOutEverywhereState> {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (token) {
+    let response: Response;
+    try {
+      response = await fetch(...endSessionRequest(API_URL, "everywhere", token));
+    } catch {
+      return { error: EVERYWHERE_FAILED };
+    }
+    // A 401 means this session had already ended, so there's nothing left to sign out here.
+    if (!response.ok && response.status !== 401) return { error: EVERYWHERE_FAILED };
+  }
+  return signOutHere();
 }

@@ -10,8 +10,9 @@ from app.api.routes import auth as auth_route
 from app.core import google
 from app.core.config import get_settings
 from app.core.google import GoogleIdentity, GoogleUnavailable, InvalidGoogleToken
+from app.core.security import create_token, parse_token
 from app.main import app
-from app.models.user import User
+from app.models.user import LoginSession, User
 
 client = TestClient(app)
 
@@ -196,3 +197,94 @@ def test_verify_maps_transport_error_to_unavailable(monkeypatch: pytest.MonkeyPa
 
     with pytest.raises(GoogleUnavailable):
         google.verify_google_id_token("t", "web-client")
+
+
+# Sessions: each sign-in is its own session, which logout revokes.
+
+SESSION = "/api/auth/session"
+
+
+def bearer(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def signed_in(db: Session, monkeypatch: pytest.MonkeyPatch) -> tuple[str, str]:
+    """Two sign-ins by the same person, say the website and the phone."""
+    db.add(User(email="me@example.com", google_sub="sub-1"))
+    db.commit()
+    identity_is(monkeypatch, "sub-1", "me@example.com")
+    web, phone = login().json()["token"], login().json()["token"]
+    assert web != phone
+    return web, phone
+
+
+def test_logout_revokes_only_that_session(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    web, phone = signed_in(db_session, monkeypatch)
+    assert client.get(SESSION, headers=bearer(web)).status_code == 200
+
+    assert client.post("/api/auth/logout", headers=bearer(web)).status_code == 204
+
+    assert client.get(SESSION, headers=bearer(web)).status_code == 401
+    assert client.post("/api/auth/logout", headers=bearer(web)).status_code == 401
+    assert client.get(SESSION, headers=bearer(phone)).status_code == 200
+
+
+def test_sign_out_everywhere_revokes_every_session(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    web, phone = signed_in(db_session, monkeypatch)
+    user = db_session.scalars(select(User)).one()
+    legacy = create_token(user.id, user.session_version, "test-secret")
+    assert client.get(SESSION, headers=bearer(legacy)).status_code == 200
+
+    response = client.post("/api/auth/logout-everywhere", headers=bearer(phone))
+
+    assert response.status_code == 204
+    for token in (web, phone, legacy):
+        assert client.get(SESSION, headers=bearer(token)).status_code == 401
+    assert db_session.scalar(select(func.count()).select_from(LoginSession)) == 0
+    # Signing in again works as usual.
+    assert client.get(SESSION, headers=bearer(login().json()["token"])).status_code == 200
+
+
+def test_a_token_from_before_sessions_stays_valid_until_it_expires(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A token issued before sessions names none, so there is nothing for logout to revoke: it
+    lasts until its 30 days are up or the owner signs out everywhere."""
+    user = User(email="me@example.com", google_sub="sub-1")
+    db_session.add(user)
+    db_session.commit()
+    legacy = create_token(user.id, user.session_version, "test-secret")
+
+    assert client.post("/api/auth/logout", headers=bearer(legacy)).status_code == 204
+    assert client.get(SESSION, headers=bearer(legacy)).status_code == 200
+
+
+def test_a_session_belongs_to_its_user(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    web, _ = signed_in(db_session, monkeypatch)
+    other = User(email="other@example.com")
+    db_session.add(other)
+    db_session.commit()
+    claims = parse_token(web, "test-secret")
+    assert claims is not None and claims.session_id is not None
+    # The same session id under someone else's user id is refused (signed with the real secret).
+    forged = create_token(other.id, 1, "test-secret", session_id=claims.session_id)
+    assert client.get(SESSION, headers=bearer(forged)).status_code == 401
+
+
+def test_session_tokens_are_signed_over_the_session_id() -> None:
+    token = create_token(1, 1, "s", now=1000, session_id=5)
+    user_id, version, session_id, expiry, signature = token.split(".")
+    claims = parse_token(token, "s", now=1000)
+    assert claims is not None and (claims.user_id, claims.session_id) == (1, 5)
+    tampered = f"{user_id}.{version}.6.{expiry}.{signature}"
+    assert parse_token(tampered, "s", now=1000) is None
+    # Dropping the session id doesn't turn it into a valid token from before sessions.
+    assert parse_token(f"{user_id}.{version}.{expiry}.{signature}", "s", now=1000) is None
+    legacy = parse_token(create_token(1, 1, "s", now=1000), "s", now=1000)
+    assert legacy is not None and legacy.session_id is None

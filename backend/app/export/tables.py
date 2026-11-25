@@ -14,6 +14,7 @@ from sqlalchemy import JSON, Column, ForeignKeyConstraint, MetaData, Table
 
 EXCLUDED: dict[str, str] = {
     "users": "login identity (email, Google id, session version); restore targets a user by email",
+    "sessions": "sign-ins on this server; a restored user signs in again",
     "market_codes": "shared public market data, the same for every user and refreshed nightly",
     "corporate_actions": "shared public market data from the exchange, the same for every user",
 }

@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
-import { ScrollView } from "react-native";
+import { Alert, ScrollView } from "react-native";
 import { Button, Dialog, Portal, Text } from "react-native-paper";
 
 import { type NotificationSwitch, ProfileView } from "@/components/profile-view";
@@ -50,7 +50,7 @@ function useReminderSwitch(kind: ReminderKind, token: string | null) {
 }
 
 export default function ProfileScreen() {
-  const { token, logOut } = useSession();
+  const { token, logOut, logOutEverywhere } = useSession();
   const { profile, switchProfile, syncFamily } = useProfile();
   const [family, setFamily] = useState<Family | null>(null);
   const [familyFailed, setFamilyFailed] = useState(false);
@@ -194,6 +194,23 @@ export default function ProfileScreen() {
           setExporting("choose");
         }}
         onLogOut={() => void logOut()}
+        onLogOutEverywhere={() =>
+          Alert.alert(
+            "Sign out everywhere?",
+            "Every browser and phone signed in to Gullak is signed out, this one too. Your data isn't touched.",
+            [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Sign out everywhere",
+                style: "destructive",
+                onPress: () =>
+                  void logOutEverywhere().catch(() =>
+                    Alert.alert("Couldn't sign out everywhere", "Check your connection and try again."),
+                  ),
+              },
+            ],
+          )
+        }
       />
       <Portal>
         <Dialog visible={choosing} onDismiss={() => setChoosing(false)}>

@@ -10,6 +10,7 @@ import { EXPORTS, type ExportKind, downloadError } from "@/lib/data-export";
 
 import { saveDownload } from "./download";
 import { ExcelImport } from "./excel-import";
+import { SignOutEverywhere } from "./sign-out-everywhere";
 
 type Card = {
   kind: ExportKind;
@@ -119,6 +120,7 @@ export function DataView() {
         Restoring a backup isn&apos;t a button yet: the app&apos;s owner loads it on the server with the{" "}
         <code className="font-black">restore-user</code> command.
       </p>
+      <SignOutEverywhere />
     </div>
   );
 }

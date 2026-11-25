@@ -1,7 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import { createContext, use, useCallback, useMemo, useState, type ReactNode } from "react";
 
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 import { clearExports } from "@/lib/export-share";
 import { getGoogleIdToken, signOutOfGoogle } from "@/lib/google";
 import { TOKEN_KEY, readStoredToken } from "@/lib/stored-token";
@@ -10,6 +10,8 @@ type Session = {
   token: string | null;
   logIn: () => Promise<void>;
   logOut: () => Promise<void>;
+  // Signs every browser and phone out, this one too. Rejects when the server couldn't do it.
+  logOutEverywhere: () => Promise<void>;
 };
 
 const SessionContext = createContext<Session | null>(null);
@@ -29,6 +31,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logOut = useCallback(async () => {
+    // Ends this phone's session on the server too, without waiting: signing out works offline, and
+    // on a 401 (the usual reason to be here) the session has already ended.
+    if (token) void apiFetch("/auth/logout", { method: "POST", token, asOwner: true }).catch(() => {});
     setToken(null);
     clearExports(); // exported files hold the whole financial history
     try {
@@ -36,9 +41,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } finally {
       await signOutOfGoogle();
     }
-  }, []);
+  }, [token]);
 
-  const session = useMemo(() => ({ token, logIn, logOut }), [token, logIn, logOut]);
+  const logOutEverywhere = useCallback(async () => {
+    if (token) {
+      try {
+        await apiFetch("/auth/logout-everywhere", { method: "POST", token, asOwner: true });
+      } catch (error) {
+        // A 401 means this session had already ended; anything else, the others may still be in.
+        if (!(error instanceof ApiError && error.status === 401)) throw error;
+      }
+    }
+    await logOut();
+  }, [token, logOut]);
+
+  const session = useMemo(
+    () => ({ token, logIn, logOut, logOutEverywhere }),
+    [token, logIn, logOut, logOutEverywhere],
+  );
 
   return <SessionContext value={session}>{children}</SessionContext>;
 }

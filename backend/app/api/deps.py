@@ -6,7 +6,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.security import bearer_token, parse_token
 from app.db.session import DbSession
-from app.models.user import User
+from app.models.user import LoginSession, User
 
 _UNAUTHENTICATED = HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
 
@@ -30,6 +30,11 @@ def get_signed_in_user(request: Request, db: DbSession) -> User:
         user = db.get(User, claims.user_id)
         if user is not None and user.session_version != claims.session_version:
             user = None
+        if user is not None and claims.session_id is not None:
+            # A session token lasts only as long as its sign-in: logout deletes the row.
+            session = db.get(LoginSession, claims.session_id)
+            if session is None or session.user_id != user.id:
+                user = None
     if user is None or user.owner_id is not None:  # a family member never signs in
         raise _UNAUTHENTICATED
     return user

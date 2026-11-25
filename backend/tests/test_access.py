@@ -197,3 +197,8 @@ def test_token_vector() -> None:
         create_token(7, 2, "vector-secret", now=1000)
         == "7.2.2593000.h4iwZlqGe1wYGglpni-75ZF6nkgb-yIC90TlA69JV7k"
     )
+    # The website checks session tokens too: frontend/src/lib/auth.test.mjs asserts the same.
+    assert (
+        create_token(7, 2, "vector-secret", now=1000, session_id=9)
+        == "7.2.9.2593000.uxWs_ZZKDlDOJR9zoM6dip_s_ugNnkIswEASaswoeEE"
+    )
