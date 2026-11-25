@@ -8,13 +8,15 @@ import { whole } from "./recurring.ts";
 import { KIND_LABEL, type UpcomingItem, type UpcomingKind } from "./upcoming.ts";
 
 export const DUE_CHANNEL = {
-  id: "due-reminders",
+  id: "due-reminders-private",
+  retiredId: "due-reminders",
   name: "Bills and dues",
   description: "Card bills, EMIs, premiums, SIPs and other payments coming up",
 } as const;
 
 export const BUDGET_CHANNEL = {
-  id: "budget-alerts",
+  id: "budget-alerts-private",
+  retiredId: "budget-alerts",
   name: "Budget alerts",
   description: "When a budget is nearly used up or goes over",
 } as const;

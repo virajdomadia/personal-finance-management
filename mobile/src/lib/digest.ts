@@ -119,10 +119,16 @@ export function dueSummary(d: { due: { through: string; total: string; items: un
 
 // The weekly summary notification: local, repeating, Sunday 7 pm on the phone's clock. Its text is
 // generic because a local notification can't fetch figures; tapping it opens the digest screen.
+export const WEEKLY_CHANNEL = {
+  id: "weekly-summary-private",
+  retiredId: "weekly-summary",
+  name: "Weekly summary",
+  description: "A Sunday evening nudge to look at your week",
+} as const;
+
 export const WEEKLY_SUMMARY = {
   id: "weekly-summary",
-  channelId: "weekly-summary",
-  channelName: "Weekly summary",
+  channelId: WEEKLY_CHANNEL.id,
   weekday: 1, // expo-notifications counts 1 = Sunday
   hour: 19,
   minute: 0,

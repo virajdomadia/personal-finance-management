@@ -8,8 +8,9 @@
 import * as SecureStore from "expo-secure-store";
 import type * as NotificationsPackage from "expo-notifications";
 
-import { SUMMARY_PREF_KEY, WEEKLY_SUMMARY, parseSummaryPref, summaryPrefValue } from "@/lib/digest";
+import { SUMMARY_PREF_KEY, WEEKLY_CHANNEL, WEEKLY_SUMMARY, parseSummaryPref, summaryPrefValue } from "@/lib/digest";
 import { loadNotifications } from "@/lib/native";
+import { ensurePrivateChannel } from "@/lib/notification-channels";
 
 export type EnableResult = "on" | "denied" | "blocked" | "needs-update";
 
@@ -38,11 +39,7 @@ function saveSummaryPref(on: boolean): void {
 
 // Android 13+ shows the permission prompt only once a channel exists, so this comes first.
 async function ensureChannel(n: Notifications): Promise<void> {
-  await n.setNotificationChannelAsync(WEEKLY_SUMMARY.channelId, {
-    name: WEEKLY_SUMMARY.channelName,
-    description: "A Sunday evening nudge to look at your week",
-    importance: n.AndroidImportance.DEFAULT,
-  });
+  await ensurePrivateChannel(n, WEEKLY_CHANNEL);
 }
 
 // Replaces any earlier schedule under our identifier, so calling it twice never doubles up.
@@ -89,8 +86,10 @@ export async function disableWeeklySummary(): Promise<void> {
   await n.cancelScheduledNotificationAsync(WEEKLY_SUMMARY.id).catch(() => {});
 }
 
-// On app start: a stored "on" puts the schedule back if it went missing (a reinstall restore, an
-// OS that dropped it). Permission taken away in settings turns the switch off instead.
+// On app start: a stored "on" lays the schedule down again, which also puts it back if it went
+// missing (a reinstall restore, an OS that dropped it) and moves one made on the old public channel
+// to the private one. Rescheduling a weekly trigger doesn't move its time. Permission taken away in
+// settings turns the switch off instead.
 export async function restoreWeeklySummary(): Promise<void> {
   if (!readSummaryPref()) return;
   const n = notifications();
@@ -100,9 +99,6 @@ export async function restoreWeeklySummary(): Promise<void> {
     saveSummaryPref(false);
     return;
   }
-  const scheduled = await n.getAllScheduledNotificationsAsync();
-  if (!scheduled.some((s) => s.identifier === WEEKLY_SUMMARY.id)) {
-    await ensureChannel(n);
-    await schedule(n);
-  }
+  await ensureChannel(n);
+  await schedule(n);
 }

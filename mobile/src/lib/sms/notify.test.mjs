@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+
+import { WEEKLY_CHANNEL, WEEKLY_SUMMARY } from "../digest.ts";
+import { ensurePrivateChannel } from "../notification-channels.ts";
+import { BUDGET_CHANNEL, DUE_CHANNEL } from "../reminders.ts";
 
 import {
   FRESH_MS,
   REVIEW_URL,
+  SMS_CHANNEL,
   TRANSACTIONS_URL,
   headline,
   newOutcomes,
@@ -140,4 +148,53 @@ test("test_tap_targets_are_checked", () => {
   assert.equal(smsNoticeTarget(null), null);
   const notice = recordedNotice(outcome({ transactionId: 4 }));
   assert.equal(smsNoticeTarget(noticeData(notice)), "/transaction-form?id=4");
+});
+
+// Lock-screen privacy: every channel hides its text on a secure lock screen.
+
+function fakeNotifications() {
+  const calls = [];
+  return {
+    calls,
+    AndroidImportance: { DEFAULT: 3 },
+    AndroidNotificationVisibility: { PUBLIC: 1, PRIVATE: 2, SECRET: 3 },
+    setNotificationChannelAsync: async (id, input) => calls.push(["set", id, input]),
+    deleteNotificationChannelAsync: async (id) => calls.push(["delete", id]),
+  };
+}
+
+test("test_every_channel_is_private_on_the_lock_screen", async () => {
+  const channels = [SMS_CHANNEL, DUE_CHANNEL, BUDGET_CHANNEL, WEEKLY_CHANNEL];
+  const ids = channels.flatMap((c) => [c.id, c.retiredId]);
+  assert.equal(new Set(ids).size, ids.length, "new ids differ from the old ones and each other");
+  for (const channel of channels) {
+    const n = fakeNotifications();
+    await ensurePrivateChannel(n, channel);
+    assert.deepEqual(n.calls, [
+      ["set", channel.id, { name: channel.name, description: channel.description, importance: 3, lockscreenVisibility: 2 }],
+      ["delete", channel.retiredId],
+    ]);
+  }
+  assert.equal(WEEKLY_SUMMARY.channelId, WEEKLY_CHANNEL.id);
+});
+
+test("test_a_failed_delete_of_the_old_channel_is_ignored", async () => {
+  const n = fakeNotifications();
+  n.deleteNotificationChannelAsync = async () => {
+    throw new Error("gone");
+  };
+  await ensurePrivateChannel(n, SMS_CHANNEL);
+  assert.equal(n.calls.length, 1);
+});
+
+test("test_channels_are_only_made_through_the_private_helper", () => {
+  const src = fileURLToPath(new URL("../..", import.meta.url));
+  const files = (dir) =>
+    readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) return files(path);
+      return /\.(ts|tsx)$/.test(name) ? [path] : [];
+    });
+  const makers = files(src).filter((f) => readFileSync(f, "utf8").includes("setNotificationChannelAsync"));
+  assert.deepEqual(makers.map((f) => relative(src, f).replaceAll("\\", "/")), ["lib/notification-channels.ts"]);
 });

@@ -5,6 +5,7 @@
 import type * as NotificationsPackage from "expo-notifications";
 
 import { loadNotifications } from "@/lib/native";
+import { ensurePrivateChannel } from "@/lib/notification-channels";
 
 import { SMS_CHANNEL, type SmsNotice, noticeData } from "./notify";
 
@@ -14,11 +15,7 @@ export type PermissionResult = "granted" | "denied" | "blocked" | "needs-update"
 
 // Android 13+ asks for notification permission only once a channel exists, so this comes first.
 async function ensureChannel(n: Notifications): Promise<void> {
-  await n.setNotificationChannelAsync(SMS_CHANNEL.id, {
-    name: SMS_CHANNEL.name,
-    description: SMS_CHANNEL.description,
-    importance: n.AndroidImportance.DEFAULT,
-  });
+  await ensurePrivateChannel(n, SMS_CHANNEL);
 }
 
 // Asks for notification permission when it can. "blocked" means Android won't ask again.

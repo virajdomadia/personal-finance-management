@@ -12,6 +12,7 @@ import type * as NotificationsPackage from "expo-notifications";
 import { apiFetch } from "@/lib/api";
 import { BUDGETS_PATH, type BudgetMonth } from "@/lib/budgets";
 import { loadNotifications } from "@/lib/native";
+import { ensurePrivateChannel } from "@/lib/notification-channels";
 import {
   BUDGET_CHANNEL,
   BUDGET_PREF_KEY,
@@ -69,12 +70,7 @@ function saveSent(sent: SentBudgetAlerts): void {
 
 // Android 13+ shows the permission prompt only once a channel exists, so these come first.
 async function ensureChannel(n: Notifications, kind: ReminderKind): Promise<void> {
-  const channel = kind === "due" ? DUE_CHANNEL : BUDGET_CHANNEL;
-  await n.setNotificationChannelAsync(channel.id, {
-    name: channel.name,
-    description: channel.description,
-    importance: n.AndroidImportance.DEFAULT,
-  });
+  await ensurePrivateChannel(n, kind === "due" ? DUE_CHANNEL : BUDGET_CHANNEL);
 }
 
 async function granted(n: Notifications): Promise<boolean> {
