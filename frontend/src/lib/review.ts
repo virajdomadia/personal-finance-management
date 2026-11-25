@@ -10,6 +10,8 @@ export type ReviewItem = {
   id: number;
   status: "review" | "draft";
   kind: string;
+  // Which categories answer it: a refund (money back) takes a spending one. Older servers omit it.
+  category_type?: "income" | "expense";
   reason: string | null;
   message: string | null;
   amount: string | null;
@@ -172,9 +174,10 @@ export function expectedBody(item: ReviewItem, choice: Candidate, remember: bool
   };
 }
 
-// Which category list applies: money in is income, anything else an expense.
+// Which category list applies, as the server says: a refund is answered with a spending category.
+// Without its say, money in is income and anything else an expense.
 export function categoryType(item: ReviewItem): "income" | "expense" {
-  return item.kind === "credit" ? "income" : "expense";
+  return item.category_type ?? (item.kind === "credit" ? "income" : "expense");
 }
 
 // The accounts an "account" answer can choose. A card message belongs to a credit card; any other

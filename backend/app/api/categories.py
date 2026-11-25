@@ -25,14 +25,15 @@ from app.models.transaction import Transaction
 KINDS = ("income", "expense")
 UNCATEGORISED = "Uncategorised"
 
-# The defaults every user starts with: (name, icon, colour), in picker order.
+# The defaults every user starts with: (name, icon, colour), in picker order. There is no "Refund"
+# income category: money back is a refund, in the spending category it came from. Users who
+# already have one keep it.
 DEFAULTS: dict[str, list[tuple[str, str, str]]] = {
     "income": [
         ("Salary", "salary", "#2e9e5b"),
         ("Business", "business", "#1f7a8c"),
         ("Interest", "interest", "#4cb944"),
         ("Dividends", "dividends", "#5c80bc"),
-        ("Refund", "refund", "#669bbc"),
         ("Gift", "gift", "#a06cd5"),
         ("Other", "other", "#8a8a8a"),
     ],

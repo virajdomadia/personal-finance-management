@@ -20,6 +20,7 @@ export type Parsed = {
   quantity: string | null;
   dueDate: string | null;
   minDue: string | null; // a card statement's minimum due, when the message gives one
+  refund: boolean; // a credit that is money back: the message says refund or reversed
 };
 
 export type ParseResult = Parsed[] | "unreadable" | "ignore";
@@ -311,6 +312,8 @@ const STILL_TO_APPROVE = /\b(?:approve|pending)\b/i;
 // Points, miles or coins credited are not rupees.
 const POINTS_MOVED =
   /\b(?:credited|debited|redeemed)\b(?:\s+(?:with|by|for|of))?\s+\d[\d,]*(?:\.\d+)?\s*(?:reward\s+)?(?:points?|pts|miles|coins)\b/i;
+// Money back: a refund, or a reversal of an earlier payment. Cashback is not one.
+const MONEY_BACK = /\b(?:refund(?:ed)?|revers(?:ed|al)|credited\s+back)\b/i;
 // "Rs.500 debited from A/c XX1234 has been reversed": the earlier debit came back.
 const REVERSED = /\b(?:has\s+been|have\s+been|is|was|been)\s+reversed\b|\breversed\s+(?:to|and|into)\b|\bcredited\s+back\b/i;
 
@@ -358,6 +361,7 @@ function blank(line: Partial<Parsed> & { kind: SmsKind; date: string }): Parsed 
     quantity: null,
     dueDate: null,
     minDue: null,
+    refund: false,
     ...line,
   };
 }
@@ -474,6 +478,7 @@ function line(kind: SmsKind, text: string, region: string, received: string, kno
     payee: payeeOf(kind, region),
     ref: refOf(region),
     balance: CARD_KINDS.has(kind) ? null : balanceOf(text),
+    refund: kind === "credit" && MONEY_BACK.test(text),
     ...known,
   });
 }
@@ -594,7 +599,7 @@ export function parseSms(bank: string, body: string, receivedAt: Date): ParseRes
   // An earlier debit put back is money in, and the account it names is the owner's, not a payee.
   const parsed =
     kind === "debit" && REVERSED.test(region)
-      ? line("credit", text, region, received, { payee: null })
+      ? line("credit", text, region, received, { payee: null, refund: true })
       : line(kind, text, region, received);
   if (!parsed.amount) return mentionsAmount(text) ? "unreadable" : "ignore";
   return [parsed];

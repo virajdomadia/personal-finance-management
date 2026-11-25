@@ -14,6 +14,7 @@ from sqlalchemy import (
     Numeric,
     String,
     UniqueConstraint,
+    false,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -67,6 +68,9 @@ class SmsEntry(Base):
     due_date: Mapped[dt.date | None] = mapped_column(Date)
     # A card statement's minimum due, when the message gives one.
     minimum_due: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    # A credit the phone read as a refund or reversal ("refund of Rs 799 credited"). A credit onto a
+    # credit card is a refund either way: see ingest.is_refund.
+    refund: Mapped[bool] = mapped_column(default=False, server_default=false())
     account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
     # "recorded", "review", "draft", "ignored" or "duplicate".
     status: Mapped[str] = mapped_column(String(12))

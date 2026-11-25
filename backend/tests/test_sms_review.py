@@ -108,6 +108,7 @@ def test_review_list_shows_open_items_newest_first(headers: Headers, db_session:
         "suggested_account_id": None,
         "confident": False,
         "why": "First time for this payee",
+        "category_type": "expense",
     }
 
 

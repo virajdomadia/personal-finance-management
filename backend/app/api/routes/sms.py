@@ -28,7 +28,8 @@ from app.db.session import DbSession
 from app.models.account import Account
 from app.models.recurring import RecurringTemplate
 from app.models.sms import AccountIdentifier, PayeeRule, SmsEntry, SmsSample
-from app.sms import confidence, recording, review
+from app.models.transaction import Transaction
+from app.sms import confidence, ingest, recording, review
 from app.sms.ingest import MONEY_IN, MONEY_OUT, decide
 
 router = APIRouter(prefix="/sms", tags=["sms"], dependencies=[Depends(get_signed_in_user)])
@@ -60,6 +61,8 @@ class ParsedSms(BaseModel):
     quantity: Annotated[Decimal | None, Field(gt=0, max_digits=24, decimal_places=8)] = None
     due_date: Day = None
     minimum_due: Money = None  # a card statement's, when the message gives one
+    # Money back: the message said refund or reversed. Only a credit can be one.
+    refund: bool = False
 
     @model_validator(mode="after")
     def _rules(self) -> "ParsedSms":
@@ -72,6 +75,8 @@ class ParsedSms(BaseModel):
             raise PydanticCustomError("amount", "Enter an amount.")
         if self.amount is not None and self.amount <= 0:
             raise PydanticCustomError("amount", "Amount must be greater than 0.")
+        if self.refund and self.kind != "credit":
+            raise PydanticCustomError("refund", "Only a credit can be a refund.")
         if self.minimum_due is not None and self.minimum_due < 0:
             raise PydanticCustomError("minimum_due", "The minimum can't be negative.")
         if self.payee is not None:
@@ -158,6 +163,9 @@ class ReviewItem(BaseModel):
     # Approvable with "Approve all confident"; `why` says why it is or what needs a look.
     confident: bool
     why: str
+    # Which categories answer it: "income", or "expense" for spending and refunds (money back
+    # goes in the spending category it came from).
+    category_type: Literal["income", "expense"]
 
 
 class CategoryTotal(BaseModel):
@@ -181,6 +189,12 @@ class ConfidentSummary(BaseModel):
 class ReviewList(BaseModel):
     items: list[ReviewItem]
     confident: ConfidentSummary
+
+
+def _category_type(db: Session, entry: SmsEntry) -> Literal["income", "expense"]:
+    tx = None if entry.transaction_id is None else db.get(Transaction, entry.transaction_id)
+    type_ = tx.type if tx is not None else ingest.recorded_type(db, entry)
+    return "income" if type_ == "income" else "expense"
 
 
 def _item(
@@ -218,6 +232,7 @@ def _item(
         suggested_account_id=found.suggested_account_id,
         confident=found.confident,
         why=found.why,
+        category_type=_category_type(db, entry),
     )
 
 
