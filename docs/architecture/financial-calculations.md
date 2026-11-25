@@ -386,7 +386,7 @@ set_aside    = sum of active (not archived) goals' earmarks in the account
 free_balance = balance − set_aside
 ```
 
-A bank with ₹80,000 and ₹50,000 set aside has a free balance of **₹30,000**. Clients show `free_balance` as the headline. It goes negative when more is set aside than the account holds, and each goal with an earmark there shows a warning ("₹X more is set aside than {account} holds."). Nothing is released automatically. A PPF or RD in a goal also carries an `in_goal` tag.
+A bank with ₹80,000 and ₹50,000 set aside has a free balance of **₹30,000**. Clients show `free_balance` as the headline. Setting money aside is refused above the free balance ("Only ₹X of {account} is free to set aside."). It can still go negative when spending later takes the account below what is set aside, and each goal with an earmark there shows a warning ("₹X more is set aside than {account} holds."). Nothing is released automatically. A PPF or RD in a goal also carries an `in_goal` tag.
 
 Archiving an account that has money set aside is refused ("₹X of {account} is set aside for {goals}. Release it first."). Account archiving locks the account and its PPFs in id order, rereads the PPF ids under the lock and retries up to 3 times if they changed.
 

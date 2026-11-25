@@ -635,23 +635,51 @@ def test_archived_goal_takes_no_earmarks(headers: Headers, db_session: Session) 
         assert response.json()["detail"] == "Restore this goal first."
 
 
-def test_set_aside_may_exceed_the_free_balance_and_warns(
-    headers: Headers, db_session: Session
-) -> None:
+def test_set_aside_no_more_than_the_free_balance(headers: Headers, db_session: Session) -> None:
     hdfc = account(db_session, me(db_session), "HDFC").id  # holds 50,000
     db_session.commit()
     bike = create(headers).json()["id"]
     trip = create(headers, name="Trip").json()["id"]
     assert earmark(headers, bike, hdfc, "set_aside", "45000.00").json()["warnings"] == []
-    over = earmark(headers, trip, hdfc, "set_aside", "15000.50")
-    assert over.status_code == 201
+
+    # Bike's 45,000 is already spoken for, by this goal or any other.
+    for goal_id in (trip, bike):
+        over = earmark(headers, goal_id, hdfc, "set_aside", "5000.50")
+        assert over.status_code == 422
+        assert messages(over) == {"amount": "Only ₹5,000 of HDFC is free to set aside."}
+    assert earmark(headers, trip, hdfc, "set_aside", "5000.00").status_code == 201
+    nothing_left = earmark(headers, trip, hdfc, "set_aside", "0.01")
+    assert messages(nothing_left) == {"amount": "Only ₹0 of HDFC is free to set aside."}
+
+    # A release frees its money again.
+    earmark(headers, bike, hdfc, "release", "1000.00")
+    assert earmark(headers, trip, hdfc, "set_aside", "1000.00").status_code == 201
+
+
+def test_spending_below_what_is_set_aside_warns(headers: Headers, db_session: Session) -> None:
+    uid = me(db_session)
+    hdfc = account(db_session, uid, "HDFC").id  # holds 50,000
+    db_session.commit()
+    bike = create(headers).json()["id"]
+    trip = create(headers, name="Trip").json()["id"]
+    earmark(headers, bike, hdfc, "set_aside", "45000.00")
+    earmark(headers, trip, hdfc, "set_aside", "5000.00")
+    db_session.add(
+        Transaction(
+            user_id=uid, type="expense", account_id=hdfc, amount=Decimal("10000.50"), date=TODAY
+        )
+    )
+    db_session.commit()
+
     warning = "₹10,000.50 more is set aside than HDFC holds."
-    assert over.json()["warnings"] == [warning]
-    assert client.get(f"{URL}/{bike}", headers=headers).json()["warnings"] == [warning]
+    for goal_id in (bike, trip):
+        assert client.get(f"{URL}/{goal_id}", headers=headers).json()["warnings"] == [warning]
 
     # Archiving Trip stops its earmark counting, so the account is no longer over.
     client.post(f"{URL}/{trip}/archive", headers=headers)
-    assert client.get(f"{URL}/{bike}", headers=headers).json()["warnings"] == []
+    assert client.get(f"{URL}/{bike}", headers=headers).json()["warnings"] == [
+        "₹5,000.50 more is set aside than HDFC holds."
+    ]
 
 
 def test_free_balance_helper(headers: Headers, db_session: Session) -> None:
