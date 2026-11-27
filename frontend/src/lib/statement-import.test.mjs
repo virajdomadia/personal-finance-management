@@ -286,6 +286,8 @@ test("a password must fit in a header", () => {
 
 test("lines from before the account was added get a note", () => {
   assert.equal(beforeStartNote({ added_on: "2026-11-07", before_start: 0 }), null);
+  // An API from before this field existed sends neither.
+  assert.equal(beforeStartNote({}), null);
   assert.equal(
     beforeStartNote({ added_on: "2026-11-07", before_start: 44 }),
     "44 lines are from before you added this account on 7 Nov 2026. Saving them keeps today's balance the same: the opening balance moves instead.",

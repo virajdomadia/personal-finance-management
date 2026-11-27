@@ -283,9 +283,10 @@ export function passwordProblem(password: string): string | null {
 
 // Lines from on or before the day the account was added are already in its opening balance:
 // saving them moves the opening, so today's balance stays the same.
-export function beforeStartNote(p: Pick<StatementPreview, "added_on" | "before_start">): string | null {
-  const n = p.before_start;
-  if (n <= 0) return null;
+// Both fields are missing from an API older than them, as during a deploy.
+export function beforeStartNote(p: Partial<Pick<StatementPreview, "added_on" | "before_start">>): string | null {
+  const n = p.before_start ?? 0;
+  if (n <= 0 || !p.added_on) return null;
   const lines = n === 1 ? "1 line is" : `${n} lines are`;
   return `${lines} from before you added this account on ${formatDate(p.added_on)}. Saving ${n === 1 ? "it" : "them"} keeps today's balance the same: the opening balance moves instead.`;
 }
