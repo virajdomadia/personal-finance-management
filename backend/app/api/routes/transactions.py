@@ -1030,6 +1030,11 @@ def update_transaction(
     tx, accounts = _lock_transaction(
         db, user.id, id, [changes.get("account_id"), changes.get("to_account_id")]
     )
+    if len(_split_rows(db, user.id, _split_root(db, user.id, tx.id))) > 1:
+        # A part's money, day and account are the bill's; only its category and note are its own.
+        for field in ("type", "amount", "date", "account_id", "to_account_id"):
+            if field in changes and changes[field] != getattr(tx, field):
+                raise RequestValidationError([field_error(field, CHANGE_THE_SPLIT)])
     values = {
         "type": tx.type,
         "account_id": tx.account_id,
@@ -1088,8 +1093,13 @@ def update_transaction(
 def delete_transaction(id: int, user: CurrentUser, db: DbSession) -> dict[str, int]:
     tx, accounts = _lock_transaction(db, user.id, id)
     _require_active(tx, accounts)
+    if tx.split_of_id is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, CHANGE_THE_SPLIT)
+    # Deleting a split bill's original deletes the whole bill.
+    parts = _split_rows(db, user.id, tx)[1:]
+    gone = [tx.id, *(p.id for p in parts)]
     before = load_movements(db, user.id)
-    problem = balance_problem(accounts, before, [m for m in before if m.id != tx.id])
+    problem = balance_problem(accounts, before, [m for m in before if m.id not in gone])
     if problem:
         raise HTTPException(status.HTTP_409_CONFLICT, problem)
     # A policy's latest renewal goes with its payment; an earlier one's payment stays.
@@ -1097,17 +1107,19 @@ def delete_transaction(id: int, user: CurrentUser, db: DbSession) -> dict[str, i
     # The SMS it came from stays known, so sending that message again doesn't bring it back.
     db.execute(
         update(SmsEntry)
-        .where(SmsEntry.user_id == user.id, SmsEntry.transaction_id == tx.id)
+        .where(SmsEntry.user_id == user.id, SmsEntry.transaction_id.in_(gone))
         .values(status="ignored", transaction_id=None)
     )
     # A dividend it was linked to just loses the link (links are notes, not money).
-    delete_links_for_transactions(db, user.id, [tx.id])
+    delete_links_for_transactions(db, user.id, gone)
     # Its refunds stay, unlinked, keeping the category they give spending back in.
     db.execute(
         update(Transaction)
-        .where(Transaction.user_id == user.id, Transaction.refund_of_id == tx.id)
+        .where(Transaction.user_id == user.id, Transaction.refund_of_id.in_(gone))
         .values(refund_of_id=None)
     )
+    for part in parts:
+        db.delete(part)
     db.delete(tx)
     db.commit()
     return {"id": id}

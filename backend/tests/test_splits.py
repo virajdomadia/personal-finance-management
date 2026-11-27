@@ -144,3 +144,48 @@ def test_get_split_from_a_part(headers: Headers) -> None:
     parts = split(headers, tx, ("Groceries", "2200.00"), ("Household", "800.00")).json()["parts"]
     got = client.get(f"{TX}/{parts[1]['id']}/split", headers=headers).json()
     assert got["id"] == tx and [p["category"] for p in got["parts"]] == ["Groceries", "Household"]
+
+
+def split_bill(headers: Headers) -> tuple[int, int, int]:
+    """(bank, original, part 2) of a ₹3,000 bill split 2,200 / 800."""
+    bank, tx = bill(headers)
+    parts = split(headers, tx, ("Groceries", "2200.00"), ("Household", "800.00")).json()["parts"]
+    return bank, tx, parts[1]["id"]
+
+
+def test_part_category_and_note_editable(headers: Headers) -> None:
+    _, _, part = split_bill(headers)
+    body = {"category": "Personal care", "note": "soap"}
+    response = client.patch(f"{TX}/{part}", json=body, headers=headers)
+    assert response.status_code == 200, response.json()
+    assert (response.json()["category"], response.json()["note"]) == ("Personal care", "soap")
+
+
+def test_part_amount_date_account_refused(headers: Headers) -> None:
+    bank, tx, part = split_bill(headers)
+    other = account(headers, name="SBI")
+    changes = [
+        {"amount": "500.00"},
+        {"date": days_ago(3)},
+        {"account_id": other},
+    ]
+    for target in (tx, part):
+        for change in changes:
+            response = client.patch(f"{TX}/{target}", json=change, headers=headers)
+            assert response.status_code == 422, (target, change, response.json())
+            assert "Change the split instead." in str(response.json())
+    assert balance(headers, bank) == "7000.00"
+
+
+def test_delete_part_refused(headers: Headers) -> None:
+    _, _, part = split_bill(headers)
+    response = client.delete(f"{TX}/{part}", headers=headers)
+    assert response.status_code == 409
+    assert "Change the split instead." in str(response.json())
+
+
+def test_delete_original_deletes_parts(headers: Headers) -> None:
+    bank, tx, _ = split_bill(headers)
+    assert client.delete(f"{TX}/{tx}", headers=headers).status_code == 200
+    assert rows(headers) == []
+    assert balance(headers, bank) == "10000.00"
