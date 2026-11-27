@@ -10,7 +10,7 @@ from typing import NamedTuple
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.api.recurring import Money, TemplateRow, pays_for, settle_unlinked
+from app.api.recurring import Money, TemplateRow, settle_unlinked
 from app.models.insurance import InsurancePolicy
 from app.models.recurring import RecurringSkip, RecurringTemplate
 from app.models.sms import SmsEntry
@@ -111,40 +111,3 @@ def _unlinked(db: Session, user_id: int, templates: list[RecurringTemplate]) -> 
             .order_by(Transaction.date, Transaction.id)
         )
     )
-
-
-def fixed_payment_ids(db: Session, user_id: int, template_ids: set[int]) -> set[int]:
-    """The transactions that pay one of these reminders: recorded through it, or matched to it
-    the way `load_reminder_payments` matches them. Each transaction pays at most one."""
-    if not template_ids:
-        return set()
-    ids = set(
-        db.scalars(
-            select(Transaction.id).where(
-                Transaction.user_id == user_id,
-                Transaction.recurring_template_id.in_(template_ids),
-            )
-        )
-    )
-    templates = [t for t in _matchable(db, user_id) if t.id in template_ids]
-    if not templates:
-        return ids
-    payments = load_reminder_payments(db, user_id)
-    candidates = _unlinked(db, user_id, _matchable(db, user_id))
-    taken: set[int] = set()
-    for t in templates:
-        matched = list(payments.paid.get(t.id, []))
-        for day in payments.linked.get(t.id, []):
-            matched.remove(day)
-        for day in matched:
-            tx = next(
-                (
-                    c
-                    for c in candidates
-                    if c.id not in taken and c.date == day and pays_for(_money(t), _money(c))
-                ),
-                None,
-            )
-            if tx is not None:
-                taken.add(tx.id)
-    return ids | taken
