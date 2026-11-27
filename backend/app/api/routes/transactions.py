@@ -879,6 +879,140 @@ def list_refundable(
     return RefundableList(purchases=found)
 
 
+class SplitPartIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    category: Category = None
+    amount: Money = None
+
+
+class SplitIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    parts: list[SplitPartIn]
+
+
+class SplitPart(BaseModel):
+    id: int
+    category: str | None
+    amount: str
+
+
+class SplitOut(BaseModel):
+    """A split bill: `id` is the original's, which is part 1."""
+
+    id: int
+    total: str
+    parts: list[SplitPart]
+
+
+MAX_SPLIT_PARTS = 20
+CHANGE_THE_SPLIT = "Change the split instead."
+
+
+def _split_root(db: Session, user_id: int, id: int) -> Transaction:
+    tx = _get_owned(db, user_id, id)
+    return tx if tx.split_of_id is None else _get_owned(db, user_id, tx.split_of_id)
+
+
+def _split_rows(db: Session, user_id: int, root: Transaction) -> list[Transaction]:
+    """The bill's original, then its other parts by id."""
+    parts = db.scalars(
+        select(Transaction)
+        .where(Transaction.user_id == user_id, Transaction.split_of_id == root.id)
+        .order_by(Transaction.id)
+    )
+    return [root, *parts]
+
+
+def _split_out(rows: list[Transaction]) -> SplitOut:
+    return SplitOut(
+        id=rows[0].id,
+        total=fmt(sum((r.amount for r in rows), Decimal(0))),
+        parts=[SplitPart(id=r.id, category=r.category, amount=fmt(r.amount)) for r in rows],
+    )
+
+
+def _split_error(message: str) -> NoReturn:
+    raise RequestValidationError([field_error("parts", message)])
+
+
+def _refunds_follow(db: Session, user_id: int, purchase: Transaction) -> None:
+    """A purchase's linked refunds give spending back in its category."""
+    db.execute(
+        update(Transaction)
+        .where(
+            Transaction.user_id == user_id,
+            Transaction.type == "refund",
+            Transaction.refund_of_id == purchase.id,
+        )
+        .values(category=purchase.category)
+    )
+
+
+@router.get("/{id}/split")
+def get_split(id: int, user: CurrentUser, db: DbSession) -> SplitOut:
+    """A bill's parts, asked for by the original or by any part."""
+    return _split_out(_split_rows(db, user.id, _split_root(db, user.id, id)))
+
+
+@router.put("/{id}/split")
+def put_split(id: int, body: SplitIn, user: CurrentUser, db: DbSession) -> SplitOut:
+    """Split an expense into parts, change its split, or undo it with one part (the whole bill).
+    Part 1 is the original; the others share its date, account, note and source."""
+    root, accounts = _lock_transaction(db, user.id, _split_root(db, user.id, id).id)
+    _require_active(root, accounts)
+    if root.type != "expense":
+        _split_error("Only an expense can be split.")
+    if not 1 <= len(body.parts) <= MAX_SPLIT_PARTS:
+        _split_error(f"Split into 2 to {MAX_SPLIT_PARTS} parts.")
+    if any(p.category is None for p in body.parts):
+        _split_error("Each part needs a category.")
+    amounts = [p.amount for p in body.parts]
+    if any(a is None or a <= 0 for a in amounts):
+        _split_error("Each part needs an amount above 0.")
+    rows = _split_rows(db, user.id, root)
+    total = sum((r.amount for r in rows), Decimal(0))
+    given = sum((a for a in amounts if a is not None), Decimal(0))
+    if given != total:
+        _split_error(f"The parts add up to {rupees(given)}; the bill is {rupees(total)}.")
+    names = [resolve(db, user.id, "expense", p.category or "") for p in body.parts]
+    extra = rows[1:]
+    kept: list[Transaction] = [root]
+    for n, (amount, name) in enumerate(zip(amounts, names, strict=True)):
+        if n == 0:
+            row = root
+        elif n - 1 < len(extra):
+            row = extra[n - 1]
+        else:
+            row = Transaction(
+                user_id=user.id,
+                type=root.type,
+                date=root.date,
+                account_id=root.account_id,
+                note=root.note,
+                source=root.source,
+                split_of_id=root.id,
+            )
+            db.add(row)
+        row.amount, row.category = amount, name  # type: ignore[assignment]
+        if row is not root:
+            kept.append(row)
+    db.flush()
+    for gone in extra[len(body.parts) - 1 :]:
+        # Refunds of a removed part now belong to the bill's original.
+        db.execute(
+            update(Transaction)
+            .where(Transaction.user_id == user.id, Transaction.refund_of_id == gone.id)
+            .values(refund_of_id=root.id)
+        )
+        db.delete(gone)
+    for row in kept:
+        _refunds_follow(db, user.id, row)
+    db.commit()
+    return _split_out(_split_rows(db, user.id, root))
+
+
 @router.get("/{id}")
 def get_transaction(id: int, user: CurrentUser, db: DbSession) -> TransactionResponse:
     tx = _get_owned(db, user.id, id)
