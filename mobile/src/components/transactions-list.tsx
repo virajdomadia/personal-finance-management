@@ -40,6 +40,7 @@ import {
   savedMonth,
   shiftMonth,
   signedAmount,
+  splitLabel,
   todayIndia,
 } from "@/lib/transactions";
 
@@ -82,7 +83,7 @@ export function TransactionRow({
       : tx.type === "emi" && tx.interest !== null
         ? `${tx.account_name} · ${formatRupees(tx.interest)} interest`
         : tx.account_name;
-  const metaParts = [accounts, tx.note, refundedText].filter(Boolean);
+  const metaParts = [accounts, tx.note, refundedText, splitLabel(tx.split)].filter(Boolean);
   const amount = signedAmount(tx, viewedAccountId);
   return (
     <View style={styles.rowWrap}>
