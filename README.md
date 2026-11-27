@@ -72,7 +72,7 @@ $env:DATABASE_URL = "<Neon direct connection string>"   # PowerShell
 uv run alembic upgrade head
 ```
 
-Run the upgrade before merging a PR that adds a migration. The `vercel` deploy workflow checks that the production database is at the code's newest migration and refuses to deploy (API and website) until it is; after migrating, re-run the workflow from the Actions tab. The check reads the Neon connection string from the GitHub Actions secret `DATABASE_URL` (`gh secret set DATABASE_URL`); update it there too if you rotate the database password.
+You don't need to run the upgrade for a normal release: the `vercel` deploy workflow runs `alembic upgrade head` on Neon before it deploys the API, then checks that the database is at the code's newest migration and refuses to deploy (API and website) if it isn't. Because the old API keeps serving until the new one is live, a migration must keep it working: add columns and tables, and leave renames and drops for a later release. Only code on `main` migrates production; a workflow started by hand from another branch only checks, so run the upgrade above yourself first in that case. Both steps read the Neon connection string from the GitHub Actions secret `DATABASE_URL` (`gh secret set DATABASE_URL`); update it there too if you rotate the database password. Take a Neon branch first before a risky migration, so it can be rolled back.
 
 Then run any of these (emails are lowercased):
 
