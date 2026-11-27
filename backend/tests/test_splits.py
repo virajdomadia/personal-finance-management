@@ -189,3 +189,24 @@ def test_delete_original_deletes_parts(headers: Headers) -> None:
     assert client.delete(f"{TX}/{tx}", headers=headers).status_code == 200
     assert rows(headers) == []
     assert balance(headers, bank) == "10000.00"
+
+
+def test_sms_after_split_links_original(headers: Headers, db_session: Session) -> None:
+    from tests.test_sms_ingest import bank as sms_bank
+    from tests.test_sms_ingest import entry, manual, send, stored, transactions
+
+    b = sms_bank(headers)
+    typed = manual(
+        headers,
+        type="expense",
+        account_id=b,
+        amount="3000.00",
+        date=days_ago(0),
+        category="Groceries",
+    )
+    split(headers, typed, ("Groceries", "2200.00"), ("Household", "800.00"))
+    body = entry(amount="3000.00", payee="DMart", date=days_ago(0))
+    assert send(headers, body).json()["results"][0]["status"] == "recorded"
+    assert stored(db_session, body["hash"]).transaction_id == typed
+    assert len(transactions(db_session)) == 2
+    assert balance(headers, b) == "7000.00"
