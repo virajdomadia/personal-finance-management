@@ -167,3 +167,9 @@ export function scheduleText(t: Template): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `Every year on ${formatDueDate(`2000-${pad(t.month ?? 1)}-${pad(t.day)}`)}`;
 }
+
+// The Reminders screen's two lists: monthly (active) and the rest (yearly or stopped).
+export function splitTemplates<T extends { frequency: string; active: boolean }>(templates: T[]): { monthly: T[]; other: T[] } {
+  const isMonthly = (t: T) => t.active && t.frequency === "monthly";
+  return { monthly: templates.filter(isMonthly), other: templates.filter((t) => !isMonthly(t)) };
+}

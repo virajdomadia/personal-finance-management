@@ -3,8 +3,8 @@ import { test } from "node:test";
 
 import {
   BUDGETS_URL,
-  CALENDAR_URL,
   MAX_DUE,
+  REMINDERS_URL,
   budgetLevel,
   dueText,
   parsePref,
@@ -160,16 +160,17 @@ test("parseSent and prefs", () => {
 });
 
 test("reminderTarget only opens our routes", () => {
-  assert.equal(reminderTarget({ url: "/calendar" }), "/calendar");
+  assert.equal(reminderTarget({ url: "/reminders" }), "/reminders");
+  assert.equal(reminderTarget({ url: "/calendar" }), "/reminders"); // scheduled while reminders lived on the calendar
   assert.equal(reminderTarget({ url: "/upcoming" }), "/upcoming"); // already scheduled before the calendar
   assert.equal(reminderTarget({ url: "/budgets" }), "/budgets");
   assert.equal(reminderTarget({ url: "/digest" }), null);
   assert.equal(reminderTarget(null), null);
 });
 
-test("planDueReminders: reminders and premiums open the calendar, other bills open Upcoming", () => {
+test("planDueReminders: reminders and premiums open Reminders, other bills open Upcoming", () => {
   const url = (kind) => planDueReminders([item({ kind })], NOW)[0].url;
-  assert.equal(url("recurring"), CALENDAR_URL);
-  assert.equal(url("insurance"), CALENDAR_URL);
+  assert.equal(url("recurring"), REMINDERS_URL);
+  assert.equal(url("insurance"), REMINDERS_URL);
   for (const kind of ["emi", "card_bill", "fd", "fd_interest", "rd", "sip"]) assert.equal(url(kind), UPCOMING_URL, kind);
 });

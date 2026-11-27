@@ -182,7 +182,7 @@ export default function ProfileScreen() {
         streak={streak}
         notifications={notifications}
         onGoals={() => router.push("/goals")}
-        onRecurring={() => router.push("/calendar")}
+        onRecurring={() => router.push("/reminders")}
         onInsurance={() => router.push("/insurance")}
         onArchived={() => router.push("/archived-accounts")}
         onSms={() => router.push("/sms-settings")}
