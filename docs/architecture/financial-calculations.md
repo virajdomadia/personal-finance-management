@@ -47,7 +47,7 @@ amount     = EMI, or balance + interest when that's smaller (the last EMI)
 principal  = amount − interest;  balance after = balance − principal
 ```
 
-- It starts this month, or next month when this month's EMI is already recorded (the same test as the next 30 days: in its calendar month or within 15 days). Each row's date is the loan's due day, clamped to the month's last day; without a due day only the month is given.
+- It starts this month, or next month when this month's EMI is already recorded (the same test as the next 30 days: in its calendar month or within 15 days) or the loan was added after this month's due date (its balance already reflects that EMI, as the next 30 days also assume). Without a due day, only an EMI in this calendar month counts. Each row's date is the loan's due day, clamped to the month's last day; without a due day only the month is given.
 - Without a rate or an EMI there's no schedule, only a message asking for it; a loan with nothing owed is paid off. If the EMI doesn't cover a month's interest, the loan never gets paid off and there's no schedule. A schedule past 600 EMIs (50 years) is refused.
 - The summary is the number of EMIs left, the month of the last one, the interest still to pay (Σ interest) and the total still to pay (Σ amount).
 

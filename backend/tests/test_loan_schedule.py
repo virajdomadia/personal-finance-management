@@ -101,8 +101,10 @@ def next_month(day: date) -> date:
     return (day.replace(day=1) + timedelta(days=32)).replace(day=1)
 
 
-def test_schedule_route(headers: Headers) -> None:
-    response = schedule(headers, small_loan(headers))
+def test_schedule_route(headers: Headers, db_session: Session) -> None:
+    id_ = small_loan(headers)
+    added(db_session, id_, today_india().replace(day=1))  # before this month's due day
+    response = schedule(headers, id_)
     assert response.status_code == 200, response.json()
     body = response.json()
     today = today_india()
@@ -120,11 +122,15 @@ def test_schedule_route(headers: Headers) -> None:
     }
 
 
-def test_route_starts_next_month_after_this_months_emi(headers: Headers) -> None:
+def test_route_starts_next_month_after_this_months_emi(
+    headers: Headers, db_session: Session
+) -> None:
     bank = make(headers, type="bank", name="HDFC", bank_kind="savings", balance="50000.00").json()[
         "id"
     ]
     id_ = small_loan(headers, balance="2000.00")
+    added(db_session, id_, today_india().replace(day=1))  # so only the EMI moves it
+    assert schedule(headers, id_).json()["rows"][0]["month"] == month_of(today_india())
     paid = client.post(
         "/api/transactions",
         json={
@@ -160,3 +166,65 @@ def test_route_problems(
     mine = small_loan(headers)
     other = auth(db_session, monkeypatch, email="other@example.com")
     assert schedule(other, mine).status_code == 404
+
+
+# Review fixes
+
+
+def pin_today(monkeypatch: pytest.MonkeyPatch, day: date) -> None:
+    from app.api.routes import accounts as accounts_route
+
+    monkeypatch.setattr(accounts_route, "today_india", lambda: day)
+
+
+def added(db: Session, id_: int, day: date) -> None:
+    from datetime import UTC, datetime
+
+    from app.models.account import Account
+
+    row = db.get(Account, id_)
+    assert row is not None
+    row.created_at = datetime(day.year, day.month, day.day, 6, 0, tzinfo=UTC)  # noon in India
+    db.commit()
+
+
+def test_loan_added_after_this_months_due_day_starts_next_month(
+    headers: Headers, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pin_today(monkeypatch, date(2026, 12, 20))
+    id_ = small_loan(headers)
+    added(db_session, id_, date(2026, 12, 20))  # typed in after the 5 Dec EMI
+    assert schedule(headers, id_).json()["rows"][0]["due"] == "2027-01-05"
+
+
+def test_loan_added_before_this_months_due_day_still_owes_it(
+    headers: Headers, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pin_today(monkeypatch, date(2026, 12, 20))
+    id_ = small_loan(headers)
+    added(db_session, id_, date(2026, 12, 1))
+    assert schedule(headers, id_).json()["rows"][0]["due"] == "2026-12-05"  # unpaid, still owed
+
+
+def test_no_due_day_ignores_last_months_late_emi(
+    headers: Headers, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pin_today(monkeypatch, date(2026, 12, 3))
+    bank = make(headers, type="bank", name="HDFC", bank_kind="savings", balance="50000.00").json()[
+        "id"
+    ]
+    id_ = loan(headers, balance="2000.00", interest_rate="12", emi_amount="600.00")["id"]
+    paid = client.post(
+        "/api/transactions",
+        json={
+            "type": "emi",
+            "date": "2026-11-25",
+            "account_id": bank,
+            "to_account_id": id_,
+            "amount": "600.00",
+            "interest": "20.00",
+        },
+        headers=headers,
+    )
+    assert paid.status_code == 201, paid.json()
+    assert schedule(headers, id_).json()["rows"][0]["month"] == "2026-12"

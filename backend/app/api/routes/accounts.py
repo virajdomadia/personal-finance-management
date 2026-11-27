@@ -955,6 +955,7 @@ def _quantity(kind: str, quantity: Decimal) -> str:
 def loan_schedule(id: int, user: CurrentUser, db: DbSession) -> Schedule:
     """A loan's repayment schedule from what's owed today. Rules:
     docs/architecture/financial-calculations.md, "Repayment schedule"."""
+    from app.api.upcoming import added_on  # it imports this module
     from app.sms.expected import emis_paid  # it imports this module
 
     account = _get_owned(db, user, id)
@@ -972,12 +973,18 @@ def loan_schedule(id: int, user: CurrentUser, db: DbSession) -> Schedule:
         else:
             today = today_india()
             first = today.replace(day=1)
-            due = (
-                today
-                if account.due_day is None
-                else clamped_date(today.year, today.month, account.due_day)
-            )
-            if emis_paid(db, user.id, account.id, due):  # this month's EMI is in
+            if account.due_day is None:
+                # No due day: only an EMI in this calendar month is this month's.
+                paid = any(t.date >= first for t in emis_paid(db, user.id, account.id, today))
+            else:
+                due = clamped_date(today.year, today.month, account.due_day)
+                added = added_on(account)
+                # This month's EMI is in, or the loan was added after it fell due (its balance
+                # already reflects it), as the next 30 days decide.
+                paid = bool(emis_paid(db, user.id, account.id, due)) or (
+                    added is not None and due < added
+                )
+            if paid:
                 first = (first + timedelta(days=32)).replace(day=1)
             rows, problem = schedule_rows(owed, rate, emi, first, account.due_day)
     interest = sum((r.interest for r in rows), Decimal(0))
