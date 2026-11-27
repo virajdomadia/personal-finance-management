@@ -228,6 +228,45 @@ def test_a_locked_pdf_needs_its_password() -> None:
     assert len(read_statement(read_grid(data, "01011990"))) == 2
 
 
+def scanned_pdf() -> bytes:
+    """A statement saved as a picture: one image per page, no text."""
+    from PIL import Image
+
+    picture = io.BytesIO()
+    Image.new("RGB", (40, 40), "white").save(picture, format="PNG")
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.image(io.BytesIO(picture.getvalue()), x=10, y=10, w=100)
+    return bytes(pdf.output())
+
+
+def test_a_scanned_pdf_says_so() -> None:
+    with pytest.raises(FileProblem, match="scanned image"):
+        read_grid(scanned_pdf())
+
+
+def test_a_text_pdf_with_a_logo_is_still_read() -> None:
+    from PIL import Image
+
+    picture = io.BytesIO()
+    Image.new("RGB", (20, 20), "red").save(picture, format="PNG")
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.image(io.BytesIO(picture.getvalue()), x=10, y=10, w=20)
+    pdf.set_font("Helvetica", size=9)
+    pdf.set_y(40)
+    with pdf.table() as table:
+        for row in [["Date", "Narration", "Withdrawal", "Deposit"],
+                    [DAY.strftime("%d/%m/%Y"), "UPI/NETFLIX", "649.00", ""]]:  # fmt: skip
+            cells = table.row()
+            for value in row:
+                cells.cell(value)
+
+    (line,) = read_statement(read_grid(bytes(pdf.output())))
+
+    assert line.amount == D("649.00")
+
+
 def test_a_file_without_statement_columns_says_so() -> None:
     with pytest.raises(FileProblem, match="Couldn't find the statement's columns"):
         read_statement(read_grid(xlsx([["Name", "Age"], ["A", 1]])))
