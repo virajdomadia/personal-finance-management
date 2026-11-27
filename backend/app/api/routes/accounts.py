@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.api.balances import (
@@ -526,6 +526,9 @@ def bank_checks(db: Session, user_id: int, accounts: list[Account]) -> dict[int,
             SmsEntry.user_id == user_id,
             SmsEntry.account_id.in_(banks),
             SmsEntry.kind.in_(("debit", "credit")),
+            # A "duplicate" retells a payment another SMS already gave, except a SIP debit
+            # matched to a typed fund buy, which is the only message for its money.
+            or_(SmsEntry.status != "duplicate", SmsEntry.trade_id.is_not(None)),
         )
         .order_by(SmsEntry.occurred_on, SmsEntry.id)
     )

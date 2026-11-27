@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from fpdf import FPDF
 from httpx import Response
 from openpyxl import Workbook
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dates import today_india
@@ -596,3 +597,74 @@ def test_a_refund_already_recorded_is_a_duplicate_and_not_called_income(
     assert (found["new"], found["duplicates"]) == (0, 1)
     # "Refund" is not an income category new users have, so it isn't suggested.
     assert found["lines"][0]["category"] is None
+
+
+# Lines imported from before the account was added stay tied to its opening balance.
+
+
+def history_import(headers: Headers) -> tuple[int, list[dict]]:
+    sbi = account(headers, "SBI")
+    lines = preview(headers, sbi, hdfc_style()).json()["lines"]
+    assert save(headers, sbi, [kept(line) for line in lines]).json()["imported"] == 3
+    return sbi, client.get("/api/transactions", headers=headers).json()["transactions"]
+
+
+def test_deleting_a_line_from_before_the_account_keeps_todays_balance(headers: Headers) -> None:
+    sbi, saved = history_import(headers)
+
+    for tx in saved:
+        response = client.delete(f"/api/transactions/{tx['id']}", headers=headers)
+        assert response.status_code == 200, response.json()
+
+    assert balances(headers)[sbi] == "10000.00"
+
+
+def test_a_line_from_before_the_account_keeps_its_amount_and_date(headers: Headers) -> None:
+    _, saved = history_import(headers)
+    salary = next(t for t in saved if t["type"] == "income")
+
+    changed = client.patch(
+        f"/api/transactions/{salary['id']}", json={"amount": "1.00"}, headers=headers
+    )
+    recategorised = client.patch(
+        f"/api/transactions/{salary['id']}", json={"category": "Interest"}, headers=headers
+    )
+
+    assert changed.status_code == 422
+    assert "before" in str(changed.json())
+    assert recategorised.status_code == 200, recategorised.json()
+
+
+def test_an_exact_duplicate_is_matched_before_a_near_line_claims_it(headers: Headers) -> None:
+    sbi = account(headers, "SBI")
+    body = {"type": "expense", "account_id": sbi, "amount": "100.00", "date": DAY.isoformat()}
+    assert client.post(
+        "/api/transactions", json={**body, "category": "Food"}, headers=headers
+    ).status_code == 201
+    d1 = DAY.strftime("%d/%m/%Y")
+    chai, lunch = [d1, "UPI/DR/Chai", "100.60", None], [d1, "UPI/DR/Lunch", "100.00", None]
+    data = xlsx([["Txn Date", "Narration", "Withdrawal", "Deposit"], chai, lunch])
+
+    near, exact = preview(headers, sbi, data).json()["lines"]
+
+    assert (near["duplicate"], exact["duplicate"]) == (False, True)
+
+
+def test_a_history_transfer_into_a_deposit_is_not_an_instalment(
+    headers: Headers, db_session: Session
+) -> None:
+    from app.api.loans import load_deposit_moves
+    from app.models.account import Account
+    from app.models.transaction import Transaction
+    from app.models.user import User
+
+    user_id = db_session.scalar(select(User.id))
+    sbi = account(headers, "SBI")
+    rd = Account(user_id=user_id, type="rd", name="RD", opening_balance=D("5000"))
+    db_session.add(rd)
+    db_session.flush()
+    db_session.add(Transaction(user_id=user_id, type="transfer", amount=D("1000"), date=DAY,
+                               account_id=sbi, to_account_id=rd.id, source="history"))  # fmt: skip
+    db_session.commit()
+
+    assert load_deposit_moves(db_session, user_id, [rd])[rd.id] == []

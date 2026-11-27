@@ -13,7 +13,15 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.balances import Movement, balance_of, load_movements, net_flows
+from app.api.balances import (
+    HISTORY,
+    Movement,
+    balance_of,
+    load_movements,
+    move_openings,
+    net_flows,
+    opening_held,
+)
 from app.api.categories import (
     DEFAULTS,
     UNCATEGORISED,
@@ -524,6 +532,8 @@ def save_checks(
         changed = [f for f in fields if current and values.get(f) != getattr(current, f)]
         if changed and is_split(db, user_id, existing_id):
             raise RequestValidationError([field_error(changed[0], CHANGE_THE_SPLIT)])
+        if changed and current is not None and current.source == HISTORY:
+            raise RequestValidationError([field_error(changed[0], HISTORY_IS_FIXED)])
     if link_changed:
         _check_template(db, user_id, values)
     purchase = _check_refund(db, user_id, values, existing_id)
@@ -930,6 +940,10 @@ class SplitOut(BaseModel):
 
 
 MAX_SPLIT_PARTS = 20
+HISTORY_IS_FIXED = (
+    "This line is from a statement, dated before its account was added, so it's part of the "
+    "opening balance: its amount, date and account can't change. Delete it and import it again."
+)
 CHANGE_THE_SPLIT = "Change the split instead."
 
 
@@ -1082,7 +1096,7 @@ def update_transaction(
     if link_changed and period_of(db, tx.id) is not None:
         raise RequestValidationError([field_error("recurring_template_id", PERIOD_LINKED)])
     # An SMS transaction waiting in review for its category can still be edited meanwhile.
-    uncategorised_sms = tx.category is None and tx.source in ("sms", "statement")
+    uncategorised_sms = tx.category is None and tx.source in ("sms", "statement", HISTORY)
     save_checks(
         db,
         user.id,
@@ -1126,7 +1140,14 @@ def delete_transaction(id: int, user: CurrentUser, db: DbSession) -> dict[str, i
     # Deleting a split bill's original deletes the whole bill.
     parts = _split_rows(db, user.id, tx)[1:]
     gone = [tx.id, *(p.id for p in parts)]
-    before = load_movements(db, user.id)
+    # A statement line from before its account was added is in the opening balance: deleting
+    # it puts the opening back, so the balance doesn't move and needs no check.
+    held: dict[int, Decimal] = {}
+    for row in [tx, *parts] if tx.source == HISTORY else []:
+        moved = Movement(row.id, row.type, row.amount, row.account_id, row.to_account_id)
+        for account_id, change in opening_held(row.date, moved, accounts).items():
+            held[account_id] = held.get(account_id, Decimal(0)) + change
+    before = [m for m in load_movements(db, user.id) if not (held and m.id in gone)]
     problem = balance_problem(accounts, before, [m for m in before if m.id not in gone])
     if problem:
         raise HTTPException(status.HTTP_409_CONFLICT, problem)
@@ -1146,6 +1167,7 @@ def delete_transaction(id: int, user: CurrentUser, db: DbSession) -> dict[str, i
         .where(Transaction.user_id == user.id, Transaction.refund_of_id.in_(gone))
         .values(refund_of_id=None)
     )
+    move_openings(accounts, held, -1)
     for part in parts:
         db.delete(part)
     db.delete(tx)

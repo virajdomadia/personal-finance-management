@@ -55,7 +55,7 @@ BANK_SIDE_TYPES = ("bank", "wallet", "credit_card")
 MANUAL_WINDOW = timedelta(days=1)
 # Transactions the owner put in themselves, typed or imported (a spreadsheet or a statement):
 # an SMS for the same payment links to one of these instead of recording it again.
-TYPED_SOURCES = ("manual", "import", "statement")
+TYPED_SOURCES = ("manual", "import", "statement", "history")
 PAIR_WINDOW = timedelta(days=3)
 PAYERS = ("bank", "wallet")
 # A payee that is a masked account number, as a payee key: "xx650", "x8650", "a/c xx8650".

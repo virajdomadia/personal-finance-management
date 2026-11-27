@@ -129,3 +129,13 @@ def test_a_later_credit_that_day_adds_to_the_banks_balance(
     sms(db_session, hdfc, "9000.00", day, amount=Decimal("1000"))
     sms(db_session, hdfc, None, day, kind="credit", amount=Decimal("500"))
     assert check(headers, hdfc)["balance"] == "9500.00"
+
+
+def test_a_repeat_sms_of_the_same_payment_counts_once(
+    headers: Headers, db_session: Session
+) -> None:
+    hdfc = account(headers, balance="3000.00")
+    day = today_india() - timedelta(days=1)
+    sms(db_session, hdfc, "3000.00", day, amount=Decimal("500"), ref="R1")
+    sms(db_session, hdfc, None, day, amount=Decimal("500"), ref="R1", status="duplicate")
+    assert check(headers, hdfc)["balance"] == "3000.00"

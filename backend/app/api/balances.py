@@ -9,13 +9,14 @@ numerics as floats.
 """
 
 from collections.abc import Iterable
-from datetime import date
+from datetime import UTC, date
 from decimal import Decimal
 from typing import NamedTuple
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.dates import INDIA
 from app.api.portfolio import load_trade_rows, trade_cash
 from app.models.account import Account
 from app.models.transaction import Transaction
@@ -94,3 +95,35 @@ def opening_for(account: Account, balance: Decimal, flows: dict[int, Decimal]) -
     """The opening balance that makes `account` show `balance`, with its transactions unchanged."""
     flow = flows.get(account.id, Decimal(0))
     return balance + flow if account.type in LIABILITY_TYPES else balance - flow
+
+
+# Statement lines from before an account was added. Its opening balance is its balance on the
+# day it was added, so such a line is already inside it: saving the line moves the opening
+# instead of the balance, and deleting it moves the opening back.
+HISTORY = "history"  # Transaction.source of a statement line saved that way
+
+
+def added_on(account: Account) -> date:
+    """The day (in India) the account was added to Gullak: its opening balance is from then."""
+    added = account.created_at
+    if added.tzinfo is None:  # SQLite hands back UTC without a zone
+        added = added.replace(tzinfo=UTC)
+    return added.astimezone(INDIA).date()
+
+
+def opening_held(day: date, movement: Movement, accounts: dict[int, Account]) -> dict[int, Decimal]:
+    """The part of a movement on `day` that accounts' opening balances already hold, by account."""
+    return {
+        a: change
+        for a, change in net_flows([movement]).items()
+        if a in accounts and day <= added_on(accounts[a])
+    }
+
+
+def move_openings(accounts: dict[int, Account], held: dict[int, Decimal], sign: int) -> None:
+    """Takes `held` out of the openings (sign 1, a line saved) or puts it back (sign -1, deleted),
+    so each account's balance stays the same."""
+    for account_id, change in held.items():
+        account = accounts[account_id]
+        step = change if account.type in LIABILITY_TYPES else -change
+        account.opening_balance += sign * step

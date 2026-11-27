@@ -15,13 +15,14 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, s
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.api.balances import added_on
 from app.api.deps import CurrentUser, get_current_user
 from app.api.routes.accounts import MAX_ID
 from app.api.routes.imports import _body
 from app.db.session import DbSession
 from app.export.importing import FileProblem
 from app.export.statement_files import PasswordNeeded, read_grid
-from app.export.statements import Kept, added_on, read_statement, save_lines, suggest
+from app.export.statements import Kept, read_statement, save_lines, suggest
 from app.models.account import Account
 
 router = APIRouter(prefix="/import", tags=["import"], dependencies=[Depends(get_current_user)])
