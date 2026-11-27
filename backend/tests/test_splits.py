@@ -1,10 +1,12 @@
 """Split transactions: one expense split across several of the owner's own categories."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.main import app
@@ -210,3 +212,95 @@ def test_sms_after_split_links_original(headers: Headers, db_session: Session) -
     assert stored(db_session, body["hash"]).transaction_id == typed
     assert len(transactions(db_session)) == 2
     assert balance(headers, b) == "7000.00"
+
+
+# Review fixes
+
+
+def test_split_refuses_a_part_below_its_refunds(headers: Headers) -> None:
+    bank, tx = bill(headers)
+    refund = client.post(
+        TX,
+        json={
+            "type": "refund",
+            "account_id": bank,
+            "amount": "2500.00",
+            "date": days_ago(0),
+            "refund_of_id": tx,
+        },
+        headers=headers,
+    )
+    assert refund.status_code == 201, refund.json()
+    response = split(headers, tx, ("Groceries", "2200.00"), ("Household", "800.00"))
+    assert response.status_code == 422
+    assert "already refunded" in str(response.json())
+    assert [r["amount"] for r in rows(headers) if r["type"] == "expense"] == ["3000.00"]
+
+
+def test_sms_for_part_one_amount_is_not_the_split_bill(
+    headers: Headers, db_session: Session
+) -> None:
+    from tests.test_sms_ingest import bank as sms_bank
+    from tests.test_sms_ingest import entry, manual, send, stored, transactions
+
+    b = sms_bank(headers)
+    typed = manual(
+        headers,
+        type="expense",
+        account_id=b,
+        amount="3000.00",
+        date=days_ago(0),
+        category="Groceries",
+    )
+    split(headers, typed, ("Groceries", "2200.00"), ("Household", "800.00"))
+    other = entry(amount="2200.00", payee="Zomato", date=days_ago(0))
+    send(headers, other)
+    assert stored(db_session, other["hash"]).transaction_id != typed
+    assert len(transactions(db_session)) == 3  # the bill's two parts and the Zomato spend
+
+
+def test_a_split_bill_cant_become_a_transfer(headers: Headers, db_session: Session) -> None:
+    from app.models.transaction import Transaction
+    from app.models.user import User
+    from app.sms.ingest import _convert
+
+    bank, tx, part = split_bill(headers)
+    card = account(headers, "credit_card", "0.00", name="Card", credit_limit="50000.00")
+    uid = db_session.scalar(select(User.id))
+    assert uid is not None
+    for target in (tx, part):
+        row = db_session.get(Transaction, target)
+        assert row is not None
+        assert _convert(db_session, uid, row, bank, card) is False
+    db_session.rollback()
+    assert {r["type"] for r in rows(headers)} == {"expense"}
+
+
+def test_review_cant_delete_a_split_bill(headers: Headers, db_session: Session) -> None:
+    from fastapi import HTTPException
+
+    from app.models.sms import SmsEntry
+    from app.models.user import User
+    from app.sms.review import _drop_own_expense
+
+    _, tx, _ = split_bill(headers)
+    uid = db_session.scalar(select(User.id))
+    assert uid is not None
+    entry = SmsEntry(
+        user_id=uid,
+        hash="h" * 64,
+        sender="HDFCBK",
+        bank="hdfc",
+        kind="debit",
+        status="review",
+        amount=Decimal("3000"),
+        occurred_on=date.today(),
+        transaction_id=tx,
+    )
+    db_session.add(entry)
+    db_session.flush()
+    with pytest.raises(HTTPException) as refused:
+        _drop_own_expense(db_session, uid, entry, [])
+    assert refused.value.status_code == 409
+    db_session.rollback()
+    assert len(rows(headers)) == 2

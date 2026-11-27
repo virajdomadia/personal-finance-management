@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic_core import PydanticCustomError
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -486,6 +486,22 @@ def _template_gone(db: Session) -> NoReturn:
     raise RequestValidationError([field_error("recurring_template_id", _CHOOSE_TEMPLATE)]) from None
 
 
+def is_split(db: Session, user_id: int, id: int) -> bool:
+    """Whether a transaction is part of a split bill: a part, or an original with parts."""
+    found = db.scalar(
+        select(Transaction.id)
+        .where(
+            Transaction.user_id == user_id,
+            or_(
+                and_(Transaction.id == id, Transaction.split_of_id.is_not(None)),
+                Transaction.split_of_id == id,
+            ),
+        )
+        .limit(1)
+    )
+    return found is not None
+
+
 def save_checks(
     db: Session,
     user_id: int,
@@ -501,6 +517,13 @@ def save_checks(
     policy's payment stays editable, and a policy's renewal checks its own template.
     """
     validate_transaction_values(values, accounts, allow_uncategorised)
+    if existing_id is not None:
+        # A split bill's money, day and account are the whole bill's: change the split instead.
+        current = db.get(Transaction, existing_id)  # already loaded: no query
+        fields = ("type", "amount", "date", "account_id", "to_account_id")
+        changed = [f for f in fields if current and values.get(f) != getattr(current, f)]
+        if changed and is_split(db, user_id, existing_id):
+            raise RequestValidationError([field_error(changed[0], CHANGE_THE_SPLIT)])
     if link_changed:
         _check_template(db, user_id, values)
     purchase = _check_refund(db, user_id, values, existing_id)
@@ -976,8 +999,18 @@ def put_split(id: int, body: SplitIn, user: CurrentUser, db: DbSession) -> Split
     given = sum((a for a in amounts if a is not None), Decimal(0))
     if given != total:
         _split_error(f"The parts add up to {rupees(given)}; the bill is {rupees(total)}.")
-    names = [resolve(db, user.id, "expense", p.category or "") for p in body.parts]
     extra = rows[1:]
+    # Refunds can't give back more than a part cost, or its category's spending goes below 0.
+    # Checked before anything is written: part 1 also takes the refunds of removed parts.
+    refunded = refunded_totals(db, user.id, [r.id for r in rows])
+    moved = sum((refunded.get(r.id, Decimal(0)) for r in extra[len(body.parts) - 1 :]), Decimal(0))
+    for n, part in enumerate(body.parts):
+        row_id = root.id if n == 0 else extra[n - 1].id if n - 1 < len(extra) else None
+        back = refunded.get(row_id, Decimal(0)) if row_id is not None else Decimal(0)
+        back += moved if n == 0 else Decimal(0)
+        if part.amount is not None and back > part.amount:
+            _split_error(f"{rupees(back)} of this bill is already refunded from part {n + 1}.")
+    names = [resolve(db, user.id, "expense", p.category or "") for p in body.parts]
     kept: list[Transaction] = [root]
     for n, (amount, name) in enumerate(zip(amounts, names, strict=True)):
         if n == 0:
@@ -1030,11 +1063,6 @@ def update_transaction(
     tx, accounts = _lock_transaction(
         db, user.id, id, [changes.get("account_id"), changes.get("to_account_id")]
     )
-    if len(_split_rows(db, user.id, _split_root(db, user.id, tx.id))) > 1:
-        # A part's money, day and account are the bill's; only its category and note are its own.
-        for field in ("type", "amount", "date", "account_id", "to_account_id"):
-            if field in changes and changes[field] != getattr(tx, field):
-                raise RequestValidationError([field_error(field, CHANGE_THE_SPLIT)])
     values = {
         "type": tx.type,
         "account_id": tx.account_id,

@@ -358,6 +358,13 @@ def _claimed(db: Session, user_id: int, entry: SmsEntry, tx_id: int) -> bool:
     )
 
 
+def _split_originals(user_id: int) -> Any:
+    """The originals of the user's split bills: their own amount is only part 1."""
+    return select(Transaction.split_of_id).where(
+        Transaction.user_id == user_id, Transaction.split_of_id.is_not(None)
+    )
+
+
 def _split_bills_of(user_id: int, amount: Decimal) -> Any:
     """The originals of the user's split bills whose parts add up to `amount`."""
     bill = func.coalesce(Transaction.split_of_id, Transaction.id)
@@ -389,7 +396,10 @@ def _typed_by_hand(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | Non
             # A bill split since it was typed matches on the parts' total, through its original.
             Transaction.split_of_id.is_(None),
             or_(
-                Transaction.amount == entry.amount,
+                and_(
+                    Transaction.amount == entry.amount,
+                    Transaction.id.not_in(_split_originals(user_id)),
+                ),
                 Transaction.id.in_(_split_bills_of(user_id, entry.amount)),
             ),
             Transaction.date >= entry.occurred_on - MANUAL_WINDOW,
