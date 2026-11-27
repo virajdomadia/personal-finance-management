@@ -454,6 +454,35 @@ def test_an_atm_withdrawal_is_a_transfer_to_cash(headers: Headers) -> None:
     assert (line["type"], line["other_account_id"], line["payee"]) == ("transfer", cash, "Mumbai")
 
 
+def test_a_line_a_few_paise_off_a_saved_one_is_a_duplicate(headers: Headers) -> None:
+    sbi = account(headers, "SBI")
+    body = {"type": "expense", "account_id": sbi, "amount": "227.00", "date": DAY.isoformat()}
+    assert client.post(
+        "/api/transactions", json={**body, "category": "Food"}, headers=headers
+    ).status_code == 201
+    data = xlsx([["Txn Date", "Narration", "Withdrawal", "Deposit"],
+                 [DAY.strftime("%d/%m/%Y"), "UPI/DR/Zomato/HDFC", "227.05", None]])  # fmt: skip
+
+    (line,) = preview(headers, sbi, data).json()["lines"]
+
+    assert line["duplicate"] is True
+
+
+def test_an_exact_amount_is_matched_before_a_near_one() -> None:
+    from app.export.statements import Line, _take
+
+    saved = [(DAY, D("227.50"), "out"), (DAY, D("227.05"), "out")]
+
+    assert _take(saved, Line(1, DAY, "Zomato", D("227.05"), "out"))
+    assert saved == [(DAY, D("227.50"), "out")]
+
+
+def test_a_rupee_apart_is_not_a_duplicate() -> None:
+    from app.export.statements import Line, _take
+
+    assert not _take([(DAY, D("226.00"), "out")], Line(1, DAY, "Zomato", D("227.00"), "out"))
+
+
 def refund_statement() -> bytes:
     d1 = DAY.strftime("%d/%m/%y")
     return xlsx(

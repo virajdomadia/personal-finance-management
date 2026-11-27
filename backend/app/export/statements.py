@@ -44,6 +44,7 @@ MAX_LINES = 3000
 HEADER_SCAN = 60  # rows looked at for the header: statements open with the account's details
 NOTE_LIMIT = 200
 DUPLICATE_WINDOW = timedelta(days=1)
+NEAR_AMOUNT = Decimal(1)  # a typed amount rounded off still matches the bank's
 
 # Column names as banks write them, after `_norm`. The first name found for a role wins, so
 # the transaction date comes before the value date.
@@ -463,15 +464,20 @@ def _saved(
 
 
 def _take(saved: list[tuple[date, Decimal, str]], line: Line) -> bool:
-    for i, (day, amount, direction) in enumerate(saved):
-        if (
-            direction == line.direction
-            and amount == line.amount
-            and abs((day - line.date).days) <= DUPLICATE_WINDOW.days
-        ):
-            del saved[i]
-            return True
-    return False
+    """Removes and reports the saved movement this line repeats: the same amount, or else one
+    within ₹1 (₹227 typed for a ₹227.05 payment), in the same direction within a day."""
+    near = [
+        i
+        for i, (day, amount, direction) in enumerate(saved)
+        if direction == line.direction
+        and abs(amount - line.amount) < NEAR_AMOUNT
+        and abs((day - line.date).days) <= DUPLICATE_WINDOW.days
+    ]
+    if not near:
+        return False
+    exact = [i for i in near if saved[i][1] == line.amount]
+    del saved[(exact or near)[0]]
+    return True
 
 
 # Saving
