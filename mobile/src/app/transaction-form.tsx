@@ -704,6 +704,16 @@ function FormBody({
             disabled={busy && !saving}
             style={styles.save}
           />
+          {transaction !== null && transaction.type === "expense" && transaction.editable ? (
+            <ChunkyButton
+              variant="alt"
+              icon="call-split"
+              label="Split across categories"
+              disabled={busy}
+              // Replaces this screen: once split, this form's amount is no longer the part's.
+              onPress={() => router.replace({ pathname: "/split-form", params: { id: String(transaction.split?.id ?? transaction.id) } })}
+            />
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
 

@@ -10,6 +10,8 @@ import {
   startForm,
   changedPayload,
   emiForm,
+  splitLabel,
+  splitLeft,
   subtractMoney,
   formFromTransaction,
   dayLabel,
@@ -410,4 +412,18 @@ test("an adjustment shows its own sign and has no category", () => {
   assert.equal(payload.amount, "-230.00");
   assert.equal("category" in payload, false);
   assert.deepEqual(changedPayload(formFromTransaction(adjustmentTx), adjustmentTx), {});
+});
+
+test("splitLabel: which part of a split bill", () => {
+  assert.equal(splitLabel(null), null);
+  assert.equal(splitLabel(undefined), null);
+  assert.equal(splitLabel({ id: 1, part: 2, parts: 3 }), "Split 2 of 3");
+});
+
+test("splitLeft: what's still to assign, exactly", () => {
+  const part = (amount) => ({ category: "a", amount });
+  assert.equal(splitLeft("3000.00", [part("2200.00"), part("")]), "800.00");
+  assert.equal(splitLeft("3000.00", [part("3100.00")]), "-100.00");
+  assert.equal(splitLeft("3000.00", [part("2200.00"), part("800")]), "0.00");
+  assert.equal(splitLeft("3000.00", [part("12.555")]), "");
 });

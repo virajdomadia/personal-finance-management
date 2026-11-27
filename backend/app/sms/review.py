@@ -21,7 +21,7 @@ from app.api.routes.funds import MUTUAL_FUND
 from app.api.routes.market import apply_link
 from app.api.routes.stocks import STOCK
 from app.api.routes.trades import MAX_QUANTITY, stock_columns, stock_save_checks
-from app.api.routes.transactions import lock_accounts, save_checks
+from app.api.routes.transactions import is_split, lock_accounts, save_checks
 from app.api.trade_checks import lock_trade, require_active
 from app.models.account import Account
 from app.models.corporate_action import delete_links_for_transactions
@@ -51,6 +51,7 @@ ANSWERS: dict[str, set[str]] = {
 _GONE = "That transaction no longer exists."
 CHANGED = "This payment changed since. Check it again."
 _OWN_GONE = "This message's transaction no longer exists."
+_SPLIT = "This payment is split. Undo the split in Transactions first."
 
 
 def _invalid(field: str, message: str) -> NoReturn:
@@ -485,6 +486,8 @@ def merge_transfer(db: Session, user_id: int, entry: SmsEntry, transaction_id: i
         _conflict("These two can't be one transfer between your accounts.")
     if own.recurring_template_id is not None or other.recurring_template_id is not None:
         _conflict("A reminder's payment can't become a transfer.")
+    if is_split(db, user_id, own.id) or is_split(db, user_id, other.id):
+        _conflict(_SPLIT)
     spend, received = (own, other) if own.type == "expense" else (other, own)
     values = {
         **_values(other),
@@ -578,6 +581,8 @@ def _drop_own_expense(db: Session, user_id: int, entry: SmsEntry, also: list[int
         _conflict(_OWN_GONE)
     if tx.type != "expense" or tx.recurring_template_id is not None:
         _conflict("This payment was changed since. Edit it in Transactions instead.")
+    if is_split(db, user_id, tx.id):
+        _conflict(_SPLIT)
     shared = db.scalar(
         select(SmsEntry.id).where(
             SmsEntry.user_id == user_id,

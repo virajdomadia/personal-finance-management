@@ -448,6 +448,7 @@ def test_transaction_rows_only_gain_the_new_key(headers: Headers) -> None:
     assert row.pop("recurring_template_id") is None
     assert row.pop("from_sms") is False  # added later, by SMS transactions
     assert (row.pop("refund_of_id"), row.pop("refunded")) == (None, None)  # added with refunds
+    assert row.pop("split") is None  # added with split transactions
     assert set(row) == {
         "id",
         "type",

@@ -81,6 +81,16 @@ net cash flow = income − expenses
 
 **SMS refunds (2026-11-25).** A bank SMS that is money back is recorded as an unlinked `refund`, in the payee's spending category when it is known (a payee rule, the built-in merchant list, or asked in To review with spending categories): any credit onto a credit card (a payment onto the card is its own kind), and any bank credit the phone reads as a refund or reversal ("refund", "refunded", "reversed", "reversal", "credited back"). Cashback and other credits stay income. A refund is never paired as one side of a transfer, and it is suggested but never approved in a batch. New users no longer get a "Refund" income category; users who have one keep it.
 
+### Split transactions
+
+One bill across several of the owner's own categories (a ₹3,000 supermarket bill: ₹2,200 Groceries, ₹800 Household).
+
+- Only an expense can be split, into 2 to 20 parts, each with a category and an amount above 0. The parts must add up exactly to the bill.
+- The bill becomes ordinary expense transactions: the original is part 1 (it keeps its id, SMS link and refunds); the other parts point at it (`split_of_id`) and share its date, account, note and source. So cash flow, budgets, the digest, the spend calendar and exports count each part in its own category, and the account balance doesn't change.
+- `PUT /transactions/{id}/split` replaces the parts (one part, the whole amount, undoes the split). A removed part's refunds move to the original; a part's refunds give spending back in that part's category.
+- A part's category and note can be edited directly. Its amount, date, account or type can't ("Change the split instead."), and a part can't be deleted on its own; deleting the original deletes the whole bill.
+- **SMS:** the hand-typed duplicate check matches a split bill on its parts' total, through its original, so the bill's SMS links to it instead of recording it again.
+
 ### Monthly cash flow
 
 **Built on branch `cash-flow`.** See the [design](../superpowers/specs/2026-11-12-cash-flow-design.md). `GET /cash-flow?month=YYYY-MM` returns a month's figures.

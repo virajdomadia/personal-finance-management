@@ -7,6 +7,7 @@ import { type Account, cleanMoney, errorMessage, formatRupees, splitErrors } fro
 import { ApiError, apiFetch } from "@/lib/api";
 import { FOCUS, buttonClass } from "@/components/ui/chunky";
 import { ComboBox, Select } from "@/components/ui/select";
+import { SplitDialog } from "./split-dialog";
 import {
   type CategoryList,
   type CategorySuggestion,
@@ -101,6 +102,7 @@ export function TransactionDialog({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [splitting, setSplitting] = useState(false);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -466,6 +468,11 @@ export function TransactionDialog({
           ) : null}
         </div>
         <div className="flex justify-end gap-2 border-t-[2.5px] border-ink px-5 py-3">
+          {transaction !== null && transaction.type === "expense" && transaction.editable ? (
+            <button type="button" disabled={saving} onClick={() => setSplitting(true)} className={`${buttonClass("alt")} mr-auto uppercase`}>
+              Split
+            </button>
+          ) : null}
           <button type="button" disabled={saving} onClick={() => ref.current?.close()} className={`${buttonClass("alt")} uppercase`}>
             Cancel
           </button>
@@ -474,6 +481,17 @@ export function TransactionDialog({
           </button>
         </div>
       </form>
+      {splitting && transaction !== null ? (
+        <SplitDialog
+          transactionId={transaction.split?.id ?? transaction.id}
+          categories={categories.expense}
+          onClose={() => setSplitting(false)}
+          onSaved={() => {
+            setSplitting(false);
+            onSaved(transaction);
+          }}
+        />
+      ) : null}
     </dialog>
   );
 }

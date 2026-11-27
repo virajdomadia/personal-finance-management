@@ -8,10 +8,11 @@ whenever the account and amount are known; whatever is still missing is left as 
 import re
 from collections.abc import Callable
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from fastapi.exceptions import RequestValidationError
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -357,6 +358,24 @@ def _claimed(db: Session, user_id: int, entry: SmsEntry, tx_id: int) -> bool:
     )
 
 
+def _split_originals(user_id: int) -> Any:
+    """The originals of the user's split bills: their own amount is only part 1."""
+    return select(Transaction.split_of_id).where(
+        Transaction.user_id == user_id, Transaction.split_of_id.is_not(None)
+    )
+
+
+def _split_bills_of(user_id: int, amount: Decimal) -> Any:
+    """The originals of the user's split bills whose parts add up to `amount`."""
+    bill = func.coalesce(Transaction.split_of_id, Transaction.id)
+    return (
+        select(bill)
+        .where(Transaction.user_id == user_id)
+        .group_by(bill)
+        .having(func.count() > 1, func.sum(Transaction.amount) == amount)
+    )
+
+
 def _typed_by_hand(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | None:
     """The owner already typed this in: link to it instead of recording it again."""
     if entry.kind not in OUT_SIDE | IN_SIDE or entry.amount is None:
@@ -374,7 +393,15 @@ def _typed_by_hand(db: Session, user_id: int, entry: SmsEntry) -> SmsEntry | Non
         .where(
             Transaction.user_id == user_id,
             Transaction.source.in_(TYPED_SOURCES),
-            Transaction.amount == entry.amount,
+            # A bill split since it was typed matches on the parts' total, through its original.
+            Transaction.split_of_id.is_(None),
+            or_(
+                and_(
+                    Transaction.amount == entry.amount,
+                    Transaction.id.not_in(_split_originals(user_id)),
+                ),
+                Transaction.id.in_(_split_bills_of(user_id, entry.amount)),
+            ),
             Transaction.date >= entry.occurred_on - MANUAL_WINDOW,
             Transaction.date <= entry.occurred_on + MANUAL_WINDOW,
             Transaction.id.not_in(linked),

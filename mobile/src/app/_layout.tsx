@@ -44,6 +44,7 @@ function Screens() {
             <Stack.Screen name="account-form" />
             <Stack.Screen name="archived-accounts" />
             <Stack.Screen name="transaction-form" />
+            <Stack.Screen name="split-form" />
             <Stack.Screen name="close-deposit-form" />
             <Stack.Screen name="card-statements" />
             <Stack.Screen name="renew-fd-form" />

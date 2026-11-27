@@ -298,6 +298,7 @@ def test_response_shape(headers: Headers) -> None:
         "refunded": None,
         "from_sms": False,
         "editable": True,
+        "split": None,
     }
 
 

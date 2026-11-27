@@ -37,6 +37,10 @@ class Transaction(Base):
     refund_of_id: Mapped[int | None] = mapped_column(
         ForeignKey("transactions.id", ondelete="SET NULL"), index=True
     )
+    # A split bill's extra parts point at the original, which is part 1 (see "Split transactions").
+    split_of_id: Mapped[int | None] = mapped_column(
+        ForeignKey("transactions.id", ondelete="CASCADE"), index=True
+    )
     # "manual", or "sms" when it was recorded from a bank message.
     source: Mapped[str] = mapped_column(String(10), server_default="manual")
     created_at: Mapped[dt.datetime] = mapped_column(
