@@ -46,6 +46,7 @@ import {
   shiftMonth,
   showsActivity,
   signedAmount,
+  splitLabel,
   todayIndia,
 } from "@/lib/transactions";
 
@@ -686,6 +687,7 @@ function TransactionRow({
             <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere] lg:hidden">{accountText}</p>
             {tx.note ? <p className="text-xs font-bold text-zinc-600 [overflow-wrap:anywhere]">{tx.note}</p> : null}
             {tx.refunded ? <p className="text-xs font-bold text-gain">{formatRupees(tx.refunded)} refunded</p> : null}
+            {tx.split ? <p className="text-xs font-bold text-zinc-600">{splitLabel(tx.split)}</p> : null}
           </div>
         </div>
       </td>

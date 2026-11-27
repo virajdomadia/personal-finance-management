@@ -20,6 +20,7 @@ export type Transaction = {
   refund_of_id?: number | null; // a refund's purchase, when linked
   refunded?: string | null; // an expense's linked refunds, when there are any
   editable: boolean;
+  split?: SplitTag | null; // set when it's part of a split bill
   from_sms?: boolean; // recorded from a bank SMS
 };
 
@@ -361,4 +362,21 @@ export function purchaseLabel(p: RefundablePurchase): string {
   const parts = [formatDate(p.date), p.category ?? "Uncategorised", `${formatRupees(p.amount)}${left}`];
   if (p.note) parts.push(p.note);
   return parts.join(" · ");
+}
+
+// A split bill: `id` is the original's (part 1). See GET/PUT /transactions/{id}/split.
+export type SplitTag = { id: number; part: number; parts: number };
+export type SplitPart = { category: string; amount: string };
+
+export const splitLabel = (tag: SplitTag | null | undefined): string | null =>
+  tag ? `Split ${tag.part} of ${tag.parts}` : null;
+
+// What's left to assign to a part: the bill less every part, exactly; "" if an amount isn't plain money.
+export function splitLeft(total: string, parts: SplitPart[]): string {
+  let left = total;
+  for (const p of parts) {
+    left = subtractMoney(left, p.amount.trim() === "" ? "0.00" : p.amount);
+    if (left === "") return "";
+  }
+  return left;
 }
