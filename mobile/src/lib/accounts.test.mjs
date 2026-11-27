@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  scheduleSummary,
   bankGapText,
   matchBankBody,
   DEPOSIT_SHORT,
@@ -544,4 +545,29 @@ test("matchBankBody sets that day's balance to the bank's", () => {
     balance_date: "2026-11-21",
     balance_reason: "Matched to bank SMS",
   });
+});
+
+const loanSchedule = (o = {}) => ({
+  account_id: 1,
+  owed: "1000.00",
+  rate: "12.00",
+  emi: "600.00",
+  paid_off: false,
+  problem: null,
+  emis_left: 2,
+  ends: "2027-01",
+  interest_left: "14.10",
+  total_left: "1014.10",
+  rows: [],
+  ...o,
+});
+
+test("scheduleSummary: when the loan ends and what it still costs", () => {
+  assert.equal(scheduleSummary(loanSchedule()), "Ends Jan 2027 · 2 EMIs left · ₹14.10 interest still to pay");
+  assert.equal(
+    scheduleSummary(loanSchedule({ emis_left: 1, ends: "2026-12", interest_left: "4100.00" })),
+    "Ends Dec 2026 · 1 EMI left · ₹4,100 interest still to pay",
+  );
+  assert.equal(scheduleSummary(loanSchedule({ paid_off: true, emis_left: 0, ends: null })), null);
+  assert.equal(scheduleSummary(loanSchedule({ problem: "Add the EMI to see the schedule.", emis_left: 0, ends: null })), null);
 });
