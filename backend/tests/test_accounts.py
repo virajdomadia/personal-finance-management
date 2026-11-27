@@ -113,6 +113,7 @@ def test_response_shape(headers: Headers) -> None:
         "set_aside": "0.00",
         "free_balance": "2500.00",
         "in_goal": None,
+        "bank_check": None,
     }
 
 

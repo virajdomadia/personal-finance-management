@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  bankGapText,
+  matchBankBody,
   DEPOSIT_SHORT,
   FD_PAYOUTS,
   FD_PAYOUT_LABELS,
@@ -526,4 +528,20 @@ test("an FD counts in You have, not in investments", () => {
     total_owe: "0.00",
   };
   assert.equal(investmentsIn(list), null);
+});
+
+test("bankGapText: nothing when Gullak matches the bank's SMS", () => {
+  const check = (gap) => ({ balance: "9000.00", on: "2026-11-21", gap });
+  assert.equal(bankGapText(null), null);
+  assert.equal(bankGapText(check("0.00")), null);
+  assert.equal(bankGapText(check("-400.00")), "Your bank's SMS on 21 Nov said ₹9,000. Gullak shows ₹400 more.");
+  assert.equal(bankGapText(check("1250.50")), "Your bank's SMS on 21 Nov said ₹9,000. Gullak shows ₹1,250.50 less.");
+});
+
+test("matchBankBody sets that day's balance to the bank's", () => {
+  assert.deepEqual(matchBankBody({ balance: "9000.00", on: "2026-11-21", gap: "-400.00" }), {
+    balance: "9000.00",
+    balance_date: "2026-11-21",
+    balance_reason: "Matched to bank SMS",
+  });
 });

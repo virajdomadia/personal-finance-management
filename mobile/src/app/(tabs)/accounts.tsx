@@ -8,8 +8,10 @@ import { ChunkyBox, ChunkyButton, EmptyState, HeaderAction, ScreenHeader, Tile }
 import {
   type Account,
   type AccountList,
+  bankGapText,
   errorMessage,
   formatRupees,
+  matchBankBody,
   investmentsIn,
 } from "@/lib/accounts";
 import { ApiError, apiFetch } from "@/lib/api";
@@ -43,6 +45,25 @@ export default function AccountsScreen() {
       setError(errorMessage(err));
     }
   }, [token, logOut]);
+
+  // Makes Gullak's balance on the bank SMS's day the bank's, as a dated adjustment.
+  const [matching, setMatching] = useState<number | null>(null);
+  const matchBank = useCallback(
+    async (account: Account) => {
+      if (account.bank_check === null || matching !== null) return;
+      setMatching(account.id);
+      try {
+        await apiFetch(`/accounts/${account.id}`, { method: "PATCH", token: token ?? undefined, body: matchBankBody(account.bank_check) });
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return void logOut();
+        setError(errorMessage(err));
+      } finally {
+        setMatching(null);
+      }
+      await load();
+    },
+    [matching, token, logOut, load],
+  );
 
   // Reloads whenever the tab regains focus, so coming back from the form shows fresh data.
   useFocusEffect(
@@ -246,7 +267,17 @@ export default function AccountsScreen() {
               account={item}
               onPress={() => open({ id: String(item.id) })}
               action={
-                item.type === "loan" && item.balance !== "0.00" ? (
+                bankGapText(item.bank_check) !== null ? (
+                  <ChunkyButton
+                    compact
+                    variant="alt"
+                    icon="bank-check"
+                    label="Match bank"
+                    loading={matching === item.id}
+                    accessibilityLabel={`Match ${item.name} to the bank's balance`}
+                    onPress={() => void matchBank(item)}
+                  />
+                ) : item.type === "loan" && item.balance !== "0.00" ? (
                   <ChunkyButton
                     compact
                     variant="alt"
