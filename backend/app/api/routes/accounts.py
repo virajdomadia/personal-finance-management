@@ -339,7 +339,7 @@ class AccountResponse(BaseModel):
 
 
 class BankCheck(BaseModel):
-    """The balance the bank's latest SMS gave, against Gullak's at the end of that day."""
+    """The bank's balance at the end of its latest balance SMS's day, against Gullak's then."""
 
     balance: str
     on: str
@@ -515,21 +515,30 @@ def bank_checks(db: Session, user_id: int, accounts: list[Account]) -> dict[int,
     banks = {a.id: a for a in accounts if a.type == "bank"}
     latest: dict[int, tuple[date, Decimal]] = {}
     rows = db.execute(
-        select(SmsEntry.account_id, SmsEntry.occurred_on, SmsEntry.balance)
+        select(
+            SmsEntry.account_id,
+            SmsEntry.occurred_on,
+            SmsEntry.balance,
+            SmsEntry.kind,
+            SmsEntry.amount,
+        )
         .where(
             SmsEntry.user_id == user_id,
             SmsEntry.account_id.in_(banks),
             SmsEntry.kind.in_(("debit", "credit")),
-            SmsEntry.balance.is_not(None),
         )
         .order_by(SmsEntry.occurred_on, SmsEntry.id)
     )
-    for account_id, day, balance in rows:
-        latest[account_id] = (day, balance)
+    # The balance SMS can come mid-day, so the bank's own later SMS that day carry it to the
+    # day's end, which is what Gullak's side is measured at. SMS arrive in order (by id).
+    for account_id, day, balance, kind, amount in rows:
+        if balance is not None:
+            latest[account_id] = (day, balance)
+        elif account_id in latest and latest[account_id][0] == day and amount is not None:
+            moved = amount if kind == "credit" else -amount
+            latest[account_id] = (day, latest[account_id][1] + moved)
     if not latest:
         return {}
-    # shortcut: the SMS has no time, so a same-day payment it didn't cover shows as a gap until
-    # the next SMS; upgrade by storing the SMS time if that proves noisy.
     dated = load_dated_movements(db, user_id)
     checks: dict[int, BankCheck] = {}
     for account_id, (day, balance) in latest.items():
