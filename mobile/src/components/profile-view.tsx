@@ -112,7 +112,7 @@ export function ProfileView({ viewing, viewingMember, onViewing, onManageFamily,
         <View style={styles.menu}>
           <Row emoji="🎯" tone="purple" title="Goals" meta="Money set aside for what you're saving for" amount="›" onPress={onGoals} accessibilityLabel="Goals" accessibilityHint="Opens Goals" />
           <Row emoji="💰" tone="yellow" title="Budgets" meta="A monthly amount for each spending category" amount="›" onPress={onBudgets} accessibilityLabel="Budgets" accessibilityHint="Opens Budgets" />
-          <Row emoji="📅" tone="blue" title="Spending calendar" meta="Salary, rent, reminders and what you spend each day" amount="›" onPress={onRecurring} accessibilityLabel="Spending calendar" accessibilityHint="Opens the spending calendar" />
+          <Row emoji="🔁" tone="blue" title="Reminders" meta="Salary, rent, premiums and what's due" amount="›" onPress={onRecurring} accessibilityLabel="Reminders" accessibilityHint="Opens Reminders" />
           <Row emoji="🛡️" tone="green" title="Insurance" meta="Health policies and renewals" amount="›" onPress={onInsurance} accessibilityLabel="Insurance" accessibilityHint="Opens Insurance" />
           <Row emoji="📩" tone="orange" title="Bank SMS" meta="Fill in transactions from your bank's messages" amount="›" onPress={onSms} accessibilityLabel="Bank SMS" accessibilityHint="Opens Bank SMS settings" />
           <Row emoji="🗂️" tone="green" title="Categories" meta="Rename, nest, merge and colour your categories" amount="›" onPress={onCategories} accessibilityLabel="Categories" accessibilityHint="Opens Categories" />

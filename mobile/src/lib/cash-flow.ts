@@ -159,73 +159,17 @@ export function sliceType(
 
 // --- Spend calendar (`GET /calendar`) --------------------------------------------------------
 
-export type FixedLine = {
-  id: number;
-  source: "reminder" | "sip";
-  name: string;
-  kind: "income" | "out";
-  type: string;
-  amount: string;
-  day: number;
-  account_id: number;
-};
-
-export type CalendarDay = { date: string; spent: string | null; over: boolean | null };
+// `net` is spent − received that day: negative when more came in. Null for a day still to come.
+export type CalendarDay = { date: string; net: string | null };
 
 export type SpendCalendar = {
   month: string;
   is_current: boolean;
   through: string;
-  income: string;
-  fixed_out: string;
-  free: string;
-  per_day: string | null;
-  spent: string;
-  left: string;
-  pace: string | null;
-  fixed: FixedLine[];
   days: CalendarDay[];
-  marks: Mark[];
   previous_month: string | null;
   next_month: string | null;
 };
-
-// A reminder's occurrence on a day of the month.
-export type Mark = {
-  date: string;
-  template_id: number;
-  name: string;
-  amount: string;
-  kind: "income" | "out";
-  state: "paid" | "skipped" | "due" | "coming";
-};
-
-export function marksByDate(marks: Mark[]): Map<string, Mark[]> {
-  const byDate = new Map<string, Mark[]>();
-  for (const m of marks) byDate.set(m.date, [...(byDate.get(m.date) ?? []), m]);
-  return byDate;
-}
-
-// "Rent ₹16,000 paid", "Salary ₹54,800 received".
-export function markText(m: Mark): string {
-  const state = m.state === "paid" && m.kind === "income" ? "received" : m.state;
-  return `${m.name} ${whole(m.amount)} ${state}`;
-}
-
-const URGENCY: Record<Mark["state"], number> = { due: 0, coming: 1, paid: 2, skipped: 3 };
-
-// The one mark a narrow day cell shows (the most urgent) and how many more there are.
-export function leadMark(marks: Mark[]): { mark: Mark; more: number } | null {
-  if (marks.length === 0) return null;
-  const mark = marks.reduce((best, m) => (URGENCY[m.state] < URGENCY[best.state] ? m : best));
-  return { mark, more: marks.length - 1 };
-}
-
-// The calendar's two reminder lists: fixed money (active monthly) and the rest (yearly or stopped).
-export function splitTemplates<T extends { frequency: string; active: boolean }>(templates: T[]): { fixed: T[]; other: T[] } {
-  const isFixed = (t: T) => t.active && t.frequency === "monthly";
-  return { fixed: templates.filter(isFixed), other: templates.filter((t) => !isFixed(t)) };
-}
 
 // The current month when `month` is null.
 export const calendarPath = (month: string | null) => (month === null ? "/calendar" : `/calendar?month=${month}`);
@@ -254,15 +198,20 @@ export function shortRupees(amount: string): string {
   return `${negative ? "−" : ""}${text}`;
 }
 
-export function dayTone(day: CalendarDay): "over" | "under" | "plain" | "future" {
-  if (day.spent === null) return "future";
-  if (day.over === null) return "plain";
-  return day.over ? "over" : "under";
+export function dayTone(day: CalendarDay): "spent" | "gained" | "none" | "future" {
+  if (day.net === null) return "future";
+  if (isZero(day.net)) return "none";
+  return day.net.trim().startsWith("-") ? "gained" : "spent";
 }
 
-export function paceText(pace: string | null): string | null {
-  if (pace === null) return null;
-  if (isZero(pace)) return "Right on pace";
-  const over = pace.trim().startsWith("-");
-  return `${formatRupees(String(Math.round(Math.abs(Number(pace)))))} ${over ? "over" : "under"} pace`;
+// The figure in a day's cell: "₹4k" spent, or "+₹72k" when more came in than went out.
+export function netText(net: string): string {
+  const value = net.trim();
+  return value.startsWith("-") ? `+${shortRupees(value.slice(1))}` : shortRupees(value);
+}
+
+export function netWords(net: string): string {
+  if (isZero(net)) return "nothing spent";
+  const amount = formatRupees(String(Math.round(Math.abs(Number(net)))));
+  return net.trim().startsWith("-") ? `${amount} more came in than went out` : `spent ${amount}`;
 }

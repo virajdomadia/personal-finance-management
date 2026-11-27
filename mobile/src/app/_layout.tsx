@@ -73,6 +73,7 @@ function Screens() {
             <Stack.Screen name="net-worth" />
             <Stack.Screen name="cash-flow" />
             <Stack.Screen name="calendar" />
+            <Stack.Screen name="reminders" />
             <Stack.Screen name="categories" />
             <Stack.Screen name="category-form" />
             <Stack.Screen name="transaction-filters" />

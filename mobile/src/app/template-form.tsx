@@ -98,7 +98,7 @@ export default function TemplateFormScreen() {
     );
   }
 
-  // `type` (from the spending calendar) picks income or expense for a new reminder.
+  // `type` (from Reminders) picks income or expense for a new reminder.
   const initialType = type === "income" || type === "expense" ? type : undefined;
   const initialFrequency: Frequency = frequency === "yearly" ? "yearly" : "monthly";
   return <FormBody {...loaded} initialType={initialType} initialFrequency={initialFrequency} />;

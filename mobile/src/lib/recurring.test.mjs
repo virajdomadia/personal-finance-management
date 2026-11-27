@@ -7,6 +7,7 @@ import {
   changedTemplate,
   dueText,
   scheduleText,
+  splitTemplates,
   templateErrors,
   templateFormBlank,
   templateFormFrom,
@@ -240,4 +241,11 @@ test("a template carries the dates skipped, which a form ignores", () => {
   const t = rent({ skipped: ["2026-02-01"] });
   assert.equal("skipped" in templateFormFrom(t), false);
   assert.equal("skipped" in templatePayload(templateFormFrom(t), "edit"), false);
+});
+
+test("splitTemplates: monthly is active monthly, other is yearly or stopped", () => {
+  const t = (id, frequency, active) => ({ id, frequency, active });
+  const { monthly, other } = splitTemplates([t(1, "monthly", true), t(2, "yearly", true), t(3, "monthly", false)]);
+  assert.deepEqual(monthly.map((x) => x.id), [1]);
+  assert.deepEqual(other.map((x) => x.id), [2, 3]);
 });

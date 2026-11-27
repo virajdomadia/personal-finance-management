@@ -12,16 +12,13 @@ import {
   dayTone,
   dayTransactionsHref,
   filtersFromParams,
-  leadMark,
-  marksByDate,
-  markText,
-  paceText,
+  netText,
+  netWords,
   paramsFromFilters,
   searchQuery,
   shortDate,
   shortRupees,
   sliceType,
-  splitTemplates,
 } from "./cash-flow.ts";
 
 const previous = { month: "2026-10", start: "2026-10-01", through: "2026-10-12", income: "0", spending: "0", net: "0" };
@@ -136,51 +133,26 @@ test("shortRupees", () => {
   assert.equal(shortRupees("-1500.00"), "−₹1.5k");
 });
 
-test("dayTone", () => {
-  assert.equal(dayTone({ date: "2026-11-13", spent: null, over: null }), "future");
-  assert.equal(dayTone({ date: "2026-11-05", spent: "600.00", over: false }), "under");
-  assert.equal(dayTone({ date: "2026-11-05", spent: "1600.00", over: true }), "over");
-  assert.equal(dayTone({ date: "2026-11-05", spent: "600.00", over: null }), "plain");
+test("dayTone: spent, gained, nothing, or still to come", () => {
+  assert.equal(dayTone({ date: "2026-11-13", net: null }), "future");
+  assert.equal(dayTone({ date: "2026-11-03", net: "4000.00" }), "spent");
+  assert.equal(dayTone({ date: "2026-11-01", net: "-72000.00" }), "gained");
+  assert.equal(dayTone({ date: "2026-11-02", net: "0.00" }), "none");
+});
+
+test("netText: what was spent, or + what came in on top", () => {
+  assert.equal(netText("4000.00"), "₹4k");
+  assert.equal(netText("-72000.00"), "+₹72k");
+  assert.equal(netText("0.00"), "₹0");
+  assert.equal(netText("420.00"), "₹420");
+});
+
+test("netWords for a screen reader", () => {
+  assert.equal(netWords("4000.00"), "spent ₹4,000");
+  assert.equal(netWords("-72000.00"), "₹72,000 more came in than went out");
+  assert.equal(netWords("0.00"), "nothing spent");
 });
 
 test("dayTransactionsHref", () => {
   assert.equal(dayTransactionsHref("2026-11-05"), "/transactions?from=2026-11-05&to=2026-11-05");
-});
-
-test("paceText", () => {
-  assert.equal(paceText("2000.00"), "₹2,000 under pace");
-  assert.equal(paceText("-500.00"), "₹500 over pace");
-  assert.equal(paceText("0.00"), "Right on pace");
-  assert.equal(paceText(null), null);
-});
-
-const mark = (date, name, state, kind = "out") => ({ date, template_id: 1, name, amount: "16000.00", kind, state });
-
-test("marksByDate groups a month's marks by day", () => {
-  const byDate = marksByDate([mark("2026-11-05", "Rent", "paid"), mark("2026-11-05", "Gym", "due"), mark("2026-11-10", "PPF", "coming")]);
-  assert.deepEqual([...byDate.keys()], ["2026-11-05", "2026-11-10"]);
-  assert.equal(byDate.get("2026-11-05").length, 2);
-});
-
-test("markText", () => {
-  assert.equal(markText(mark("2026-11-05", "Rent", "paid")), "Rent ₹16,000 paid");
-  assert.equal(markText(mark("2026-11-05", "Rent", "due")), "Rent ₹16,000 due");
-  assert.equal(markText(mark("2026-11-20", "Rent", "coming")), "Rent ₹16,000 coming");
-  assert.equal(markText(mark("2026-11-05", "Rent", "skipped")), "Rent ₹16,000 skipped");
-  assert.equal(markText(mark("2026-11-01", "Salary", "paid", "income")), "Salary ₹16,000 received");
-});
-
-test("splitTemplates: fixed is active monthly, other is yearly or stopped", () => {
-  const t = (id, frequency, active) => ({ id, frequency, active });
-  const { fixed, other } = splitTemplates([t(1, "monthly", true), t(2, "yearly", true), t(3, "monthly", false)]);
-  assert.deepEqual(fixed.map((x) => x.id), [1]);
-  assert.deepEqual(other.map((x) => x.id), [2, 3]);
-});
-
-test("leadMark picks the most urgent mark and counts the rest", () => {
-  assert.equal(leadMark([]), null);
-  const lead = leadMark([mark("2026-11-05", "Rent", "paid"), mark("2026-11-05", "EMI", "due"), mark("2026-11-05", "Gym", "coming")]);
-  assert.equal(lead.mark.name, "EMI");
-  assert.equal(lead.more, 2);
-  assert.equal(leadMark([mark("2026-11-05", "Gym", "skipped"), mark("2026-11-05", "PPF", "coming")]).mark.name, "PPF");
 });

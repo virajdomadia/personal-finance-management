@@ -42,7 +42,7 @@ test("steps keep the server's order, link to the add dialogs and only the bank c
       ["bank", "done", false, "/accounts?add=bank"],
       ["cards", "todo", true, "/accounts?add=credit_card"],
       ["loans", "none", true, "/accounts?add=loan"],
-      ["recurring", "todo", true, "/calendar?add=1"],
+      ["recurring", "todo", true, "/reminders?add=1"],
       ["investments", "todo", true, "/investments"],
     ],
   );

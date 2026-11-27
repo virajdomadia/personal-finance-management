@@ -171,18 +171,12 @@ Example, 12 November, salary reminder on the 1st, so the window runs to 30 Novem
 ### Spend calendar
 
 ```
-free      = monthly income reminders − other monthly reminders − SIP plans
-daily     = free ÷ days in the month   (rounded half up to the paisa; the same every day)
+day = expenses + EMIs (the whole instalment) − income − refunds   (that day's transactions)
 ```
 
-- **Fixed money** is every monthly reminder (income in; expense and transfer out) and every SIP plan that overlaps the month (start date on or before its last day, end date, if any, on or after its 1st) and is active. A **stopped** reminder still counts in every month up to the last occurrence a payment recorded through it settled (rent paid on 29 Nov from "Coming up 1 Dec" settles December), so stopping one never rewrites the months it was paid for. It counts for the whole month. Yearly reminders never count.
-- The daily amount depends only on those, never on what was recorded, so it doesn't move mid-month. With no monthly income reminder there is no daily amount and days aren't judged.
-- **Spent on a day** is the [cash flow](#monthly-cash-flow) spending rule (expenses, EMI interest, less refunds), leaving out any transaction that pays a monthly outgoing reminder, whether recorded through it or matched to it, and whether or not that reminder counts this month (stopped, not started yet, or paid late), so rent day isn't counted as spending. SIP instalments are investment buys, not spending.
-- A day is **over** when spent > daily (with a negative daily amount, any spending is over). Days after today are blank.
-- **Left** = free − spent this month; **pace** = daily × days so far − spent (positive is under).
-- **Marks:** each active reminder's occurrences in the month (monthly and yearly) are shown on their day as paid, due (on or before today and still owed), coming, or skipped, by the [occurrence rules](#occurrence-rules).
-
-Example, 30-day November: salary ₹54,800 − rent ₹16,000 − SIP ₹5,000 − PPF ₹3,000 = ₹30,800 free; ₹30,800 ÷ 30 = **₹1,026.67 a day**.
+- One figure a day, nothing else: no daily allowance, fixed money, pace or reminder marks. Spent ₹8,000 and received ₹4,000 shows **₹4,000**.
+- Rent and other bills paid through a reminder count like any expense. Transfers between the user's own accounts (PPF, card payments), balance adjustments and investment buys (SIP instalments) count nothing.
+- A day where more came in than went out is negative and shown in green with a + (salary ₹80,000, spent ₹8,000: **+₹72,000**). Days after today are blank.
 
 ## Weekly digest
 

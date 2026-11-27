@@ -23,9 +23,9 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
-  // Reminders moved to the spending calendar; old links land there (`?add=1` is carried over).
+  // Reminders have their own page again; old links land there (`?add=1` is carried over).
   async redirects() {
-    return [{ source: "/recurring", destination: "/calendar", permanent: false }];
+    return [{ source: "/recurring", destination: "/reminders", permanent: false }];
   },
   // The app uses no next/image; turning the optimizer off means /_next/image can never spend
   // Vercel Hobby's monthly image-transformation quota.
