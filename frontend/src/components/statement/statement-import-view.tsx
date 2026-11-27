@@ -17,6 +17,7 @@ import {
   passwordProblem,
   savePayload,
   savedMessage,
+  beforeStartNote,
   statementAccounts,
 } from "@/lib/statement-import";
 import type { CategoryList } from "@/lib/transactions";
@@ -230,6 +231,7 @@ export function StatementImportView() {
               <p role="status" className="text-sm font-extrabold">
                 {foundText(loaded.preview)}
               </p>
+              {beforeStartNote(loaded.preview) ? <p className="text-sm">{beforeStartNote(loaded.preview)}</p> : null}
               {rows.length > 0 ? (
                 <StatementReview
                   rows={rows}

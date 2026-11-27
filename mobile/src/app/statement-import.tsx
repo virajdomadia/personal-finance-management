@@ -57,6 +57,7 @@ import {
   selectAllNew,
   selectNone,
   signedAmount,
+  beforeStartNote,
   statementAccounts,
   summaryText,
   transferLabel,
@@ -95,6 +96,7 @@ export default function StatementImportScreen() {
 
   const [step, setStep] = useState<"choose" | "review">("choose");
   const [previewAccount, setPreviewAccount] = useState<number | null>(null);
+  const [startNote, setStartNote] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [filter, setFilter] = useState<RowFilter>("all");
   const [editing, setEditing] = useState<number | null>(null); // a line number
@@ -227,6 +229,7 @@ export default function StatementImportScreen() {
       });
       setRows(initialRows(preview));
       setPreviewAccount(preview.account_id);
+      setStartNote(beforeStartNote(preview));
       setFilter("all");
       setLineErrors(NO_ERRORS);
       setEditing(null);
@@ -415,6 +418,11 @@ export default function StatementImportScreen() {
       <Text variant="bodyMedium" style={styles.muted} numberOfLines={2}>
         {picked?.name} into {accountLabel}. Tap a line to change its type, category or transfer.
       </Text>
+      {startNote ? (
+        <Text variant="bodyMedium" style={styles.muted}>
+          {startNote}
+        </Text>
+      ) : null}
       <Banner messages={errors} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow} keyboardShouldPersistTaps="handled">
         {filters.map((f) => (
