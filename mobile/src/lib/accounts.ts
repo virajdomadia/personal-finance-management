@@ -55,6 +55,7 @@ export type Account = {
   set_aside: string; // what active goals have set aside here
   free_balance: string; // balance - set_aside; negative when more is set aside than held
   in_goal: GoalTag | null; // a PPF, RD or FD in an active goal
+  bank_check: BankCheck | null;
   institution: string | null;
   bank_kind: string | null;
   last4: string | null;
@@ -415,3 +416,22 @@ export function investmentsIn(list: AccountList): string | null {
   if (rest <= BigInt(0)) return null;
   return `${rest / BigInt(100)}.${String(rest % BigInt(100)).padStart(2, "0")}`;
 }
+
+// The balance the bank's latest SMS gave, against Gullak's at the end of that day (bank accounts).
+export type BankCheck = { balance: string; on: string; gap: string }; // gap: bank − Gullak
+
+// "Your bank's SMS on 21 Nov said ₹9,000. Gullak shows ₹400 more." Null when they match.
+export function bankGapText(check: BankCheck | null): string | null {
+  if (check === null || Number(check.gap) === 0) return null;
+  const higher = check.gap.startsWith("-");
+  const rupees = (v: string) => formatRupees(v.replace(/\.00$/, ""));
+  const gap = rupees(higher ? check.gap.slice(1) : check.gap);
+  return `Your bank's SMS on ${formatDueDate(check.on)} said ${rupees(check.balance)}. Gullak shows ${gap} ${higher ? "more" : "less"}.`;
+}
+
+// The PATCH body that makes Gullak's balance that day the bank's, as a dated adjustment.
+export const matchBankBody = (check: BankCheck) => ({
+  balance: check.balance,
+  balance_date: check.on,
+  balance_reason: "Matched to bank SMS",
+});

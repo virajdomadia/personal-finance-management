@@ -8,6 +8,7 @@ import {
   type Account,
   OWED_TYPES,
   TYPE_LABELS,
+  bankGapText,
   formatDueDate,
   formatRupees,
   headlineBalance,
@@ -75,6 +76,7 @@ export function AccountRow({ account, onPress, showType = false, action }: Props
   // Guarded so a response from before goals (no set-aside keys) still renders.
   const free = account.set_aside ? freeBalanceText(account) : null;
   const over = account.free_balance ? overSetAsideText(account) : null;
+  const bankGap = account.archived ? null : bankGapText(account.bank_check ?? null);
   const available = owed && account.available_credit !== null ? formatRupees(account.available_credit) : null;
 
   const meta = (
@@ -90,6 +92,11 @@ export function AccountRow({ account, onPress, showType = false, action }: Props
       {over ? (
         <Text variant="bodySmall" style={styles.over}>
           {over}
+        </Text>
+      ) : null}
+      {bankGap ? (
+        <Text variant="bodySmall" style={styles.over}>
+          {bankGap}
         </Text>
       ) : null}
     </>
@@ -113,7 +120,7 @@ export function AccountRow({ account, onPress, showType = false, action }: Props
         amount={amount}
         sub={sub}
         onPress={onPress}
-        accessibilityLabel={`${account.name}, ${owed ? "owed" : free ? "free" : "balance"} ${amount}${free ? `. ${free}` : ""}${over ? `. ${over}` : ""}${account.in_goal ? `. For ${account.in_goal.name}` : ""}`}
+        accessibilityLabel={`${account.name}, ${owed ? "owed" : free ? "free" : "balance"} ${amount}${free ? `. ${free}` : ""}${over ? `. ${over}` : ""}${bankGap ? `. ${bankGap}` : ""}${account.in_goal ? `. For ${account.in_goal.name}` : ""}`}
       >
         {action ? <View style={styles.action}>{action}</View> : null}
       </Row>

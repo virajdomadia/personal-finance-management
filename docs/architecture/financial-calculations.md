@@ -33,6 +33,8 @@ Cash and wallets can't go below zero. Banks (overdraft), brokers and cards can.
 
 **Balance correction (decided, comes with the ledger).** An `adjustment` transaction for the difference, dated the day it's entered, against the equity account "Balance adjustments". The opening balance is never rewritten to make a figure come out.
 
+**Bank check (reconciliation).** A bank account's latest debit or credit SMS that gave a balance ("Avl bal") is compared with the account's balance in Gullak at the end of that SMS's day: `gap = bank − Gullak` (negative when Gullak shows more). The accounts list returns it as `bank_check` (`balance`, `on`, `gap`); cards, loans and other types have none. With a gap, web and phone show the bank's figure and a **Match bank** action that records a dated adjustment for that day with the reason "Matched to bank SMS", so the gap becomes 0. Known limit: an SMS has a date but no time, so a same-day payment it didn't cover shows as a gap until the next SMS.
+
 ## Net worth
 
 ```

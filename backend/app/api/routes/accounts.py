@@ -33,6 +33,7 @@ from app.models.account import Account
 from app.models.insurance import InsurancePolicy
 from app.models.investment import Instrument, InvestmentTrade, Sip
 from app.models.recurring import RecurringTemplate
+from app.models.sms import SmsEntry
 from app.models.transaction import Transaction
 
 if TYPE_CHECKING:
@@ -334,6 +335,15 @@ class AccountResponse(BaseModel):
     set_aside: str  # what active goals have set aside here; `balance` stays the real balance
     free_balance: str  # balance - set_aside, negative when more is set aside than held
     in_goal: GoalTag | None  # a PPF, RD or FD in an active goal
+    bank_check: "BankCheck | None" = None  # bank accounts with a bank SMS that gave a balance
+
+
+class BankCheck(BaseModel):
+    """The balance the bank's latest SMS gave, against Gullak's at the end of that day."""
+
+    balance: str
+    on: str
+    gap: str  # bank − Gullak; negative when Gullak shows more than the bank
 
 
 class AccountList(BaseModel):
@@ -453,7 +463,9 @@ def goal_tag(tags: "GoalTags", key: tuple[str, int]) -> GoalTag | None:
     return None if found is None else GoalTag(id=found[0], name=found[1])
 
 
-def to_response(account: Account, book: Book, tags: "GoalTags") -> AccountResponse:
+def to_response(
+    account: Account, book: Book, tags: "GoalTags", check: BankCheck | None = None
+) -> AccountResponse:
     from app.api.goals import free_balance  # it imports this module
 
     limit = account.credit_limit
@@ -487,6 +499,7 @@ def to_response(account: Account, book: Book, tags: "GoalTags") -> AccountRespon
         set_aside=fmt(tags.set_aside_by_account.get(account.id, Decimal(0))),
         free_balance=fmt(free_balance(account, book.flows, tags.set_aside_by_account)),
         in_goal=goal_tag(tags, ("account", account.id)),
+        bank_check=check,
     )
 
 
@@ -495,6 +508,36 @@ def account_response(db: Session, user_id: int, account: Account) -> AccountResp
     from app.api.goals import load_goal_tags  # it imports this module
 
     return to_response(account, load_book(db, user_id), load_goal_tags(db, user_id))
+
+
+def bank_checks(db: Session, user_id: int, accounts: list[Account]) -> dict[int, BankCheck]:
+    """Each bank account's latest SMS balance against Gullak's balance at the end of that day."""
+    banks = {a.id: a for a in accounts if a.type == "bank"}
+    latest: dict[int, tuple[date, Decimal]] = {}
+    rows = db.execute(
+        select(SmsEntry.account_id, SmsEntry.occurred_on, SmsEntry.balance)
+        .where(
+            SmsEntry.user_id == user_id,
+            SmsEntry.account_id.in_(banks),
+            SmsEntry.kind.in_(("debit", "credit")),
+            SmsEntry.balance.is_not(None),
+        )
+        .order_by(SmsEntry.occurred_on, SmsEntry.id)
+    )
+    for account_id, day, balance in rows:
+        latest[account_id] = (day, balance)
+    if not latest:
+        return {}
+    # shortcut: the SMS has no time, so a same-day payment it didn't cover shows as a gap until
+    # the next SMS; upgrade by storing the SMS time if that proves noisy.
+    dated = load_dated_movements(db, user_id)
+    checks: dict[int, BankCheck] = {}
+    for account_id, (day, balance) in latest.items():
+        ours = balance_of(banks[account_id], net_flows(m for d, m in dated if d <= day))
+        checks[account_id] = BankCheck(
+            balance=fmt(balance), on=day.isoformat(), gap=fmt(balance - ours)
+        )
+    return checks
 
 
 def list_sort_key(account: Account) -> tuple[int, str, int]:
@@ -520,8 +563,9 @@ def list_accounts(user: CurrentUser, db: DbSession, archived: bool = False) -> A
     tags = load_goal_tags(db, user.id)
     have, owe = totals(active, book.flows)
     have += investments_totals(db, user.id).value
+    checks = bank_checks(db, user.id, shown)
     return AccountList(
-        accounts=[to_response(a, book, tags) for a in shown],
+        accounts=[to_response(a, book, tags, checks.get(a.id)) for a in shown],
         total_have=fmt(have),
         total_owe=fmt(owe),
     )

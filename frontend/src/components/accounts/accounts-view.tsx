@@ -11,10 +11,12 @@ import {
   OWED_TYPES,
   TYPE_LABELS,
   TYPE_ORDER,
+  bankGapText,
   errorMessage,
   formatDueDate,
   formatRupees,
   headlineBalance,
+  matchBankBody,
   investmentsIn,
   maskLast4,
   nextDueDate,
@@ -167,6 +169,17 @@ export function AccountsView({ add = null }: { add?: AddStart | null }) {
           onCloseDeposit={(account) => setDialog({ kind: "close-deposit", account })}
           onRenewFd={(account) => setDialog({ kind: "renew-fd", account })}
           onStatements={(account) => setDialog({ kind: "statements", account })}
+          onMatchBank={async (account) => {
+            if (account.bank_check === null) return;
+            setNotice(null);
+            try {
+              await apiFetch(`/accounts/${account.id}`, { method: "PATCH", body: JSON.stringify(matchBankBody(account.bank_check)) });
+            } catch (err) {
+              if (isUnauthorized(err)) return void logout();
+              setNotice(errorMessage(err));
+            }
+            reload();
+          }}
           onRestore={async (account) => {
             setNotice(null);
             try {
@@ -292,6 +305,7 @@ function Content({
   onEdit,
   onArchive,
   onRestore,
+  onMatchBank,
   onRecordEmi,
   onDeposit,
   onCloseDeposit,
@@ -305,6 +319,7 @@ function Content({
   onEdit: (account: Account) => void;
   onArchive: (account: Account) => void;
   onRestore: (account: Account) => Promise<void>;
+  onMatchBank: (account: Account) => Promise<void>;
   onRecordEmi: (loan: Account) => void;
   onDeposit: (account: Account, kind: "instalment" | "ppf-deposit" | "ppf-interest") => void;
   onCloseDeposit: (account: Account) => void;
@@ -439,6 +454,7 @@ function Content({
                     onEdit={onEdit}
                     onArchive={onArchive}
                     onRestore={onRestore}
+                    onMatchBank={onMatchBank}
                     onRecordEmi={onRecordEmi}
                     onDeposit={onDeposit}
                     onCloseDeposit={onCloseDeposit}
@@ -467,6 +483,7 @@ function AccountRow({
   onEdit,
   onArchive,
   onRestore,
+  onMatchBank,
   onRecordEmi,
   onDeposit,
   onCloseDeposit,
@@ -477,6 +494,7 @@ function AccountRow({
   onEdit: (account: Account) => void;
   onArchive: (account: Account) => void;
   onRestore: (account: Account) => Promise<void>;
+  onMatchBank: (account: Account) => Promise<void>;
   onRecordEmi: (loan: Account) => void;
   onDeposit: (account: Account, kind: "instalment" | "ppf-deposit" | "ppf-interest") => void;
   onCloseDeposit: (account: Account) => void;
@@ -511,6 +529,8 @@ function AccountRow({
     card && Number(account.balance) > 0 && account.due_day !== null && daysUntil(nextDueDate(account.due_day, today), today) <= SOON_DAYS;
   const freeText = freeBalanceText(account);
   const overText = overSetAsideText(account);
+  const bankGap = account.archived ? null : bankGapText(account.bank_check);
+  const [matching, setMatching] = useState(false);
 
   return (
     <li
@@ -551,6 +571,11 @@ function AccountRow({
         {overText && (
           <p role="note" className="mt-1 text-xs font-extrabold text-loss [overflow-wrap:anywhere]">
             {overText}
+          </p>
+        )}
+        {bankGap && (
+          <p role="note" className="mt-1 text-xs font-extrabold text-loss [overflow-wrap:anywhere]">
+            {bankGap}
           </p>
         )}
       </div>
@@ -596,6 +621,24 @@ function AccountRow({
           </button>
         ) : (
           <>
+            {bankGap && (
+              <button
+                type="button"
+                className={ROW_ACTION}
+                disabled={matching}
+                aria-label={`Match ${account.name} to the bank's balance`}
+                onClick={async () => {
+                  setMatching(true);
+                  try {
+                    await onMatchBank(account);
+                  } finally {
+                    setMatching(false);
+                  }
+                }}
+              >
+                Match bank
+              </button>
+            )}
             {card && (
               <button type="button" className={ROW_ACTION} aria-label={`Statements for ${account.name}`} onClick={() => onStatements(account)}>
                 Statements

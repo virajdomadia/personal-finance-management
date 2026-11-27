@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  bankGapText,
+  matchBankBody,
   TYPE_LABELS,
   changedPayload,
   errorMessage,
@@ -411,4 +413,20 @@ test("changedPayload for an RD leaves out unchanged deposits_paid and tenure_mon
 test("headlineBalance is the free balance, or the balance for an older response", () => {
   assert.equal(headlineBalance({ balance: "80000.00", free_balance: "30000.00" }), "30000.00");
   assert.equal(headlineBalance({ balance: "80000.00" }), "80000.00");
+});
+
+test("bankGapText: nothing when Gullak matches the bank's SMS", () => {
+  const check = (gap) => ({ balance: "9000.00", on: "2026-11-21", gap });
+  assert.equal(bankGapText(null), null);
+  assert.equal(bankGapText(check("0.00")), null);
+  assert.equal(bankGapText(check("-400.00")), "Your bank's SMS on 21 Nov said ₹9,000. Gullak shows ₹400 more.");
+  assert.equal(bankGapText(check("1250.50")), "Your bank's SMS on 21 Nov said ₹9,000. Gullak shows ₹1,250.50 less.");
+});
+
+test("matchBankBody sets that day's balance to the bank's", () => {
+  assert.deepEqual(matchBankBody({ balance: "9000.00", on: "2026-11-21", gap: "-400.00" }), {
+    balance: "9000.00",
+    balance_date: "2026-11-21",
+    balance_reason: "Matched to bank SMS",
+  });
 });
