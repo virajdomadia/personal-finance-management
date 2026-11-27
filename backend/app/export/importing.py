@@ -283,10 +283,17 @@ def step_problem(
     accounts: dict[int, Account], flows: dict[int, Decimal], movement: Movement
 ) -> str | None:
     """The below-₹0 and largest-balance checks for one more movement, as a save makes them."""
+    return changes_problem(accounts, flows, net_flows([movement]))
+
+
+def changes_problem(
+    accounts: dict[int, Account], flows: dict[int, Decimal], changes: dict[int, Decimal]
+) -> str | None:
+    """The same checks for money moving in or out of accounts, by account id."""
     after = dict(flows)
-    for account_id, change in net_flows([movement]).items():
+    for account_id, change in changes.items():
         after[account_id] = after.get(account_id, Decimal(0)) + change
-    for account_id in net_flows([movement]):
+    for account_id in changes:
         account = accounts.get(account_id)
         if account is None:
             continue

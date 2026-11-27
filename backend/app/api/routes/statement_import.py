@@ -21,7 +21,7 @@ from app.api.routes.imports import _body
 from app.db.session import DbSession
 from app.export.importing import FileProblem
 from app.export.statement_files import PasswordNeeded, read_grid
-from app.export.statements import Kept, read_statement, save_lines, suggest
+from app.export.statements import Kept, added_on, read_statement, save_lines, suggest
 from app.models.account import Account
 
 router = APIRouter(prefix="/import", tags=["import"], dependencies=[Depends(get_current_user)])
@@ -50,6 +50,10 @@ class StatementPreview(BaseModel):
     new: int  # lines that will be added as they are
     duplicates: int
     problems: int
+    added_on: str  # the day the account was added; its opening balance is from then
+    # Lines to add dated on or before `added_on`: saving them moves the opening balance instead,
+    # so today's balance stays the same.
+    before_start: int
 
 
 class KeptLine(BaseModel):
@@ -124,6 +128,7 @@ async def preview_statement(
     except FileProblem as problem:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(problem)) from None
     suggestions = suggest(db, user.id, account, lines)
+    start = added_on(account)
     rows = [
         StatementLine(
             line=line.number,
@@ -147,6 +152,10 @@ async def preview_statement(
         new=sum(not r.duplicate and not r.errors for r in rows),
         duplicates=sum(r.duplicate and not r.errors for r in rows),
         problems=sum(bool(r.errors) for r in rows),
+        added_on=start.isoformat(),
+        before_start=sum(
+            not r.duplicate and not r.errors and date.fromisoformat(r.date) <= start for r in rows
+        ),
     )
 
 

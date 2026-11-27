@@ -19,7 +19,7 @@ transaction typed in by hand, saved together or not at all. Imported rows have s
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -27,11 +27,11 @@ from fastapi.exceptions import RequestValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.api.balances import Movement, load_movements, net_flows
+from app.api.balances import LIABILITY_TYPES, Movement, load_movements, net_flows
 from app.api.categories import current_name, kind_of, resolve
-from app.api.dates import today_india
+from app.api.dates import INDIA, today_india
 from app.api.routes.transactions import lock_accounts, validate_transaction_values
-from app.export.importing import FileProblem, rule_errors, step_problem
+from app.export.importing import FileProblem, changes_problem, rule_errors
 from app.export.statement_files import Grid, cell_text
 from app.models.account import Account
 from app.models.sms import PayeeRule
@@ -540,6 +540,7 @@ def save_lines(db: Session, user_id: int, account_id: int, kept: list[Kept]) -> 
             ]
         )
     flows = net_flows(load_movements(db, user_id))
+    shifts: dict[int, Decimal] = {}  # account id -> money of lines its opening already holds
     result = SaveResult({})
     rows: list[Transaction] = []
     for line in kept:
@@ -569,12 +570,19 @@ def save_lines(db: Session, user_id: int, account_id: int, kept: list[Kept]) -> 
         movement = Movement(
             0, values["type"], values["amount"], values["account_id"], values["to_account_id"]
         )
-        problem = step_problem(accounts, flows, movement)
+        # An account's opening balance is its balance the day it was added, so a line from on or
+        # before that day is already inside it: that account's opening moves instead.
+        changes = net_flows([movement])
+        before = {a: c for a, c in changes.items() if line.date <= added_on(accounts[a])}
+        moving = {a: c for a, c in changes.items() if a not in before}
+        problem = changes_problem(accounts, flows, moving)
         if problem:
             result.errors[line.number] = [f"Amount: {problem}"]
             continue
-        for changed, change in net_flows([movement]).items():
+        for changed, change in moving.items():
             flows[changed] = flows.get(changed, Decimal(0)) + change
+        for changed, change in before.items():
+            shifts[changed] = shifts.get(changed, Decimal(0)) + change
         rows.append(Transaction(user_id=user_id, source=SOURCE, **values))
         if line.remember and line.payee:
             result.rules_saved += _remember(db, user_id, line, values)
@@ -583,10 +591,24 @@ def save_lines(db: Session, user_id: int, account_id: int, kept: list[Kept]) -> 
         db.rollback()
         result.rules_saved = 0
         return result
+    for changed, change in shifts.items():
+        shifted = accounts[changed]
+        if shifted.type in LIABILITY_TYPES:
+            shifted.opening_balance += change
+        else:
+            shifted.opening_balance -= change
     db.add_all(rows)
     db.commit()
     result.imported = len(rows)
     return result
+
+
+def added_on(account: Account) -> date:
+    """The day (in India) the account was added to Gullak: its opening balance is from then."""
+    added = account.created_at
+    if added.tzinfo is None:  # SQLite hands back UTC without a zone
+        added = added.replace(tzinfo=UTC)
+    return added.astimezone(INDIA).date()
 
 
 def _remember(db: Session, user_id: int, line: Kept, values: dict[str, Any]) -> int:
