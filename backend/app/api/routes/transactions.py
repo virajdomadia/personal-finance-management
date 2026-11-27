@@ -137,6 +137,14 @@ class TransactionUpdate(BaseModel):
     refund_of_id: PurchaseRef = None
 
 
+class SplitTag(BaseModel):
+    """Where a transaction sits in a split bill: `id` is the original's, part 1 is the original."""
+
+    id: int
+    part: int
+    parts: int
+
+
 class TransactionResponse(BaseModel):
     id: int
     type: str
@@ -156,6 +164,7 @@ class TransactionResponse(BaseModel):
     from_sms: bool
     # False once a linked account is archived; restore the account to change the transaction.
     editable: bool
+    split: SplitTag | None  # None unless it's part of a split bill
 
 
 class CategorySpend(BaseModel):
@@ -203,8 +212,37 @@ def refunded_totals(db: Session, user_id: int, ids: Iterable[int]) -> dict[int, 
     return totals
 
 
+def split_tags(db: Session, user_id: int, txs: Iterable[Transaction]) -> dict[int, SplitTag]:
+    """Each split transaction's place in its bill, by transaction id."""
+    roots = {tx.split_of_id or tx.id for tx in txs}
+    if not roots:
+        return {}
+    members = db.execute(
+        select(Transaction.id, Transaction.split_of_id)
+        .where(
+            Transaction.user_id == user_id,
+            or_(Transaction.split_of_id.in_(roots), Transaction.id.in_(roots)),
+        )
+        .order_by(Transaction.id)
+    ).all()
+    bills: dict[int, list[int]] = {}
+    for id_, root in members:
+        bills.setdefault(root or id_, []).append(id_)
+    tags: dict[int, SplitTag] = {}
+    for root, ids in bills.items():
+        if len(ids) < 2:
+            continue
+        ordered = [root, *[i for i in ids if i != root]]
+        for n, id_ in enumerate(ordered, 1):
+            tags[id_] = SplitTag(id=root, part=n, parts=len(ordered))
+    return tags
+
+
 def _to_response(
-    tx: Transaction, accounts: dict[int, Account], refunded: Decimal | None = None
+    tx: Transaction,
+    accounts: dict[int, Account],
+    refunded: Decimal | None = None,
+    split: SplitTag | None = None,
 ) -> TransactionResponse:
     account = accounts[tx.account_id]
     target = None if tx.to_account_id is None else accounts[tx.to_account_id]
@@ -225,6 +263,7 @@ def _to_response(
         refunded=None if not refunded else fmt(refunded),
         from_sms=tx.source == "sms",
         editable=account.archived_at is None and (target is None or target.archived_at is None),
+        split=split,
     )
 
 
@@ -742,8 +781,9 @@ def list_transactions(
     accounts = _all_accounts(db, user.id)
     page = matches[offset : offset + limit]
     refunded = refunded_totals(db, user.id, [t.id for t in page if t.type == "expense"])
+    tags = split_tags(db, user.id, page)
     return TransactionList(
-        transactions=[_to_response(t, accounts, refunded.get(t.id)) for t in page],
+        transactions=[_to_response(t, accounts, refunded.get(t.id), tags.get(t.id)) for t in page],
         has_more=offset + limit < len(matches),
         total_income=fmt(sum((t.amount for t in matches if t.type == "income"), Decimal(0))),
         total_expense=fmt(sum((_spent(t) for t in matches), Decimal(0))),
@@ -843,7 +883,8 @@ def list_refundable(
 def get_transaction(id: int, user: CurrentUser, db: DbSession) -> TransactionResponse:
     tx = _get_owned(db, user.id, id)
     refunded = refunded_totals(db, user.id, [tx.id]).get(tx.id)
-    return _to_response(tx, _all_accounts(db, user.id), refunded)
+    split = split_tags(db, user.id, [tx]).get(tx.id)
+    return _to_response(tx, _all_accounts(db, user.id), refunded, split)
 
 
 @router.patch("/{id}")
@@ -906,7 +947,7 @@ def update_transaction(
             raise
         _template_gone(db)
     refunded = refunded_totals(db, user.id, [tx.id]).get(tx.id)
-    return _to_response(tx, accounts, refunded)
+    return _to_response(tx, accounts, refunded, split_tags(db, user.id, [tx]).get(tx.id))
 
 
 @router.delete("/{id}")
