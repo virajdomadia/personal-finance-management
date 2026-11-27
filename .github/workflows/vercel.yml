@@ -38,10 +38,22 @@ jobs:
         with: { node-version: 24 }
       - run: npm install --global vercel@52.2.1
       - run: vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
-      # Migrations are run on Neon by hand (README, "Production database commands"). Refuse to deploy code
-      # whose newest migration isn't on the database yet: it would 500 on any query touching the new schema.
-      # Read-only: `alembic current` only selects from alembic_version.
+      # The deploy migrates Neon itself, before the new API goes live. The old API keeps serving until
+      # the deploy finishes, so a migration must keep it working: add columns and tables, don't rename or
+      # drop them in the same release. Only code on main migrates production; a manual run from another
+      # branch skips this and only checks.
       # DATABASE_URL is a GitHub Actions secret (Neon connection string): Vercel won't return its copy to the CLI.
+      # Migrations need Neon's direct connection: its pooled host is the direct one plus "-pooler".
+      - name: Migrate the production database
+        if: github.event_name == 'workflow_run' || github.ref == 'refs/heads/main'
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then echo "::error::Repo secret DATABASE_URL is not set (gh secret set DATABASE_URL)"; exit 1; fi
+          DATABASE_URL="${DATABASE_URL/-pooler/}" uv run alembic upgrade head
+      # Refuse to deploy code whose newest migration isn't on the database: it would 500 on any query touching
+      # the new schema. Read-only: `alembic current` only selects from alembic_version.
       - name: Check the production database is migrated
         working-directory: backend
         env:
@@ -53,7 +65,7 @@ jobs:
           echo "code head(s): $heads"
           echo "database at:  ${current:-<none>}"
           if [ "$heads" != "$current" ]; then
-            echo "::error::Production database is at '${current:-none}' but the code needs '$heads'. From backend/, run 'uv run alembic upgrade head' against Neon (README, Production database commands), then re-run this workflow."
+            echo "::error::Production database is at '${current:-none}' but the code needs '$heads'. Deploys from main migrate it; from another branch, run 'uv run alembic upgrade head' against Neon by hand (README, Production database commands), then re-run this workflow."
             exit 1
           fi
       - run: vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
