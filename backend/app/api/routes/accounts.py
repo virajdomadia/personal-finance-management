@@ -1,6 +1,6 @@
 import calendar
 import re
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Annotated, Any, Literal, get_args
 
@@ -18,7 +18,7 @@ from app.api.balances import (
     net_flows,
     opening_for,
 )
-from app.api.dates import iso_date, today_india
+from app.api.dates import clamped_date, iso_date, today_india
 from app.api.deposits import (
     DepositFigures,
     deposit_figures,
@@ -26,7 +26,18 @@ from app.api.deposits import (
     rd_months_recorded,
 )
 from app.api.deps import CurrentUser, get_current_user
-from app.api.loans import Book, NextEmi, emis_at_opening, emis_left, load_book, next_emi
+from app.api.loans import (
+    Book,
+    NextEmi,
+    Schedule,
+    ScheduleRow,
+    ScheduleRowOut,
+    emis_at_opening,
+    emis_left,
+    load_book,
+    next_emi,
+    schedule_rows,
+)
 from app.api.portfolio import fmt_coin, fmt_units, holds_units, investments_totals
 from app.db.session import DbSession
 from app.models.account import Account
@@ -938,6 +949,61 @@ def _quantity(kind: str, quantity: Decimal) -> str:
     if kind == "crypto":
         return fmt_coin(quantity)
     return fmt_units(quantity)
+
+
+@router.get("/{id}/schedule")
+def loan_schedule(id: int, user: CurrentUser, db: DbSession) -> Schedule:
+    """A loan's repayment schedule from what's owed today. Rules:
+    docs/architecture/financial-calculations.md, "Repayment schedule"."""
+    from app.sms.expected import emis_paid  # it imports this module
+
+    account = _get_owned(db, user, id)
+    if account.type != "loan":
+        raise RequestValidationError([field_error("id", "Only a loan has a repayment schedule.")])
+    owed = balance_of(account, load_book(db, user.id).flows)
+    rate, emi = account.interest_rate, account.emi_amount
+    rows: list[ScheduleRow] = []
+    problem: str | None = None
+    if owed > 0:
+        if rate is None:
+            problem = "Add the interest rate to see the schedule."
+        elif emi is None:
+            problem = "Add the EMI to see the schedule."
+        else:
+            today = today_india()
+            first = today.replace(day=1)
+            due = (
+                today
+                if account.due_day is None
+                else clamped_date(today.year, today.month, account.due_day)
+            )
+            if emis_paid(db, user.id, account.id, due):  # this month's EMI is in
+                first = (first + timedelta(days=32)).replace(day=1)
+            rows, problem = schedule_rows(owed, rate, emi, first, account.due_day)
+    interest = sum((r.interest for r in rows), Decimal(0))
+    return Schedule(
+        account_id=account.id,
+        owed=fmt(owed),
+        rate=_money_text(rate),
+        emi=_money_text(emi),
+        paid_off=owed <= 0,
+        problem=problem,
+        emis_left=len(rows),
+        ends=rows[-1].month.isoformat()[:7] if rows else None,
+        interest_left=fmt(interest),
+        total_left=fmt(sum((r.amount for r in rows), Decimal(0))),
+        rows=[
+            ScheduleRowOut(
+                month=r.month.isoformat()[:7],
+                due=None if r.due is None else r.due.isoformat(),
+                amount=fmt(r.amount),
+                interest=fmt(r.interest),
+                principal=fmt(r.principal),
+                left=fmt(r.left),
+            )
+            for r in rows
+        ],
+    )
 
 
 @router.get("/{id}/investment-activity")
