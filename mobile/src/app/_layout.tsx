@@ -49,6 +49,7 @@ function Screens() {
             <Stack.Screen name="card-statements" />
             <Stack.Screen name="renew-fd-form" />
             <Stack.Screen name="account-transactions" />
+            <Stack.Screen name="loan-schedule" />
             <Stack.Screen name="stock" />
             <Stack.Screen name="add-investment" />
             <Stack.Screen name="trade-form" />

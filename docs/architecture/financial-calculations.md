@@ -35,6 +35,24 @@ Cash and wallets can't go below zero. Banks (overdraft), brokers and cards can.
 
 **Bank check (reconciliation).** A bank account's latest debit or credit SMS that gave a balance ("Avl bal") is compared with the account's balance in Gullak at the end of that SMS's day: `gap = bank − Gullak` (negative when Gullak shows more). The accounts list returns it as `bank_check` (`balance`, `on`, `gap`); cards, loans and other types have none. With a gap, web and phone show the bank's figure and a **Match bank** action that records a dated adjustment for that day with the reason "Matched to bank SMS", so the gap becomes 0. Known limit: an SMS has a date but no time, so a same-day payment it didn't cover shows as a gap until the next SMS.
 
+## Loans
+
+### Repayment schedule
+
+`GET /accounts/{id}/schedule` works a loan's remaining EMIs out on every request from what's owed today, its interest rate and its EMI. Nothing is stored, so a prepayment or a balance correction shows at once.
+
+```
+interest   = balance × rate ÷ 1200        (rounded half up to the paisa; the same rule as the suggested next EMI)
+amount     = EMI, or balance + interest when that's smaller (the last EMI)
+principal  = amount − interest;  balance after = balance − principal
+```
+
+- It starts this month, or next month when this month's EMI is already recorded (the same test as the next 30 days: in its calendar month or within 15 days) or the loan was added after this month's due date (its balance already reflects that EMI, as the next 30 days also assume). Without a due day, only an EMI in this calendar month counts. Each row's date is the loan's due day, clamped to the month's last day; without a due day only the month is given.
+- Without a rate or an EMI there's no schedule, only a message asking for it; a loan with nothing owed is paid off. If the EMI doesn't cover a month's interest, the loan never gets paid off and there's no schedule. A schedule past 600 EMIs (50 years) is refused.
+- The summary is the number of EMIs left, the month of the last one, the interest still to pay (Σ interest) and the total still to pay (Σ amount).
+
+Example: ₹1,000 owed at 12% with a ₹600 EMI. Month 1: interest ₹10, principal ₹590, ₹410 left. Month 2: interest ₹4.10, last EMI ₹414.10. 2 EMIs left, ₹14.10 interest still to pay.
+
 ## Net worth
 
 ```

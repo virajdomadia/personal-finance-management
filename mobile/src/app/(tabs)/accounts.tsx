@@ -278,14 +278,24 @@ export default function AccountsScreen() {
                     onPress={() => void matchBank(item)}
                   />
                 ) : item.type === "loan" && item.balance !== "0.00" ? (
-                  <ChunkyButton
-                    compact
-                    variant="alt"
-                    icon="cash-check"
-                    label="Record EMI"
-                    accessibilityLabel={`Record an EMI for ${item.name}`}
-                    onPress={() => recordEmi(item)}
-                  />
+                  <>
+                    <ChunkyButton
+                      compact
+                      variant="alt"
+                      icon="cash-check"
+                      label="Record EMI"
+                      accessibilityLabel={`Record an EMI for ${item.name}`}
+                      onPress={() => recordEmi(item)}
+                    />
+                    <ChunkyButton
+                      compact
+                      variant="alt"
+                      icon="calendar-clock"
+                      label="Schedule"
+                      accessibilityLabel={`Repayment schedule for ${item.name}`}
+                      onPress={() => router.push({ pathname: "/loan-schedule", params: { id: String(item.id), name: item.name } })}
+                    />
+                  </>
                 ) : item.type === "credit_card" ? (
                   <ChunkyButton
                     compact

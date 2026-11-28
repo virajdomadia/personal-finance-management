@@ -144,3 +144,71 @@ def next_emi(account: Account, book: Book) -> NextEmi | None:
     return NextEmi(
         amount=f"{amount:.2f}", interest=f"{interest:.2f}", principal=f"{amount - interest:.2f}"
     )
+
+
+# The repayment schedule: worked out from today's balance on every request, never stored.
+
+SCHEDULE_CAP = 600  # 50 years of EMIs
+NEVER_PAID = "This EMI doesn't cover the monthly interest, so the loan never gets paid off."
+TOO_LONG = "This schedule runs past 50 years. Check the EMI and the rate."
+
+
+class ScheduleRow(NamedTuple):
+    month: dt.date  # the 1st of the month
+    due: dt.date | None  # None without a due day
+    amount: Decimal
+    interest: Decimal
+    principal: Decimal
+    left: Decimal
+
+
+def schedule_rows(
+    owed: Decimal,
+    rate: Decimal,
+    emi: Decimal,
+    start: dt.date,
+    due_day: int | None,
+    cap: int = SCHEDULE_CAP,
+) -> tuple[list[ScheduleRow], str | None]:
+    """Month by month from `start` until `owed` is repaid, by the same interest rule as
+    `next_emi`; the last EMI is whatever clears the balance."""
+    from app.api.dates import clamped_date  # keeps this module's imports light
+
+    rows: list[ScheduleRow] = []
+    balance, month = owed, start
+    while balance > 0:
+        if len(rows) == cap:
+            return [], TOO_LONG
+        interest = _round(balance * rate / 1200)
+        if emi <= interest:
+            return [], NEVER_PAID
+        amount = min(emi, balance + interest)
+        principal = amount - interest
+        balance -= principal
+        due = None if due_day is None else clamped_date(month.year, month.month, due_day)
+        rows.append(ScheduleRow(month, due, amount, interest, principal, balance))
+        month = (month + dt.timedelta(days=32)).replace(day=1)
+    return rows, None
+
+
+class ScheduleRowOut(BaseModel):
+    month: str  # "YYYY-MM"
+    due: str | None
+    amount: str
+    interest: str
+    principal: str
+    left: str
+
+
+class Schedule(BaseModel):
+    account_id: int
+    owed: str
+    rate: str | None
+    emi: str | None
+    paid_off: bool
+    problem: str | None
+    emis_left: int
+    ends: str | None  # "YYYY-MM" of the last EMI
+    interest_left: str
+    total_left: str
+    rows: list[ScheduleRowOut]

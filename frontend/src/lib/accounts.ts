@@ -374,3 +374,28 @@ export const matchBankBody = (check: BankCheck) => ({
   balance_date: check.on,
   balance_reason: "Matched to bank SMS",
 });
+
+// A loan's repayment schedule (`GET /accounts/{id}/schedule`), worked out from what's owed today.
+export type ScheduleRow = { month: string; due: string | null; amount: string; interest: string; principal: string; left: string };
+export type LoanSchedule = {
+  account_id: number;
+  owed: string;
+  rate: string | null;
+  emi: string | null;
+  paid_off: boolean;
+  problem: string | null;
+  emis_left: number;
+  ends: string | null; // "YYYY-MM" of the last EMI
+  interest_left: string;
+  total_left: string;
+  rows: ScheduleRow[];
+};
+
+// "Ends Jan 2027 · 2 EMIs left · ₹14.10 interest still to pay"; null when paid off or it can't be worked out.
+export function scheduleSummary(s: LoanSchedule): string | null {
+  if (s.paid_off || s.problem !== null || s.ends === null) return null;
+  const [year, month] = s.ends.split("-");
+  const emis = s.emis_left === 1 ? "1 EMI left" : `${s.emis_left} EMIs left`;
+  const interest = formatRupees(s.interest_left.replace(/\.00$/, ""));
+  return `Ends ${MONTHS[Number(month) - 1]} ${year} · ${emis} · ${interest} interest still to pay`;
+}
