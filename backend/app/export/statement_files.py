@@ -18,6 +18,10 @@ Grid = list[list[Any]]
 
 MAX_PDF_PAGES = 200
 _ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")
+SCANNED = (
+    "This PDF is a scanned image, so Gullak can't read it. Download the statement as Excel or "
+    "CSV, or use the password-protected PDF your bank emails you."
+)
 
 
 class PasswordNeeded(FileProblem):
@@ -162,6 +166,9 @@ def _pdf(data: bytes, password: str | None) -> Grid:
     with pdf:
         if len(pdf.pages) > MAX_PDF_PAGES:
             raise FileProblem(f"The PDF has more than {MAX_PDF_PAGES} pages. Split it up.")
+        if not any(page.chars for page in pdf.pages) and any(p.images for p in pdf.pages):
+            # Saved from a phone or printed: each page is a picture of the statement.
+            raise FileProblem(SCANNED)
         grid: Grid = []
         for page in pdf.pages:
             tables = page.extract_tables()

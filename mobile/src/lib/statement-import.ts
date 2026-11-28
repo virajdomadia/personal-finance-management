@@ -2,6 +2,7 @@
 // type, category and transfer for each line; this keeps the owner's edits and builds what is saved.
 // Mirrors backend/app/api/routes/statement_import.py and frontend/src/lib/statement-import.ts.
 
+import { formatDate } from "./dates.ts";
 import { type Account, type AccountType, formatRupees } from "./accounts.ts";
 import type { CategoryTree } from "./categories.ts";
 
@@ -29,6 +30,8 @@ export type StatementPreview = {
   new: number;
   duplicates: number;
   problems: number;
+  added_on: string; // the day the account was added; its opening balance is from then
+  before_start: number; // lines to add dated on or before added_on
 };
 
 export type SaveResult = {
@@ -312,4 +315,14 @@ export function previewFailure(status: number, body: unknown): PreviewFailure {
 export function passwordProblem(password: string): string | null {
   if (password === "") return "Type the file's password.";
   return /^[\x20-\x7e]+$/.test(password) ? null : "The password can only use plain letters, numbers and symbols.";
+}
+
+// Lines from on or before the day the account was added are already in its opening balance:
+// saving them moves the opening, so today's balance stays the same.
+// Both fields are missing from an API older than them, as during a deploy.
+export function beforeStartNote(p: Partial<Pick<StatementPreview, "added_on" | "before_start">>): string | null {
+  const n = p.before_start ?? 0;
+  if (n <= 0 || !p.added_on) return null;
+  const lines = n === 1 ? "1 line is" : `${n} lines are`;
+  return `${lines} from before you added this account on ${formatDate(p.added_on)}. Saving ${n === 1 ? "it" : "them"} keeps today's balance the same: the opening balance moves instead.`;
 }

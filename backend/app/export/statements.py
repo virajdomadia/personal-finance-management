@@ -27,11 +27,18 @@ from fastapi.exceptions import RequestValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.api.balances import Movement, load_movements, net_flows
+from app.api.balances import (
+    HISTORY,
+    Movement,
+    load_movements,
+    move_openings,
+    net_flows,
+    opening_held,
+)
 from app.api.categories import current_name, kind_of, resolve
 from app.api.dates import today_india
 from app.api.routes.transactions import lock_accounts, validate_transaction_values
-from app.export.importing import FileProblem, rule_errors, step_problem
+from app.export.importing import FileProblem, changes_problem, rule_errors
 from app.export.statement_files import Grid, cell_text
 from app.models.account import Account
 from app.models.sms import PayeeRule
@@ -44,6 +51,7 @@ MAX_LINES = 3000
 HEADER_SCAN = 60  # rows looked at for the header: statements open with the account's details
 NOTE_LIMIT = 200
 DUPLICATE_WINDOW = timedelta(days=1)
+NEAR_AMOUNT = Decimal(1)  # a typed amount rounded off still matches the bank's
 
 # Column names as banks write them, after `_norm`. The first name found for a role wins, so
 # the transaction date comes before the value date.
@@ -399,6 +407,10 @@ def suggest(db: Session, user_id: int, account: Account, lines: list[Line]) -> l
         r.payee_key: r for r in db.scalars(select(PayeeRule).where(PayeeRule.user_id == user_id))
     }
     unmatched = _saved(db, user_id, account.id, lines)
+    # Exact repeats first across the whole file, so a line a few paise off can't claim the
+    # saved movement another line repeats exactly.
+    exact = [_take(unmatched, line, exact=True) for line in lines]
+    repeats = [e or _take(unmatched, line) for e, line in zip(exact, lines, strict=True)]
 
     found = []
     for line in lines:
@@ -429,7 +441,7 @@ def suggest(db: Session, user_id: int, account: Account, lines: list[Line]) -> l
                 if category is not None:
                     # "Refund" is no longer a default; a user without it gets no suggestion.
                     category = current_name(db, user_id, "income", category)
-        duplicate = _take(unmatched, line)
+        duplicate = repeats[len(found)]
         found.append(
             Suggestion(display_name(payee) if payee else None, kind, category, other, duplicate)
         )
@@ -462,16 +474,21 @@ def _saved(
     return found
 
 
-def _take(saved: list[tuple[date, Decimal, str]], line: Line) -> bool:
-    for i, (day, amount, direction) in enumerate(saved):
-        if (
-            direction == line.direction
-            and amount == line.amount
-            and abs((day - line.date).days) <= DUPLICATE_WINDOW.days
-        ):
-            del saved[i]
-            return True
-    return False
+def _take(saved: list[tuple[date, Decimal, str]], line: Line, exact: bool = False) -> bool:
+    """Removes and reports the saved movement this line repeats: the same amount, or else one
+    within ₹1 (₹227 typed for a ₹227.05 payment), in the same direction within a day."""
+    near = [
+        i
+        for i, (day, amount, direction) in enumerate(saved)
+        if direction == line.direction
+        and abs(amount - line.amount) < (Decimal("0.005") if exact else NEAR_AMOUNT)
+        and abs((day - line.date).days) <= DUPLICATE_WINDOW.days
+    ]
+    if not near:
+        return False
+    exact = [i for i in near if saved[i][1] == line.amount]
+    del saved[(exact or near)[0]]
+    return True
 
 
 # Saving
@@ -534,6 +551,7 @@ def save_lines(db: Session, user_id: int, account_id: int, kept: list[Kept]) -> 
             ]
         )
     flows = net_flows(load_movements(db, user_id))
+    shifts: dict[int, Decimal] = {}  # account id -> money of lines its opening already holds
     result = SaveResult({})
     rows: list[Transaction] = []
     for line in kept:
@@ -563,13 +581,19 @@ def save_lines(db: Session, user_id: int, account_id: int, kept: list[Kept]) -> 
         movement = Movement(
             0, values["type"], values["amount"], values["account_id"], values["to_account_id"]
         )
-        problem = step_problem(accounts, flows, movement)
+        # A line from on or before an account's added day is already in its opening balance.
+        before = opening_held(line.date, movement, accounts)
+        moving = {a: c for a, c in net_flows([movement]).items() if a not in before}
+        problem = changes_problem(accounts, flows, moving)
         if problem:
             result.errors[line.number] = [f"Amount: {problem}"]
             continue
-        for changed, change in net_flows([movement]).items():
+        for changed, change in moving.items():
             flows[changed] = flows.get(changed, Decimal(0)) + change
-        rows.append(Transaction(user_id=user_id, source=SOURCE, **values))
+        for changed, change in before.items():
+            shifts[changed] = shifts.get(changed, Decimal(0)) + change
+        source = HISTORY if before else SOURCE
+        rows.append(Transaction(user_id=user_id, source=source, **values))
         if line.remember and line.payee:
             result.rules_saved += _remember(db, user_id, line, values)
 
@@ -577,6 +601,7 @@ def save_lines(db: Session, user_id: int, account_id: int, kept: list[Kept]) -> 
         db.rollback()
         result.rules_saved = 0
         return result
+    move_openings(accounts, shifts, 1)
     db.add_all(rows)
     db.commit()
     result.imported = len(rows)

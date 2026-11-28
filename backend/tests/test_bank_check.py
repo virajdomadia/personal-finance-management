@@ -98,3 +98,44 @@ def test_matching_the_bank_clears_the_gap(headers: Headers, db_session: Session)
     )
     assert response.status_code == 200, response.json()
     assert check(headers, hdfc) == {"balance": "9000.00", "on": days_ago(5), "gap": "0.00"}
+
+
+def test_payments_after_the_balance_sms_that_day_count(
+    headers: Headers, db_session: Session
+) -> None:
+    # 23 Nov: a ₹1 refund SMS said ₹3,585.44, then three UPI payments without a balance.
+    hdfc = account(headers, balance="3584.44")
+    day = today_india() - timedelta(days=2)
+    sms(db_session, hdfc, "3585.44", day, kind="credit", amount=Decimal("1"))
+    for paid in ("299", "170", "387"):
+        sms(db_session, hdfc, None, day, amount=Decimal(paid))
+    for paid in ("299.00", "170.00", "387.00"):
+        spend(headers, hdfc, paid, days_ago(2))
+    client.post(
+        "/api/transactions",
+        json={"type": "income", "account_id": hdfc, "amount": "1.00", "date": days_ago(2),
+              "category": "Salary"},
+        headers=headers,
+    )  # fmt: skip
+    # The bank's end of that day was 3,585.44 − 856 = 2,729.44, which Gullak also shows.
+    assert check(headers, hdfc) == {"balance": "2729.44", "on": days_ago(2), "gap": "0.00"}
+
+
+def test_a_later_credit_that_day_adds_to_the_banks_balance(
+    headers: Headers, db_session: Session
+) -> None:
+    hdfc = account(headers, balance="10000.00")
+    day = today_india() - timedelta(days=1)
+    sms(db_session, hdfc, "9000.00", day, amount=Decimal("1000"))
+    sms(db_session, hdfc, None, day, kind="credit", amount=Decimal("500"))
+    assert check(headers, hdfc)["balance"] == "9500.00"
+
+
+def test_a_repeat_sms_of_the_same_payment_counts_once(
+    headers: Headers, db_session: Session
+) -> None:
+    hdfc = account(headers, balance="3000.00")
+    day = today_india() - timedelta(days=1)
+    sms(db_session, hdfc, "3000.00", day, amount=Decimal("500"), ref="R1")
+    sms(db_session, hdfc, None, day, amount=Decimal("500"), ref="R1", status="duplicate")
+    assert check(headers, hdfc)["balance"] == "3000.00"

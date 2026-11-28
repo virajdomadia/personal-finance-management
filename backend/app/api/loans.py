@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.balances import balance_of, load_flows
+from app.api.balances import HISTORY, added_on, balance_of, load_flows
 from app.models.account import Account
 from app.models.transaction import Transaction
 
@@ -68,7 +68,8 @@ def linked_owed(accounts: Iterable[Account], flows: dict[int, Decimal]) -> dict[
 def load_deposit_moves(
     db: Session, user_id: int, accounts: Iterable[Account]
 ) -> dict[int, list[DepositMove]]:
-    ids = [a.id for a in accounts if a.type in ("ppf", "rd", "fd")]
+    deposits = {a.id: a for a in accounts if a.type in ("ppf", "rd", "fd")}
+    ids = list(deposits)
     moves: dict[int, list[DepositMove]] = {i: [] for i in ids}
     if not ids:
         return moves
@@ -79,6 +80,7 @@ def load_deposit_moves(
             Transaction.to_account_id,
             Transaction.date,
             Transaction.amount,
+            Transaction.source,
         )
         .where(
             Transaction.user_id == user_id,
@@ -87,14 +89,19 @@ def load_deposit_moves(
         )
         .order_by(Transaction.date, Transaction.id)
     )
-    for type_, account_id, to_account_id, day, amount in rows:
+    for type_, account_id, to_account_id, day, amount, source in rows:
+
+        def held(deposit_id: int, day: dt.date = day, source: str = source) -> bool:
+            """A statement line the deposit's opening already holds (see balances.HISTORY)."""
+            return source == HISTORY and day <= added_on(deposits[deposit_id])
+
         if type_ == "income":
             if account_id in moves:
                 moves[account_id].append(DepositMove(day, "interest", amount))
             continue
-        if to_account_id in moves:
+        if to_account_id in moves and not held(to_account_id):
             moves[to_account_id].append(DepositMove(day, "in", amount))
-        if account_id in moves:
+        if account_id in moves and not held(account_id):
             moves[account_id].append(DepositMove(day, "out", amount))
     return moves
 

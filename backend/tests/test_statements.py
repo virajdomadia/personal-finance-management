@@ -1,7 +1,7 @@
 """Bank and card statements from any bank: reading the files, suggestions, and saving."""
 
 import io
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from fpdf import FPDF
 from httpx import Response
 from openpyxl import Workbook
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dates import today_india
@@ -228,6 +229,45 @@ def test_a_locked_pdf_needs_its_password() -> None:
     assert len(read_statement(read_grid(data, "01011990"))) == 2
 
 
+def scanned_pdf() -> bytes:
+    """A statement saved as a picture: one image per page, no text."""
+    from PIL import Image
+
+    picture = io.BytesIO()
+    Image.new("RGB", (40, 40), "white").save(picture, format="PNG")
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.image(io.BytesIO(picture.getvalue()), x=10, y=10, w=100)
+    return bytes(pdf.output())
+
+
+def test_a_scanned_pdf_says_so() -> None:
+    with pytest.raises(FileProblem, match="scanned image"):
+        read_grid(scanned_pdf())
+
+
+def test_a_text_pdf_with_a_logo_is_still_read() -> None:
+    from PIL import Image
+
+    picture = io.BytesIO()
+    Image.new("RGB", (20, 20), "red").save(picture, format="PNG")
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.image(io.BytesIO(picture.getvalue()), x=10, y=10, w=20)
+    pdf.set_font("Helvetica", size=9)
+    pdf.set_y(40)
+    with pdf.table() as table:
+        for row in [["Date", "Narration", "Withdrawal", "Deposit"],
+                    [DAY.strftime("%d/%m/%Y"), "UPI/NETFLIX", "649.00", ""]]:  # fmt: skip
+            cells = table.row()
+            for value in row:
+                cells.cell(value)
+
+    (line,) = read_statement(read_grid(bytes(pdf.output())))
+
+    assert line.amount == D("649.00")
+
+
 def test_a_file_without_statement_columns_says_so() -> None:
     with pytest.raises(FileProblem, match="Couldn't find the statement's columns"):
         read_statement(read_grid(xlsx([["Name", "Age"], ["A", 1]])))
@@ -262,6 +302,19 @@ def save(headers: Headers, account_id: int, lines: list[dict]) -> Response:
     return client.post(
         "/api/import/statement", json={"account_id": account_id, "lines": lines}, headers=headers
     )
+
+
+def added_days_ago(db: Session, account_id: int, days: int) -> None:
+    """Pretends the account was added `days` ago, so statement lines after that move it."""
+    from app.models.account import Account
+
+    db.get(Account, account_id).created_at = datetime.now(UTC) - timedelta(days=days)
+    db.commit()
+
+
+def balances(headers: Headers) -> dict[int, str]:
+    listed = client.get("/api/accounts", headers=headers).json()["accounts"]
+    return {a["id"]: a["balance"] for a in listed}
 
 
 def kept(line: dict, **changes: Any) -> dict:
@@ -305,9 +358,13 @@ def test_saving_adds_the_lines_and_remembers_payees(headers: Headers) -> None:
     assert again["lines"][0]["category"] == "Groceries"
 
 
-def test_a_card_payment_is_a_transfer_from_the_named_bank(headers: Headers) -> None:
+def test_a_card_payment_is_a_transfer_from_the_named_bank(
+    headers: Headers, db_session: Session
+) -> None:
     sbi = account(headers, "SBI", last4="4321")
     card = account(headers, "Regalia", "credit_card", last4="9876", credit_limit="100000.00")
+    added_days_ago(db_session, sbi, 10)
+    added_days_ago(db_session, card, 10)
     d1 = DAY.strftime("%d/%m/%Y")
     data = xlsx(
         [
@@ -415,6 +472,107 @@ def test_an_atm_withdrawal_is_a_transfer_to_cash(headers: Headers) -> None:
     assert (line["type"], line["other_account_id"], line["payee"]) == ("transfer", cash, "Mumbai")
 
 
+def test_a_line_a_few_paise_off_a_saved_one_is_a_duplicate(headers: Headers) -> None:
+    sbi = account(headers, "SBI")
+    body = {"type": "expense", "account_id": sbi, "amount": "227.00", "date": DAY.isoformat()}
+    assert (
+        client.post(
+            "/api/transactions", json={**body, "category": "Food"}, headers=headers
+        ).status_code
+        == 201
+    )
+    data = xlsx([["Txn Date", "Narration", "Withdrawal", "Deposit"],
+                 [DAY.strftime("%d/%m/%Y"), "UPI/DR/Zomato/HDFC", "227.05", None]])  # fmt: skip
+
+    (line,) = preview(headers, sbi, data).json()["lines"]
+
+    assert line["duplicate"] is True
+
+
+def test_an_exact_amount_is_matched_before_a_near_one() -> None:
+    from app.export.statements import Line, _take
+
+    saved = [(DAY, D("227.50"), "out"), (DAY, D("227.05"), "out")]
+
+    assert _take(saved, Line(1, DAY, "Zomato", D("227.05"), "out"))
+    assert saved == [(DAY, D("227.50"), "out")]
+
+
+def test_a_rupee_apart_is_not_a_duplicate() -> None:
+    from app.export.statements import Line, _take
+
+    assert not _take([(DAY, D("226.00"), "out")], Line(1, DAY, "Zomato", D("227.00"), "out"))
+
+
+# Lines from before the account was added: its opening balance already holds them.
+
+
+def test_lines_before_the_account_was_added_keep_todays_balance(headers: Headers) -> None:
+    sbi = account(headers, "SBI")
+    lines = preview(headers, sbi, hdfc_style()).json()["lines"]
+
+    assert save(headers, sbi, [kept(line) for line in lines]).json()["imported"] == 3
+
+    assert balances(headers)[sbi] == "10000.00"
+    assert len(client.get("/api/transactions", headers=headers).json()["transactions"]) == 3
+
+
+def test_lines_after_the_account_was_added_move_the_balance(
+    headers: Headers, db_session: Session
+) -> None:
+    sbi = account(headers, "SBI")
+    added_days_ago(db_session, sbi, 10)
+    lines = preview(headers, sbi, hdfc_style()).json()["lines"]
+    change = sum(
+        (D(x["amount"]) if x["direction"] == "in" else -D(x["amount"]) for x in lines), D(0)
+    )
+
+    save(headers, sbi, [kept(line) for line in lines])
+
+    assert D(balances(headers)[sbi]) == D("10000.00") + change
+
+
+def test_a_card_line_before_it_was_added_keeps_what_is_owed(headers: Headers) -> None:
+    card = account(headers, "Regalia", "credit_card", last4="9876", credit_limit="100000.00")
+    data = xlsx([["Date", "Description", "Amount", "Dr/Cr"],
+                 [DAY.strftime("%d/%m/%Y"), "SWIGGY BANGALORE", "500.00", "Dr"]])  # fmt: skip
+    (line,) = preview(headers, card, data).json()["lines"]
+
+    assert save(headers, card, [kept(line)]).json()["imported"] == 1
+
+    assert balances(headers)[card] == "0.00"
+
+
+def test_a_transfer_shifts_each_side_by_its_own_added_day(
+    headers: Headers, db_session: Session
+) -> None:
+    sbi = account(headers, "SBI", last4="4321")
+    card = account(headers, "Regalia", "credit_card", last4="9876", credit_limit="100000.00")
+    added_days_ago(db_session, sbi, 10)  # the bank was added before the payment, the card after
+    paid = [DAY.strftime("%d/%m/%Y"), "PAYMENT RECEIVED - THANK YOU XX4321", "500.00", "Cr"]
+    data = xlsx([["Date", "Description", "Amount", "Dr/Cr"], paid])
+    (line,) = preview(headers, card, data).json()["lines"]
+    assert line["other_account_id"] == sbi
+
+    assert save(headers, card, [kept(line)]).json()["imported"] == 1
+
+    assert balances(headers)[sbi] == "9500.00"
+    assert balances(headers)[card] == "0.00"
+
+
+def test_preview_counts_lines_before_the_account(headers: Headers, db_session: Session) -> None:
+    sbi = account(headers, "SBI")
+    added_days_ago(db_session, sbi, 5)  # added on DAY: lines that day are before it too
+    data = xlsx([["Txn Date", "Narration", "Withdrawal", "Deposit"],
+                 [DAY.strftime("%d/%m/%Y"), "UPI/DR/Swiggy", "100.00", None],
+                 [NEXT.strftime("%d/%m/%Y"), "UPI/DR/Zomato", "200.00", None]])  # fmt: skip
+
+    body = preview(headers, sbi, data).json()
+
+    assert body["added_on"] == DAY.isoformat()
+    assert body["before_start"] == 1
+
+
 def refund_statement() -> bytes:
     d1 = DAY.strftime("%d/%m/%y")
     return xlsx(
@@ -439,3 +597,74 @@ def test_a_refund_already_recorded_is_a_duplicate_and_not_called_income(
     assert (found["new"], found["duplicates"]) == (0, 1)
     # "Refund" is not an income category new users have, so it isn't suggested.
     assert found["lines"][0]["category"] is None
+
+
+# Lines imported from before the account was added stay tied to its opening balance.
+
+
+def history_import(headers: Headers) -> tuple[int, list[dict]]:
+    sbi = account(headers, "SBI")
+    lines = preview(headers, sbi, hdfc_style()).json()["lines"]
+    assert save(headers, sbi, [kept(line) for line in lines]).json()["imported"] == 3
+    return sbi, client.get("/api/transactions", headers=headers).json()["transactions"]
+
+
+def test_deleting_a_line_from_before_the_account_keeps_todays_balance(headers: Headers) -> None:
+    sbi, saved = history_import(headers)
+
+    for tx in saved:
+        response = client.delete(f"/api/transactions/{tx['id']}", headers=headers)
+        assert response.status_code == 200, response.json()
+
+    assert balances(headers)[sbi] == "10000.00"
+
+
+def test_a_line_from_before_the_account_keeps_its_amount_and_date(headers: Headers) -> None:
+    _, saved = history_import(headers)
+    salary = next(t for t in saved if t["type"] == "income")
+
+    changed = client.patch(
+        f"/api/transactions/{salary['id']}", json={"amount": "1.00"}, headers=headers
+    )
+    recategorised = client.patch(
+        f"/api/transactions/{salary['id']}", json={"category": "Interest"}, headers=headers
+    )
+
+    assert changed.status_code == 422
+    assert "before" in str(changed.json())
+    assert recategorised.status_code == 200, recategorised.json()
+
+
+def test_an_exact_duplicate_is_matched_before_a_near_line_claims_it(headers: Headers) -> None:
+    sbi = account(headers, "SBI")
+    body = {"type": "expense", "account_id": sbi, "amount": "100.00", "date": DAY.isoformat()}
+    assert client.post(
+        "/api/transactions", json={**body, "category": "Food"}, headers=headers
+    ).status_code == 201
+    d1 = DAY.strftime("%d/%m/%Y")
+    chai, lunch = [d1, "UPI/DR/Chai", "100.60", None], [d1, "UPI/DR/Lunch", "100.00", None]
+    data = xlsx([["Txn Date", "Narration", "Withdrawal", "Deposit"], chai, lunch])
+
+    near, exact = preview(headers, sbi, data).json()["lines"]
+
+    assert (near["duplicate"], exact["duplicate"]) == (False, True)
+
+
+def test_a_history_transfer_into_a_deposit_is_not_an_instalment(
+    headers: Headers, db_session: Session
+) -> None:
+    from app.api.loans import load_deposit_moves
+    from app.models.account import Account
+    from app.models.transaction import Transaction
+    from app.models.user import User
+
+    user_id = db_session.scalar(select(User.id))
+    sbi = account(headers, "SBI")
+    rd = Account(user_id=user_id, type="rd", name="RD", opening_balance=D("5000"))
+    db_session.add(rd)
+    db_session.flush()
+    db_session.add(Transaction(user_id=user_id, type="transfer", amount=D("1000"), date=DAY,
+                               account_id=sbi, to_account_id=rd.id, source="history"))  # fmt: skip
+    db_session.commit()
+
+    assert load_deposit_moves(db_session, user_id, [rd])[rd.id] == []

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  beforeStartNote,
   canSave,
   categoryOptions,
   changeType,
@@ -281,4 +282,18 @@ test("a password must fit in a header", () => {
   assert.equal(passwordProblem("ABCD1234@x"), null);
   assert.match(passwordProblem(""), /Type the file's password/);
   assert.match(passwordProblem("pässword"), /plain letters/);
+});
+
+test("lines from before the account was added get a note", () => {
+  assert.equal(beforeStartNote({ added_on: "2026-11-07", before_start: 0 }), null);
+  // An API from before this field existed sends neither.
+  assert.equal(beforeStartNote({}), null);
+  assert.equal(
+    beforeStartNote({ added_on: "2026-11-07", before_start: 44 }),
+    "44 lines are from before you added this account on 7 Nov 2026. Saving them keeps today's balance the same: the opening balance moves instead.",
+  );
+  assert.equal(
+    beforeStartNote({ added_on: "2026-11-07", before_start: 1 }),
+    "1 line is from before you added this account on 7 Nov 2026. Saving it keeps today's balance the same: the opening balance moves instead.",
+  );
 });
